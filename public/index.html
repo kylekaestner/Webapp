@@ -2,14 +2,54 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Dispatch | Crowded Skies</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.Geodesic/2.5.5/leaflet.geodesic.umd.min.js"></script>
     <style>
-        .view-section { display: none; height: calc(100vh - 80px); }
+        .view-section { display: none; height: 100%; }
         .view-active { display: block; }
+
+        /* Desktop: calendar grid fits the screen, no scrolling */
+        @media (min-width: 768px) {
+            #view-grid { display: flex !important; flex-direction: column !important; overflow: hidden !important; padding: 10px 14px !important; }
+            #view-grid > div { flex: 1 !important; min-height: 0 !important; max-width: 100% !important; grid-template-rows: auto; grid-auto-rows: 1fr; gap: 6px !important; }
+            #calendar-grid-content > div { min-height: 0 !important; overflow: hidden; padding: 8px !important; border-radius: 12px !important; }
+            #calendar-grid-content .day-number { font-size: 18px !important; }
+            #calendar-grid-content .flex.justify-between { margin-bottom: 6px !important; }
+            #calendar-grid-content .flight-item { padding: 3px 5px !important; font-size: 9px !important; border-radius: 5px !important; }
+        }
+
+        /* Mobile: compact grid + readable list */
+        @media (max-width: 767px) {
+            body { height: 100dvh; }
+            /* Calendar grid: small colored tiles, tap for details */
+            #view-grid { padding: 4px 2px !important; }
+            #view-grid > div { gap: 2px !important; }
+            #view-grid .col-span-7 { margin-bottom: 2px; font-size: 9px !important; }
+            #calendar-grid-content > div {
+                min-height: 42px !important;
+                padding: 3px 2px !important;
+                border-radius: 6px !important;
+                justify-content: center !important;
+                cursor: pointer;
+            }
+            #calendar-grid-content .day-number { font-size: 12px !important; line-height: 1; }
+            #calendar-grid-content .flex.justify-between { justify-content: center !important; margin-bottom: 0 !important; }
+            #calendar-grid-content span[class*="rounded-full"] { display: none !important; }
+            #calendar-grid-content .space-y-1 { display: none !important; }
+            /* List view: compact + wrap flight rows */
+            #view-list { padding: 10px !important; }
+            #calendar-list-content > div { padding: 10px !important; gap: 10px !important; }
+            #calendar-list-content .w-16 { width: 48px !important; }
+            .flight-row { padding-left: 8px !important; padding-right: 8px !important; }
+            .flight-row .flex { flex-wrap: wrap !important; gap: 4px !important; }
+            .flight-row .text-right { text-align: left !important; width: 100%; }
+        }
         .nav-active { border-color: #3b82f6 !important; color: white !important; background: rgba(59, 130, 246, 0.1); }
         #map { height: 100%; width: 100%; background: #0a0a0a; }
         .map-controls { position: absolute; top: 20px; right: 20px; z-index: 1000; }
@@ -18,11 +58,18 @@
         #calendar-list-content .list-past { filter: grayscale(30%) brightness(0.75); }
         .day-today { border-color: #38bdf8 !important; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.3); }
         .day-today .day-number { color: #7dd3fc; }
+        .dark-popup .leaflet-popup-content-wrapper { background: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.8); }
+        .dark-popup .leaflet-popup-tip { background: #0f172a; }
+        .dark-popup .leaflet-popup-content { margin: 12px 14px; }
+        @keyframes plane-pulse { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.7); } 70% { box-shadow: 0 0 0 14px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
+        .plane-dot { width: 14px; height: 14px; border-radius: 50%; background: #22c55e; border: 2px solid #fff; animation: plane-pulse 1.6s ease-out infinite; }
+        @keyframes here-pulse { 0% { box-shadow: 0 0 0 0 rgba(168,85,247,0.7); } 70% { box-shadow: 0 0 0 16px rgba(168,85,247,0); } 100% { box-shadow: 0 0 0 0 rgba(168,85,247,0); } }
+        .here-dot { width: 16px; height: 16px; border-radius: 50%; background: #a855f7; border: 2px solid #fff; animation: here-pulse 2s ease-out infinite; }
     </style>
 </head>
 <body class="bg-[#050505] text-zinc-100 flex h-screen overflow-hidden font-sans">
 
-    <div id="sidebar" class="w-64 border-r border-zinc-800 bg-zinc-900/20 flex flex-col shrink-0">
+    <div id="sidebar" class="hidden md:flex w-64 border-r border-zinc-800 bg-zinc-900/20 flex-col shrink-0">
         <div class="p-6 border-b border-zinc-800 text-center">
             <h1 class="text-blue-500 font-black italic text-xl tracking-tighter uppercase">Crowded Skies</h1>
         </div>
@@ -69,8 +116,9 @@
         </div>
     </div>
 
-    <div class="flex-1 flex flex-col overflow-hidden">
-        <header class="h-20 border-b border-zinc-800 flex items-center justify-between px-8 bg-black/40 backdrop-blur-md shrink-0">
+    <div class="flex-1 flex flex-col overflow-hidden min-w-0">
+        <!-- Desktop header -->
+        <header class="hidden md:flex h-20 border-b border-zinc-800 items-center justify-between px-8 bg-black/40 backdrop-blur-md shrink-0">
             <div class="flex items-center gap-6">
                 <div class="flex flex-col">
                     <h2 id="pilot-header" class="font-black uppercase tracking-widest text-xs text-zinc-400 italic">Dispatch</h2>
@@ -82,6 +130,26 @@
                 </div>
             </div>
         </header>
+
+        <!-- Mobile header -->
+        <header class="md:hidden h-14 border-b border-zinc-800 flex items-center justify-between px-4 bg-black/60 backdrop-blur-md shrink-0">
+            <div class="flex flex-col leading-tight">
+                <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic">Dispatch</span>
+                <span id="current-month-display-mobile" class="text-base font-black italic tracking-tighter text-white uppercase">May 2026</span>
+            </div>
+            <div class="flex items-center gap-1">
+                <button onclick="changeMonth(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">‹</button>
+                <button onclick="changeMonth(1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">›</button>
+            </div>
+        </header>
+
+        <!-- Mobile pilot selector bar -->
+        <div class="md:hidden flex gap-2 px-3 py-2 bg-zinc-950 border-b border-zinc-800 shrink-0 overflow-x-auto">
+            <button onclick="loadPilot('kyle')" id="mpilot-kyle" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Kyle</button>
+            <button onclick="loadPilot('adam')" id="mpilot-adam" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Adam</button>
+            <button onclick="loadPilot('sam')" id="mpilot-sam" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Sam</button>
+            <button onclick="loadPilot('logan')" id="mpilot-logan" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Logan</button>
+        </div>
 
         <main class="flex-1 overflow-hidden relative bg-black">
             <div id="view-grid" class="view-section view-active overflow-y-auto p-6">
@@ -105,6 +173,52 @@
                 </div>
             </div>
         </main>
+
+        <!-- Mobile bottom nav -->
+        <nav class="md:hidden h-[60px] border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md flex items-stretch shrink-0">
+            <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
+                <span class="text-lg leading-none">📅</span><span class="text-[9px] font-black uppercase tracking-wide">Grid</span>
+            </button>
+            <button onclick="switchView('list')" id="mbtn-list" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
+                <span class="text-lg leading-none">📋</span><span class="text-[9px] font-black uppercase tracking-wide">List</span>
+            </button>
+            <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
+                <span class="text-lg leading-none">🗺️</span><span class="text-[9px] font-black uppercase tracking-wide">Map</span>
+            </button>
+            <button onclick="document.getElementById('mobile-upload-pilot-select').value=currentPilot||'kyle';document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
+                <span class="text-lg leading-none">⬆️</span><span class="text-[9px] font-black uppercase tracking-wide">Upload</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Mobile day detail sheet -->
+    <div id="day-detail-sheet" class="hidden fixed inset-0 z-50 flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+        <div class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl max-h-[78vh] flex flex-col" onclick="event.stopPropagation()">
+            <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mt-3 mb-1 shrink-0"></div>
+            <div id="day-detail-content" class="overflow-y-auto px-5 pb-6 pt-2"></div>
+        </div>
+    </div>
+
+    <!-- Mobile upload sheet -->
+    <div id="mobile-upload-sheet" class="hidden fixed inset-0 z-50 flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl p-6 space-y-4">
+            <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto mb-2"></div>
+            <h3 class="text-sm font-black uppercase tracking-widest text-zinc-400 text-center">Upload Schedule</h3>
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-zinc-500 uppercase block">Upload For</label>
+                <select id="mobile-upload-pilot-select" class="w-full p-3 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100">
+                    <option value="kyle">Kyle Kaestner</option>
+                    <option value="adam">Adam Burke</option>
+                    <option value="sam">Sam Byrne</option>
+                    <option value="logan">Logan Hine</option>
+                </select>
+            </div>
+            <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
+            <button onclick="document.getElementById('mobile-file-input').click()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
+            <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
+        </div>
     </div>
 
     <script>
@@ -416,7 +530,7 @@
         let viewDate = new Date(2026, 4, 1);
         let currentPilot = 'kyle';
         let currentView = 'grid';
-        let map, mapLayers = { past: [], future: [], airports: [], labels: [] };
+        let map, mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
         let showPast = true, showFuture = true;
         let isLoading = false;
 
@@ -436,8 +550,11 @@
             'SRQ': [27.3954, -82.5540], 'KSRQ': [27.3954, -82.5540],
             'MBL': [44.2725, -86.2557], 'KMBL': [44.2725, -86.2557],
             'RSW': [26.5362, -81.7552], 'KRSW': [26.5362, -81.7552],
-            'APC': [38.2132, -122.2807], 'KAPC': [38.2132, -122.2807]
+            'APC': [38.2132, -122.2807], 'KAPC': [38.2132, -122.2807],
+            'PHX': [33.4373, -112.0078], 'KPHX': [33.4373, -112.0078]
         };
+
+        const PILOT_HOMES = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX' };
 
         // Authoritative airport DB (populated from OpenFlights or OurAirports)
         const AIRPORT_DB = { byIata: {}, byIcao: {} };
@@ -632,7 +749,23 @@
                 const pilotBase = data.base || null;
                 console.log(`Loading pilot ${pilot}, base: ${pilotBase}, segments: ${segmentData.length}`);
                 segments = inferAwayLayovers(segmentData || [], pilotBase);
-                document.getElementById('pilot-header').textContent = data.name || pilot;
+                const displayName = data.name || pilot;
+                document.getElementById('pilot-header').textContent = displayName;
+                // Sync mobile header
+                const mobileHeader = document.getElementById('pilot-header-mobile');
+                if (mobileHeader) mobileHeader.textContent = displayName.split(' ')[0].toUpperCase();
+                // Sync mobile pilot pill active states
+                document.querySelectorAll('.mpilot-btn').forEach(b => {
+                    b.style.borderColor = '';
+                    b.style.color = '';
+                    b.style.background = '';
+                });
+                const mpill = document.getElementById(`mpilot-${pilot}`);
+                if (mpill) {
+                    mpill.style.borderColor = '#3b82f6';
+                    mpill.style.color = '#93c5fd';
+                    mpill.style.background = 'rgba(59,130,246,0.12)';
+                }
                 render();
             });
         }
@@ -641,9 +774,14 @@
             currentView = view;
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('view-active'));
             document.getElementById(`view-${view}`).classList.add('view-active');
+            // Desktop nav
             document.getElementById('btn-grid').classList.toggle('nav-active', view === 'grid');
             document.getElementById('btn-list').classList.toggle('nav-active', view === 'list');
             document.getElementById('btn-map').classList.toggle('nav-active', view === 'map');
+            // Mobile bottom nav
+            document.querySelectorAll('.mbtn').forEach(b => { b.style.color = ''; });
+            const mbtn = document.getElementById(`mbtn-${view}`);
+            if (mbtn) mbtn.style.color = '#3b82f6';
             if (view === 'map') initMap();
             render();
         }
@@ -680,65 +818,146 @@
 
         function renderMap() {
             if (!map) return;
-            mapLayers.past.forEach(l => map.removeLayer(l));
-            mapLayers.future.forEach(l => map.removeLayer(l));
-            mapLayers.airports.forEach(l => map.removeLayer(l));
-            mapLayers.labels.forEach(l => map.removeLayer(l));
-            mapLayers = { past: [], future: [], airports: [], labels: [] };
+            [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels]
+                .forEach(l => map.removeLayer(l));
+            mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
 
             const now = new Date();
+            const pilotBase = (pilotsCache[currentPilot]?.base || '').toUpperCase();
             const bounds = [];
             const airportSet = new Set();
+            const monthPrefix = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}`;
+            const allFlights = segments.filter(s => s.type === 'flight');
+            const flights = allFlights.filter(s => s.departureTime && s.departureTime.startsWith(monthPrefix));
 
-            segments.filter(s => s.type === 'flight').forEach(f => {
+            // Determine airport roles: layover (overnight stay) vs turn (same-day)
+            const layoverAirports = new Set();
+            const turnAirports = new Set();
+            allFlights.forEach(f => {
+                if (!f.arrivalAirport || !f.arrivalTime) return;
+                const upper = f.arrivalAirport.toUpperCase();
+                if (upper === pilotBase) return;
+                const nextDep = flights.filter(s => s.departureAirport === f.arrivalAirport && s.departureTime > f.arrivalTime)
+                    .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                if (!nextDep) return;
+                const arrMid = new Date(f.arrivalTime); arrMid.setHours(0,0,0,0);
+                const depMid = new Date(nextDep.departureTime); depMid.setHours(0,0,0,0);
+                if (depMid > arrMid) layoverAirports.add(upper);
+                else if (!layoverAirports.has(upper)) turnAirports.add(upper);
+            });
+
+            flights.forEach(f => {
                 const depCoords = resolveAirport(f.departureAirport);
                 const arrCoords = resolveAirport(f.arrivalAirport);
                 if (!depCoords || !arrCoords) return;
-                const isPast = new Date(f.departureTime) < now;
-                const color = isPast ? '#6b7280' : '#3b82f6';
-                const weight = isPast ? 1.5 : 2.8;
-                const line = L.polyline(greatCircleArcCoords(depCoords, arrCoords, 60), {
-                    weight: weight, opacity: 0.95, color: color, smoothFactor: 1
-                });
+
+                const depTime = new Date(f.departureTime);
+                const arrTime = new Date(f.arrivalTime);
+                const isActive = f.departureTime && f.arrivalTime && depTime <= now && now <= arrTime;
+                const isPast = !isActive && arrTime < now;
+
+                const color = isActive ? '#22c55e' : isPast ? '#6b7280' : '#3b82f6';
+                const weight = isActive ? 3.5 : isPast ? 1.5 : 2.8;
+                const arcCoords = greatCircleArcCoords(depCoords, arrCoords, 60);
+                const line = L.polyline(arcCoords, { weight, opacity: 0.95, color, smoothFactor: 1 });
+
+                // Click popup
+                const dateStr = depTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                const blockMins = f.departureTime && f.arrivalTime ? (arrTime - depTime) / 60000 : null;
+                const flightLabel = f.flightNumber ? `· ${f.flightNumber}` : f.trip ? `· Trip ${f.trip}` : '';
+                line.bindPopup(`
+                    <div style="font-weight:900;font-size:14px;margin-bottom:4px;color:#f8fafc">${f.departureAirport} → ${f.arrivalAirport}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">${dateStr} ${flightLabel}</div>
+                    <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime)} → ${formatTimeISO(f.arrivalTime)}</div>
+                    <div style="font-size:12px;color:#94a3b8">Block ${blockMins ? formatDurationMinutes(blockMins) : '—'}${f.tail ? ' · ' + f.tail : ''}</div>
+                    ${isActive ? '<div style="font-size:11px;color:#22c55e;font-weight:700;margin-top:6px">▶ In the air now</div>' : ''}
+                `, { className: 'dark-popup' });
 
                 if (isPast) mapLayers.past.push(line);
                 else mapLayers.future.push(line);
+                if ((isPast && showPast) || (!isPast && showFuture) || isActive) line.addTo(map);
 
-                if ((isPast && showPast) || (!isPast && showFuture)) line.addTo(map);
+                // Animated dot for active flight
+                if (isActive) {
+                    const t = Math.max(0, Math.min(1, (now - depTime) / (arrTime - depTime)));
+                    const pos = arcCoords[Math.min(Math.floor(t * arcCoords.length), arcCoords.length - 1)];
+                    const dot = L.marker(pos, {
+                        icon: L.divIcon({ className: '', html: '<div class="plane-dot"></div>', iconAnchor: [7, 7] }),
+                        zIndexOffset: 1000
+                    }).addTo(map);
+                    mapLayers.active.push(dot);
+                }
 
+                // Airport dots and labels
                 [f.departureAirport, f.arrivalAirport].forEach(code => {
-                    const upperCode = code ? code.toUpperCase() : '';
-                    const coords = resolveAirport(upperCode);
-                    if (!upperCode || airportSet.has(upperCode) || !coords) return;
-                    airportSet.add(upperCode);
+                    const upper = code ? code.toUpperCase() : '';
+                    const coords = resolveAirport(upper);
+                    if (!upper || airportSet.has(upper) || !coords) return;
+                    airportSet.add(upper);
                     bounds.push(coords);
+
+                    const isBase = upper === pilotBase;
+                    const isLayover = layoverAirports.has(upper);
+                    const dotColor = isBase ? '#22c55e' : isLayover ? '#f59e0b' : '#f8fafc';
+                    const radius = isBase ? 7 : isLayover ? 6 : 5;
+
                     const point = L.circleMarker(coords, {
-                        radius: 5,
-                        color: '#f8fafc',
-                        fillColor: '#f8fafc',
-                        fillOpacity: 1,
-                        weight: 1
-                    });
-                    point.addTo(map);
+                        radius, color: '#0f172a', fillColor: dotColor, fillOpacity: 1, weight: 1.5
+                    }).addTo(map);
                     mapLayers.airports.push(point);
 
+                    const labelColor = isBase ? '#4ade80' : isLayover ? '#fbbf24' : '#f8fafc';
                     const label = L.marker(coords, {
                         icon: L.divIcon({
-                            className: 'airport-label',
-                            html: `<div style="color:#f8fafc;font-size:11px;font-weight:800;text-shadow:0 0 12px rgba(0,0,0,0.8);transform: translate(-50%, -150%);">${code}</div>`,
-                            iconAnchor: [0, 0],
-                            popupAnchor: [0, -15]
+                            className: '',
+                            html: `<div style="color:${labelColor};font-size:11px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,-180%);white-space:nowrap">${upper}</div>`,
+                            iconAnchor: [0, 0]
                         })
-                    });
-                    label.addTo(map);
+                    }).addTo(map);
                     mapLayers.labels.push(label);
                 });
             });
 
-            if (bounds.length > 0) {
-                const boundsLayer = L.latLngBounds(bounds);
-                map.fitBounds(boundsLayer.pad(0.2));
+            // Current position pin
+            const home = PILOT_HOMES[currentPilot] || null;
+            const allFlightsSorted = allFlights.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+            const isAirborne = allFlightsSorted.some(f => f.departureTime && f.arrivalTime && new Date(f.departureTime) <= now && now <= new Date(f.arrivalTime));
+            if (!isAirborne) {
+                const completedFlights = allFlightsSorted.filter(f => f.arrivalTime && new Date(f.arrivalTime) <= now);
+                const lastArrival = completedFlights.length > 0
+                    ? completedFlights[completedFlights.length - 1].arrivalAirport
+                    : null;
+                const atBase = lastArrival && pilotBase && lastArrival.toUpperCase() === pilotBase.toUpperCase();
+                const locationCode = (!lastArrival || atBase) ? home : lastArrival;
+                const locationCoords = locationCode ? resolveAirport(locationCode) : null;
+                if (locationCoords) {
+                    const isAtHome = !lastArrival || atBase || (home && locationCode && locationCode.toUpperCase() === home.toUpperCase());
+                    const label = isAtHome ? 'Home' : locationCode;
+                    const pilotName = pilotsCache[currentPilot]?.name?.split(' ')[0] || currentPilot;
+                    const pin = L.marker(locationCoords, {
+                        icon: L.divIcon({
+                            className: '',
+                            html: `<div class="here-dot"></div>`,
+                            iconAnchor: [8, 8]
+                        }),
+                        zIndexOffset: 2000
+                    }).bindPopup(
+                        `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${pilotName} is here</div>
+                         <div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Layover'}</div>`,
+                        { className: 'dark-popup' }
+                    ).addTo(map);
+                    const hereLabel = L.marker(locationCoords, {
+                        icon: L.divIcon({
+                            className: '',
+                            html: `<div style="color:#d8b4fe;font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,8px);white-space:nowrap">${label}</div>`,
+                            iconAnchor: [0, 0]
+                        })
+                    }).addTo(map);
+                    mapLayers.active.push(pin, hereLabel);
+                }
             }
+
+            if (bounds.length > 0) map.fitBounds(L.latLngBounds(bounds).pad(0.2));
         }
 
         function toggleMapFilter(type) {
@@ -843,7 +1062,10 @@
             const year = viewDate.getFullYear();
             const month = viewDate.getMonth();
             const pilotBase = pilotsCache[currentPilot]?.base || null;
-            document.getElementById('current-month-display').textContent = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            const monthLabel = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            document.getElementById('current-month-display').textContent = monthLabel;
+            const mobileMonth = document.getElementById('current-month-display-mobile');
+            if (mobileMonth) mobileMonth.textContent = monthLabel;
 
             if (currentView === 'grid') {
                 const firstDay = new Date(year, month, 1).getDay();
@@ -866,16 +1088,12 @@
                     let away = dayEvents.find(e => e.type === 'away');
                     if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
                     
-                    // Debug logging for May 25
-                    if (d === 25) {
-                        console.log(`May 25 - dayEvents:`, dayEvents, `away:`, away, `pilotBase:`, pilotBase);
-                    }
                     let style = "border-zinc-800 bg-zinc-900/20";
                     let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
                     if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
-                    let html = `<div class="min-h-[150px] border rounded-2xl p-4 flex flex-col ${style} ${dayClasses.join(' ')}"><div class="flex justify-between items-start mb-3"><span class="text-2xl font-black font-mono day-number">${d}</span><span class="text-[8px] font-black px-2 py-0.5 rounded-full border border-current">${tag}</span></div><div class="space-y-1">`;
+                    let html = `<div class="min-h-[150px] border rounded-2xl p-4 flex flex-col ${style} ${dayClasses.join(' ')}" onclick="showDayDetail('${dateKey}')"><div class="flex justify-between items-start mb-3"><span class="text-2xl font-black font-mono day-number">${d}</span><span class="text-[8px] font-black px-2 py-0.5 rounded-full border border-current">${tag}</span></div><div class="space-y-1">`;
                     dayEvents.filter(e => e.type === 'flight').forEach(f => {
                         const depAttr = f.departureTime || '';
                         const arrAttr = f.arrivalTime || '';
@@ -1237,9 +1455,27 @@
         }
 
         function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); }
-        
+
+        async function handleMobileUpload(input) {
+            if (!input.files[0]) return;
+            const file = input.files[0];
+            const uploadPilot = document.getElementById('mobile-upload-pilot-select').value;
+            document.getElementById('mobile-upload-sheet').classList.add('hidden');
+            const result = await uploadPilotSchedule(uploadPilot, file);
+            if (result && result.success) {
+                alert(`Uploaded ${result.segmentsAdded} segments for ${uploadPilot}`);
+                if (uploadPilot === currentPilot) loadPilot(currentPilot);
+            } else {
+                alert('Upload failed. Check console for details.');
+            }
+            input.value = '';
+        }
+
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', () => {
+            // Set initial mobile nav active state
+            const mbtn = document.getElementById('mbtn-grid');
+            if (mbtn) mbtn.style.color = '#3b82f6';
             loadPilot('kyle');
         });
     </script>
