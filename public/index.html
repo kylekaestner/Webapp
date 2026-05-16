@@ -73,6 +73,8 @@
         .plane-dot { width: 14px; height: 14px; border-radius: 50%; background: #22c55e; border: 2px solid #fff; animation: plane-pulse 1.6s ease-out infinite; }
         @keyframes here-pulse { 0% { box-shadow: 0 0 0 0 rgba(168,85,247,0.7); } 70% { box-shadow: 0 0 0 16px rgba(168,85,247,0); } 100% { box-shadow: 0 0 0 0 rgba(168,85,247,0); } }
         .here-dot { width: 16px; height: 16px; border-radius: 50%; background: #a855f7; border: 2px solid #fff; animation: here-pulse 2s ease-out infinite; }
+        @keyframes dash-flow { to { stroke-dashoffset: -18; } }
+        .active-route path { stroke-dasharray: 10, 5; stroke-dashoffset: 0; animation: dash-flow 0.5s linear infinite; }
     </style>
 </head>
 <body class="bg-[#050505] text-zinc-100 flex h-screen overflow-hidden font-sans">
@@ -87,6 +89,7 @@
             <button onclick="switchView('grid')" id="btn-grid" class="nav-active w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📅 Calendar Grid</button>
             <button onclick="switchView('list')" id="btn-list" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📜 List View</button>
             <button onclick="switchView('map')" id="btn-map" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🗺️ Route Map</button>
+            <button onclick="switchView('overlap')" id="btn-overlap" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🤝 Location Overlap</button>
         </div>
 
         <div class="p-4 space-y-1 mt-4">
@@ -121,6 +124,7 @@
             </div>
             <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
             <button onclick="document.getElementById('file-input').click()" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Upload Schedule</button>
+            <button onclick="openSchedaeroSync()" class="w-full py-3 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-xl transition text-[10px] font-black uppercase text-center">⟳ Sync Schedaero</button>
         </div>
     </div>
 
@@ -175,6 +179,15 @@
                         <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
                     </div>
                     <div id="calendar-grid-content" class="contents"></div>
+                    <!-- Calendar legend -->
+                    <div class="col-span-7 mt-3 flex flex-wrap gap-x-5 gap-y-1.5 px-1 pb-2 border-t border-zinc-800/60 pt-3">
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-blue-500/60"></span>Flying</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-red-500/70"></span>Hard Off</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-amber-500/70"></span>Away/Layover</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-sky-400" style="box-shadow:0 0 0 2px rgba(56,189,248,0.3)"></span>Today</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md" style="background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.4)"></span>Personal</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block px-1.5 text-pink-300 text-[8px] font-black rounded bg-pink-950/40 border border-pink-500/30">DH</span>Deadhead</div>
+                    </div>
                 </div>
             </div>
 
@@ -184,9 +197,55 @@
 
             <div id="view-map" class="view-section relative">
                 <div id="map"></div>
-                <div class="map-controls flex flex-col gap-2">
-                    <button onclick="toggleMapFilter('past')" id="btn-past" class="px-4 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-[10px] font-black uppercase text-white hover:bg-zinc-700">Toggle Past (Gray)</button>
-                    <button onclick="toggleMapFilter('future')" id="btn-future" class="px-4 py-2 bg-blue-600 border border-blue-400 rounded-lg text-[10px] font-black uppercase text-white hover:bg-blue-500">Toggle Future (Blue)</button>
+                <!-- Map legend (bottom-left) — switches content based on mode -->
+                <div id="map-legend" class="absolute bottom-5 left-5 z-[1000] bg-zinc-900/90 border border-zinc-700 rounded-xl px-4 py-3 text-[10px] font-black uppercase tracking-wide space-y-1.5 backdrop-blur-sm pointer-events-none">
+                    <!-- Single-pilot legend (default) -->
+                    <div id="legend-single" class="space-y-1.5">
+                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[3px] rounded-full bg-blue-500"></span><span class="text-zinc-400">Upcoming</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[3px] rounded-full bg-zinc-500"></span><span class="text-zinc-400">Past</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[3px] rounded-full bg-green-500"></span><span class="text-zinc-400">In Air Now</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-blue-400 border-2 border-white"></span><span class="text-zinc-400">Turn</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-amber-400 border-2 border-white"></span><span class="text-zinc-400">Layover</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-purple-500 border-2 border-white"></span><span class="text-zinc-400">Home Base</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-green-500 border-2 border-white" style="animation:plane-pulse 1.6s ease-out infinite"></span><span class="text-zinc-400">Position Now</span></div>
+                    </div>
+                    <!-- All-pilots legend (day view) -->
+                    <div id="legend-day" class="hidden space-y-1.5">
+                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-blue-500"></span><span class="text-zinc-400">Kyle</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-teal-400"></span><span class="text-zinc-400">Adam</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-orange-500"></span><span class="text-zinc-400">Sam</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-indigo-400"></span><span class="text-zinc-400">Logan</span></div>
+                        <div class="border-t border-zinc-700/60 pt-1.5 mt-1.5 space-y-1.5">
+                            <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-zinc-200"></span><span class="text-zinc-400">Thicker = live</span></div>
+                            <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-zinc-200 border-2 border-white" style="animation:plane-pulse 1.6s ease-out infinite"></span><span class="text-zinc-400">In air now</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="map-controls flex flex-col gap-2" style="min-width:180px">
+                    <div id="map-pilot-controls" class="flex flex-col gap-2">
+                        <button onclick="toggleMapFilter('past')" id="btn-past" class="px-4 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-[10px] font-black uppercase text-white hover:bg-zinc-700">Toggle Past (Gray)</button>
+                        <button onclick="toggleMapFilter('future')" id="btn-future" class="px-4 py-2 bg-blue-600 border border-blue-400 rounded-lg text-[10px] font-black uppercase text-white hover:bg-blue-500">Toggle Future (Blue)</button>
+                    </div>
+                    <div class="border-t border-zinc-700/60 pt-2 flex flex-col gap-1.5">
+                        <button onclick="toggleDayView()" id="btn-day-view" class="px-4 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-[10px] font-black uppercase text-white hover:bg-zinc-700">All Pilots — Today</button>
+                        <input type="date" id="day-view-date" class="hidden px-3 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-xs text-zinc-100 outline-none focus:border-blue-500" onchange="renderMap()">
+                        <div id="day-view-legend" class="hidden flex flex-col gap-1 px-3 py-2 bg-zinc-900/80 border border-zinc-700 rounded-lg text-[10px] font-black uppercase"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-overlap" class="view-section overflow-y-auto">
+                <div class="max-w-2xl mx-auto pb-20">
+                    <div id="overlap-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm px-6 pt-6 pb-4 mb-2 border-b border-zinc-800/60 flex items-center justify-between gap-4">
+                        <div>
+                            <h2 class="text-lg font-black text-white uppercase tracking-tight">Location Overlap</h2>
+                            <p class="text-xs text-zinc-500 mt-0.5">Same airport within a 2-hour window</p>
+                        </div>
+                        <button onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors shrink-0">Refresh</button>
+                    </div>
+                    <div id="overlap-content" class="space-y-3 px-6">
+                        <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate overlaps</div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -201,6 +260,9 @@
             </button>
             <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
                 <span class="text-lg leading-none">🗺️</span><span class="text-[9px] font-black uppercase tracking-wide">Map</span>
+            </button>
+            <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
+                <span class="text-lg leading-none">🤝</span><span class="text-[9px] font-black uppercase tracking-wide">Overlap</span>
             </button>
             <button onclick="document.getElementById('mobile-upload-pilot-select').value=currentPilot||'kyle';document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
                 <span class="text-lg leading-none">⬆️</span><span class="text-[9px] font-black uppercase tracking-wide">Upload</span>
@@ -293,6 +355,63 @@
         </div>
     </div>
 
+    <!-- Schedaero Sync Modal (WIP) -->
+    <div id="schedaero-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" onclick="if(event.target===this)closeSchedaeroModal()">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
+                <div>
+                    <h3 id="schedaero-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Sync from Schedaero</h3>
+                    <p class="text-[10px] text-zinc-500 mt-0.5">Kyle · Work in progress</p>
+                </div>
+                <button onclick="closeSchedaeroModal()" class="text-zinc-500 hover:text-zinc-200 transition text-xl leading-none">✕</button>
+            </div>
+            <div class="px-6 py-5 space-y-4">
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">GetMonth URL <span class="text-zinc-600 font-normal normal-case">(from DevTools Network tab)</span></label>
+                    <input id="schedaero-url" type="text" placeholder="https://schedaero.avinode.com/mvc/api/CrewScheduling/GetMonth"
+                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-500">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">API Token <span class="text-zinc-600 font-normal normal-case">(Request Headers → x-avinode-apitoken)</span></label>
+                    <input id="schedaero-apitoken" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-500">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Session Cookie <span class="text-zinc-600 font-normal normal-case">(Request Headers → Cookie)</span></label>
+                    <textarea id="schedaero-cookie" rows="3" placeholder="Paste the full Cookie: header value here…"
+                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono resize-none focus:outline-none focus:border-zinc-500"></textarea>
+                </div>
+                <div class="flex gap-3">
+                    <div class="flex-1">
+                        <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Months Back</label>
+                        <select id="schedaero-months-back" class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-200 focus:outline-none focus:border-zinc-500">
+                            <option value="0">None</option>
+                            <option value="1">1 month back</option>
+                            <option value="2" selected>2 months back</option>
+                            <option value="3">3 months back</option>
+                            <option value="6">6 months back</option>
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Months Ahead</label>
+                        <select id="schedaero-months" class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-200 focus:outline-none focus:border-zinc-500">
+                            <option value="1">Current only</option>
+                            <option value="2">+ 1 ahead</option>
+                            <option value="3" selected>+ 2 ahead</option>
+                            <option value="6">+ 5 ahead</option>
+                        </select>
+                    </div>
+                </div>
+                <p id="schedaero-error" class="hidden text-xs text-red-400 font-bold"></p>
+                <div class="flex gap-3 pt-1">
+                    <button onclick="syncSchedaero()" id="schedaero-sync-btn" class="flex-1 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition">Sync</button>
+                    <button onclick="closeSchedaeroModal()" class="flex-1 py-3 border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-xl font-black uppercase text-xs tracking-wide transition">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Mobile upload sheet -->
     <div id="mobile-upload-sheet" class="hidden fixed inset-0 z-50 flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
@@ -310,6 +429,7 @@
             </div>
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
             <button onclick="document.getElementById('mobile-file-input').click()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
+            <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openSchedaeroSync()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
     </div>
@@ -626,6 +746,11 @@
         let map, mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
         let showPast = true, showFuture = true;
         let airportVisibilityMap = {}, airportFlightTypes = {};
+        let mapDayMode = false;
+        let mapDayDate = new Date().toISOString().slice(0, 10);
+        const PILOT_KEYS = ['kyle', 'adam', 'sam', 'logan'];
+        const PILOT_COLORS = { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8' };
+        const PILOT_NAMES = { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine' };
         let isLoading = false;
 
         const AIRPORTS = {
@@ -783,9 +908,9 @@
                 const next = flights[i + 1];
                 
                 if (!current.arrivalAirport) continue;
-                // Skip if arriving at base (no layover away from base)
-                if (base && current.arrivalAirport === base) continue;
                 if (!next.departureTime) continue;
+                // Never generate multi-day away events at the pilot's home base — they go home
+                if (base && current.arrivalAirport?.toUpperCase() === base.toUpperCase()) continue;
 
                 try {
                     let arrDate = new Date(current.arrivalTime);
@@ -835,7 +960,8 @@
                         trip: seg.trip || '',
                         flightNumber: seg.flight_number || '',
                         dh: seg.is_dh ? true : false,
-                        isManual: seg.is_manual ? true : false
+                        isManual: seg.is_manual ? true : false,
+                        blockMinutes: seg.block_minutes || null
                     }));
                 }
 
@@ -871,15 +997,224 @@
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('view-active'));
             document.getElementById(`view-${view}`).classList.add('view-active');
             // Desktop nav
-            document.getElementById('btn-grid').classList.toggle('nav-active', view === 'grid');
-            document.getElementById('btn-list').classList.toggle('nav-active', view === 'list');
-            document.getElementById('btn-map').classList.toggle('nav-active', view === 'map');
+            ['grid','list','map','overlap'].forEach(v => {
+                const btn = document.getElementById(`btn-${v}`);
+                if (btn) btn.classList.toggle('nav-active', v === view);
+            });
             // Mobile bottom nav
             document.querySelectorAll('.mbtn').forEach(b => { b.style.color = ''; });
             const mbtn = document.getElementById(`mbtn-${view}`);
             if (mbtn) mbtn.style.color = '#3b82f6';
             if (view === 'map') initMap();
+            if (view === 'overlap') computeOverlap();
             render();
+        }
+
+        async function computeOverlap() {
+            const container = document.getElementById('overlap-content');
+            container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
+
+            const bufferMs = 2 * 60 * 60 * 1000; // 2-hour window
+
+            // Load all pilots
+            await Promise.all(PILOT_KEYS.map(async key => {
+                if (!pilotsCache[key]) {
+                    try { pilotsCache[key] = await (await fetch(`${API_BASE}/pilots/${key}`)).json(); }
+                    catch (e) { return; }
+                }
+            }));
+
+            // Build ground periods for each pilot:
+            // a "period" = { airport, start, end } representing time physically on the ground at that airport.
+            // Derived from consecutive flights: arrive at X at T1, depart X at T2 → period [T1, T2].
+            // For the first departure of a sequence, add a "pre-departure" window so nearby arrivals show up.
+            function buildGroundPeriods(segments, homeBase) {
+                const home = homeBase ? homeBase.toUpperCase() : null;
+                const flights = segments
+                    .filter(s => s.type === 'flight' && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport)
+                    .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
+                const periods = [];
+
+                flights.forEach((f, i) => {
+                    const dep = f.departure_airport.toUpperCase();
+                    const arr = f.arrival_airport.toUpperCase();
+                    const depT = new Date(f.departure_time);
+                    const arrT = new Date(f.arrival_time);
+
+                    // Before this flight: pilot is at departure airport
+                    // Find when they landed here (prior arrival), else use 2h pre-departure estimate
+                    const prevAtDep = flights.slice(0, i).filter(p => p.arrival_airport?.toUpperCase() === dep)
+                        .sort((a, b) => new Date(b.arrival_time) - new Date(a.arrival_time))[0];
+                    const groundStart = prevAtDep ? new Date(prevAtDep.arrival_time)
+                        : new Date(depT.getTime() - 2 * 3600000);
+                    // Only add if this period isn't already covered by a prior arrival entry
+                    const alreadyCovered = periods.some(p => p.airport === dep &&
+                        p.start.getTime() <= groundStart.getTime() && p.end.getTime() >= depT.getTime());
+                    if (!alreadyCovered) periods.push({ airport: dep, start: groundStart, end: depT });
+
+                    // After this flight: pilot is at arrival airport until next departure from there
+                    const nextFromArr = flights.slice(i + 1).find(n => n.departure_airport?.toUpperCase() === arr);
+                    // Landing at home base with no onward flight = going home, not a stay
+                    if (home && arr === home && !nextFromArr) return;
+                    const groundEnd = nextFromArr ? new Date(nextFromArr.departure_time)
+                        : new Date(arrT.getTime() + 20 * 3600000); // stay 20h if last leg
+                    periods.push({ airport: arr, start: arrT, end: groundEnd });
+                });
+                return periods;
+            }
+
+            const pilotPeriods = {};
+            PILOT_KEYS.forEach(key => {
+                const data = pilotsCache[key];
+                pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base) : [];
+            });
+
+            // Find overlaps between every pair of pilots
+            const overlaps = [];
+            for (let i = 0; i < PILOT_KEYS.length; i++) {
+                for (let j = i + 1; j < PILOT_KEYS.length; j++) {
+                    const kA = PILOT_KEYS[i], kB = PILOT_KEYS[j];
+                    for (const pA of pilotPeriods[kA]) {
+                        for (const pB of pilotPeriods[kB]) {
+                            if (pA.airport !== pB.airport) continue;
+                            // Buffered check: do the windows overlap when each is expanded by buffer?
+                            if (pA.start.getTime() - bufferMs > pB.end.getTime()) continue;
+                            if (pB.start.getTime() - bufferMs > pA.end.getTime()) continue;
+
+                            // Direct overlap window (no buffer)
+                            const directStart = new Date(Math.max(pA.start.getTime(), pB.start.getTime()));
+                            const directEnd   = new Date(Math.min(pA.end.getTime(),   pB.end.getTime()));
+                            const isDirect = directStart < directEnd;
+
+                            // Gap if no direct overlap
+                            const gapMs = isDirect ? 0 : Math.max(
+                                pA.start.getTime() - pB.end.getTime(),
+                                pB.start.getTime() - pA.end.getTime()
+                            );
+
+                            overlaps.push({
+                                airport: pA.airport,
+                                kA, kB,
+                                pA, pB,
+                                isDirect,
+                                directStart: isDirect ? directStart : null,
+                                directEnd:   isDirect ? directEnd   : null,
+                                gapMs,
+                                sortKey: Math.min(pA.start.getTime(), pB.start.getTime())
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Deduplicate (same airport + same pair + overlapping sort windows can produce dupes)
+            const seen = new Set();
+            const unique = overlaps.filter(o => {
+                const k = `${o.airport}|${o.kA}|${o.kB}|${o.pA.start.toISOString()}|${o.pB.start.toISOString()}`;
+                if (seen.has(k)) return false;
+                seen.add(k); return true;
+            });
+
+            if (unique.length === 0) {
+                container.innerHTML = `<div class="text-center py-12 text-zinc-500 text-sm">No overlapping locations found.</div>`;
+                return;
+            }
+
+            // Sort chronologically
+            unique.sort((a, b) => a.sortKey - b.sortKey);
+
+            const now = new Date();
+            const todayStr = now.toISOString().slice(0, 10);
+
+            // Helpers
+            const fmtTime = t => t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+            const fmtDateShort = t => t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            const fmtDur = ms => {
+                if (ms <= 0) return '';
+                const h = Math.floor(ms / 3600000), m = Math.round((ms % 3600000) / 60000);
+                return h > 0 ? `${h}h ${m}m` : `${m}m`;
+            };
+            // Show full date+time if dates differ, just time if same day
+            const fmtRange = (start, end) => {
+                if (!start || !end) return '';
+                const startDay = start.toISOString().slice(0, 10);
+                const endDay   = end.toISOString().slice(0, 10);
+                const startStr = `${fmtDateShort(start)}, ${fmtTime(start)}`;
+                const endStr   = startDay === endDay ? fmtTime(end) : `${fmtDateShort(end)}, ${fmtTime(end)}`;
+                return `${startStr} – ${endStr}`;
+            };
+
+            // First non-past card index for auto-scroll
+            const scrollTargetIdx = unique.findIndex(o => o.sortKey >= new Date(todayStr).getTime());
+
+            container.innerHTML = unique.map((o, idx) => {
+                const refTime = o.directStart || new Date(o.sortKey);
+                const refDay  = refTime.toISOString().slice(0, 10);
+                const isToday = refDay === todayStr;
+                const isPast  = refDay < todayStr;
+                const isNear  = !o.isDirect;
+                const scrollId = idx === scrollTargetIdx ? ' id="overlap-scroll-target"' : '';
+
+                // Pilot chips
+                const chips = [o.kA, o.kB].map(k => {
+                    const c = PILOT_COLORS[k];
+                    const name = PILOT_NAMES[k].split(' ')[0];
+                    return `<span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase" style="background:${c}22;color:${c};border:1px solid ${c}55">${name}</span>`;
+                }).join('');
+
+                // Time range line
+                let timeRange, durationLine;
+                if (o.isDirect) {
+                    timeRange = fmtRange(o.directStart, o.directEnd);
+                    const dur = fmtDur(o.directEnd - o.directStart);
+                    durationLine = dur ? `<div class="text-[11px] text-zinc-500 mt-1">${dur} together</div>` : '';
+                } else {
+                    // Near miss: show each pilot's window on its own line
+                    const nameA = PILOT_NAMES[o.kA].split(' ')[0];
+                    const nameB = PILOT_NAMES[o.kB].split(' ')[0];
+                    const gap = fmtDur(o.gapMs);
+                    timeRange = `<span class="text-zinc-500">${nameA}:</span> ${fmtRange(o.pA.start, o.pA.end)}<br><span class="text-zinc-500">${nameB}:</span> ${fmtRange(o.pB.start, o.pB.end)}`;
+                    durationLine = `<div class="text-[11px] text-amber-500/80 mt-1">${gap} between them</div>`;
+                }
+
+                // Border + bg based on state
+                const border = isToday ? 'border-sky-500/60' : isNear ? 'border-amber-900/40' : 'border-zinc-800';
+                const bg     = isToday ? 'bg-sky-950/20' : isNear ? 'bg-amber-950/10' : 'bg-zinc-900/50';
+                const opacity = isPast ? 'opacity-40' : '';
+
+                const badge = isToday
+                    ? '<span class="text-[9px] font-black uppercase text-sky-400 bg-sky-950/40 border border-sky-800/50 px-2 py-0.5 rounded-full">Today</span>'
+                    : isNear
+                    ? '<span class="text-[9px] font-black uppercase text-amber-400 bg-amber-950/30 border border-amber-800/40 px-2 py-0.5 rounded-full">Near miss</span>'
+                    : '';
+
+                return `<div${scrollId} class="border ${border} rounded-2xl p-4 ${bg} ${opacity}">
+                    <div class="flex items-start justify-between gap-2 mb-2.5">
+                        <div class="flex items-center gap-3">
+                            <span class="text-xl font-black text-white tracking-tight">${o.airport}</span>
+                            <div class="flex gap-1.5 flex-wrap">${chips}</div>
+                        </div>
+                        ${badge}
+                    </div>
+                    <div class="text-xs font-mono text-zinc-300 leading-relaxed">${timeRange}</div>
+                    ${durationLine}
+                </div>`;
+            }).join('');
+
+            // Scroll so the first current/upcoming card sits just below the sticky header
+            if (scrollTargetIdx >= 0) {
+                requestAnimationFrame(() => {
+                    const target = document.getElementById('overlap-scroll-target');
+                    const view   = document.getElementById('view-overlap');
+                    const header = document.getElementById('overlap-header');
+                    if (target && view) {
+                        const headerH = header ? header.getBoundingClientRect().height : 0;
+                        const viewRect = view.getBoundingClientRect();
+                        const targetRect = target.getBoundingClientRect();
+                        view.scrollTop += targetRect.top - viewRect.top - headerH - 8;
+                    }
+                });
+            }
         }
 
         function initMap() {
@@ -914,6 +1249,7 @@
 
         function renderMap() {
             if (!map) return;
+            if (mapDayMode) { renderDayMap(); return; }
             [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels]
                 .forEach(l => map.removeLayer(l));
             mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
@@ -944,6 +1280,15 @@
                 else if (!layoverAirports.has(upper)) turnAirports.add(upper);
             });
 
+            // Group by city pair to offset same-route arcs apart (e.g., ORD→DTW and DTW→ORD)
+            const singlePairGroups = {};
+            flights.forEach(f => {
+                if (!f.departureAirport || !f.arrivalAirport) return;
+                const pk = [f.departureAirport, f.arrivalAirport].sort().join('|');
+                if (!singlePairGroups[pk]) singlePairGroups[pk] = [];
+                singlePairGroups[pk].push(f);
+            });
+
             flights.forEach(f => {
                 const depCoords = resolveAirport(f.departureAirport);
                 const arrCoords = resolveAirport(f.arrivalAirport);
@@ -956,12 +1301,16 @@
 
                 const color = isActive ? '#22c55e' : isPast ? '#6b7280' : '#3b82f6';
                 const weight = isActive ? 3.5 : isPast ? 1.5 : 2.8;
-                const arcCoords = greatCircleArcCoords(depCoords, arrCoords, 60);
-                const line = L.polyline(arcCoords, { weight, opacity: 0.95, color, smoothFactor: 1 });
+                const pk = [f.departureAirport, f.arrivalAirport].sort().join('|');
+                const group = singlePairGroups[pk];
+                const arcCoords = offsetArc(depCoords, arrCoords, 60, group.indexOf(f), group.length);
+                const lineOpts = { weight, opacity: 0.95, color, smoothFactor: 1 };
+                if (isActive) lineOpts.className = 'active-route';
+                const line = L.polyline(arcCoords, lineOpts);
 
                 // Click popup
                 const dateStr = depTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                const blockMins = f.departureTime && f.arrivalTime ? (arrTime - depTime) / 60000 : null;
+                const blockMins = f.blockMinutes != null ? f.blockMinutes : (f.departureTime && f.arrivalTime ? (arrTime - depTime) / 60000 : null);
                 const flightLabel = f.flightNumber ? `· ${f.flightNumber}` : f.trip ? `· Trip ${f.trip}` : '';
                 line.bindPopup(`
                     <div style="font-weight:900;font-size:14px;margin-bottom:4px;color:#f8fafc">${f.departureAirport} → ${f.arrivalAirport}</div>
@@ -975,14 +1324,18 @@
                 else mapLayers.future.push(line);
                 if ((isPast && showPast) || (!isPast && showFuture) || isActive) line.addTo(map);
 
-                // Animated dot for active flight
+                // Airplane icon for active flight — rotated to direction of travel
                 if (isActive) {
                     const t = Math.max(0, Math.min(1, (now - depTime) / (arrTime - depTime)));
-                    const pos = arcCoords[Math.min(Math.floor(t * arcCoords.length), arcCoords.length - 1)];
+                    const dotIdx = Math.min(Math.floor(t * (arcCoords.length - 1)), arcCoords.length - 2);
+                    const pos = arcCoords[dotIdx];
+                    const nextPos = arcCoords[dotIdx + 1] || arcCoords[dotIdx];
+                    const bearing = computeBearing(pos, nextPos);
                     const dot = L.marker(pos, {
-                        icon: L.divIcon({ className: '', html: '<div class="plane-dot"></div>', iconAnchor: [7, 7] }),
+                        icon: makePlaneIcon(bearing, '#22c55e'),
                         zIndexOffset: 1000
                     }).addTo(map);
+                    dot.bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                     mapLayers.active.push(dot);
                 }
 
@@ -1074,6 +1427,7 @@
         }
 
         function toggleMapFilter(type) {
+            if (mapDayMode) return;
             if (type === 'past') {
                 showPast = !showPast;
                 mapLayers.past.forEach(l => showPast ? l.addTo(map) : map.removeLayer(l));
@@ -1089,6 +1443,241 @@
                 visible ? marker.addTo(map) : map.removeLayer(marker);
                 visible ? label.addTo(map) : map.removeLayer(label);
             });
+        }
+
+        function toggleDayView() {
+            mapDayMode = !mapDayMode;
+            const btn = document.getElementById('btn-day-view');
+            const dateInput = document.getElementById('day-view-date');
+            const sidebarLegend = document.getElementById('day-view-legend');
+            const pilotControls = document.getElementById('map-pilot-controls');
+            const legendSingle = document.getElementById('legend-single');
+            const legendDay = document.getElementById('legend-day');
+            if (mapDayMode) {
+                mapDayDate = new Date().toISOString().slice(0, 10);
+                dateInput.value = mapDayDate;
+                dateInput.classList.remove('hidden');
+                sidebarLegend.classList.remove('hidden');
+                sidebarLegend.innerHTML = PILOT_KEYS.map(k =>
+                    `<div class="flex items-center gap-1.5"><span style="width:10px;height:10px;border-radius:50%;background:${PILOT_COLORS[k]};display:inline-block;flex-shrink:0"></span><span style="color:#cbd5e1">${k.charAt(0).toUpperCase() + k.slice(1)}</span></div>`
+                ).join('');
+                pilotControls.style.opacity = '0.4';
+                pilotControls.style.pointerEvents = 'none';
+                btn.classList.add('bg-emerald-700', 'border-emerald-500');
+                btn.classList.remove('bg-zinc-800', 'border-zinc-600');
+                legendSingle.classList.add('hidden');
+                legendDay.classList.remove('hidden');
+            } else {
+                dateInput.classList.add('hidden');
+                sidebarLegend.classList.add('hidden');
+                pilotControls.style.opacity = '';
+                pilotControls.style.pointerEvents = '';
+                btn.classList.remove('bg-emerald-700', 'border-emerald-500');
+                btn.classList.add('bg-zinc-800', 'border-zinc-600');
+                legendSingle.classList.remove('hidden');
+                legendDay.classList.add('hidden');
+            }
+            renderMap();
+        }
+
+        function computeBearing(from, to) {
+            const lat1 = toRadians(from[0]), lat2 = toRadians(to[0]);
+            const dLon = toRadians(to[1] - from[1]);
+            const y = Math.sin(dLon) * Math.cos(lat2);
+            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+            return toDegrees(Math.atan2(y, x));
+        }
+
+        // Bezier arc with optional perpendicular offset at midpoint — separates overlapping routes
+        function offsetArc(start, end, steps, offsetIndex, groupSize) {
+            const gcPoints = greatCircleArcCoords(start, end, steps);
+            if (groupSize <= 1) return gcPoints;
+
+            // Canonical direction so all flights in a pair offset consistently
+            const fwd = start[0] <= end[0];
+            const cA = fwd ? start : end, cB = fwd ? end : start;
+            const bearing = computeBearing(cA, cB);
+            const perpRad = toRadians((bearing + 90) % 360);
+
+            // Scale offset with route length so short hops and long hauls both look clean
+            const dx = end[1] - start[1], dy = end[0] - start[0];
+            const routeDeg = Math.sqrt(dx * dx + dy * dy);
+            const unitOffset = Math.max(1.2, routeDeg * 0.13);
+            const offsetDeg = (offsetIndex - (groupSize - 1) / 2) * unitOffset;
+
+            // Shift the great-circle midpoint perpendicularly
+            const midPt = gcPoints[Math.floor(steps / 2)];
+            const newMid = [
+                midPt[0] + offsetDeg * Math.cos(perpRad),
+                midPt[1] + offsetDeg * Math.sin(perpRad)
+            ];
+
+            // Quadratic bezier: routes stay anchored at both airports and bow apart in the middle
+            return Array.from({ length: steps + 1 }, (_, i) => {
+                const t = i / steps;
+                return [
+                    (1 - t) * (1 - t) * start[0] + 2 * (1 - t) * t * newMid[0] + t * t * end[0],
+                    (1 - t) * (1 - t) * start[1] + 2 * (1 - t) * t * newMid[1] + t * t * end[1]
+                ];
+            });
+        }
+
+        function makePlaneIcon(bearing, color) {
+            const rot = Math.round(bearing);
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="22" height="22" style="overflow:visible;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.9));transform:rotate(${rot}deg);transform-origin:11px 11px">
+                <g transform="translate(10,10)">
+                    <path d="M0,-8.5 L3.5,5 L0,3 L-3.5,5 Z" fill="${color}" stroke="rgba(0,0,0,0.5)" stroke-width="0.7" stroke-linejoin="round"/>
+                    <path d="M-0.5,0.5 L-8,4.5 L-6,5.5 L-0.5,2.5 L0.5,2.5 L6,5.5 L8,4.5 L0.5,0.5 Z" fill="${color}" stroke="rgba(0,0,0,0.5)" stroke-width="0.5" stroke-linejoin="round"/>
+                    <path d="M-0.5,3.5 L-3,7.5 L-1.5,7.5 L0,5.5 L1.5,7.5 L3,7.5 L0.5,3.5 Z" fill="${color}" stroke="rgba(0,0,0,0.4)" stroke-width="0.4" stroke-linejoin="round"/>
+                </g>
+            </svg>`;
+            return L.divIcon({ className: '', html: svg, iconSize: [22, 22], iconAnchor: [11, 11] });
+        }
+
+        async function renderDayMap() {
+            if (!map) return;
+            [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels].forEach(l => map.removeLayer(l));
+            mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
+
+            const dateInput = document.getElementById('day-view-date');
+            mapDayDate = dateInput.value || new Date().toISOString().slice(0, 10);
+
+            // Load all pilots (cache where possible)
+            const allPilotSegments = {};
+            await Promise.all(PILOT_KEYS.map(async (key) => {
+                if (!pilotsCache[key]) {
+                    try {
+                        const resp = await fetch(`${API_BASE}/pilots/${key}`);
+                        pilotsCache[key] = await resp.json();
+                    } catch (e) { return; }
+                }
+                const data = pilotsCache[key];
+                if (!data || !data.segments) return;
+                allPilotSegments[key] = data.segments.map(seg => ({
+                    id: seg.id, type: seg.type,
+                    departureTime: seg.departure_time, arrivalTime: seg.arrival_time,
+                    departureAirport: seg.departure_airport, arrivalAirport: seg.arrival_airport,
+                    tail: seg.tail || '', flightNumber: seg.flight_number || '',
+                    dh: seg.is_dh ? true : false, blockMinutes: seg.block_minutes || null
+                }));
+            }));
+
+            const now = new Date();
+            const bounds = [];
+
+            // Flatten all day flights with pilot key attached
+            const allDayFlights = [];
+            PILOT_KEYS.forEach(pilotKey => {
+                const segs = allPilotSegments[pilotKey];
+                if (!segs) return;
+                segs.filter(s => s.type === 'flight' && s.departureTime && s.departureTime.startsWith(mapDayDate))
+                    .forEach(f => allDayFlights.push({ ...f, pilotKey }));
+            });
+
+            // Group by city pair (sorted) to detect overlapping routes
+            const pairGroups = {};
+            allDayFlights.forEach(f => {
+                if (!f.departureAirport || !f.arrivalAirport) return;
+                const key = [f.departureAirport, f.arrivalAirport].sort().join('|');
+                if (!pairGroups[key]) pairGroups[key] = [];
+                pairGroups[key].push(f);
+            });
+
+            // Airport presence map: apt → { pilots, flights }
+            const aptData = {};
+            const addApt = (apt, f) => {
+                if (!aptData[apt]) aptData[apt] = { pilots: new Set(), flights: [] };
+                aptData[apt].pilots.add(f.pilotKey);
+                aptData[apt].flights.push(f);
+            };
+
+            // Draw routes
+            allDayFlights.forEach(f => {
+                const depCoords = resolveAirport(f.departureAirport);
+                const arrCoords = resolveAirport(f.arrivalAirport);
+                if (!depCoords || !arrCoords) return;
+
+                addApt(f.departureAirport, f);
+                addApt(f.arrivalAirport, f);
+                bounds.push(depCoords, arrCoords);
+
+                const depTime = new Date(f.departureTime);
+                const arrTime = new Date(f.arrivalTime || f.departureTime);
+                const isActive = depTime <= now && now <= arrTime;
+                const color = PILOT_COLORS[f.pilotKey];
+
+                // Offset index within pair group
+                const pairKey = [f.departureAirport, f.arrivalAirport].sort().join('|');
+                const group = pairGroups[pairKey];
+                const offsetIdx = group.indexOf(f);
+                const arcCoords = offsetArc(depCoords, arrCoords, 60, offsetIdx, group.length);
+
+                // Active: stay in pilot color but heavier + full opacity so it reads as "live"
+                const weight = isActive ? 4.5 : 2.5;
+                const opacity = isActive ? 1 : 0.75;
+                const dayLineOpts = { weight, opacity, color, smoothFactor: 1 };
+                if (isActive) dayLineOpts.className = 'active-route';
+                const line = L.polyline(arcCoords, dayLineOpts);
+
+                const blockMins = f.blockMinutes != null ? f.blockMinutes : (f.arrivalTime ? (arrTime - depTime) / 60000 : null);
+                line.bindPopup(`
+                    <div style="font-weight:900;font-size:13px;color:${color};margin-bottom:3px">${PILOT_NAMES[f.pilotKey]}</div>
+                    <div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${f.departureAirport} → ${f.arrivalAirport}</div>
+                    <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime)} → ${formatTimeISO(f.arrivalTime)}</div>
+                    <div style="font-size:12px;color:#94a3b8">Block ${blockMins ? formatDurationMinutes(blockMins) : '—'}${f.tail ? ' · ' + f.tail : ''}</div>
+                    ${isActive ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:6px">▶ In the air now</div>` : ''}
+                `, { className: 'dark-popup' });
+                line.addTo(map);
+                mapLayers.future.push(line);
+
+                // Live airplane icon — placed at actual progress position, rotated to heading
+                if (isActive) {
+                    const progress = Math.min(1, Math.max(0, (now - depTime) / (arrTime - depTime)));
+                    const dotIdx = Math.min(Math.floor(progress * (arcCoords.length - 1)), arcCoords.length - 2);
+                    const dotPos = arcCoords[dotIdx];
+                    const nextPos = arcCoords[dotIdx + 1] || arcCoords[dotIdx];
+                    const bearing = computeBearing(dotPos, nextPos);
+                    const dot = L.marker(dotPos, { icon: makePlaneIcon(bearing, color) }).addTo(map);
+                    dot.bindTooltip(`✈ ${PILOT_NAMES[f.pilotKey]} — in the air`, { permanent: false, className: 'dark-popup' });
+                    mapLayers.active.push(dot);
+                }
+            });
+
+            // Airport markers
+            Object.entries(aptData).forEach(([apt, data]) => {
+                const coords = resolveAirport(apt);
+                if (!coords) return;
+
+                const pilotList = [...data.pilots];
+                // Single pilot = their color; multiple pilots = white
+                const fillColor = pilotList.length === 1 ? PILOT_COLORS[pilotList[0]] : '#ffffff';
+                const strokeColor = pilotList.length === 1 ? '#000' : '#64748b';
+
+                const circle = L.circleMarker(coords, {
+                    radius: 5, fillColor, fillOpacity: 0.95,
+                    color: strokeColor, weight: 1.5
+                }).addTo(map);
+
+                // Popup: which pilots, which flights
+                const flightLines = data.flights.map(f =>
+                    `<div style="font-size:11px;color:${PILOT_COLORS[f.pilotKey]};margin-top:3px">` +
+                    `${PILOT_NAMES[f.pilotKey].split(' ')[0]}: ${f.departureAirport}→${f.arrivalAirport} ${formatTimeISO(f.departureTime)}</div>`
+                ).join('');
+                circle.bindPopup(`<div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${apt}</div>${flightLines}`, { className: 'dark-popup' });
+
+                const label = L.marker(coords, {
+                    icon: L.divIcon({
+                        className: '',
+                        html: `<div style="color:#e2e8f0;font-size:9px;font-weight:900;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;margin-left:8px;margin-top:-4px">${apt}</div>`,
+                        iconSize: [40, 12], iconAnchor: [0, 6]
+                    })
+                }).addTo(map);
+
+                mapLayers.airports.push(circle);
+                mapLayers.labels.push(label);
+            });
+
+            if (bounds.length > 0) map.fitBounds(L.latLngBounds(bounds).pad(0.25));
         }
 
         // Tooltip element for flight details
@@ -1151,12 +1740,13 @@
                     let layoverText = '';
                     try {
                         const pilotBase = pilotsCache[currentPilot]?.base || null;
-                        if (arrDate && arrApt && arrApt !== pilotBase) {
+                        if (arrDate && arrApt) {
                             const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && new Date(s.departureTime) > arrDate)
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - arrDate) / 60000;
-                                if (groundMins > 0) {
+                                const atHome = pilotBase && arrApt === pilotBase;
+                                if (groundMins > 0 && (!atHome || groundMins <= 1800)) {
                                     const label = groundMins < 240 ? 'Turn' : 'Layover';
                                     layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
                                 }
@@ -1247,12 +1837,13 @@
                         const depTimeFmt = depAttr ? formatTimeISO(depAttr) : '';
                         const arrTimeFmt = arrAttr ? formatTimeISO(arrAttr) : '';
                         let groundLine = '';
-                        if (!isPersonal && arrApt && arrAttr && arrApt !== pilotBase) {
+                        if (!isPersonal && arrApt && arrAttr) {
                             const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                if (groundMins > 0) {
+                                const atHome = pilotBase && arrApt.toUpperCase() === pilotBase.toUpperCase();
+                                if (groundMins > 0 && !atHome) {
                                     const lbl = groundMins < 240 ? 'Turn' : 'Layover';
                                     groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
                                 }
@@ -1305,24 +1896,25 @@
                             const arrApt = f.arrivalAirport || '';
                             const depTime = formatTimeISO(depAttr);
                             const arrTime = formatTimeISO(arrAttr);
-                            const blockMins = depAttr && arrAttr ? (() => {
+                            const blockMins = f.blockMinutes != null ? f.blockMinutes : (depAttr && arrAttr ? (() => {
                                 const d1 = new Date(depAttr);
                                 const d2 = new Date(arrAttr);
                                 if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return null;
                                 return (d2 - d1) / 60000;
-                            })() : null;
+                            })() : null);
                             const isPersonal = tripAttr === 'PERSONAL';
                             const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-500/60 text-pink-300 bg-pink-950/40">DH</span>` : '';
                             const personalBadge = isPersonal ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-violet-500/60 text-violet-300 bg-violet-950/40">Personal</span>` : '';
                             const flightNumAttr = f.flightNumber || '';
                             const tripLabel = flightNumAttr ? `<span class="text-[10px] text-blue-400/70 ml-2">${flightNumAttr}</span>` : (tripAttr && !isPersonal ? `<span class="text-[10px] text-blue-400/70 ml-2">Trip ${tripAttr}</span>` : '');
                             let layoverText = '';
-                            if (!isPersonal && arrApt && arrAttr && arrApt !== pilotBase) {
+                            if (!isPersonal && arrApt && arrAttr) {
                                 const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
                                     .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                                 if (nextLeg) {
                                     const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                    if (groundMins > 0) {
+                                    const atHome = pilotBase && arrApt === pilotBase;
+                                    if (groundMins > 0 && (!atHome || groundMins <= 1800)) {
                                         const label = groundMins < 240 ? 'Turn' : 'Layover';
                                         layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
                                     }
@@ -1330,7 +1922,7 @@
                             }
                             const rowBorder = isPersonal ? 'border-violet-900/50' : 'border-blue-900/30';
                             const rowBg = isPersonal ? 'bg-violet-950/20' : 'bg-black/30';
-                            const editBtns = f.isManual ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
+                            const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
                             return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg} text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime} <span class="text-zinc-600">→</span> ${arrTime}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div></div>`;
                         }).join('');
                     }
@@ -1613,7 +2205,6 @@
         }
 
         function showDayDetail(dateKey) {
-            if (window.innerWidth >= 768) return;
             const pilotBase = pilotsCache[currentPilot]?.base || null;
             const dayEvents = segments.filter(s => s.departureTime && s.departureTime.startsWith(dateKey));
             const [yr, mo, dy] = dateKey.split('-');
@@ -1625,7 +2216,7 @@
             if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
             const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
 
-            let label = currentPilot === 'kyle' ? 'ON CALL' : 'OFF';
+            let label = currentPilot === 'kyle' ? 'ON CALL' : 'DAY OFF';
             let labelColor = 'text-zinc-400';
             if (isHard) { label = 'HARD OFF'; labelColor = 'text-red-400'; }
             else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
@@ -1640,8 +2231,8 @@
             </div>`;
 
             if (flights.length === 0) {
-                const icon = isHard ? '🔴' : away ? '🏨' : '😴';
-                const msg = isHard ? 'Hard Day Off' : away ? `Away at ${away.arrivalAirport}` : 'Day Off';
+                const icon = isHard ? '🔴' : away ? '🏨' : currentPilot === 'kyle' ? '📟' : '😴';
+                const msg = isHard ? 'Hard Day Off' : away ? `Away at ${away.arrivalAirport}` : currentPilot === 'kyle' ? 'On Call' : 'Day Off';
                 html += `<div class="text-center py-8"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>`;
             }
 
@@ -1650,23 +2241,24 @@
                 const arr = f.arrivalAirport || '';
                 const depTime = formatTimeISO(f.departureTime || '');
                 const arrTime = formatTimeISO(f.arrivalTime || '');
-                const blockMins = f.departureTime && f.arrivalTime ? (new Date(f.arrivalTime) - new Date(f.departureTime)) / 60000 : null;
+                const blockMins = f.blockMinutes != null ? f.blockMinutes : (f.departureTime && f.arrivalTime ? (new Date(f.arrivalTime) - new Date(f.departureTime)) / 60000 : null);
                 const isPersonal = f.trip === 'PERSONAL';
                 const dhBadge = f.dh ? `<span class="ml-2 text-[9px] font-black text-pink-300">DH</span>` : '';
                 const personalBadge = isPersonal ? `<span class="ml-2 text-[9px] font-black text-violet-300">Personal</span>` : '';
                 const flightNum = f.flightNumber ? `<span class="text-[10px] text-blue-400/70 ml-2">${f.flightNumber}</span>` : '';
                 let groundBadge = '';
-                if (!isPersonal && arr && f.arrivalTime && arr !== pilotBase) {
+                if (!isPersonal && arr && f.arrivalTime) {
                     const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arr && s.departureTime > f.arrivalTime)
                         .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                     if (nextLeg) {
                         const gm = (new Date(nextLeg.departureTime) - new Date(f.arrivalTime)) / 60000;
-                        if (gm > 0) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Layover'} ${formatDurationMinutes(gm)}</div>`;
+                        const atHome = pilotBase && arr === pilotBase;
+                        if (gm > 0 && (!atHome || gm <= 1800)) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Layover'} ${formatDurationMinutes(gm)}</div>`;
                     }
                 }
                 const cardBorder = isPersonal ? 'border-violet-500/30' : 'border-white/10';
                 const cardBg = isPersonal ? 'bg-violet-950/30' : 'bg-black/40';
-                const editActions = f.isManual ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
+                const editActions = f.id ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${f.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
                     <button onclick="deleteManualFlight(${f.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
                 </div>` : '';
@@ -1846,6 +2438,83 @@
             }
             input.value = '';
         }
+
+        // ── Schedaero Sync (WIP) ─────────────────────────────────────────
+        function openSchedaeroSync() {
+            document.getElementById('schedaero-url').value      = localStorage.getItem('schedaero_url')      || '';
+            document.getElementById('schedaero-apitoken').value = localStorage.getItem('schedaero_apitoken') || '';
+            document.getElementById('schedaero-cookie').value   = localStorage.getItem('schedaero_cookie')   || '';
+            document.getElementById('schedaero-error').classList.add('hidden');
+            document.getElementById('schedaero-modal').classList.remove('hidden');
+        }
+
+        function closeSchedaeroModal() {
+            document.getElementById('schedaero-modal').classList.add('hidden');
+        }
+
+        async function syncSchedaero() {
+            const url      = document.getElementById('schedaero-url').value.trim();
+            const apiToken = document.getElementById('schedaero-apitoken').value.trim();
+            const cookie   = document.getElementById('schedaero-cookie').value.trim();
+            const count    = parseInt(document.getElementById('schedaero-months').value);
+            const errEl    = document.getElementById('schedaero-error');
+            const btn      = document.getElementById('schedaero-sync-btn');
+
+            errEl.classList.add('hidden');
+
+            if (!url || !apiToken || !cookie) {
+                errEl.textContent = 'URL, API token, and cookie are all required.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+
+            localStorage.setItem('schedaero_url',      url);
+            localStorage.setItem('schedaero_apitoken', apiToken);
+            localStorage.setItem('schedaero_cookie',   cookie);
+
+            btn.textContent = 'Syncing…';
+            btn.disabled = true;
+
+            const now = new Date();
+            const back  = parseInt(document.getElementById('schedaero-months-back').value);
+            const total = back + count;
+            let totalAdded = 0;
+            const errors = [];
+
+            for (let i = -back; i < count; i++) {
+                const d     = new Date(now.getFullYear(), now.getMonth() + i, 1);
+                const month = d.getMonth() + 1;
+                const year  = d.getFullYear();
+                try {
+                    const resp = await fetch(`${API_BASE}/pilots/kyle/sync-schedaero`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ cookie, schedaeroUrl: url, apiToken, month, year })
+                    });
+                    const result = await resp.json();
+                    if (result.success) {
+                        totalAdded += result.segmentsAdded;
+                    } else {
+                        errors.push(`${year}-${String(month).padStart(2,'0')}: ${result.error}`);
+                    }
+                } catch (err) {
+                    errors.push(`${year}-${String(month).padStart(2,'0')}: ${err.message}`);
+                }
+            }
+
+            btn.textContent = 'Sync';
+            btn.disabled = false;
+
+            if (errors.length > 0) {
+                errEl.textContent = errors.join(' | ');
+                errEl.classList.remove('hidden');
+            } else {
+                closeSchedaeroModal();
+                alert(`Synced ${totalAdded} segments from Schedaero.`);
+                if (currentPilot === 'kyle') loadPilot('kyle');
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', () => {

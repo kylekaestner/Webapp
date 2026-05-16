@@ -53,8 +53,9 @@ function initDB() {
                 FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE
             )
         `);
-        // Migration: add is_manual column if it doesn't exist yet
+        // Migrations: add columns if they don't exist yet
         db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
+        db.run(`ALTER TABLE segments ADD COLUMN block_minutes INTEGER`, () => {});
 
         // Seed initial pilots if not exists
         db.run(`

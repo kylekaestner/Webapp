@@ -217,6 +217,7 @@ function parseCSV_skywest(text) {
     const idxTail     = findIdx(['TAIL', 'FCVTAIL', 'AIRCRAFT', 'REGISTRATION']);
     const idxFlightNum = findIdx(['FLIGHT', 'FLT', 'FLIGHT NUMBER', 'FLIGHT#', 'FLT#']);
     const idxDh       = findIdx(['DH', 'DUTY', 'IS_DH']);
+    const idxBlock    = findIdx(['BLOCK', 'BLOCK TIME', 'BLOCKTIME', 'BLOCK_TIME']);
 
     const events = [];
 
@@ -242,6 +243,8 @@ function parseCSV_skywest(text) {
         const tail      = idxTail     >= 0 ? (cols[idxTail]     || '').replace(/"/g, '').trim() : '';
         const flightNum = idxFlightNum >= 0 ? (cols[idxFlightNum] || '').replace(/"/g, '').trim() : '';
         const dh        = idxDh       >= 0 ? (cols[idxDh]       || '').replace(/"/g, '').trim() : '';
+        const blockRaw  = idxBlock    >= 0 ? (cols[idxBlock]    || '').replace(/"/g, '').trim() : '';
+        const blockMinutes = blockRaw ? Math.round(parseFloat(blockRaw) * 60) : null;
 
         if (!date) continue;
 
@@ -272,7 +275,7 @@ function parseCSV_skywest(text) {
             const isoStart = `${ym}-${mm}-${dd}T${dt}:00`;
             const isoEnd   = `${arrivalDate.y}-${arrivalDate.m}-${arrivalDate.dd}T${at}:00`;
             const isDH = dh && (dh.toUpperCase() === 'DH' || dh === '1' || dh.toLowerCase() === 'true');
-            events.push({ type: 'flight', departureTime: isoStart, arrivalTime: isoEnd, departureAirport: dep, arrivalAirport: arr, tail, flightNumber: flightNum, dh: isDH });
+            events.push({ type: 'flight', departureTime: isoStart, arrivalTime: isoEnd, departureAirport: dep, arrivalAirport: arr, tail, flightNumber: flightNum, dh: isDH, blockMinutes });
             continue;
         }
 
@@ -280,6 +283,44 @@ function parseCSV_skywest(text) {
             events.push({ type: 'hard', departureTime: `${ym}-${mm}-${dd}T00:00:00` });
             continue;
         }
+    }
+
+    return events;
+}
+
+function parseSchedaeroData(data, filterMonth, filterYear) {
+    const crew = Array.isArray(data.crew) ? data.crew[0] : null;
+    if (!crew) return [];
+
+    const events = [];
+
+    for (const seg of (crew.segments || [])) {
+        if (!seg.departureAirport || !seg.arrivalAirport || !seg.departureTime) continue;
+        // Filter to only the requested month so cross-month segments aren't double-imported
+        if (filterMonth && filterYear) {
+            const d = new Date(seg.departureTime);
+            if (d.getMonth() + 1 !== filterMonth || d.getFullYear() !== filterYear) continue;
+        }
+        events.push({
+            type: 'flight',
+            departureTime: seg.departureTime,
+            arrivalTime: seg.arrivalTime || null,
+            departureAirport: seg.departureAirport,
+            arrivalAirport: seg.arrivalAirport,
+            tail: seg.aircraftDescription || null,
+            trip: seg.tripName || null,
+            flightNumber: null
+        });
+    }
+
+    for (const evt of (crew.events || [])) {
+        if (evt.text !== 'HARD') continue;
+        if (filterMonth && filterYear) {
+            const d = new Date(evt.startDate);
+            if (d.getMonth() + 1 !== filterMonth || d.getFullYear() !== filterYear) continue;
+        }
+        const date = evt.startDate.substring(0, 10);
+        events.push({ type: 'hard', departureTime: `${date}T00:00:00` });
     }
 
     return events;
@@ -382,9 +423,9 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), (req, res) => {
 
             // Insert new segments
             const stmt = db.prepare(`
-                INSERT INTO segments 
-                (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO segments
+                (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
 
             let completed = 0;
@@ -401,7 +442,8 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), (req, res) => {
                     event.tail || null,
                     event.trip || null,
                     event.flightNumber || null,
-                    event.dh ? 1 : 0
+                    event.dh ? 1 : 0,
+                    event.blockMinutes || null
                 ];
 
                 stmt.run(params, function (err) {
@@ -498,15 +540,15 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
 
         db.run(
             `UPDATE segments SET departure_time=?, arrival_time=?, departure_airport=?, arrival_airport=?,
-             flight_number=?, tail=?, trip=?, is_dh=?
-             WHERE id=? AND pilot_id=? AND is_manual=1`,
+             flight_number=?, tail=?, trip=?, is_dh=?, is_manual=1
+             WHERE id=? AND pilot_id=?`,
             [departure_time, arrival_time || null,
              departure_airport.trim().toUpperCase(), arrival_airport.trim().toUpperCase(),
              flight_number || null, tail || null, tripValue, is_dh ? 1 : 0,
              id, pilot.id],
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
-                if (this.changes === 0) return res.status(404).json({ error: 'Segment not found or not editable' });
+                if (this.changes === 0) return res.status(404).json({ error: 'Segment not found' });
                 res.json({ success: true });
             }
         );
@@ -523,11 +565,11 @@ app.delete('/api/pilots/:pilotKey/segments/:id', (req, res) => {
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
         db.run(
-            'DELETE FROM segments WHERE id=? AND pilot_id=? AND is_manual=1',
+            'DELETE FROM segments WHERE id=? AND pilot_id=?',
             [id, pilot.id],
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
-                if (this.changes === 0) return res.status(404).json({ error: 'Segment not found or not deletable' });
+                if (this.changes === 0) return res.status(404).json({ error: 'Segment not found' });
                 res.json({ success: true });
             }
         );
@@ -564,6 +606,104 @@ app.get('/api/segments', (req, res) => {
             return res.status(500).json({ error: err.message });
         }
         res.json(rows);
+    });
+});
+
+// Schedaero sync — fetch one month from Schedaero and import into Kyle's schedule
+app.post('/api/pilots/kyle/sync-schedaero', async (req, res) => {
+    const { cookie, schedaeroUrl, apiToken, month, year } = req.body;
+
+    if (!cookie || !schedaeroUrl || !apiToken) {
+        return res.status(400).json({ error: 'cookie, schedaeroUrl, and apiToken are required' });
+    }
+
+    const targetMonth = parseInt(month) || (new Date().getMonth() + 1);
+    const targetYear  = parseInt(year)  || new Date().getFullYear();
+
+    let schedaeroData;
+    try {
+        const url = `${schedaeroUrl}?month=${targetMonth}&year=${targetYear}`;
+        const parsed = new URL(schedaeroUrl);
+        const origin = parsed.origin;
+
+        // Extract CSRF token from cookie (Schedaero uses __Host-AviCSRF)
+        const csrfMatch = cookie.match(/(?:^|;\s*)(?:__Host-)?AviCSRF=([^;]+)/);
+        const csrf = csrfMatch ? csrfMatch[1].trim() : null;
+
+        const reqHeaders = {
+            'Cookie': cookie,
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'no-cache',
+            'Content-Type': 'application/json',
+            'Origin': origin,
+            'Pragma': 'no-cache',
+            'Referer': `${origin}/mvc/crewscheduling/calendar`,
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+            'X-Avinode-SentTimestamp': new Date().toISOString()
+        };
+        if (csrf) reqHeaders['X-AviCSRF'] = csrf;
+        if (apiToken) reqHeaders['X-Avinode-ApiToken'] = apiToken;
+
+        const response = await fetch(url, { headers: reqHeaders });
+        if (!response.ok) {
+            return res.status(response.status).json({ error: `Schedaero returned ${response.status} — session may be expired` });
+        }
+        const json = await response.json();
+        schedaeroData = json.data || json;
+    } catch (err) {
+        return res.status(500).json({ error: `Could not reach Schedaero: ${err.message}` });
+    }
+
+    const events = parseSchedaeroData(schedaeroData, targetMonth, targetYear);
+
+    const db = getDB();
+    db.get('SELECT id FROM pilots WHERE pilot_key = ?', ['kyle'], (err, pilot) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
+
+        const startDate = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01T00:00:00`;
+        const lastDay   = new Date(targetYear, targetMonth, 0).getDate();
+        const endDate   = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59`;
+
+        db.run(
+            'DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0) AND departure_time >= ? AND departure_time <= ?',
+            [pilot.id, startDate, endDate],
+            (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                if (events.length === 0) return res.json({ success: true, segmentsAdded: 0 });
+
+                const stmt = db.prepare(`
+                    INSERT INTO segments
+                    (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `);
+
+                let completed = 0;
+                const errors = [];
+
+                events.forEach(event => {
+                    stmt.run([
+                        pilot.id, event.type,
+                        event.departureTime || null, event.arrivalTime || null,
+                        event.departureAirport || null, event.arrivalAirport || null,
+                        event.tail || null, event.trip || null,
+                        null, 0, null
+                    ], function(err) {
+                        if (err) errors.push(err.message);
+                        completed++;
+                        if (completed === events.length) {
+                            stmt.finalize();
+                            if (errors.length > 0) return res.status(500).json({ error: 'Some segments failed', details: errors });
+                            res.json({ success: true, segmentsAdded: events.length });
+                        }
+                    });
+                });
+            }
+        );
     });
 });
 
