@@ -142,6 +142,9 @@
                     <button onclick="changeMonth(1)" class="px-4 py-2 rounded-lg text-[10px] font-black uppercase bg-zinc-800 hover:bg-zinc-700 ml-1">Next</button>
                 </div>
             </div>
+            <button onclick="openAddFlight()" class="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-wide transition-colors">
+                <span class="text-base leading-none">+</span> Add Flight
+            </button>
         </header>
 
         <!-- Mobile header -->
@@ -153,6 +156,7 @@
             <div class="flex items-center gap-1">
                 <button onclick="changeMonth(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">‹</button>
                 <button onclick="changeMonth(1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">›</button>
+                <button onclick="openAddFlight()" class="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-600 text-white font-black text-base ml-0.5">+</button>
             </div>
         </header>
 
@@ -204,12 +208,88 @@
         </nav>
     </div>
 
-    <!-- Mobile day detail sheet -->
-    <div id="day-detail-sheet" class="hidden fixed inset-0 z-50 flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+    <!-- Add Flight Modal -->
+    <div id="add-flight-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" onclick="if(event.target===this)closeAddFlight()">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <!-- Modal header -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+                <h3 id="add-flight-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Add Flight</h3>
+                <button onclick="closeAddFlight()" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <!-- Type selector -->
+                <div class="grid grid-cols-3 gap-1.5 p-1 bg-zinc-800 rounded-xl">
+                    <button onclick="setAddFlightType('work')" id="ftype-work" class="py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all bg-blue-600 text-white">Work</button>
+                    <button onclick="setAddFlightType('dh')" id="ftype-dh" class="py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Deadhead</button>
+                    <button onclick="setAddFlightType('personal')" id="ftype-personal" class="py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Personal</button>
+                </div>
+                <!-- Pilot + Date -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Pilot</label>
+                        <select id="add-pilot" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                            <option value="kyle">Kyle Kaestner</option>
+                            <option value="adam">Adam Burke</option>
+                            <option value="sam">Sam Byrne</option>
+                            <option value="logan">Logan Hine</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Date</label>
+                        <input type="date" id="add-date" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                    </div>
+                </div>
+                <!-- Airports -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">From</label>
+                        <input type="text" id="add-dep" maxlength="4" placeholder="ORD" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">To</label>
+                        <input type="text" id="add-arr" maxlength="4" placeholder="SFO" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                    </div>
+                </div>
+                <!-- Times -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Departs</label>
+                        <input type="time" id="add-dep-time" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Arrives <span class="text-zinc-600 normal-case font-normal">(next day auto-detected)</span></label>
+                        <input type="time" id="add-arr-time" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                    </div>
+                </div>
+                <!-- Optional fields -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Flight # <span class="text-zinc-600 normal-case font-normal">(optional)</span></label>
+                        <input type="text" id="add-flight-num" placeholder="UA 442" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Tail # <span class="text-zinc-600 normal-case font-normal">(optional)</span></label>
+                        <input type="text" id="add-tail-num" placeholder="N12345" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                    </div>
+                </div>
+                <!-- Error -->
+                <div id="add-flight-error" class="hidden text-xs text-red-400 font-bold bg-red-950/40 border border-red-800/50 rounded-lg px-3 py-2"></div>
+            </div>
+            <!-- Footer -->
+            <div class="flex gap-3 px-5 pb-5">
+                <button id="add-flight-submit-btn" onclick="submitAddFlight()" class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-xs tracking-widest transition-colors">Add Flight</button>
+                <button onclick="closeAddFlight()" class="px-5 py-3 border border-zinc-700 hover:border-zinc-500 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Day detail sheet (bottom sheet on mobile, centered modal on desktop) -->
+    <div id="day-detail-sheet" class="hidden fixed inset-0 z-50 flex items-end md:items-center md:justify-center md:p-6" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-        <div class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl max-h-[78vh] flex flex-col" onclick="event.stopPropagation()">
-            <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mt-3 mb-1 shrink-0"></div>
-            <div id="day-detail-content" class="overflow-y-auto px-5 pb-6 pt-2"></div>
+        <div class="relative w-full md:w-auto md:min-w-[380px] md:max-w-md bg-zinc-900 border-t md:border border-zinc-700 rounded-t-2xl md:rounded-2xl max-h-[78vh] flex flex-col shadow-2xl" onclick="event.stopPropagation()">
+            <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mt-3 mb-1 shrink-0 md:hidden"></div>
+            <div id="day-detail-content" class="overflow-y-auto px-5 pb-6 pt-2 md:pt-5"></div>
         </div>
     </div>
 
@@ -745,6 +825,7 @@
                 let segmentData = [];
                 if (data.segments && Array.isArray(data.segments)) {
                     segmentData = data.segments.map(seg => ({
+                        id: seg.id,
                         type: seg.type,
                         departureTime: seg.departure_time,
                         arrivalTime: seg.arrival_time,
@@ -753,7 +834,8 @@
                         tail: seg.tail || '',
                         trip: seg.trip || '',
                         flightNumber: seg.flight_number || '',
-                        dh: seg.is_dh ? true : false
+                        dh: seg.is_dh ? true : false,
+                        isManual: seg.is_manual ? true : false
                     }));
                 }
 
@@ -1159,11 +1241,13 @@
                         const flightNumAttr = f.flightNumber || '';
                         const depApt = f.departureAirport || '';
                         const arrApt = f.arrivalAirport || '';
+                        const isPersonal = tripAttr === 'PERSONAL';
                         const dhDot = f.dh ? `<span style="color:#f9a8d4;font-size:8px;font-weight:900;margin-left:3px">DH</span>` : '';
+                        const personalDot = isPersonal ? `<span style="color:#c084fc;font-size:8px;font-weight:900;margin-left:3px">P</span>` : '';
                         const depTimeFmt = depAttr ? formatTimeISO(depAttr) : '';
                         const arrTimeFmt = arrAttr ? formatTimeISO(arrAttr) : '';
                         let groundLine = '';
-                        if (arrApt && arrAttr && arrApt !== pilotBase) {
+                        if (!isPersonal && arrApt && arrAttr && arrApt !== pilotBase) {
                             const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
@@ -1174,8 +1258,9 @@
                                 }
                             }
                         }
-                        html += `<div class="bg-black/40 rounded-lg px-2 py-[5px] flight-item" style="font-size:10px" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">`;
-                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}</div>`;
+                        const cellBg = isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : 'background:rgba(0,0,0,0.4)';
+                        html += `<div class="rounded-lg px-2 py-[5px] flight-item" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">`;
+                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt} → ${arrTimeFmt}</div>`;
                         html += groundLine;
                         html += `</div>`;
@@ -1226,11 +1311,13 @@
                                 if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return null;
                                 return (d2 - d1) / 60000;
                             })() : null;
+                            const isPersonal = tripAttr === 'PERSONAL';
                             const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-500/60 text-pink-300 bg-pink-950/40">DH</span>` : '';
+                            const personalBadge = isPersonal ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-violet-500/60 text-violet-300 bg-violet-950/40">Personal</span>` : '';
                             const flightNumAttr = f.flightNumber || '';
-                            const tripLabel = flightNumAttr ? `<span class="text-[10px] text-blue-400/70 ml-2">${flightNumAttr}</span>` : (tripAttr ? `<span class="text-[10px] text-blue-400/70 ml-2">Trip ${tripAttr}</span>` : '');
+                            const tripLabel = flightNumAttr ? `<span class="text-[10px] text-blue-400/70 ml-2">${flightNumAttr}</span>` : (tripAttr && !isPersonal ? `<span class="text-[10px] text-blue-400/70 ml-2">Trip ${tripAttr}</span>` : '');
                             let layoverText = '';
-                            if (arrApt && arrAttr && arrApt !== pilotBase) {
+                            if (!isPersonal && arrApt && arrAttr && arrApt !== pilotBase) {
                                 const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
                                     .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                                 if (nextLeg) {
@@ -1241,7 +1328,10 @@
                                     }
                                 }
                             }
-                            return `<div class="flight-row border border-blue-900/30 rounded-2xl px-4 py-3 bg-black/30 text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr || '—'}${tripLabel}</div></div><div class="text-right shrink-0"><div class="font-black text-sm text-zinc-200">${depTime} <span class="text-zinc-600">→</span> ${arrTime}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div></div></div>`;
+                            const rowBorder = isPersonal ? 'border-violet-900/50' : 'border-blue-900/30';
+                            const rowBg = isPersonal ? 'bg-violet-950/20' : 'bg-black/30';
+                            const editBtns = f.isManual ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
+                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg} text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime} <span class="text-zinc-600">→</span> ${arrTime}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div></div>`;
                         }).join('');
                     }
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];
@@ -1561,10 +1651,12 @@
                 const depTime = formatTimeISO(f.departureTime || '');
                 const arrTime = formatTimeISO(f.arrivalTime || '');
                 const blockMins = f.departureTime && f.arrivalTime ? (new Date(f.arrivalTime) - new Date(f.departureTime)) / 60000 : null;
+                const isPersonal = f.trip === 'PERSONAL';
                 const dhBadge = f.dh ? `<span class="ml-2 text-[9px] font-black text-pink-300">DH</span>` : '';
+                const personalBadge = isPersonal ? `<span class="ml-2 text-[9px] font-black text-violet-300">Personal</span>` : '';
                 const flightNum = f.flightNumber ? `<span class="text-[10px] text-blue-400/70 ml-2">${f.flightNumber}</span>` : '';
                 let groundBadge = '';
-                if (arr && f.arrivalTime && arr !== pilotBase) {
+                if (!isPersonal && arr && f.arrivalTime && arr !== pilotBase) {
                     const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arr && s.departureTime > f.arrivalTime)
                         .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                     if (nextLeg) {
@@ -1572,9 +1664,15 @@
                         if (gm > 0) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Layover'} ${formatDurationMinutes(gm)}</div>`;
                     }
                 }
-                html += `<div class="bg-black/40 border border-white/10 rounded-xl p-4 mb-3">
+                const cardBorder = isPersonal ? 'border-violet-500/30' : 'border-white/10';
+                const cardBg = isPersonal ? 'bg-violet-950/30' : 'bg-black/40';
+                const editActions = f.isManual ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
+                    <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${f.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
+                    <button onclick="deleteManualFlight(${f.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
+                </div>` : '';
+                html += `<div class="${cardBg} border ${cardBorder} rounded-xl p-4 mb-3">
                     <div class="flex items-center justify-between mb-1">
-                        <div class="text-lg font-black text-white">${dep} <span class="text-blue-500/60">→</span> ${arr}${dhBadge}</div>
+                        <div class="text-lg font-black text-white">${dep} <span class="text-blue-500/60">→</span> ${arr}${dhBadge}${personalBadge}</div>
                         ${flightNum}
                     </div>
                     <div class="flex items-center justify-between text-sm">
@@ -1583,12 +1681,154 @@
                     </div>
                     ${groundBadge}
                     ${f.tail ? `<div class="text-[10px] text-zinc-600 mt-1">${f.tail}</div>` : ''}
+                    ${editActions}
                 </div>`;
             });
 
             document.getElementById('day-detail-content').innerHTML = html;
             document.getElementById('day-detail-sheet').classList.remove('hidden');
         }
+
+        // ── Add Flight ──────────────────────────────────────────────────
+        let _addFlightType = 'work';
+        let _editSegmentId = null;
+
+        function setAddFlightType(type) {
+            _addFlightType = type;
+            const colors = { work: 'bg-blue-600 text-white', dh: 'bg-pink-700 text-white', personal: 'bg-violet-600 text-white' };
+            ['work', 'dh', 'personal'].forEach(t => {
+                const btn = document.getElementById(`ftype-${t}`);
+                btn.className = btn.className.replace(/bg-\S+ text-white/g, '').trim();
+                if (t === type) btn.className += ' ' + colors[t];
+                else btn.classList.add('text-zinc-500');
+                btn.classList.toggle('text-zinc-500', t !== type);
+            });
+        }
+
+        function openAddFlight() {
+            _editSegmentId = null;
+            document.getElementById('add-flight-title').textContent = 'Add Flight';
+            document.getElementById('add-flight-submit-btn').textContent = 'Add Flight';
+            const today = new Date();
+            document.getElementById('add-date').value = today.toISOString().slice(0, 10);
+            document.getElementById('add-pilot').value = currentPilot || 'kyle';
+            ['add-dep','add-arr','add-dep-time','add-arr-time','add-flight-num','add-tail-num'].forEach(id => document.getElementById(id).value = '');
+            document.getElementById('add-flight-error').classList.add('hidden');
+            setAddFlightType('work');
+            document.getElementById('add-flight-modal').classList.remove('hidden');
+        }
+
+        function openEditFlight(segmentId) {
+            const seg = segments.find(s => s.id === segmentId);
+            if (!seg) return;
+            _editSegmentId = segmentId;
+            document.getElementById('add-flight-title').textContent = 'Edit Flight';
+            document.getElementById('add-flight-submit-btn').textContent = 'Save Changes';
+            document.getElementById('add-pilot').value = currentPilot || 'kyle';
+            // Date
+            const depDate = seg.departureTime ? seg.departureTime.slice(0, 10) : '';
+            document.getElementById('add-date').value = depDate;
+            document.getElementById('add-dep').value = seg.departureAirport || '';
+            document.getElementById('add-arr').value = seg.arrivalAirport || '';
+            // Times
+            document.getElementById('add-dep-time').value = seg.departureTime ? seg.departureTime.slice(11, 16) : '';
+            document.getElementById('add-arr-time').value = seg.arrivalTime ? seg.arrivalTime.slice(11, 16) : '';
+            document.getElementById('add-flight-num').value = seg.flightNumber || '';
+            document.getElementById('add-tail-num').value = seg.tail || '';
+            document.getElementById('add-flight-error').classList.add('hidden');
+            const type = seg.trip === 'PERSONAL' ? 'personal' : (seg.dh ? 'dh' : 'work');
+            setAddFlightType(type);
+            document.getElementById('add-flight-modal').classList.remove('hidden');
+        }
+
+        function closeAddFlight() {
+            document.getElementById('add-flight-modal').classList.add('hidden');
+            _editSegmentId = null;
+        }
+
+        async function deleteManualFlight(segmentId) {
+            if (!confirm('Delete this flight? This cannot be undone.')) return;
+            try {
+                const resp = await fetch(`${API_BASE}/pilots/${currentPilot}/segments/${segmentId}`, { method: 'DELETE' });
+                const data = await resp.json();
+                if (data.success) loadPilot(currentPilot);
+                else alert(data.error || 'Failed to delete flight.');
+            } catch (e) {
+                alert('Network error — is the server running?');
+            }
+        }
+
+        function _buildFlightPayload(pilot, date, dep, arr, depTime, arrTime) {
+            const depISO = `${date}T${depTime}:00`;
+            let arrISO = null;
+            if (arrTime) {
+                const [dH, dM] = depTime.split(':').map(Number);
+                const [aH, aM] = arrTime.split(':').map(Number);
+                let arrDate = date;
+                if (aH * 60 + aM <= dH * 60 + dM) {
+                    const d = new Date(date + 'T12:00:00');
+                    d.setDate(d.getDate() + 1);
+                    arrDate = d.toISOString().slice(0, 10);
+                }
+                arrISO = `${arrDate}T${arrTime}:00`;
+            }
+            return {
+                departure_time: depISO,
+                arrival_time: arrISO,
+                departure_airport: dep,
+                arrival_airport: arr,
+                flight_number: document.getElementById('add-flight-num').value.trim() || null,
+                tail: document.getElementById('add-tail-num').value.trim() || null,
+                is_dh: _addFlightType === 'dh',
+                is_personal: _addFlightType === 'personal'
+            };
+        }
+
+        async function submitAddFlight() {
+            const pilot    = document.getElementById('add-pilot').value;
+            const date     = document.getElementById('add-date').value;
+            const dep      = document.getElementById('add-dep').value.trim().toUpperCase();
+            const arr      = document.getElementById('add-arr').value.trim().toUpperCase();
+            const depTime  = document.getElementById('add-dep-time').value;
+            const arrTime  = document.getElementById('add-arr-time').value;
+            const errEl    = document.getElementById('add-flight-error');
+
+            errEl.classList.add('hidden');
+            if (!date || !dep || !arr || !depTime) {
+                errEl.textContent = 'Date, From, To, and Departure time are required.';
+                return errEl.classList.remove('hidden');
+            }
+            if (dep.length < 3 || arr.length < 3) {
+                errEl.textContent = 'Airport codes must be 3–4 characters (e.g. ORD or KORD).';
+                return errEl.classList.remove('hidden');
+            }
+
+            const payload = _buildFlightPayload(pilot, date, dep, arr, depTime, arrTime);
+            const isEdit = _editSegmentId !== null;
+            const url = isEdit
+                ? `${API_BASE}/pilots/${pilot}/segments/${_editSegmentId}`
+                : `${API_BASE}/pilots/${pilot}/add-segment`;
+
+            try {
+                const resp = await fetch(url, {
+                    method: isEdit ? 'PUT' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    closeAddFlight();
+                    if (pilot === currentPilot) loadPilot(currentPilot);
+                } else {
+                    errEl.textContent = data.error || (isEdit ? 'Failed to save changes.' : 'Failed to add flight.');
+                    errEl.classList.remove('hidden');
+                }
+            } catch (e) {
+                errEl.textContent = 'Network error — is the server running?';
+                errEl.classList.remove('hidden');
+            }
+        }
+        // ────────────────────────────────────────────────────────────────
 
         function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); }
 

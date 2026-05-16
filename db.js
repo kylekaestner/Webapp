@@ -48,10 +48,13 @@ function initDB() {
                 trip TEXT,
                 flight_number TEXT,
                 is_dh BOOLEAN DEFAULT 0,
+                is_manual BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE
             )
         `);
+        // Migration: add is_manual column if it doesn't exist yet
+        db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
 
         // Seed initial pilots if not exists
         db.run(`

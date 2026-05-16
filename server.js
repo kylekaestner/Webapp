@@ -374,8 +374,8 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), (req, res) => {
             return res.status(404).json({ error: 'Pilot not found' });
         }
 
-        // Delete existing segments for this pilot
-        db.run('DELETE FROM segments WHERE pilot_id = ?', [pilot.id], (err) => {
+        // Delete existing non-manual segments for this pilot (preserve manually-added flights)
+        db.run('DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)', [pilot.id], (err) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
@@ -447,6 +447,90 @@ app.delete('/api/pilots/:pilotKey/segments', (req, res) => {
             }
             res.json({ success: true, deleted: this.changes });
         });
+    });
+});
+
+// Manually add a single flight segment
+app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal } = req.body;
+
+    if (!departure_time || !departure_airport || !arrival_airport) {
+        return res.status(400).json({ error: 'departure_time, departure_airport, and arrival_airport are required' });
+    }
+
+    db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
+
+        const tripValue = is_personal ? 'PERSONAL' : null;
+
+        db.run(
+            `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, trip, is_dh, is_manual)
+             VALUES (?, 'flight', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+            [pilot.id, departure_time, arrival_time || null,
+             departure_airport.trim().toUpperCase(), arrival_airport.trim().toUpperCase(),
+             flight_number || null, tail || null, tripValue, is_dh ? 1 : 0],
+            function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ success: true, id: this.lastID });
+            }
+        );
+    });
+});
+
+// PUT update a manually-added segment
+app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
+    const db = getDB();
+    const { pilotKey, id } = req.params;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal } = req.body;
+
+    if (!departure_time || !departure_airport || !arrival_airport) {
+        return res.status(400).json({ error: 'departure_time, departure_airport, and arrival_airport are required' });
+    }
+
+    db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
+
+        const tripValue = is_personal ? 'PERSONAL' : null;
+
+        db.run(
+            `UPDATE segments SET departure_time=?, arrival_time=?, departure_airport=?, arrival_airport=?,
+             flight_number=?, tail=?, trip=?, is_dh=?
+             WHERE id=? AND pilot_id=? AND is_manual=1`,
+            [departure_time, arrival_time || null,
+             departure_airport.trim().toUpperCase(), arrival_airport.trim().toUpperCase(),
+             flight_number || null, tail || null, tripValue, is_dh ? 1 : 0,
+             id, pilot.id],
+            function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                if (this.changes === 0) return res.status(404).json({ error: 'Segment not found or not editable' });
+                res.json({ success: true });
+            }
+        );
+    });
+});
+
+// DELETE a single manually-added segment
+app.delete('/api/pilots/:pilotKey/segments/:id', (req, res) => {
+    const db = getDB();
+    const { pilotKey, id } = req.params;
+
+    db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
+
+        db.run(
+            'DELETE FROM segments WHERE id=? AND pilot_id=? AND is_manual=1',
+            [id, pilot.id],
+            function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                if (this.changes === 0) return res.status(404).json({ error: 'Segment not found or not deletable' });
+                res.json({ success: true });
+            }
+        );
     });
 });
 
