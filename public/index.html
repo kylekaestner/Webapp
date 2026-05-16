@@ -430,12 +430,12 @@
             'STL': [38.7477, -90.3597], 'KSTL': [38.7477, -90.3597],
             'MDW': [41.7868, -87.7522], 'KMDW': [41.7868, -87.7522],
             'SUS': [38.6519, -90.6506], 'KSUS': [38.6519, -90.6506],
-            'CNY': [38.8621, -99.3370], 'KCNY': [38.8621, -99.3370],
+            'CNY': [38.7600, -109.7541], 'KCNY': [38.7600, -109.7541],
             'SJU': [18.4394, -66.0018], 'TJSJ': [18.4394, -66.0018],
             'SRQ': [27.3954, -82.5540], 'KSRQ': [27.3954, -82.5540],
             'MBL': [44.2725, -86.2557], 'KMBL': [44.2725, -86.2557],
             'RSW': [26.5362, -81.7552], 'KRSW': [26.5362, -81.7552],
-            'APC': [26.1523, -81.7752], 'KAPC': [26.1523, -81.7752]
+            'APC': [38.2132, -122.2807], 'KAPC': [38.2132, -122.2807]
         };
 
         // Authoritative airport DB (populated from OpenFlights or OurAirports)
@@ -576,11 +576,11 @@
                 if (!next.departureTime) continue;
 
                 try {
-                    let arrDate = new Date(current.arrivalTime.replace('Z', ''));
-                    let depDate = new Date(next.departureTime.replace('Z', ''));
-                    
+                    let arrDate = new Date(current.arrivalTime);
+                    let depDate = new Date(next.departureTime);
+
                     if (isNaN(arrDate.getTime()) || isNaN(depDate.getTime())) continue;
-                    
+
                     arrDate.setHours(0, 0, 0, 0);
                     depDate.setHours(0, 0, 0, 0);
                     const day = new Date(arrDate);
@@ -770,9 +770,7 @@
         function formatTimeISO(iso) {
             if (!iso) return '—';
             try {
-                // Handle both formats: with Z (UTC) and without
-                let dateStr = iso.replace('Z', '');
-                const d = new Date(dateStr);
+                const d = new Date(iso);
                 if (isNaN(d.getTime())) return '—';
                 return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
             } catch (e) {
@@ -792,19 +790,23 @@
                     const dep = el.dataset.depTime; const arr = el.dataset.arrTime; const tail = el.dataset.tail || '—'; const trip = el.dataset.trip || ''; const flightNum = el.dataset.flight || '';
                     const depApt = el.dataset.depApt || '';
                     const arrApt = el.dataset.arrApt || '';
-                    const depDate = dep ? new Date(dep.replace('Z', '')) : null;
-                    const arrDate = arr ? new Date(arr.replace('Z', '')) : null;
+                    const depDate = dep ? new Date(dep) : null;
+                    const arrDate = arr ? new Date(arr) : null;
                     const blockMins = (depDate && arrDate && !isNaN(depDate.getTime()) && !isNaN(arrDate.getTime())) ? (arrDate - depDate) / 60000 : null;
 
-                    // compute layover to next flight in segments
+                    // compute ground time to next connecting leg
                     let layoverText = '';
                     try {
-                        const curArr = arrDate;
-                        if (curArr) {
-                            const next = segments.filter(s => s.type === 'flight' && s.departureTime).map(s => ({...s, _d: new Date(s.departureTime)})).filter(s=>s._d>curArr).sort((a,b)=>a._d-b._d)[0];
-                            if (next) {
-                                const mins = (new Date(next.departureTime) - curArr) / 60000;
-                                layoverText = `Layover to next (${next.departureAirport}→${next.arrivalAirport}): ${formatDurationMinutes(mins)}`;
+                        const pilotBase = pilotsCache[currentPilot]?.base || null;
+                        if (arrDate && arrApt && arrApt !== pilotBase) {
+                            const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && new Date(s.departureTime) > arrDate)
+                                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                            if (nextLeg) {
+                                const groundMins = (new Date(nextLeg.departureTime) - arrDate) / 60000;
+                                if (groundMins > 0) {
+                                    const label = groundMins < 240 ? 'Turn' : 'Layover';
+                                    layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
+                                }
                             }
                         }
                     } catch (er) { layoverText = ''; }
@@ -882,7 +884,19 @@
                         const depApt = f.departureAirport || '';
                         const arrApt = f.arrivalAirport || '';
                         const dhBadge = f.dh ? `<span class="ml-2 inline-block px-2 py-0.5 rounded-full text-[9px] border border-pink-400 text-pink-300">DH</span>` : '';
-                        html += `<div class="p-2 bg-black/40 rounded-lg border border-white/5 text-[10px] font-bold text-center flight-item" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">${depApt} → ${arrApt}${dhBadge}${flightNumAttr ? ' <span class="text-[10px] text-zinc-400 ml-2">'+flightNumAttr+'</span>' : ''}</div>`;
+                        let groundBadge = '';
+                        if (arrApt && arrAttr && arrApt !== pilotBase) {
+                            const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
+                                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                            if (nextLeg) {
+                                const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
+                                if (groundMins > 0) {
+                                    const label = groundMins < 240 ? 'Turn' : 'Layover';
+                                    groundBadge = `<div class="text-[9px] font-semibold text-amber-300 mt-0.5">${label} ${formatDurationMinutes(groundMins)}</div>`;
+                                }
+                            }
+                        }
+                        html += `<div class="p-2 bg-black/40 rounded-lg border border-white/5 text-[10px] font-bold text-center flight-item" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">${depApt} → ${arrApt}${dhBadge}${flightNumAttr ? ' <span class="text-[10px] text-zinc-400 ml-2">'+flightNumAttr+'</span>' : ''}${groundBadge}</div>`;
                     });
                     gridContainer.innerHTML += html + `</div></div>`;
                 }
@@ -901,7 +915,7 @@
                     let away = dayEvents.find(e => e.type === 'away');
                     if (away && away.arrivalAirport === pilotBase) away = null;
                     const flights = dayEvents.filter(e => e.type === 'flight');
-                    let bgColor = "bg-zinc-900/20 border-zinc-800", label = currentPilot === 'adam' ? "OFF" : "ON CALL";
+                    let bgColor = "bg-zinc-900/20 border-zinc-800", label = currentPilot === 'kyle' ? "ON CALL" : "OFF";
                     if (isHard) { bgColor = "bg-red-900/20 border-red-900/50"; label = "HARD OFF"; }
                     else if (away) { bgColor = "bg-yellow-900/20 border-yellow-700/50"; label = `AWAY - ${away.arrivalAirport}`; }
                     else if (flights.length > 0) { bgColor = "bg-blue-900/10 border-blue-500/30"; label = "FLYING"; }
@@ -918,19 +932,25 @@
                             const depTime = formatTimeISO(depAttr);
                             const arrTime = formatTimeISO(arrAttr);
                             const blockMins = depAttr && arrAttr ? (() => {
-                                const d1 = new Date(depAttr.replace('Z', ''));
-                                const d2 = new Date(arrAttr.replace('Z', ''));
+                                const d1 = new Date(depAttr);
+                                const d2 = new Date(arrAttr);
                                 if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return null;
                                 return (d2 - d1) / 60000;
                             })() : null;
                             const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-400 text-pink-300">DH</span>` : '';
                                 const flightNumAttr = f.flightNumber || '';
                             const tripLabel = flightNumAttr ? `<span class="text-[10px] text-zinc-400 ml-2">${flightNumAttr}</span>` : (tripAttr ? `<span class="text-[10px] text-zinc-400 ml-2">Trip ${tripAttr}</span>` : '');
-                            const nextFlight = sortedFlights[index + 1];
                             let layoverText = '';
-                            if (nextFlight && arrAttr && nextFlight.departureTime) {
-                                const layoverMins = (new Date(nextFlight.departureTime) - new Date(arrAttr)) / 60000;
-                                if (layoverMins > 0) layoverText = `Layover ${formatDurationMinutes(layoverMins)}`;
+                            if (arrApt && arrAttr && arrApt !== pilotBase) {
+                                const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
+                                    .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                                if (nextLeg) {
+                                    const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
+                                    if (groundMins > 0) {
+                                        const label = groundMins < 240 ? 'Turn' : 'Layover';
+                                        layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
+                                    }
+                                }
                             }
                             return `<div class="flight-row border border-zinc-800/60 rounded-3xl p-4 bg-zinc-950/70 text-sm text-zinc-100"><div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div class="space-y-2"><div class="text-lg font-black text-white">${depApt} <span class="text-zinc-500">→</span> ${arrApt}${dhBadge}</div><div class="text-[11px] uppercase tracking-widest text-zinc-400">Tail: ${tailAttr || '—'}${tripLabel}</div></div><div class="text-right text-zinc-200"><div class="font-black text-sm">${depTime} → ${arrTime}</div><div class="text-[11px] text-zinc-400">Block ${formatDurationMinutes(blockMins)}</div>${layoverText ? `<div class="text-[11px] text-amber-300 font-semibold mt-1">${layoverText}</div>` : ''}</div></div></div>`;
                         }).join('');
@@ -985,7 +1005,7 @@
 
                 // flight events: SUMMARY like '✈️ KSUS -> TJSJ' or '✈️ KCNY -> KSUS'
                 const flightMatch = summary.match(/(?:✈️|\u2708)?\s*([A-Z0-9]{3,4})\s*(?:->|→|–|—|-|to)\s*([A-Z0-9]{3,4})/i);
-                const tailMatch = desc.match(/Tail:\s*(\S+)/i);
+                const tailMatch = desc.match(/Tail:\s*([A-Z0-9]+)/i);
                 const tripMatch = desc.match(/Trip\s*[:#]?\s*(\d+)/i);
                 // try to capture flight number like RPA1234 or SKW567
                 const flightNumMatch = desc.match(/(?:Flight|Flt|FLT)\s*[:#]?\s*([A-Z]{2,3}\d{1,4})/i) || desc.match(/\b([A-Z]{2,3}\d{1,4})\b/i);

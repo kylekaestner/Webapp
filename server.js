@@ -53,7 +53,7 @@ function parseICS(text) {
         }
 
         const flightMatch = summary.match(/(?:✈️|\u2708)?\s*([A-Z0-9]{3,4})\s*(?:->|→|–|—|-|to)\s*([A-Z0-9]{3,4})/i);
-        const tailMatch = desc.match(/Tail:\s*(\S+)/i);
+        const tailMatch = desc.match(/Tail:\s*([A-Z0-9]+)/i);
         const tripMatch = desc.match(/Trip\s*[:#]?\s*(\d+)/i);
         const flightNumMatch = desc.match(/(?:Flight|Flt|FLT)\s*[:#]?\s*([A-Z]{2,3}\d{1,4})/i) || desc.match(/\b([A-Z]{2,3}\d{1,4})\b/i);
 
@@ -196,7 +196,6 @@ function parseCSV(text) {
 }
 
 function parseCSV_skywest(text) {
-    // SkyWest format variant - handles varied header names and additional fields
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (lines.length === 0) return [];
     const headerRaw = lines.shift();
@@ -204,20 +203,20 @@ function parseCSV_skywest(text) {
 
     const findIdx = (aliases) => {
         for (const a of aliases) {
-            const up = a.toUpperCase();
-            const i = header.indexOf(up);
+            const i = header.indexOf(a.toUpperCase());
             if (i >= 0) return i;
         }
         return -1;
     };
 
-    const idxDate = findIdx(['DATE', 'FLIGHTDATE', 'SCHEDULEDATE']);
-    const idxDep = findIdx(['DEP', 'DEPARTURE', 'ORIG', 'ORIGIN', 'FROM']);
-    const idxArr = findIdx(['ARR', 'ARRIVAL', 'DEST', 'DESTINATION', 'TO']);
-    const idxDepTime = findIdx(['DEPTIME', 'DEP_TIME', 'DEPARTURETIME', 'DEP TIME', 'DEP/TIME', 'DEPT']);
-    const idxArrTime = findIdx(['ARRTIME', 'ARR_TIME', 'ARRIVALTIME', 'ARR TIME', 'ARR/TIME', 'ARRT']);
-    const idxTail = findIdx(['FCVTAIL', 'TAIL', 'AIRCRAFT', 'REGISTRATION']);
-    const idxDh = findIdx(['DH', 'DUTY', 'IS_DH']);
+    const idxDate     = findIdx(['DATE', 'FLIGHTDATE', 'SCHEDULEDATE']);
+    const idxDep      = findIdx(['ORIGIN', 'ORIG', 'DEP', 'DEPARTURE', 'FROM']);
+    const idxArr      = findIdx(['DEST', 'DESTINATION', 'ARR', 'ARRIVAL', 'TO']);
+    const idxDepTime  = findIdx(['DEPART', 'DEPTIME', 'DEP_TIME', 'DEPARTURETIME', 'DEP TIME', 'DEP/TIME', 'DEPT']);
+    const idxArrTime  = findIdx(['ARRIVE', 'ARRTIME', 'ARR_TIME', 'ARRIVALTIME', 'ARR TIME', 'ARR/TIME', 'ARRT']);
+    const idxTail     = findIdx(['TAIL', 'FCVTAIL', 'AIRCRAFT', 'REGISTRATION']);
+    const idxFlightNum = findIdx(['FLIGHT', 'FLT', 'FLIGHT NUMBER', 'FLIGHT#', 'FLT#']);
+    const idxDh       = findIdx(['DH', 'DUTY', 'IS_DH']);
 
     const events = [];
 
@@ -230,19 +229,19 @@ function parseCSV_skywest(text) {
 
     const addDays = (year, month, day, extraDays) => {
         const d = new Date(Number(year), Number(month) - 1, Number(day) + extraDays);
-        const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
-        return { y, m, dd };
+        return { y: d.getFullYear(), m: String(d.getMonth() + 1).padStart(2, '0'), dd: String(d.getDate()).padStart(2, '0') };
     };
 
     for (const row of lines) {
         const cols = row.split(',');
-        const date = idxDate >= 0 ? (cols[idxDate] || '').replace(/"/g, '').trim() : '';
-        const dep = idxDep >= 0 ? (cols[idxDep] || '').replace(/"/g, '').trim() : '';
-        const arr = idxArr >= 0 ? (cols[idxArr] || '').replace(/"/g, '').trim() : '';
-        const deptime = idxDepTime >= 0 ? (cols[idxDepTime] || '').replace(/"/g, '').trim() : '';
-        const arrtime = idxArrTime >= 0 ? (cols[idxArrTime] || '').replace(/"/g, '').trim() : '';
-        const tail = idxTail >= 0 ? (cols[idxTail] || '').replace(/"/g, '').trim() : '';
-        const dh = idxDh >= 0 ? (cols[idxDh] || '').replace(/"/g, '').trim() : '';
+        const date      = idxDate     >= 0 ? (cols[idxDate]     || '').replace(/"/g, '').trim() : '';
+        const dep       = idxDep      >= 0 ? (cols[idxDep]      || '').replace(/"/g, '').trim() : '';
+        const arr       = idxArr      >= 0 ? (cols[idxArr]      || '').replace(/"/g, '').trim() : '';
+        const deptime   = idxDepTime  >= 0 ? (cols[idxDepTime]  || '').replace(/"/g, '').trim() : '';
+        const arrtime   = idxArrTime  >= 0 ? (cols[idxArrTime]  || '').replace(/"/g, '').trim() : '';
+        const tail      = idxTail     >= 0 ? (cols[idxTail]     || '').replace(/"/g, '').trim() : '';
+        const flightNum = idxFlightNum >= 0 ? (cols[idxFlightNum] || '').replace(/"/g, '').trim() : '';
+        const dh        = idxDh       >= 0 ? (cols[idxDh]       || '').replace(/"/g, '').trim() : '';
 
         if (!date) continue;
 
@@ -254,13 +253,11 @@ function parseCSV_skywest(text) {
             ym = String(parts[2]).padStart(4, '0');
         } else if (/\d{4}-\d{2}-\d{2}/.test(date)) {
             const parts = date.split('-');
-            ym = parts[0];
-            mm = parts[1];
-            dd = parts[2];
+            ym = parts[0]; mm = parts[1]; dd = parts[2];
         } else {
             const d = new Date(date);
             if (isNaN(d)) continue;
-            ym = d.getFullYear();
+            ym = String(d.getFullYear());
             mm = String(d.getMonth() + 1).padStart(2, '0');
             dd = String(d.getDate()).padStart(2, '0');
         }
@@ -268,20 +265,19 @@ function parseCSV_skywest(text) {
         if (dep && arr) {
             const dt = normalizeTime(deptime);
             const at = normalizeTime(arrtime);
-            let arrivalDate = { y: ym, m: mm, dd: dd };
             const depMinutes = toMinutes(deptime);
             const arrMinutes = toMinutes(arrtime);
-            if (arrMinutes <= depMinutes) arrivalDate = addDays(ym, mm, dd, 1);
+            let arrivalDate = { y: ym, m: mm, dd };
+            if (arrtime && arrMinutes <= depMinutes) arrivalDate = addDays(ym, mm, dd, 1);
             const isoStart = `${ym}-${mm}-${dd}T${dt}:00`;
-            const isoEnd = `${arrivalDate.y}-${arrivalDate.m}-${arrivalDate.dd}T${at}:00`;
+            const isoEnd   = `${arrivalDate.y}-${arrivalDate.m}-${arrivalDate.dd}T${at}:00`;
             const isDH = dh && (dh.toUpperCase() === 'DH' || dh === '1' || dh.toLowerCase() === 'true');
-            events.push({ type: 'flight', departureTime: isoStart, arrivalTime: isoEnd, departureAirport: dep, arrivalAirport: arr, tail, dh: isDH });
+            events.push({ type: 'flight', departureTime: isoStart, arrivalTime: isoEnd, departureAirport: dep, arrivalAirport: arr, tail, flightNumber: flightNum, dh: isDH });
             continue;
         }
 
         if (dh && dh.toUpperCase() === 'DH') {
-            const isoDate = `${ym}-${mm}-${dd}T00:00:00`;
-            events.push({ type: 'hard', departureTime: isoDate });
+            events.push({ type: 'hard', departureTime: `${ym}-${mm}-${dd}T00:00:00` });
             continue;
         }
     }
