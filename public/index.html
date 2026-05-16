@@ -14,13 +14,9 @@
         .view-section { display: none; height: 100%; }
         .view-active { display: block; }
 
-        /* Desktop: calendar grid — fills screen when possible, scrolls on small monitors */
+        /* Desktop: calendar grid — fixed-height cells, internal scroll per day */
         @media (min-width: 768px) {
-            #view-grid { display: flex !important; flex-direction: column !important; overflow-y: auto !important; padding: 10px 14px !important; }
-            #view-grid > div { flex: 1 !important; min-height: 0 !important; max-width: 100% !important; grid-template-rows: auto; grid-auto-rows: minmax(120px, 1fr); gap: 6px !important; }
-            #calendar-grid-content > div { min-height: 0 !important; overflow: hidden; padding: 6px 8px !important; border-radius: 12px !important; }
-            #calendar-grid-content .day-number { font-size: 16px !important; }
-            #calendar-grid-content .flex.justify-between { margin-bottom: 4px !important; }
+            #view-grid.view-active { display: block !important; }
         }
 
         /* Mobile: compact grid + readable list */
@@ -31,16 +27,18 @@
             #view-grid > div { gap: 2px !important; }
             #view-grid .col-span-7 { margin-bottom: 2px; font-size: 9px !important; }
             #calendar-grid-content > div {
-                min-height: 42px !important;
-                padding: 3px 2px !important;
+                height: 44px !important;
+                min-height: 0 !important;
                 border-radius: 6px !important;
-                justify-content: center !important;
                 cursor: pointer;
+                overflow: hidden !important;
             }
+            /* Hide flight list on mobile — tap cell to see details */
+            #calendar-grid-content > div > div:last-child { display: none !important; }
+            /* Compact header on mobile */
+            #calendar-grid-content > div > div:first-child { padding: 3px 4px !important; }
             #calendar-grid-content .day-number { font-size: 12px !important; line-height: 1; }
-            #calendar-grid-content .flex.justify-between { justify-content: center !important; margin-bottom: 0 !important; }
             #calendar-grid-content span[class*="rounded-full"] { display: none !important; }
-            #calendar-grid-content .space-y-1 { display: none !important; }
             /* List view: compact + wrap flight rows */
             #view-list { padding: 10px !important; }
             #calendar-list-content > div { padding: 10px !important; gap: 10px !important; }
@@ -158,9 +156,9 @@
         </div>
 
         <main class="flex-1 overflow-hidden relative bg-black">
-            <div id="view-grid" class="view-section view-active overflow-y-auto p-6">
-                <div class="w-full grid grid-cols-7 gap-4">
-                    <div class="col-span-7 grid grid-cols-7 text-center text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-2">
+            <div id="view-grid" class="view-section view-active overflow-y-auto p-3">
+                <div class="w-full grid grid-cols-7 gap-2">
+                    <div class="col-span-7 grid grid-cols-7 text-center text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">
                         <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
                     </div>
                     <div id="calendar-grid-content" class="contents"></div>
@@ -1115,7 +1113,7 @@
                 const firstDay = new Date(year, month, 1).getDay();
                 const dayOffset = firstDay === 0 ? 6 : firstDay - 1;
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
-                for (let i = 0; i < dayOffset; i++) gridContainer.innerHTML += `<div class="min-h-[140px] opacity-0"></div>`;
+                for (let i = 0; i < dayOffset; i++) gridContainer.innerHTML += `<div style="height:170px" class="opacity-0"></div>`;
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const dayDate = new Date(year, month, d);
@@ -1137,11 +1135,14 @@
                     if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
-                    let html = `<div class="min-h-[150px] border rounded-2xl p-4 flex flex-col ${style} ${dayClasses.join(' ')}" onclick="showDayDetail('${dateKey}')"><div class="flex justify-between items-start mb-3"><span class="text-2xl font-black font-mono day-number">${d}</span><span class="text-[8px] font-black px-2 py-0.5 rounded-full border border-current">${tag}</span></div><div class="space-y-1">`;
+                    // Cell: fixed height with scrollable inner flight list
+                    let html = `<div class="border rounded-xl flex flex-col ${style} ${dayClasses.join(' ')}" style="height:170px" onclick="showDayDetail('${dateKey}')">`;
+                    // Header row: day number + status tag
+                    html += `<div class="flex items-start justify-between px-2.5 pt-2 pb-1 shrink-0"><span class="text-base font-black font-mono leading-none day-number">${d}</span><span class="text-[7px] font-black px-1.5 py-[2px] rounded-full border border-current leading-none opacity-90">${tag}</span></div>`;
+                    // Scrollable flight list
+                    html += `<div class="overflow-y-auto flex-1 px-1.5 pb-1.5 space-y-1">`;
                     const cellFlights = dayEvents.filter(e => e.type === 'flight');
-                    const maxCellLegs = 4;
-                    const overflowCount = Math.max(0, cellFlights.length - maxCellLegs);
-                    cellFlights.slice(0, maxCellLegs).forEach(f => {
+                    cellFlights.forEach(f => {
                         const depAttr = f.departureTime || '';
                         const arrAttr = f.arrivalTime || '';
                         const tailAttr = f.tail || '';
@@ -1149,8 +1150,9 @@
                         const flightNumAttr = f.flightNumber || '';
                         const depApt = f.departureAirport || '';
                         const arrApt = f.arrivalAirport || '';
-                        const dhDot = f.dh ? `<span style="color:#f9a8d4;font-weight:900;margin-left:2px">·DH</span>` : '';
+                        const dhDot = f.dh ? `<span style="color:#f9a8d4;font-size:8px;font-weight:900;margin-left:3px">DH</span>` : '';
                         const depTimeFmt = depAttr ? formatTimeISO(depAttr) : '';
+                        const arrTimeFmt = arrAttr ? formatTimeISO(arrAttr) : '';
                         let groundLine = '';
                         if (arrApt && arrAttr && arrApt !== pilotBase) {
                             const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
@@ -1158,15 +1160,19 @@
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
                                 if (groundMins > 0) {
-                                    const lbl = groundMins < 240 ? 'Trn' : 'Lyr';
-                                    groundLine = `<div style="color:#fcd34d;font-size:7px;line-height:1.1;margin-top:1px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
+                                    const lbl = groundMins < 240 ? 'Turn' : 'Layover';
+                                    groundLine = `<div style="color:#fcd34d;font-size:8px;font-weight:600;margin-top:1px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
                                 }
                             }
                         }
-                        html += `<div class="py-[2px] px-[4px] bg-black/50 rounded border border-white/5 leading-tight flight-item" style="font-size:9px;font-weight:700" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}"><div style="display:flex;align-items:center;justify-content:space-between;gap:2px"><span>${depApt}→${arrApt}${dhDot}</span><span style="color:#94a3b8;font-size:8px;font-weight:600">${depTimeFmt}</span></div>${groundLine}</div>`;
+                        html += `<div class="bg-black/40 rounded-lg px-2 py-1 flight-item" style="font-size:9px" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">`;
+                        html += `<div style="font-weight:800;display:flex;align-items:center;gap:2px">${depApt} → ${arrApt}${dhDot}</div>`;
+                        html += `<div style="color:#94a3b8;font-size:8px;margin-top:1px">${depTimeFmt} → ${arrTimeFmt}</div>`;
+                        html += groundLine;
+                        html += `</div>`;
                     });
-                    if (overflowCount > 0) html += `<div style="font-size:8px;color:#71717a;font-weight:700;text-align:center;margin-top:2px">+${overflowCount} more</div>`;
-                    gridContainer.innerHTML += html + `</div></div>`;
+                    html += `</div></div>`;
+                    gridContainer.innerHTML += html;
                 }
             } else if (currentView === 'list') {
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -1505,6 +1511,74 @@
 
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('sidebar-hidden');
+        }
+
+        function showDayDetail(dateKey) {
+            if (window.innerWidth >= 768) return;
+            const pilotBase = pilotsCache[currentPilot]?.base || null;
+            const dayEvents = segments.filter(s => s.departureTime && s.departureTime.startsWith(dateKey));
+            const [yr, mo, dy] = dateKey.split('-');
+            const dateObj = new Date(parseInt(yr), parseInt(mo) - 1, parseInt(dy));
+            const dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+            const isHard = dayEvents.some(e => e.type === 'hard');
+            let away = dayEvents.find(e => e.type === 'away');
+            if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
+            const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+
+            let label = currentPilot === 'kyle' ? 'ON CALL' : 'OFF';
+            let labelColor = 'text-zinc-400';
+            if (isHard) { label = 'HARD OFF'; labelColor = 'text-red-400'; }
+            else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
+            else if (flights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
+
+            let html = `<div class="flex items-start justify-between mb-4">
+                <div>
+                    <div class="text-[10px] font-black uppercase tracking-widest ${labelColor}">${label}</div>
+                    <div class="text-lg font-black text-white mt-0.5">${dateLabel}</div>
+                </div>
+                <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden')" class="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 text-sm shrink-0">✕</button>
+            </div>`;
+
+            if (flights.length === 0) {
+                const icon = isHard ? '🔴' : away ? '🏨' : '😴';
+                const msg = isHard ? 'Hard Day Off' : away ? `Away at ${away.arrivalAirport}` : 'Day Off';
+                html += `<div class="text-center py-8"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>`;
+            }
+
+            flights.forEach(f => {
+                const dep = f.departureAirport || '';
+                const arr = f.arrivalAirport || '';
+                const depTime = formatTimeISO(f.departureTime || '');
+                const arrTime = formatTimeISO(f.arrivalTime || '');
+                const blockMins = f.departureTime && f.arrivalTime ? (new Date(f.arrivalTime) - new Date(f.departureTime)) / 60000 : null;
+                const dhBadge = f.dh ? `<span class="ml-2 text-[9px] font-black text-pink-300">DH</span>` : '';
+                const flightNum = f.flightNumber ? `<span class="text-[10px] text-blue-400/70 ml-2">${f.flightNumber}</span>` : '';
+                let groundBadge = '';
+                if (arr && f.arrivalTime && arr !== pilotBase) {
+                    const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arr && s.departureTime > f.arrivalTime)
+                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                    if (nextLeg) {
+                        const gm = (new Date(nextLeg.departureTime) - new Date(f.arrivalTime)) / 60000;
+                        if (gm > 0) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Layover'} ${formatDurationMinutes(gm)}</div>`;
+                    }
+                }
+                html += `<div class="bg-black/40 border border-white/10 rounded-xl p-4 mb-3">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="text-lg font-black text-white">${dep} <span class="text-blue-500/60">→</span> ${arr}${dhBadge}</div>
+                        ${flightNum}
+                    </div>
+                    <div class="flex items-center justify-between text-sm">
+                        <div class="font-bold text-zinc-200">${depTime} <span class="text-zinc-600">→</span> ${arrTime}</div>
+                        <div class="text-zinc-500">${blockMins !== null ? `Block ${formatDurationMinutes(blockMins)}` : ''}</div>
+                    </div>
+                    ${groundBadge}
+                    ${f.tail ? `<div class="text-[10px] text-zinc-600 mt-1">${f.tail}</div>` : ''}
+                </div>`;
+            });
+
+            document.getElementById('day-detail-content').innerHTML = html;
+            document.getElementById('day-detail-sheet').classList.remove('hidden');
         }
 
         function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); }
