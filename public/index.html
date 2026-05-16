@@ -47,6 +47,15 @@
             .flight-row .flex { flex-wrap: wrap !important; gap: 4px !important; }
             .flight-row .text-right { text-align: left !important; width: 100%; }
         }
+        /* Thin scrollbars app-wide */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+        * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.14) transparent; }
+        /* Even thinner inside calendar cells */
+        #calendar-grid-content .overflow-y-auto::-webkit-scrollbar { width: 3px; }
+
         #sidebar { transition: width 0.22s ease, min-width 0.22s ease, opacity 0.18s ease; }
         #sidebar.sidebar-hidden { width: 0 !important; min-width: 0 !important; overflow: hidden; opacity: 0; border-right-width: 0 !important; }
         .nav-active { border-color: #3b82f6 !important; color: white !important; background: rgba(59, 130, 246, 0.1); }
@@ -1161,13 +1170,13 @@
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
                                 if (groundMins > 0) {
                                     const lbl = groundMins < 240 ? 'Turn' : 'Layover';
-                                    groundLine = `<div style="color:#fcd34d;font-size:8px;font-weight:600;margin-top:1px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
+                                    groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
                                 }
                             }
                         }
-                        html += `<div class="bg-black/40 rounded-lg px-2 py-1 flight-item" style="font-size:9px" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">`;
-                        html += `<div style="font-weight:800;display:flex;align-items:center;gap:2px">${depApt} → ${arrApt}${dhDot}</div>`;
-                        html += `<div style="color:#94a3b8;font-size:8px;margin-top:1px">${depTimeFmt} → ${arrTimeFmt}</div>`;
+                        html += `<div class="bg-black/40 rounded-lg px-2 py-[5px] flight-item" style="font-size:10px" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">`;
+                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}</div>`;
+                        html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt} → ${arrTimeFmt}</div>`;
                         html += groundLine;
                         html += `</div>`;
                     });
