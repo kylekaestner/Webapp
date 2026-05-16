@@ -43,6 +43,14 @@
                 <span class="text-[9px] block text-zinc-500 font-black uppercase">Adam</span>
                 <span class="font-bold text-sm tracking-tight">Adam Burke</span>
             </button>
+            <button onclick="loadPilot('sam')" id="pilot-sam" class="w-full text-left p-4 rounded-xl border border-zinc-800 hover:border-blue-500 transition-colors">
+                <span class="text-[9px] block text-zinc-500 font-black uppercase">Sam</span>
+                <span class="font-bold text-sm tracking-tight">Sam Byrne</span>
+            </button>
+            <button onclick="loadPilot('logan')" id="pilot-logan" class="w-full text-left p-4 rounded-xl border border-zinc-800 hover:border-blue-500 transition-colors">
+                <span class="text-[9px] block text-zinc-500 font-black uppercase">Logan</span>
+                <span class="font-bold text-sm tracking-tight">Logan Hine</span>
+            </button>
         </div>
 
         <div class="mt-auto p-4 border-t border-zinc-800 bg-black/20">
@@ -92,8 +100,10 @@
     <script>
         // In-browser segments store per pilot
         const storedPilots = {
-            kyle: { name: 'Kyle Kaestner', base: 'KSUS', segments: [] },
-            adam: { name: 'Adam Burke', base: 'LGA', segments: [] }
+            kyle: { name: 'Kyle Kaestner', base: 'KSUS', segments: [], parser: 'default' },
+            adam: { name: 'Adam Burke', base: 'LGA', segments: [], parser: 'default' },
+            sam:  { name: 'Sam Byrne',   base: 'LGA',  segments: [], parser: 'default' },
+            logan:{ name: 'Logan Hine',  base: 'SFO',  segments: [], parser: 'skywest' }
         };
         // Preload sample ICS (your attached schedule) so Kyle's trips show immediately
         const SAMPLE_ICS = `BEGIN:VCALENDAR
@@ -404,13 +414,84 @@
         let showPast = true, showFuture = true;
 
         const AIRPORTS = {
-            'LGA': [40.7769, -73.8740], 'TUL': [36.1984, -95.8881], 'XNA': [36.2818, -94.3068],
-            'ORD': [41.9742, -87.9073], 'PIT': [40.4915, -80.2329], 'PWM': [43.6462, -70.3088],
-            'OKC': [35.3931, -97.6007], 'STL': [38.7477, -90.3597], 'MDW': [41.7868, -87.7522],
-            'KSUS': [38.6519, -90.6506], 'KCNY': [38.8621, -99.3370], 'TJSJ': [18.4394, -66.0018],
-            'KSRQ': [27.3954, -82.5540], 'KMBL': [44.2725, -86.2557], 'KRSW': [26.5362, -81.7552],
-            'KAPC': [26.1523, -81.7752]
+            'LGA': [40.7769, -73.8740], 'KLGA': [40.7769, -73.8740],
+            'TUL': [36.1984, -95.8881], 'KTUL': [36.1984, -95.8881],
+            'XNA': [36.2818, -94.3068], 'KXNA': [36.2818, -94.3068],
+            'ORD': [41.9742, -87.9073], 'KORD': [41.9742, -87.9073],
+            'PIT': [40.4915, -80.2329], 'KPIT': [40.4915, -80.2329],
+            'PWM': [43.6462, -70.3088], 'KPWM': [43.6462, -70.3088],
+            'OKC': [35.3931, -97.6007], 'KOKC': [35.3931, -97.6007],
+            'STL': [38.7477, -90.3597], 'KSTL': [38.7477, -90.3597],
+            'MDW': [41.7868, -87.7522], 'KMDW': [41.7868, -87.7522],
+            'SUS': [38.6519, -90.6506], 'KSUS': [38.6519, -90.6506],
+            'CNY': [38.8621, -99.3370], 'KCNY': [38.8621, -99.3370],
+            'SJU': [18.4394, -66.0018], 'TJSJ': [18.4394, -66.0018],
+            'SRQ': [27.3954, -82.5540], 'KSRQ': [27.3954, -82.5540],
+            'MBL': [44.2725, -86.2557], 'KMBL': [44.2725, -86.2557],
+            'RSW': [26.5362, -81.7552], 'KRSW': [26.5362, -81.7552],
+            'APC': [26.1523, -81.7752], 'KAPC': [26.1523, -81.7752]
         };
+
+        // Authoritative airport DB (populated from OpenFlights or OurAirports)
+        const AIRPORT_DB = { byIata: {}, byIcao: {} };
+
+        // Try fetching the OpenFlights airports.dat and populate AIRPORT_DB.
+        function loadAirportDB() {
+            const url = 'https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat';
+            fetch(url).then(r => {
+                if (!r.ok) throw new Error('Failed to fetch airports.dat');
+                return r.text();
+            }).then(txt => {
+                const lines = txt.split(/\r?\n/);
+                lines.forEach(line => {
+                    if (!line) return;
+                    // fields are CSV with quoted strings — split on "," conservatively
+                    const parts = line.split(',');
+                    // parts: 0:id 1:name 2:city 3:country 4:iata 5:icao 6:lat 7:lon ...
+                    if (parts.length < 8) return;
+                    const iata = parts[4] ? parts[4].replace(/^"|"$/g, '').trim() : '';
+                    const icao = parts[5] ? parts[5].replace(/^"|"$/g, '').trim() : '';
+                    const lat = parseFloat(parts[6] ? parts[6].replace(/^"|"$/g, '') : NaN);
+                    const lon = parseFloat(parts[7] ? parts[7].replace(/^"|"$/g, '') : NaN);
+                    if (!isFinite(lat) || !isFinite(lon)) return;
+                    if (iata && iata !== '\\N') AIRPORT_DB.byIata[iata.toUpperCase()] = [lat, lon];
+                    if (icao && icao !== '\\N') AIRPORT_DB.byIcao[icao.toUpperCase()] = [lat, lon];
+                });
+                // Merge a few authoritative matches into AIRPORTS for immediate lookup
+                Object.keys(AIRPORT_DB.byIata).forEach(k => { if (!AIRPORTS[k]) AIRPORTS[k] = AIRPORT_DB.byIata[k]; });
+                Object.keys(AIRPORT_DB.byIcao).forEach(k => { if (!AIRPORTS[k]) AIRPORTS[k] = AIRPORT_DB.byIcao[k]; });
+                console.log('Loaded airport DB entries:', Object.keys(AIRPORT_DB.byIata).length, Object.keys(AIRPORT_DB.byIcao).length);
+            }).catch(err => console.warn('Airport DB load failed', err));
+        }
+
+        // Kick off loading but don't block rendering. Local AIRPORTS remains a fallback.
+        loadAirportDB();
+
+        function resolveAirport(code) {
+            if (!code) return null;
+            const upper = code.toUpperCase();
+            // direct match in explicit table
+            if (AIRPORTS[upper]) return AIRPORTS[upper];
+            // check authoritative DB (prefer ICAO then IATA)
+            if (AIRPORT_DB.byIcao[upper]) return AIRPORT_DB.byIcao[upper];
+            if (AIRPORT_DB.byIata[upper]) return AIRPORT_DB.byIata[upper];
+            // tolerate 4-letter ICAO where the last 3 are IATA
+            if (upper.length === 4) {
+                const last3 = upper.slice(-3);
+                if (AIRPORTS[last3]) return AIRPORTS[last3];
+                if (AIRPORT_DB.byIata[last3]) return AIRPORT_DB.byIata[last3];
+            }
+            // accept 3-letter IATA by trying common K-prefixes (US)
+            if (upper.length === 3) {
+                const kpref = 'K' + upper;
+                if (AIRPORTS[kpref]) return AIRPORTS[kpref];
+                if (AIRPORT_DB.byIcao[kpref]) return AIRPORT_DB.byIcao[kpref];
+            }
+            // final attempt: strip any leading non-alphanum and retry
+            const stripped = upper.replace(/[^A-Z0-9]/g, '');
+            if (stripped !== upper) return resolveAirport(stripped);
+            return null;
+        }
 
         function getPilotStorageKey(pilot) {
             return `pilot-schedule-${pilot}`;
@@ -505,6 +586,30 @@
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
         }
 
+        function toRadians(deg) { return deg * Math.PI / 180; }
+        function toDegrees(rad) { return rad * 180 / Math.PI; }
+        function greatCircleArcCoords(start, end, steps = 64) {
+            const [lat1, lon1] = start.map(toRadians);
+            const [lat2, lon2] = end.map(toRadians);
+            const dLon = lon2 - lon1;
+            const cosDelta = Math.sin(lat1) * Math.sin(lat2) + Math.cos(lat1) * Math.cos(lat2) * Math.cos(dLon);
+            const delta = Math.acos(Math.min(1, Math.max(-1, cosDelta)));
+            if (delta === 0) return [[start[0], start[1]], [end[0], end[1]]];
+            const path = [];
+            for (let i = 0; i <= steps; i++) {
+                const f = i / steps;
+                const A = Math.sin((1 - f) * delta) / Math.sin(delta);
+                const B = Math.sin(f * delta) / Math.sin(delta);
+                const x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
+                const y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
+                const z = A * Math.sin(lat1) + B * Math.sin(lat2);
+                const lat = Math.atan2(z, Math.sqrt(x * x + y * y));
+                const lon = Math.atan2(y, x);
+                path.push([toDegrees(lat), toDegrees(lon)]);
+            }
+            return path;
+        }
+
         function renderMap() {
             if (!map) return;
             mapLayers.past.forEach(l => map.removeLayer(l));
@@ -517,12 +622,15 @@
             const bounds = [];
             const airportSet = new Set();
 
-            segments.filter(s => s.type === 'flight' && AIRPORTS[s.departureAirport] && AIRPORTS[s.arrivalAirport]).forEach(f => {
+            segments.filter(s => s.type === 'flight').forEach(f => {
+                const depCoords = resolveAirport(f.departureAirport);
+                const arrCoords = resolveAirport(f.arrivalAirport);
+                if (!depCoords || !arrCoords) return;
                 const isPast = new Date(f.departureTime) < now;
                 const color = isPast ? '#6b7280' : '#3b82f6';
                 const weight = isPast ? 1.5 : 2.8;
-                const line = L.geodesic([AIRPORTS[f.departureAirport], AIRPORTS[f.arrivalAirport]], {
-                    weight: weight, opacity: 0.95, color: color, steps: 50
+                const line = L.polyline(greatCircleArcCoords(depCoords, arrCoords, 60), {
+                    weight: weight, opacity: 0.95, color: color, smoothFactor: 1
                 });
 
                 if (isPast) mapLayers.past.push(line);
@@ -531,9 +639,10 @@
                 if ((isPast && showPast) || (!isPast && showFuture)) line.addTo(map);
 
                 [f.departureAirport, f.arrivalAirport].forEach(code => {
-                    if (!code || airportSet.has(code) || !AIRPORTS[code]) return;
-                    airportSet.add(code);
-                    const coords = AIRPORTS[code];
+                    const upperCode = code ? code.toUpperCase() : '';
+                    const coords = resolveAirport(upperCode);
+                    if (!upperCode || airportSet.has(upperCode) || !coords) return;
+                    airportSet.add(upperCode);
                     bounds.push(coords);
                     const point = L.circleMarker(coords, {
                         radius: 5,
@@ -605,7 +714,7 @@
         function attachTooltips() {
             document.querySelectorAll('.flight-item').forEach(el => {
                 function onEnter(e) {
-                    const dep = el.dataset.depTime; const arr = el.dataset.arrTime; const tail = el.dataset.tail || '—'; const trip = el.dataset.trip || '';
+                    const dep = el.dataset.depTime; const arr = el.dataset.arrTime; const tail = el.dataset.tail || '—'; const trip = el.dataset.trip || ''; const flightNum = el.dataset.flight || '';
                     const depApt = el.dataset.depApt || '';
                     const arrApt = el.dataset.arrApt || '';
                     const depDate = dep ? new Date(dep) : null;
@@ -626,7 +735,7 @@
                     } catch (er) { layoverText = ''; }
 
                     const dhLabel = el.dataset.dh === 'true' ? `<div style="font-size:11px;color:#f9a8d4;font-weight:700;margin-bottom:4px">DH Flight</div>` : '';
-                    const html = `<div style="font-weight:800;margin-bottom:6px">${depApt} → ${arrApt} ${trip ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">${trip}</span>` : ''}</div>` +
+                    const html = `<div style="font-weight:800;margin-bottom:6px">${depApt} → ${arrApt} ${flightNum ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">${flightNum}</span>` : (trip ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">Trip ${trip}</span>` : '')}</div>` +
                         dhLabel +
                         `<div style="font-size:12px;color:#cbd5e1">Dep: ${formatTimeISO(dep)} • Arr: ${formatTimeISO(arr)}</div>` +
                         `<div style="font-size:12px;color:#cbd5e1">Block: ${formatDurationMinutes(blockMins)}</div>` +
@@ -689,10 +798,11 @@
                         const arrAttr = f.arrivalTime || '';
                         const tailAttr = f.tail || '';
                         const tripAttr = f.trip || '';
+                        const flightNumAttr = f.flightNumber || '';
                         const depApt = f.departureAirport || '';
                         const arrApt = f.arrivalAirport || '';
                         const dhBadge = f.dh ? `<span class="ml-2 inline-block px-2 py-0.5 rounded-full text-[9px] border border-pink-400 text-pink-300">DH</span>` : '';
-                        html += `<div class="p-2 bg-black/40 rounded-lg border border-white/5 text-[10px] font-bold text-center flight-item" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">${depApt} → ${arrApt}${dhBadge}</div>`;
+                        html += `<div class="p-2 bg-black/40 rounded-lg border border-white/5 text-[10px] font-bold text-center flight-item" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">${depApt} → ${arrApt}${dhBadge}${flightNumAttr ? ' <span class="text-[10px] text-zinc-400 ml-2">'+flightNumAttr+'</span>' : ''}</div>`;
                     });
                     gridContainer.innerHTML += html + `</div></div>`;
                 }
@@ -729,7 +839,8 @@
                             const arrTime = formatTimeISO(arrAttr);
                             const blockMins = depAttr && arrAttr ? (new Date(arrAttr) - new Date(depAttr)) / 60000 : null;
                             const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-400 text-pink-300">DH</span>` : '';
-                            const tripLabel = tripAttr ? `<span class="text-[10px] text-zinc-400 ml-2">Trip ${tripAttr}</span>` : '';
+                                const flightNumAttr = f.flightNumber || '';
+                            const tripLabel = flightNumAttr ? `<span class="text-[10px] text-zinc-400 ml-2">${flightNumAttr}</span>` : (tripAttr ? `<span class="text-[10px] text-zinc-400 ml-2">Trip ${tripAttr}</span>` : '');
                             const nextFlight = sortedFlights[index + 1];
                             let layoverText = '';
                             if (nextFlight && arrAttr && nextFlight.departureTime) {
@@ -791,6 +902,8 @@
                 const flightMatch = summary.match(/(?:✈️|\u2708)?\s*([A-Z0-9]{3,4})\s*(?:->|→|–|—|-|to)\s*([A-Z0-9]{3,4})/i);
                 const tailMatch = desc.match(/Tail:\s*(\S+)/i);
                 const tripMatch = desc.match(/Trip\s*[:#]?\s*(\d+)/i);
+                // try to capture flight number like RPA1234 or SKW567
+                const flightNumMatch = desc.match(/(?:Flight|Flt|FLT)\s*[:#]?\s*([A-Z]{2,3}\d{1,4})/i) || desc.match(/\b([A-Z]{2,3}\d{1,4})\b/i);
                 if (flightMatch) {
                     const dep = flightMatch[1];
                     const arr = flightMatch[2];
@@ -803,7 +916,8 @@
                         departureAirport: dep,
                         arrivalAirport: arr,
                         tail: tailMatch ? tailMatch[1] : '',
-                        trip: tripMatch ? tripMatch[1] : ''
+                        trip: tripMatch ? tripMatch[1] : '',
+                        flightNumber: (flightNumMatch && flightNumMatch[1] && !/^N/i.test(flightNumMatch[1])) ? flightNumMatch[1].toUpperCase() : ''
                     });
                 }
             }
@@ -881,6 +995,95 @@
             return events;
         }
 
+        // Flexible CSV parser variant for SkyWest-style exports (handles varied header names)
+        function parseCSV_skywest(text) {
+            const lines = text.split(/\r?\n/).filter(l => l.trim());
+            if (lines.length === 0) return [];
+            const headerRaw = lines.shift();
+            const header = headerRaw.split(',').map(h => h.trim().toUpperCase());
+
+            const findIdx = (aliases) => {
+                for (const a of aliases) {
+                    const up = a.toUpperCase();
+                    const i = header.indexOf(up);
+                    if (i >= 0) return i;
+                }
+                return -1;
+            };
+
+            const idxDate = findIdx(['DATE','FLIGHTDATE','SCHEDULEDATE']);
+            const idxDep = findIdx(['DEP','DEPARTURE','ORIG','ORIGIN','FROM']);
+            const idxArr = findIdx(['ARR','ARRIVAL','DEST','DESTINATION','TO']);
+            const idxDepTime = findIdx(['DEPTIME','DEP_TIME','DEPARTURETIME','DEP TIME','DEP/TIME','DEPT']);
+            const idxArrTime = findIdx(['ARRTIME','ARR_TIME','ARRIVALTIME','ARR TIME','ARR/TIME','ARRT']);
+            const idxTail = findIdx(['FCVTAIL','TAIL','AIRCRAFT','REGISTRATION']);
+            const idxDh = findIdx(['DH','DUTY','IS_DH']);
+
+            const events = [];
+
+            const toMinutes = (time) => {
+                if (!time) return 0;
+                const norm = normalizeTime(time.replace(/"/g, '').trim());
+                const [hh, mm] = norm.split(':').map(Number);
+                return hh * 60 + mm;
+            };
+
+            const addDays = (year, month, day, extraDays) => {
+                const d = new Date(Number(year), Number(month) - 1, Number(day) + extraDays);
+                const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
+                return { y, m, dd };
+            };
+
+            for (const row of lines) {
+                const cols = row.split(',');
+                const date = idxDate >= 0 ? (cols[idxDate] || '').replace(/"/g,'').trim() : '';
+                const dep = idxDep >= 0 ? (cols[idxDep] || '').replace(/"/g,'').trim() : '';
+                const arr = idxArr >= 0 ? (cols[idxArr] || '').replace(/"/g,'').trim() : '';
+                const deptime = idxDepTime >= 0 ? (cols[idxDepTime] || '').replace(/"/g,'').trim() : '';
+                const arrtime = idxArrTime >= 0 ? (cols[idxArrTime] || '').replace(/"/g,'').trim() : '';
+                const tail = idxTail >= 0 ? (cols[idxTail] || '').replace(/"/g,'').trim() : '';
+                const dh = idxDh >= 0 ? (cols[idxDh] || '').replace(/"/g,'').trim() : '';
+
+                if (!date) continue;
+
+                // Accept formats like MM/DD/YYYY or YYYY-MM-DD
+                let ym = '', mm = '', dd = '';
+                if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(date)) {
+                    const parts = date.split('/');
+                    mm = String(parts[0]).padStart(2,'0'); dd = String(parts[1]).padStart(2,'0'); ym = String(parts[2]).padStart(4,'0');
+                } else if (/\d{4}-\d{2}-\d{2}/.test(date)) {
+                    const parts = date.split('-'); ym = parts[0]; mm = parts[1]; dd = parts[2];
+                } else {
+                    // fallback: try to parse with Date
+                    const d = new Date(date);
+                    if (isNaN(d)) continue;
+                    ym = d.getFullYear(); mm = String(d.getMonth()+1).padStart(2,'0'); dd = String(d.getDate()).padStart(2,'0');
+                }
+
+                if (dep && arr) {
+                    const dt = normalizeTime(deptime);
+                    const at = normalizeTime(arrtime);
+                    let arrivalDate = { y: ym, m: mm, dd: dd };
+                    const depMinutes = toMinutes(deptime);
+                    const arrMinutes = toMinutes(arrtime);
+                    if (arrMinutes <= depMinutes) arrivalDate = addDays(ym, mm, dd, 1);
+                    const isoStart = `${ym}-${mm}-${dd}T${dt}:00`;
+                    const isoEnd = `${arrivalDate.y}-${arrivalDate.m}-${arrivalDate.dd}T${at}:00`;
+                    const isDH = dh && (dh.toUpperCase() === 'DH' || dh === '1' || dh.toLowerCase() === 'true');
+                    events.push({ type: 'flight', departureTime: isoStart, arrivalTime: isoEnd, departureAirport: dep, arrivalAirport: arr, tail, dh: isDH });
+                    continue;
+                }
+
+                if (dh && dh.toUpperCase() === 'DH') {
+                    const isoDate = `${ym}-${mm}-${dd}T00:00:00`;
+                    events.push({ type: 'hard', departureTime: isoDate });
+                    continue;
+                }
+            }
+
+            return events;
+        }
+
         function normalizeTime(t) {
             if (!t) return '00:00';
             const s = t.padStart(4,'0');
@@ -894,9 +1097,13 @@
             const file = input.files[0];
             const text = await file.text();
             let parsed = [];
-            if (file.name.toLowerCase().endsWith('.ics')) parsed = parseICS(text);
-            else if (file.name.toLowerCase().endsWith('.csv')) parsed = parseCSV(text);
-            else {
+            const lower = file.name.toLowerCase();
+            if (lower.endsWith('.ics')) parsed = parseICS(text);
+            else if (lower.endsWith('.csv')) {
+                const pilotParser = storedPilots[currentPilot]?.parser || 'default';
+                if (pilotParser === 'skywest') parsed = parseCSV_skywest(text);
+                else parsed = parseCSV(text);
+            } else {
                 alert('Unsupported file type. Upload .ics or .csv');
                 return;
             }
