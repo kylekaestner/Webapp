@@ -288,6 +288,12 @@ function parseCSV_skywest(text) {
     return events;
 }
 
+// Schedaero returns UTC times without a Z — append it so JS parses them as UTC, not local
+function asUtcIso(s) {
+    if (!s || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) return s;
+    return s + 'Z';
+}
+
 function parseSchedaeroData(data, filterMonth, filterYear) {
     const crew = Array.isArray(data.crew) ? data.crew[0] : null;
     if (!crew) return [];
@@ -296,15 +302,15 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
 
     for (const seg of (crew.segments || [])) {
         if (!seg.departureAirport || !seg.arrivalAirport || !seg.departureTime) continue;
-        // Filter to only the requested month so cross-month segments aren't double-imported
+        // Filter uses UTC-aware Date so month boundary near midnight CDT is handled correctly
         if (filterMonth && filterYear) {
-            const d = new Date(seg.departureTime);
+            const d = new Date(asUtcIso(seg.departureTime));
             if (d.getMonth() + 1 !== filterMonth || d.getFullYear() !== filterYear) continue;
         }
         events.push({
             type: 'flight',
-            departureTime: seg.departureTime,
-            arrivalTime: seg.arrivalTime || null,
+            departureTime: asUtcIso(seg.departureTime),
+            arrivalTime: seg.arrivalTime ? asUtcIso(seg.arrivalTime) : null,
             departureAirport: seg.departureAirport,
             arrivalAirport: seg.arrivalAirport,
             tail: seg.aircraftDescription || null,
@@ -316,7 +322,7 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
     for (const evt of (crew.events || [])) {
         if (evt.text !== 'HARD') continue;
         if (filterMonth && filterYear) {
-            const d = new Date(evt.startDate);
+            const d = new Date(asUtcIso(evt.startDate));
             if (d.getMonth() + 1 !== filterMonth || d.getFullYear() !== filterYear) continue;
         }
         const date = evt.startDate.substring(0, 10);

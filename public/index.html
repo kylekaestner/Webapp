@@ -124,7 +124,7 @@
             </div>
             <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
             <button onclick="document.getElementById('file-input').click()" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Upload Schedule</button>
-            <button onclick="openSchedaeroSync()" class="w-full py-3 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-xl transition text-[10px] font-black uppercase text-center">⟳ Sync Schedaero</button>
+            <button id="btn-sync-schedaero" onclick="openSchedaeroSync()" class="w-full py-3 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-xl transition text-[10px] font-black uppercase text-center">⟳ Sync Schedaero</button>
         </div>
     </div>
 
@@ -429,7 +429,7 @@
             </div>
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
             <button onclick="document.getElementById('mobile-file-input').click()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
-            <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openSchedaeroSync()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
+            <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openSchedaeroSync()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
     </div>
@@ -938,7 +938,14 @@
 
         function loadPilot(pilot) {
             currentPilot = pilot;
-            
+
+            // Sync Schedaero button only visible for Kyle
+            const isKyle = pilot === 'kyle';
+            const desktopBtn = document.getElementById('btn-sync-schedaero');
+            const mobileBtn = document.getElementById('mobile-sync-schedaero-btn');
+            if (desktopBtn) desktopBtn.classList.toggle('hidden', !isKyle);
+            if (mobileBtn) mobileBtn.classList.toggle('hidden', !isKyle);
+
             // Fetch from server
             fetchPilotData(pilot).then((data) => {
                 if (!data) {

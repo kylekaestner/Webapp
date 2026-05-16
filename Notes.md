@@ -13,5 +13,5 @@
 - ~~Get rid of the buffer selection. That should just be a reasonable amount of time.~~
 - ~~Some schedules are showing really long layovers next to 'OFF' days. This would just be the end of the trip and we can assume they'd commute home. (No layover shown at home base if gap > 30h)~~
 ~~If a calendar box says on call, and i click on it the popup should say day off.~~
-Make sync schedaero only appear when Kyle is reselected. Make the button pretty invisible to other users as it's only for Kyle.
-Some of the times are incorrect on April for Kyle. May be time zone issues or the way the data was pulled.
+~~Make sync schedaero only appear when Kyle is reselected. Make the button pretty invisible to other users as it's only for Kyle.~~
+~~Some of the times are incorrect on April for Kyle. May be time zone issues or the way the data was pulled.~~
