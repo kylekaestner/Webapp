@@ -26,7 +26,7 @@
 
         /* Mobile: compact grid + readable list */
         @media (max-width: 767px) {
-            body { height: 100dvh; }
+            body { height: 100dvh !important; }
             /* Calendar grid: small colored tiles, tap for details */
             #view-grid { padding: 4px 2px !important; }
             #view-grid > div { gap: 2px !important; }
@@ -50,6 +50,8 @@
             .flight-row .flex { flex-wrap: wrap !important; gap: 4px !important; }
             .flight-row .text-right { text-align: left !important; width: 100%; }
         }
+        #sidebar { transition: width 0.22s ease, min-width 0.22s ease, opacity 0.18s ease; }
+        #sidebar.sidebar-hidden { width: 0 !important; min-width: 0 !important; overflow: hidden; opacity: 0; border-right-width: 0 !important; }
         .nav-active { border-color: #3b82f6 !important; color: white !important; background: rgba(59, 130, 246, 0.1); }
         #map { height: 100%; width: 100%; background: #0a0a0a; }
         .map-controls { position: absolute; top: 20px; right: 20px; z-index: 1000; }
@@ -119,7 +121,12 @@
     <div class="flex-1 flex flex-col overflow-hidden min-w-0">
         <!-- Desktop header -->
         <header class="hidden md:flex h-20 border-b border-zinc-800 items-center justify-between px-8 bg-black/40 backdrop-blur-md shrink-0">
-            <div class="flex items-center gap-6">
+            <div class="flex items-center gap-4">
+                <button onclick="toggleSidebar()" id="hamburger-btn" title="Toggle sidebar" class="flex flex-col items-center justify-center gap-[5px] w-9 h-9 rounded-xl hover:bg-zinc-800 transition-colors group shrink-0">
+                    <span class="w-5 h-[2px] bg-zinc-500 group-hover:bg-zinc-200 transition-colors rounded-full"></span>
+                    <span class="w-5 h-[2px] bg-zinc-500 group-hover:bg-zinc-200 transition-colors rounded-full"></span>
+                    <span class="w-5 h-[2px] bg-zinc-500 group-hover:bg-zinc-200 transition-colors rounded-full"></span>
+                </button>
                 <div class="flex flex-col">
                     <h2 id="pilot-header" class="font-black uppercase tracking-widest text-xs text-zinc-400 italic">Dispatch</h2>
                     <div class="text-2xl font-black italic tracking-tighter text-white uppercase" id="current-month-display">May 2026</div>
@@ -153,7 +160,7 @@
 
         <main class="flex-1 overflow-hidden relative bg-black">
             <div id="view-grid" class="view-section view-active overflow-y-auto p-6">
-                <div class="max-w-7xl mx-auto grid grid-cols-7 gap-4">
+                <div class="w-full grid grid-cols-7 gap-4">
                     <div class="col-span-7 grid grid-cols-7 text-center text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-2">
                         <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
                     </div>
@@ -175,7 +182,7 @@
         </main>
 
         <!-- Mobile bottom nav -->
-        <nav class="md:hidden h-[60px] border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md flex items-stretch shrink-0">
+        <nav class="md:hidden border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md flex items-stretch shrink-0" style="height: calc(60px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);">
             <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
                 <span class="text-lg leading-none">📅</span><span class="text-[9px] font-black uppercase tracking-wide">Grid</span>
             </button>
@@ -978,13 +985,27 @@
         Object.assign(tooltip.style, { position: 'fixed', pointerEvents: 'none', background: '#0b1220', color: '#fff', padding: '8px 10px', borderRadius: '8px', boxShadow: '0 4px 18px rgba(2,6,23,0.8)', fontSize: '12px', zIndex: 2000, display: 'none', maxWidth: '260px' });
         document.body.appendChild(tooltip);
 
+        function positionTooltip(x, y) {
+            const tw = tooltip.offsetWidth;
+            const th = tooltip.offsetHeight;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            const offset = 14;
+            let tx = x + offset;
+            let ty = y + offset;
+            if (tx + tw > vw - 8) tx = x - tw - offset;
+            if (ty + th > vh - 8) ty = y - th - offset;
+            if (tx < 8) tx = 8;
+            if (ty < 8) ty = 8;
+            tooltip.style.left = tx + 'px';
+            tooltip.style.top = ty + 'px';
+        }
         function showTooltip(html, x, y) {
             tooltip.innerHTML = html;
-            tooltip.style.left = (x + 12) + 'px';
-            tooltip.style.top = (y + 12) + 'px';
             tooltip.style.display = 'block';
+            positionTooltip(x, y);
         }
-        function moveTooltip(x, y) { tooltip.style.left = (x + 12) + 'px'; tooltip.style.top = (y + 12) + 'px'; }
+        function moveTooltip(x, y) { positionTooltip(x, y); }
         function hideTooltip() { tooltip.style.display = 'none'; }
 
         function formatTimeISO(iso) {
@@ -1094,7 +1115,10 @@
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
                     let html = `<div class="min-h-[150px] border rounded-2xl p-4 flex flex-col ${style} ${dayClasses.join(' ')}" onclick="showDayDetail('${dateKey}')"><div class="flex justify-between items-start mb-3"><span class="text-2xl font-black font-mono day-number">${d}</span><span class="text-[8px] font-black px-2 py-0.5 rounded-full border border-current">${tag}</span></div><div class="space-y-1">`;
-                    dayEvents.filter(e => e.type === 'flight').forEach(f => {
+                    const cellFlights = dayEvents.filter(e => e.type === 'flight');
+                    const maxCellLegs = 4;
+                    const overflowCount = Math.max(0, cellFlights.length - maxCellLegs);
+                    cellFlights.slice(0, maxCellLegs).forEach(f => {
                         const depAttr = f.departureTime || '';
                         const arrAttr = f.arrivalTime || '';
                         const tailAttr = f.tail || '';
@@ -1102,21 +1126,10 @@
                         const flightNumAttr = f.flightNumber || '';
                         const depApt = f.departureAirport || '';
                         const arrApt = f.arrivalAirport || '';
-                        const dhBadge = f.dh ? `<span class="ml-2 inline-block px-2 py-0.5 rounded-full text-[9px] border border-pink-400 text-pink-300">DH</span>` : '';
-                        let groundBadge = '';
-                        if (arrApt && arrAttr && arrApt !== pilotBase) {
-                            const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
-                                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
-                            if (nextLeg) {
-                                const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                if (groundMins > 0) {
-                                    const label = groundMins < 240 ? 'Turn' : 'Layover';
-                                    groundBadge = `<div class="text-[9px] font-semibold text-amber-300 mt-0.5">${label} ${formatDurationMinutes(groundMins)}</div>`;
-                                }
-                            }
-                        }
-                        html += `<div class="p-2 bg-black/40 rounded-lg border border-white/5 text-[10px] font-bold text-center flight-item" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">${depApt} → ${arrApt}${dhBadge}${flightNumAttr ? ' <span class="text-[10px] text-zinc-400 ml-2">'+flightNumAttr+'</span>' : ''}${groundBadge}</div>`;
+                        const dhDot = f.dh ? `<span class="text-pink-400 font-black ml-1">·DH</span>` : '';
+                        html += `<div class="py-[2px] px-[4px] bg-black/50 rounded border border-white/5 text-[9px] font-bold leading-tight flight-item" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">${depApt}→${arrApt}${dhDot}</div>`;
                     });
+                    if (overflowCount > 0) html += `<div class="text-[8px] text-zinc-500 font-bold text-center mt-0.5">+${overflowCount} more</div>`;
                     gridContainer.innerHTML += html + `</div></div>`;
                 }
             } else if (currentView === 'list') {
@@ -1452,6 +1465,10 @@
             
             // Reset input
             input.value = '';
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('sidebar-hidden');
         }
 
         function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); }
