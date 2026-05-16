@@ -53,9 +53,18 @@
             </button>
         </div>
 
-        <div class="mt-auto p-4 border-t border-zinc-800 bg-black/20">
+        <div class="mt-auto p-4 border-t border-zinc-800 bg-black/20 space-y-3">
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-zinc-600 uppercase px-2 block">Upload For</label>
+                <select id="upload-pilot-select" class="w-full p-2 rounded-lg border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 hover:border-blue-500 transition">
+                    <option value="kyle">Kyle Kaestner</option>
+                    <option value="adam">Adam Burke</option>
+                    <option value="sam">Sam Byrne</option>
+                    <option value="logan">Logan Hine</option>
+                </select>
+            </div>
             <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
-            <button onclick="document.getElementById('file-input').click()" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Update Schedule</button>
+            <button onclick="document.getElementById('file-input').click()" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Upload Schedule</button>
         </div>
     </div>
 
@@ -98,13 +107,10 @@
     </div>
 
     <script>
-        // In-browser segments store per pilot
-        const storedPilots = {
-            kyle: { name: 'Kyle Kaestner', base: 'KSUS', segments: [], parser: 'default' },
-            adam: { name: 'Adam Burke', base: 'LGA', segments: [], parser: 'default' },
-            sam:  { name: 'Sam Byrne',   base: 'LGA',  segments: [], parser: 'default' },
-            logan:{ name: 'Logan Hine',  base: 'SFO',  segments: [], parser: 'skywest' }
-        };
+        // Server-side data store
+        const pilotsCache = {};
+        const API_BASE = '/api';
+        
         // Preload sample ICS (your attached schedule) so Kyle's trips show immediately
         const SAMPLE_ICS = `BEGIN:VCALENDAR
     VERSION:2.0
@@ -404,14 +410,14 @@
     DESCRIPTION:Tail: N431JD\nTrip: 42189707
     END:VEVENT
     END:VCALENDAR`;
-        // parse and assign to Kyle on load so trips are visible
-        try { storedPilots.kyle.segments = inferAwayLayovers(parseICS(SAMPLE_ICS)); } catch (e) { console.warn('Preload ICS failed', e); }
+        // App state
         let segments = [];
         let viewDate = new Date(2026, 4, 1);
         let currentPilot = 'kyle';
         let currentView = 'grid';
         let map, mapLayers = { past: [], future: [], airports: [], labels: [] };
         let showPast = true, showFuture = true;
+        let isLoading = false;
 
         const AIRPORTS = {
             'LGA': [40.7769, -73.8740], 'KLGA': [40.7769, -73.8740],
@@ -497,23 +503,49 @@
             return `pilot-schedule-${pilot}`;
         }
 
-        function savePilotSchedule(pilot, segments) {
+        // Fetch pilot data from server
+        async function fetchPilotData(pilot) {
             try {
-                window.localStorage.setItem(getPilotStorageKey(pilot), JSON.stringify(segments));
-            } catch (e) {
-                console.warn('Unable to save schedule to localStorage', e);
+                isLoading = true;
+                const response = await fetch(`${API_BASE}/pilots/${pilot}`);
+                if (!response.ok) throw new Error(`Failed to fetch pilot: ${response.status}`);
+                
+                const data = await response.json();
+                pilotsCache[pilot] = data;
+                return data;
+            } catch (error) {
+                console.error('Error fetching pilot:', error);
+                return null;
+            } finally {
+                isLoading = false;
             }
         }
 
-        function loadPilotSchedule(pilot) {
+        // Save pilot schedule to server (via upload)
+        async function uploadPilotSchedule(pilot, file) {
             try {
-                const raw = window.localStorage.getItem(getPilotStorageKey(pilot));
-                if (!raw) return null;
-                const parsed = JSON.parse(raw);
-                return Array.isArray(parsed) ? parsed : null;
-            } catch (e) {
-                console.warn('Unable to load schedule from localStorage', e);
+                isLoading = true;
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch(`${API_BASE}/pilots/${pilot}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+
+                const result = await response.json();
+                console.log('Upload successful:', result);
+                
+                // Reload pilot data
+                await fetchPilotData(pilot);
+                return result;
+            } catch (error) {
+                console.error('Upload error:', error);
                 return null;
+            } finally {
+                isLoading = false;
             }
         }
 
@@ -533,24 +565,35 @@
             const sorted = sortSegmentsByTime(segList);
             const awayEvents = [];
             const flights = sorted.filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime);
+            
             for (let i = 0; i < flights.length - 1; i++) {
                 const current = flights[i];
                 const next = flights[i + 1];
+                
                 if (!current.arrivalAirport) continue;
-                if (!current.arrivalAirport || current.arrivalAirport === base) continue;
+                // Skip if arriving at base (no layover away from base)
+                if (base && current.arrivalAirport === base) continue;
                 if (!next.departureTime) continue;
 
-                const arrDate = new Date(current.arrivalTime);
-                const depDate = new Date(next.departureTime);
-                arrDate.setHours(0, 0, 0, 0);
-                depDate.setHours(0, 0, 0, 0);
-                const day = new Date(arrDate);
-                day.setDate(day.getDate() + 1);
-
-                while (day < depDate) {
-                    const y = day.getFullYear(), m = String(day.getMonth() + 1).padStart(2, '0'), d = String(day.getDate()).padStart(2, '0');
-                    awayEvents.push({ type: 'away', departureTime: `${y}-${m}-${d}T00:00:00`, arrivalAirport: current.arrivalAirport });
+                try {
+                    let arrDate = new Date(current.arrivalTime.replace('Z', ''));
+                    let depDate = new Date(next.departureTime.replace('Z', ''));
+                    
+                    if (isNaN(arrDate.getTime()) || isNaN(depDate.getTime())) continue;
+                    
+                    arrDate.setHours(0, 0, 0, 0);
+                    depDate.setHours(0, 0, 0, 0);
+                    const day = new Date(arrDate);
                     day.setDate(day.getDate() + 1);
+
+                    while (day < depDate) {
+                        const y = day.getFullYear(), m = String(day.getMonth() + 1).padStart(2, '0'), d = String(day.getDate()).padStart(2, '0');
+                        awayEvents.push({ type: 'away', departureTime: `${y}-${m}-${d}T00:00:00`, arrivalAirport: current.arrivalAirport });
+                        day.setDate(day.getDate() + 1);
+                    }
+                } catch (err) {
+                    console.error('Error inferring away layover:', err, current, next);
+                    continue;
                 }
             }
             return sortSegmentsByTime([...sorted, ...awayEvents]);
@@ -558,15 +601,39 @@
 
         function loadPilot(pilot) {
             currentPilot = pilot;
-            const storageSegments = loadPilotSchedule(pilot);
-            if (storageSegments) {
-                storedPilots[pilot] = storedPilots[pilot] || { name: pilot, base: null, segments: [] };
-                storedPilots[pilot].segments = storageSegments;
-            }
-            const data = storedPilots[pilot] || { name: pilot, base: null, segments: [] };
-            segments = inferAwayLayovers(data.segments || [], data.base);
-            document.getElementById('pilot-header').textContent = data.name || pilot;
-            render();
+            
+            // Fetch from server
+            fetchPilotData(pilot).then((data) => {
+                if (!data) {
+                    console.error('Failed to load pilot data');
+                    return;
+                }
+
+                // Convert database format to segment format
+                let segmentData = [];
+                if (data.segments && Array.isArray(data.segments)) {
+                    segmentData = data.segments.map(seg => ({
+                        type: seg.type,
+                        departureTime: seg.departure_time,
+                        arrivalTime: seg.arrival_time,
+                        departureAirport: seg.departure_airport,
+                        arrivalAirport: seg.arrival_airport,
+                        tail: seg.tail || '',
+                        trip: seg.trip || '',
+                        flightNumber: seg.flight_number || '',
+                        dh: seg.is_dh ? true : false
+                    }));
+                }
+
+                // Cache pilot data for use in render()
+                pilotsCache[pilot] = data;
+
+                const pilotBase = data.base || null;
+                console.log(`Loading pilot ${pilot}, base: ${pilotBase}, segments: ${segmentData.length}`);
+                segments = inferAwayLayovers(segmentData || [], pilotBase);
+                document.getElementById('pilot-header').textContent = data.name || pilot;
+                render();
+            });
         }
 
         function switchView(view) {
@@ -702,7 +769,15 @@
 
         function formatTimeISO(iso) {
             if (!iso) return '—';
-            try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return iso; }
+            try {
+                // Handle both formats: with Z (UTC) and without
+                let dateStr = iso.replace('Z', '');
+                const d = new Date(dateStr);
+                if (isNaN(d.getTime())) return '—';
+                return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            } catch (e) {
+                return '—';
+            }
         }
         function formatDurationMinutes(mins) {
             if (mins <= 0 || !isFinite(mins)) return '—';
@@ -717,9 +792,9 @@
                     const dep = el.dataset.depTime; const arr = el.dataset.arrTime; const tail = el.dataset.tail || '—'; const trip = el.dataset.trip || ''; const flightNum = el.dataset.flight || '';
                     const depApt = el.dataset.depApt || '';
                     const arrApt = el.dataset.arrApt || '';
-                    const depDate = dep ? new Date(dep) : null;
-                    const arrDate = arr ? new Date(arr) : null;
-                    const blockMins = depDate && arrDate ? (arrDate - depDate) / 60000 : null;
+                    const depDate = dep ? new Date(dep.replace('Z', '')) : null;
+                    const arrDate = arr ? new Date(arr.replace('Z', '')) : null;
+                    const blockMins = (depDate && arrDate && !isNaN(depDate.getTime()) && !isNaN(arrDate.getTime())) ? (arrDate - depDate) / 60000 : null;
 
                     // compute layover to next flight in segments
                     let layoverText = '';
@@ -764,7 +839,7 @@
 
             const year = viewDate.getFullYear();
             const month = viewDate.getMonth();
-            const pilotBase = storedPilots[currentPilot]?.base || null;
+            const pilotBase = pilotsCache[currentPilot]?.base || null;
             document.getElementById('current-month-display').textContent = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
             if (currentView === 'grid') {
@@ -786,7 +861,12 @@
                     const isHard = dayEvents.some(e => e.type === 'hard');
                     const isFlying = dayEvents.some(e => e.type === 'flight');
                     let away = dayEvents.find(e => e.type === 'away');
-                    if (away && away.arrivalAirport === pilotBase) away = null;
+                    if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
+                    
+                    // Debug logging for May 25
+                    if (d === 25) {
+                        console.log(`May 25 - dayEvents:`, dayEvents, `away:`, away, `pilotBase:`, pilotBase);
+                    }
                     let style = "border-zinc-800 bg-zinc-900/20";
                     let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
                     if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
@@ -837,7 +917,12 @@
                             const arrApt = f.arrivalAirport || '';
                             const depTime = formatTimeISO(depAttr);
                             const arrTime = formatTimeISO(arrAttr);
-                            const blockMins = depAttr && arrAttr ? (new Date(arrAttr) - new Date(depAttr)) / 60000 : null;
+                            const blockMins = depAttr && arrAttr ? (() => {
+                                const d1 = new Date(depAttr.replace('Z', ''));
+                                const d2 = new Date(arrAttr.replace('Z', ''));
+                                if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return null;
+                                return (d2 - d1) / 60000;
+                            })() : null;
                             const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-400 text-pink-300">DH</span>` : '';
                                 const flightNumAttr = f.flightNumber || '';
                             const tripLabel = flightNumAttr ? `<span class="text-[10px] text-zinc-400 ml-2">${flightNumAttr}</span>` : (tripAttr ? `<span class="text-[10px] text-zinc-400 ml-2">Trip ${tripAttr}</span>` : '');
@@ -1094,32 +1179,35 @@
 
         async function handleUpload(input) {
             if (!input.files[0]) return;
+            
             const file = input.files[0];
-            const text = await file.text();
-            let parsed = [];
-            const lower = file.name.toLowerCase();
-            if (lower.endsWith('.ics')) parsed = parseICS(text);
-            else if (lower.endsWith('.csv')) {
-                const pilotParser = storedPilots[currentPilot]?.parser || 'default';
-                if (pilotParser === 'skywest') parsed = parseCSV_skywest(text);
-                else parsed = parseCSV(text);
+            // Get selected pilot from dropdown
+            const uploadPilot = document.getElementById('upload-pilot-select').value;
+            
+            console.log(`Uploading ${file.name} for pilot ${uploadPilot}...`);
+            
+            const result = await uploadPilotSchedule(uploadPilot, file);
+            
+            if (result && result.success) {
+                alert(`Successfully uploaded ${result.segmentsAdded} segments for ${uploadPilot}`);
+                // If the uploaded pilot is currently viewed, reload their data
+                if (uploadPilot === currentPilot) {
+                    loadPilot(currentPilot);
+                }
             } else {
-                alert('Unsupported file type. Upload .ics or .csv');
-                return;
+                alert('Upload failed. Check console for details.');
             }
-            const base = storedPilots[currentPilot]?.base || null;
-            parsed = inferAwayLayovers(parsed, base);
-            storedPilots[currentPilot] = storedPilots[currentPilot] || { name: currentPilot, segments: [], base };
-            storedPilots[currentPilot].segments = parsed;
-            savePilotSchedule(currentPilot, parsed);
-            segments = parsed;
-            document.getElementById('pilot-header').textContent = storedPilots[currentPilot].name || currentPilot;
-            render();
-            if (currentView === 'map' && map) renderMap();
+            
+            // Reset input
+            input.value = '';
         }
 
         function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); }
-        loadPilot('kyle');
+        
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadPilot('kyle');
+        });
     </script>
 </body>
 </html>
