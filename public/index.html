@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dispatch | Crowded Skies</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.Geodesic/2.5.5/leaflet.geodesic.umd.min.js"></script>
+    <style>
+        .view-section { display: none; height: calc(100vh - 80px); }
+        .view-active { display: block; }
+        .nav-active { border-color: #3b82f6 !important; color: white !important; background: rgba(59, 130, 246, 0.1); }
+        #map { height: 100%; width: 100%; background: #0a0a0a; }
+        .map-controls { position: absolute; top: 20px; right: 20px; z-index: 1000; }
+        .flight-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 8px; }
+        .day-past { opacity: 0.55; }
+        .day-today { border-color: #38bdf8 !important; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.3); }
+        .day-today .day-number { color: #7dd3fc; }
+    </style>
+</head>
+<body class="bg-[#050505] text-zinc-100 flex h-screen overflow-hidden font-sans">
+
+    <div id="sidebar" class="w-64 border-r border-zinc-800 bg-zinc-900/20 flex flex-col shrink-0">
+        <div class="p-6 border-b border-zinc-800 text-center">
+            <h1 class="text-blue-500 font-black italic text-xl tracking-tighter uppercase">Crowded Skies</h1>
+        </div>
+        
+        <div class="p-4 space-y-1">
+            <p class="text-[10px] font-black text-zinc-600 uppercase px-2 mb-2">Navigation</p>
+            <button onclick="switchView('grid')" id="btn-grid" class="nav-active w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📅 Calendar Grid</button>
+            <button onclick="switchView('list')" id="btn-list" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📜 List View</button>
+            <button onclick="switchView('map')" id="btn-map" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🗺️ Route Map</button>
+        </div>
+
+        <div class="p-4 space-y-1 mt-4">
+            <p class="text-[10px] font-black text-zinc-600 uppercase px-2 mb-2">Crew Selection</p>
+            <button onclick="loadPilot('kyle')" id="pilot-kyle" class="w-full text-left p-4 rounded-xl border border-zinc-800 hover:border-blue-500 transition-colors">
+                <span class="text-[9px] block text-zinc-500 font-black uppercase">Kyle</span>
+                <span class="font-bold text-sm tracking-tight">Kyle Kaestner</span>
+            </button>
+            <button onclick="loadPilot('adam')" id="pilot-adam" class="w-full text-left p-4 rounded-xl border border-zinc-800 hover:border-blue-500 transition-colors">
+                <span class="text-[9px] block text-zinc-500 font-black uppercase">Adam</span>
+                <span class="font-bold text-sm tracking-tight">Adam Burke</span>
+            </button>
+        </div>
+
+        <div class="mt-auto p-4 border-t border-zinc-800 bg-black/20">
+            <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
+            <button onclick="document.getElementById('file-input').click()" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Update Schedule</button>
+        </div>
+    </div>
+
+    <div class="flex-1 flex flex-col overflow-hidden">
+        <header class="h-20 border-b border-zinc-800 flex items-center justify-between px-8 bg-black/40 backdrop-blur-md shrink-0">
+            <div class="flex items-center gap-6">
+                <div class="flex flex-col">
+                    <h2 id="pilot-header" class="font-black uppercase tracking-widest text-xs text-zinc-400 italic">Dispatch</h2>
+                    <div class="text-2xl font-black italic tracking-tighter text-white uppercase" id="current-month-display">May 2026</div>
+                </div>
+                <div class="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800">
+                    <button onclick="changeMonth(-1)" class="px-4 py-2 rounded-lg text-[10px] font-black uppercase bg-zinc-800 hover:bg-zinc-700">Prev</button>
+                    <button onclick="changeMonth(1)" class="px-4 py-2 rounded-lg text-[10px] font-black uppercase bg-zinc-800 hover:bg-zinc-700 ml-1">Next</button>
+                </div>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-hidden relative bg-black">
+            <div id="view-grid" class="view-section view-active overflow-y-auto p-6">
+                <div class="max-w-7xl mx-auto grid grid-cols-7 gap-4">
+                    <div class="col-span-7 grid grid-cols-7 text-center text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-2">
+                        <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+                    </div>
+                    <div id="calendar-grid-content" class="contents"></div>
+                </div>
+            </div>
+
+            <div id="view-list" class="view-section overflow-y-auto p-6">
+                <div id="calendar-list-content" class="max-w-3xl mx-auto space-y-4 pb-20"></div>
+            </div>
+
+            <div id="view-map" class="view-section relative">
+                <div id="map"></div>
+                <div class="map-controls flex flex-col gap-2">
+                    <button onclick="toggleMapFilter('past')" id="btn-past" class="px-4 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-[10px] font-black uppercase text-white hover:bg-zinc-700">Toggle Past (Gray)</button>
+                    <button onclick="toggleMapFilter('future')" id="btn-future" class="px-4 py-2 bg-blue-600 border border-blue-400 rounded-lg text-[10px] font-black uppercase text-white hover:bg-blue-500">Toggle Future (Blue)</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // In-browser segments store per pilot
+        const storedPilots = {
+            kyle: { name: 'Kyle Kaestner', base: 'KSUS', segments: [] },
+            adam: { name: 'Adam Burke', base: 'LGA', segments: [] }
+        };
+        // Preload sample ICS (your attached schedule) so Kyle's trips show immediately
+        const SAMPLE_ICS = `BEGIN:VCALENDAR
+    VERSION:2.0
+    PRODID:-//sebbo.net//ical-generator//EN
+    NAME:Schedaero Schedule
+    X-WR-CALNAME:Schedaero Schedule
+    BEGIN:VEVENT
+    UID:2fcf4326-8cf9-4894-b7af-cf804e129517
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260430T120000Z
+    DTEND:20260501T020000Z
+    SUMMARY:AVAL
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:62597e85-0914-41a1-8d74-a0b4994e6a0d
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260501
+    DTEND;VALUE=DATE:20260502
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:0291231b-1ff2-4cfb-a381-ec85ec512d65
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260502
+    DTEND;VALUE=DATE:20260503
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:89bece80-7bf3-453d-a395-1318ffe98bf2
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260503
+    DTEND;VALUE=DATE:20260504
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:4f5bd3ca-819d-4d89-93fe-212e42e12449
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260504
+    DTEND;VALUE=DATE:20260505
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:21f826c1-a96e-4934-873d-dae922ee14e1
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260507T120000Z
+    DTEND:20260508T020000Z
+    SUMMARY:AVAL
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:6976ebc4-2f39-4270-ac52-ada5a15c526f
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260511T120000Z
+    DTEND:20260512T020000Z
+    SUMMARY:AWAY
+    DESCRIPTION:AWAY - MBL
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:45251319-2fe0-4159-b2fc-207f907d513c
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260514
+    DTEND;VALUE=DATE:20260515
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:5ef10d74-4d1f-46f6-b361-22d0c152d921
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260515
+    DTEND;VALUE=DATE:20260516
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:1fcf21d0-bf93-484c-afbe-13643ea9793e
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260516
+    DTEND;VALUE=DATE:20260517
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:d563d886-2b1a-4140-946c-868241a425a5
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260522T120000Z
+    DTEND:20260523T020000Z
+    SUMMARY:AWAY
+    DESCRIPTION:AWAY - APC
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:392a7e52-e222-45a1-8d4b-43c15b0a64e6
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260523T120000Z
+    DTEND:20260524T020000Z
+    SUMMARY:AWAY
+    DESCRIPTION:AWAY - APC
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:43632522-b767-4a57-90e6-5b987081bfd1
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260524T120000Z
+    DTEND:20260525T020000Z
+    SUMMARY:AWAY
+    DESCRIPTION:AWAY - APC
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:d270cc6c-3383-437c-bcd5-c8396c5c1553
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260527
+    DTEND;VALUE=DATE:20260528
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:1f7c9d2e-2ba1-43d9-8b1b-531edabb26c4
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260528
+    DTEND;VALUE=DATE:20260529
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:5438630b-9312-4321-a238-79ef4affcd8c
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260529
+    DTEND;VALUE=DATE:20260530
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:905498ba-a272-465c-aa3f-edfad737fcea
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART;VALUE=DATE:20260530
+    DTEND;VALUE=DATE:20260531
+    X-MICROSOFT-CDO-ALLDAYEVENT:TRUE
+    X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE
+    SUMMARY:HARD
+    DESCRIPTION:
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:f7976a1e-ac3b-49a9-b580-d7c74f8b31f5
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260429T223600Z
+    DTEND:20260430T004200Z
+    SUMMARY:✈️ KCNY -> KSUS
+    DESCRIPTION:Tail: N176US\nTrip: 410526
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:aa028569-2cca-4595-a909-dd0eaabad6fc
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260505T143600Z
+    DTEND:20260505T184200Z
+    SUMMARY:✈️ KSUS -> TJSJ
+    DESCRIPTION:Tail: N431JD\nTrip: 501826
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:82c02144-4c34-4012-b26d-dba1d3c72a79
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260506T172400Z
+    DTEND:20260506T231200Z
+    SUMMARY:✈️ TJSJ -> KSUS
+    DESCRIPTION:Tail: N431JD\nTrip: 501826
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:f26af6ea-df20-4df0-965a-e02799c849de
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260508T170600Z
+    DTEND:20260508T192400Z
+    SUMMARY:✈️ KSUS -> KSRQ
+    DESCRIPTION:Tail: N209HP\nTrip: 502826
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:8bd9fcd3-64a0-491a-bb82-fd995370ac66
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260509T143000Z
+    DTEND:20260509T170000Z
+    SUMMARY:✈️ KSRQ -> KSUS
+    DESCRIPTION:Tail: N209HP\nTrip: 503626
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:9b538127-3302-468c-bab6-1fdde5ce6530
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260510T210000Z
+    DTEND:20260510T221200Z
+    SUMMARY:✈️ KSUS -> KMBL
+    DESCRIPTION:Tail: N431JD\nTrip: 504226
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:64608d1e-e264-4606-bd40-66cf822ca79e
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260512T212400Z
+    DTEND:20260512T224800Z
+    SUMMARY:✈️ KMBL -> KSUS
+    DESCRIPTION:Tail: N431JD\nTrip: 504226
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:6321df13-62a5-4d75-98cf-3f80306a0458
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260517T190000Z
+    DTEND:20260517T235400Z
+    SUMMARY:✈️ TJSJ -> KSUS
+    DESCRIPTION:Tail: N176US\nTrip: 506326
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:b230984f-51d0-417b-9790-3de091847a0a
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260517T140000Z
+    DTEND:20260517T181800Z
+    SUMMARY:✈️ KSUS -> TJSJ
+    DESCRIPTION:Tail: N176US\nTrip: 506226
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:ac86fe69-e1a3-46a9-b40b-25abd37fd8a9
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260513T111200Z
+    DTEND:20260513T133000Z
+    SUMMARY:✈️ KSUS -> KRSW
+    DESCRIPTION:Tail: N209HP\nTrip: 504726
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:b661fba3-b77b-4410-bc68-84056f64e706
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260513T150000Z
+    DTEND:20260513T180000Z
+    SUMMARY:✈️ KRSW -> KSUS
+    DESCRIPTION:Tail: N209HP\nTrip: 504726
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:ef3d4f46-be71-4068-9768-a5e557a327e6
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260521T150000Z
+    DTEND:20260521T191200Z
+    SUMMARY:✈️ KSUS -> KAPC
+    DESCRIPTION:Tail: N431JD\nTrip: 42189707
+    END:VEVENT
+    BEGIN:VEVENT
+    UID:1d27700f-f5d5-4959-b775-5d3aecfea830
+    SEQUENCE:0
+    DTSTAMP:20260515T071754Z
+    DTSTART:20260525T180000Z
+    DTEND:20260525T214200Z
+    SUMMARY:✈️ KAPC -> KSUS
+    DESCRIPTION:Tail: N431JD\nTrip: 42189707
+    END:VEVENT
+    END:VCALENDAR`;
+        // parse and assign to Kyle on load so trips are visible
+        try { storedPilots.kyle.segments = inferAwayLayovers(parseICS(SAMPLE_ICS)); } catch (e) { console.warn('Preload ICS failed', e); }
+        let segments = [];
+        let viewDate = new Date(2026, 4, 1);
+        let currentPilot = 'kyle';
+        let currentView = 'grid';
+        let map, mapLayers = { past: [], future: [], airports: [], labels: [] };
+        let showPast = true, showFuture = true;
+
+        const AIRPORTS = {
+            'LGA': [40.7769, -73.8740], 'TUL': [36.1984, -95.8881], 'XNA': [36.2818, -94.3068],
+            'ORD': [41.9742, -87.9073], 'PIT': [40.4915, -80.2329], 'PWM': [43.6462, -70.3088],
+            'OKC': [35.3931, -97.6007], 'STL': [38.7477, -90.3597], 'MDW': [41.7868, -87.7522],
+            'KSUS': [38.6519, -90.6506], 'KCNY': [38.8621, -99.3370], 'TJSJ': [18.4394, -66.0018],
+            'KSRQ': [27.3954, -82.5540], 'KMBL': [44.2725, -86.2557], 'KRSW': [26.5362, -81.7552],
+            'KAPC': [26.1523, -81.7752]
+        };
+
+        function getPilotStorageKey(pilot) {
+            return `pilot-schedule-${pilot}`;
+        }
+
+        function savePilotSchedule(pilot, segments) {
+            try {
+                window.localStorage.setItem(getPilotStorageKey(pilot), JSON.stringify(segments));
+            } catch (e) {
+                console.warn('Unable to save schedule to localStorage', e);
+            }
+        }
+
+        function loadPilotSchedule(pilot) {
+            try {
+                const raw = window.localStorage.getItem(getPilotStorageKey(pilot));
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : null;
+            } catch (e) {
+                console.warn('Unable to load schedule from localStorage', e);
+                return null;
+            }
+        }
+
+        function sortSegmentsByTime(segList) {
+            return segList.slice().sort((a, b) => {
+                const aTime = a.departureTime ? Date.parse(a.departureTime) : Infinity;
+                const bTime = b.departureTime ? Date.parse(b.departureTime) : Infinity;
+                if (aTime !== bTime) return aTime - bTime;
+                const aEnd = a.arrivalTime ? Date.parse(a.arrivalTime) : Infinity;
+                const bEnd = b.arrivalTime ? Date.parse(b.arrivalTime) : Infinity;
+                if (aEnd !== bEnd) return aEnd - bEnd;
+                return (a.type || '').localeCompare(b.type || '');
+            });
+        }
+
+        function inferAwayLayovers(segList, base) {
+            const sorted = sortSegmentsByTime(segList);
+            const awayEvents = [];
+            const flights = sorted.filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime);
+            for (let i = 0; i < flights.length - 1; i++) {
+                const current = flights[i];
+                const next = flights[i + 1];
+                if (!current.arrivalAirport) continue;
+                if (!current.arrivalAirport || current.arrivalAirport === base) continue;
+                if (!next.departureTime) continue;
+
+                const arrDate = new Date(current.arrivalTime);
+                const depDate = new Date(next.departureTime);
+                arrDate.setHours(0, 0, 0, 0);
+                depDate.setHours(0, 0, 0, 0);
+                const day = new Date(arrDate);
+                day.setDate(day.getDate() + 1);
+
+                while (day < depDate) {
+                    const y = day.getFullYear(), m = String(day.getMonth() + 1).padStart(2, '0'), d = String(day.getDate()).padStart(2, '0');
+                    awayEvents.push({ type: 'away', departureTime: `${y}-${m}-${d}T00:00:00`, arrivalAirport: current.arrivalAirport });
+                    day.setDate(day.getDate() + 1);
+                }
+            }
+            return sortSegmentsByTime([...sorted, ...awayEvents]);
+        }
+
+        function loadPilot(pilot) {
+            currentPilot = pilot;
+            const storageSegments = loadPilotSchedule(pilot);
+            if (storageSegments) {
+                storedPilots[pilot] = storedPilots[pilot] || { name: pilot, base: null, segments: [] };
+                storedPilots[pilot].segments = storageSegments;
+            }
+            const data = storedPilots[pilot] || { name: pilot, base: null, segments: [] };
+            segments = inferAwayLayovers(data.segments || [], data.base);
+            document.getElementById('pilot-header').textContent = data.name || pilot;
+            render();
+        }
+
+        function switchView(view) {
+            currentView = view;
+            document.querySelectorAll('.view-section').forEach(s => s.classList.remove('view-active'));
+            document.getElementById(`view-${view}`).classList.add('view-active');
+            document.getElementById('btn-grid').classList.toggle('nav-active', view === 'grid');
+            document.getElementById('btn-list').classList.toggle('nav-active', view === 'list');
+            document.getElementById('btn-map').classList.toggle('nav-active', view === 'map');
+            if (view === 'map') initMap();
+            render();
+        }
+
+        function initMap() {
+            if (map) return;
+            map = L.map('map', { zoomControl: false }).setView([39.8283, -98.5795], 4);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+        }
+
+        function renderMap() {
+            if (!map) return;
+            mapLayers.past.forEach(l => map.removeLayer(l));
+            mapLayers.future.forEach(l => map.removeLayer(l));
+            mapLayers.airports.forEach(l => map.removeLayer(l));
+            mapLayers.labels.forEach(l => map.removeLayer(l));
+            mapLayers = { past: [], future: [], airports: [], labels: [] };
+
+            const now = new Date();
+            const bounds = [];
+            const airportSet = new Set();
+
+            segments.filter(s => s.type === 'flight' && AIRPORTS[s.departureAirport] && AIRPORTS[s.arrivalAirport]).forEach(f => {
+                const isPast = new Date(f.departureTime) < now;
+                const color = isPast ? '#6b7280' : '#3b82f6';
+                const weight = isPast ? 1.5 : 2.8;
+                const line = L.geodesic([AIRPORTS[f.departureAirport], AIRPORTS[f.arrivalAirport]], {
+                    weight: weight, opacity: 0.95, color: color, steps: 50
+                });
+
+                if (isPast) mapLayers.past.push(line);
+                else mapLayers.future.push(line);
+
+                if ((isPast && showPast) || (!isPast && showFuture)) line.addTo(map);
+
+                [f.departureAirport, f.arrivalAirport].forEach(code => {
+                    if (!code || airportSet.has(code) || !AIRPORTS[code]) return;
+                    airportSet.add(code);
+                    const coords = AIRPORTS[code];
+                    bounds.push(coords);
+                    const point = L.circleMarker(coords, {
+                        radius: 5,
+                        color: '#f8fafc',
+                        fillColor: '#f8fafc',
+                        fillOpacity: 1,
+                        weight: 1
+                    });
+                    point.addTo(map);
+                    mapLayers.airports.push(point);
+
+                    const label = L.marker(coords, {
+                        icon: L.divIcon({
+                            className: 'airport-label',
+                            html: `<div style="color:#f8fafc;font-size:11px;font-weight:800;text-shadow:0 0 12px rgba(0,0,0,0.8);transform: translate(-50%, -150%);">${code}</div>`,
+                            iconAnchor: [0, 0],
+                            popupAnchor: [0, -15]
+                        })
+                    });
+                    label.addTo(map);
+                    mapLayers.labels.push(label);
+                });
+            });
+
+            if (bounds.length > 0) {
+                const boundsLayer = L.latLngBounds(bounds);
+                map.fitBounds(boundsLayer.pad(0.2));
+            }
+        }
+
+        function toggleMapFilter(type) {
+            if (type === 'past') {
+                showPast = !showPast;
+                mapLayers.past.forEach(l => showPast ? l.addTo(map) : map.removeLayer(l));
+                document.getElementById('btn-past').style.opacity = showPast ? "1" : "0.4";
+            } else {
+                showFuture = !showFuture;
+                mapLayers.future.forEach(l => showFuture ? l.addTo(map) : map.removeLayer(l));
+                document.getElementById('btn-future').style.opacity = showFuture ? "1" : "0.4";
+            }
+        }
+
+        // Tooltip element for flight details
+        const tooltip = document.createElement('div');
+        tooltip.id = 'flight-tooltip';
+        Object.assign(tooltip.style, { position: 'fixed', pointerEvents: 'none', background: '#0b1220', color: '#fff', padding: '8px 10px', borderRadius: '8px', boxShadow: '0 4px 18px rgba(2,6,23,0.8)', fontSize: '12px', zIndex: 2000, display: 'none', maxWidth: '260px' });
+        document.body.appendChild(tooltip);
+
+        function showTooltip(html, x, y) {
+            tooltip.innerHTML = html;
+            tooltip.style.left = (x + 12) + 'px';
+            tooltip.style.top = (y + 12) + 'px';
+            tooltip.style.display = 'block';
+        }
+        function moveTooltip(x, y) { tooltip.style.left = (x + 12) + 'px'; tooltip.style.top = (y + 12) + 'px'; }
+        function hideTooltip() { tooltip.style.display = 'none'; }
+
+        function formatTimeISO(iso) {
+            if (!iso) return '—';
+            try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return iso; }
+        }
+        function formatDurationMinutes(mins) {
+            if (mins <= 0 || !isFinite(mins)) return '—';
+            const h = Math.floor(mins / 60); const m = Math.round(mins % 60);
+            if (h > 0) return `${h}h ${m}m`;
+            return `${m}m`;
+        }
+
+        function attachTooltips() {
+            document.querySelectorAll('.flight-item').forEach(el => {
+                function onEnter(e) {
+                    const dep = el.dataset.depTime; const arr = el.dataset.arrTime; const tail = el.dataset.tail || '—'; const trip = el.dataset.trip || '';
+                    const depApt = el.dataset.depApt || '';
+                    const arrApt = el.dataset.arrApt || '';
+                    const depDate = dep ? new Date(dep) : null;
+                    const arrDate = arr ? new Date(arr) : null;
+                    const blockMins = depDate && arrDate ? (arrDate - depDate) / 60000 : null;
+
+                    // compute layover to next flight in segments
+                    let layoverText = '';
+                    try {
+                        const curArr = arrDate;
+                        if (curArr) {
+                            const next = segments.filter(s => s.type === 'flight' && s.departureTime).map(s => ({...s, _d: new Date(s.departureTime)})).filter(s=>s._d>curArr).sort((a,b)=>a._d-b._d)[0];
+                            if (next) {
+                                const mins = (new Date(next.departureTime) - curArr) / 60000;
+                                layoverText = `Layover to next (${next.departureAirport}→${next.arrivalAirport}): ${formatDurationMinutes(mins)}`;
+                            }
+                        }
+                    } catch (er) { layoverText = ''; }
+
+                    const dhLabel = el.dataset.dh === 'true' ? `<div style="font-size:11px;color:#f9a8d4;font-weight:700;margin-bottom:4px">DH Flight</div>` : '';
+                    const html = `<div style="font-weight:800;margin-bottom:6px">${depApt} → ${arrApt} ${trip ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">${trip}</span>` : ''}</div>` +
+                        dhLabel +
+                        `<div style="font-size:12px;color:#cbd5e1">Dep: ${formatTimeISO(dep)} • Arr: ${formatTimeISO(arr)}</div>` +
+                        `<div style="font-size:12px;color:#cbd5e1">Block: ${formatDurationMinutes(blockMins)}</div>` +
+                        `<div style="font-size:12px;color:#cbd5e1">Tail: ${tail}</div>` +
+                        (layoverText ? `<div style="margin-top:6px;color:#ffd57a;font-weight:700">${layoverText}</div>` : '');
+
+                    showTooltip(html, e.clientX, e.clientY);
+                }
+                function onMove(e) { moveTooltip(e.clientX, e.clientY); }
+                function onLeave() { hideTooltip(); }
+                el.removeEventListener('mouseenter', el._enter);
+                el.removeEventListener('mousemove', el._move);
+                el.removeEventListener('mouseleave', el._leave);
+                el._enter = onEnter; el._move = onMove; el._leave = onLeave;
+                el.addEventListener('mouseenter', onEnter);
+                el.addEventListener('mousemove', onMove);
+                el.addEventListener('mouseleave', onLeave);
+            });
+        }
+
+        function render() {
+            const gridContainer = document.getElementById('calendar-grid-content');
+            const listContainer = document.getElementById('calendar-list-content');
+            gridContainer.innerHTML = '';
+            listContainer.innerHTML = '';
+
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+            const pilotBase = storedPilots[currentPilot]?.base || null;
+            document.getElementById('current-month-display').textContent = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+            if (currentView === 'grid') {
+                const firstDay = new Date(year, month, 1).getDay();
+                const dayOffset = firstDay === 0 ? 6 : firstDay - 1;
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                for (let i = 0; i < dayOffset; i++) gridContainer.innerHTML += `<div class="min-h-[140px] opacity-0"></div>`;
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const dayDate = new Date(year, month, d);
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+                    const isPastDay = dayDate < today;
+                    const isToday = dayDate.getTime() === today.getTime();
+                    const dayClasses = [];
+                    if (isPastDay) dayClasses.push('day-past');
+                    if (isToday) dayClasses.push('day-today');
+                    const dayEvents = segments.filter(s => s.departureTime && s.departureTime.startsWith(dateKey));
+                    const isHard = dayEvents.some(e => e.type === 'hard');
+                    const isFlying = dayEvents.some(e => e.type === 'flight');
+                    let away = dayEvents.find(e => e.type === 'away');
+                    if (away && away.arrivalAirport === pilotBase) away = null;
+                    let style = "border-zinc-800 bg-zinc-900/20";
+                    let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
+                    if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
+                    else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
+                    else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
+                    let html = `<div class="min-h-[150px] border rounded-2xl p-4 flex flex-col ${style} ${dayClasses.join(' ')}"><div class="flex justify-between items-start mb-3"><span class="text-2xl font-black font-mono day-number">${d}</span><span class="text-[8px] font-black px-2 py-0.5 rounded-full border border-current">${tag}</span></div><div class="space-y-1">`;
+                    dayEvents.filter(e => e.type === 'flight').forEach(f => {
+                        const depAttr = f.departureTime || '';
+                        const arrAttr = f.arrivalTime || '';
+                        const tailAttr = f.tail || '';
+                        const tripAttr = f.trip || '';
+                        const depApt = f.departureAirport || '';
+                        const arrApt = f.arrivalAirport || '';
+                        const dhBadge = f.dh ? `<span class="ml-2 inline-block px-2 py-0.5 rounded-full text-[9px] border border-pink-400 text-pink-300">DH</span>` : '';
+                        html += `<div class="p-2 bg-black/40 rounded-lg border border-white/5 text-[10px] font-bold text-center flight-item" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">${depApt} → ${arrApt}${dhBadge}</div>`;
+                    });
+                    gridContainer.innerHTML += html + `</div></div>`;
+                }
+            } else if (currentView === 'list') {
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const dayEvents = segments.filter(s => s.departureTime && s.departureTime.startsWith(dateKey));
+                    const dateObj = new Date(year, month, d);
+                    const dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+                    const isPastDay = dateObj < today;
+                    const isToday = dateObj.getTime() === today.getTime();
+                    const isHard = dayEvents.some(e => e.type === 'hard');
+                    let away = dayEvents.find(e => e.type === 'away');
+                    if (away && away.arrivalAirport === pilotBase) away = null;
+                    const flights = dayEvents.filter(e => e.type === 'flight');
+                    let bgColor = "bg-zinc-900/20 border-zinc-800", label = currentPilot === 'adam' ? "OFF" : "ON CALL";
+                    if (isHard) { bgColor = "bg-red-900/20 border-red-900/50"; label = "HARD OFF"; }
+                    else if (away) { bgColor = "bg-yellow-900/20 border-yellow-700/50"; label = `AWAY - ${away.arrivalAirport}`; }
+                    else if (flights.length > 0) { bgColor = "bg-blue-900/10 border-blue-500/30"; label = "FLYING"; }
+                    let contentHtml = `<div class="text-sm font-black text-zinc-500 uppercase">${label}</div>`;
+                    if (flights.length > 0) {
+                        const sortedFlights = flights.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+                        contentHtml = sortedFlights.map((f, index) => {
+                            const depAttr = f.departureTime || '';
+                            const arrAttr = f.arrivalTime || '';
+                            const tailAttr = f.tail || '';
+                            const tripAttr = f.trip || '';
+                            const depApt = f.departureAirport || '';
+                            const arrApt = f.arrivalAirport || '';
+                            const depTime = formatTimeISO(depAttr);
+                            const arrTime = formatTimeISO(arrAttr);
+                            const blockMins = depAttr && arrAttr ? (new Date(arrAttr) - new Date(depAttr)) / 60000 : null;
+                            const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-400 text-pink-300">DH</span>` : '';
+                            const tripLabel = tripAttr ? `<span class="text-[10px] text-zinc-400 ml-2">Trip ${tripAttr}</span>` : '';
+                            const nextFlight = sortedFlights[index + 1];
+                            let layoverText = '';
+                            if (nextFlight && arrAttr && nextFlight.departureTime) {
+                                const layoverMins = (new Date(nextFlight.departureTime) - new Date(arrAttr)) / 60000;
+                                if (layoverMins > 0) layoverText = `Layover ${formatDurationMinutes(layoverMins)}`;
+                            }
+                            return `<div class="flight-row border border-zinc-800/60 rounded-3xl p-4 bg-zinc-950/70 text-sm text-zinc-100"><div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div class="space-y-2"><div class="text-lg font-black text-white">${depApt} <span class="text-zinc-500">→</span> ${arrApt}${dhBadge}</div><div class="text-[11px] uppercase tracking-widest text-zinc-400">Tail: ${tailAttr || '—'}${tripLabel}</div></div><div class="text-right text-zinc-200"><div class="font-black text-sm">${depTime} → ${arrTime}</div><div class="text-[11px] text-zinc-400">Block ${formatDurationMinutes(blockMins)}</div>${layoverText ? `<div class="text-[11px] text-amber-300 font-semibold mt-1">${layoverText}</div>` : ''}</div></div></div>`;
+                        }).join('');
+                    }
+                    const listClasses = ["flex gap-6 p-4 border rounded-2xl", bgColor];
+                    if (isPastDay) listClasses.push('day-past');
+                    if (isToday) listClasses.push('day-today');
+                    listContainer.innerHTML += `<div class="${listClasses.join(' ')}"><div class="w-20 shrink-0 text-center border-r border-zinc-800/50 pr-4"><div class="text-[10px] font-black uppercase text-zinc-500">${dateLabel.split(' ')[0]}</div><div class="text-xl font-black">${d}</div></div><div class="flex-1 space-y-2">${contentHtml}</div></div>`;
+                }
+            } else if (currentView === 'map') {
+                renderMap();
+            }
+            // attach tooltips to any newly-rendered flight items
+            attachTooltips();
+        }
+
+        // --- Parsers (client-side) ---
+        function parseICS(text) {
+            const events = [];
+            const blocks = text.split(/BEGIN:VEVENT/gi).slice(1);
+            for (const b of blocks) {
+                const lines = b.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+                const getLine = (prefix) => {
+                    const ln = lines.find(l => l.toUpperCase().startsWith(prefix));
+                    return ln ? ln.split(/:(.+)/)[1] || '' : '';
+                };
+                const rawDTSTART = lines.find(l => l.toUpperCase().startsWith('DTSTART')) || '';
+                const isAllDay = /VALUE=DATE/i.test(rawDTSTART);
+                const dtstart = rawDTSTART.split(/:(.+)/)[1] || '';
+                const dtend = (lines.find(l => l.toUpperCase().startsWith('DTEND')) || '').split(/:(.+)/)[1] || '';
+                const summary = getLine('SUMMARY') || '';
+                const desc = getLine('DESCRIPTION') || '';
+
+                if (/^HARD$/i.test(summary) || isAllDay) {
+                    // hard day off
+                    const date = isAllDay ? dtstart : dtstart.substring(0,8);
+                    const y = date.substring(0,4), m = date.substring(4,6), d = date.substring(6,8);
+                    events.push({ type: 'hard', departureTime: `${y}-${m}-${d}T00:00:00` });
+                    continue;
+                }
+
+                if (/^AWAY$/i.test(summary)) {
+                    // away with DESCRIPTION maybe 'AWAY - APC'
+                    const arrival = (desc.match(/AWAY\s*-\s*(\w+)/i) || [])[1] || null;
+                    if (dtstart) {
+                        const isoStart = formatICSDatetime(dtstart);
+                        const isoEnd = dtend ? formatICSDatetime(dtend) : '';
+                        events.push({ type: 'away', departureTime: isoStart, arrivalTime: isoEnd, arrivalAirport: arrival });
+                    }
+                    continue;
+                }
+
+                // flight events: SUMMARY like '✈️ KSUS -> TJSJ' or '✈️ KCNY -> KSUS'
+                const flightMatch = summary.match(/(?:✈️|\u2708)?\s*([A-Z0-9]{3,4})\s*(?:->|→|–|—|-|to)\s*([A-Z0-9]{3,4})/i);
+                const tailMatch = desc.match(/Tail:\s*(\S+)/i);
+                const tripMatch = desc.match(/Trip\s*[:#]?\s*(\d+)/i);
+                if (flightMatch) {
+                    const dep = flightMatch[1];
+                    const arr = flightMatch[2];
+                    const isoStart = dtstart ? formatICSDatetime(dtstart) : '';
+                    const isoEnd = dtend ? formatICSDatetime(dtend) : '';
+                    events.push({
+                        type: 'flight',
+                        departureTime: isoStart,
+                        arrivalTime: isoEnd,
+                        departureAirport: dep,
+                        arrivalAirport: arr,
+                        tail: tailMatch ? tailMatch[1] : '',
+                        trip: tripMatch ? tripMatch[1] : ''
+                    });
+                }
+            }
+            return events;
+        }
+
+        function formatICSDatetime(s) {
+            // s like 20260430T120000Z or 20260501
+            if (/^\d{8}T\d{6}Z$/.test(s)) {
+                const y = s.substring(0,4), m = s.substring(4,6), d = s.substring(6,8);
+                const hh = s.substring(9,11), mm = s.substring(11,13), ss = s.substring(13,15);
+                return `${y}-${m}-${d}T${hh}:${mm}:${ss}Z`;
+            }
+            if (/^\d{8}$/.test(s)) {
+                const y = s.substring(0,4), m = s.substring(4,6), d = s.substring(6,8);
+                return `${y}-${m}-${d}T00:00:00`;
+            }
+            return s;
+        }
+
+        function parseCSV(text) {
+            const lines = text.split(/\r?\n/).filter(l => l.trim());
+            const header = lines.shift().split(',').map(h => h.trim());
+            const idx = (name) => header.indexOf(name);
+            const events = [];
+
+            const toMinutes = (time) => {
+                const txt = normalizeTime(time);
+                const [hh, mm] = txt.split(':').map(Number);
+                return hh * 60 + mm;
+            };
+
+            const addDays = (year, month, day, extraDays) => {
+                const d = new Date(Number(year), Number(month) - 1, Number(day) + extraDays);
+                const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
+                return { y, m, dd };
+            };
+
+            for (const row of lines) {
+                const cols = row.split(',');
+                const date = cols[idx('DATE')]?.trim();
+                const dh = cols[idx('DH')]?.trim();
+                const tail = (cols[idx('FCVTAIL')] || cols[idx('TAIL')] || '').trim();
+                const dep = (cols[idx('DEP')] || '').trim();
+                const arr = (cols[idx('ARR')] || '').trim();
+                const deptime = (cols[idx('DEPTIME')] || '').trim();
+                const arrtime = (cols[idx('ARRTIME')] || '').trim();
+
+                if (!date) continue;
+                const [m, d, y] = date.split('/');
+                const ym = y.padStart(4, '0'), mm = m.padStart(2, '0'), dd = d.padStart(2, '0');
+
+                if (dep && arr) {
+                    const dt = normalizeTime(deptime);
+                    const at = normalizeTime(arrtime);
+                    let arrivalDate = { y: ym, m: mm, dd: dd };
+                    const depMinutes = toMinutes(deptime);
+                    const arrMinutes = toMinutes(arrtime);
+                    if (arrMinutes <= depMinutes) {
+                        arrivalDate = addDays(ym, mm, dd, 1);
+                    }
+                    const isoStart = `${ym}-${mm}-${dd}T${dt}:00`;
+                    const isoEnd = `${arrivalDate.y}-${arrivalDate.m}-${arrivalDate.dd}T${at}:00`;
+                    const isDH = dh && dh.toUpperCase() === 'DH';
+                    events.push({ type: 'flight', departureTime: isoStart, arrivalTime: isoEnd, departureAirport: dep, arrivalAirport: arr, tail, dh: isDH });
+                    continue;
+                }
+
+                if (dh && dh.toUpperCase() === 'DH') {
+                    const isoDate = `${ym}-${mm}-${dd}T00:00:00`;
+                    events.push({ type: 'hard', departureTime: isoDate });
+                    continue;
+                }
+            }
+            return events;
+        }
+
+        function normalizeTime(t) {
+            if (!t) return '00:00';
+            const s = t.padStart(4,'0');
+            const hh = s.slice(0, s.length - 2);
+            const mm = s.slice(-2);
+            return `${hh}:${mm}`;
+        }
+
+        async function handleUpload(input) {
+            if (!input.files[0]) return;
+            const file = input.files[0];
+            const text = await file.text();
+            let parsed = [];
+            if (file.name.toLowerCase().endsWith('.ics')) parsed = parseICS(text);
+            else if (file.name.toLowerCase().endsWith('.csv')) parsed = parseCSV(text);
+            else {
+                alert('Unsupported file type. Upload .ics or .csv');
+                return;
+            }
+            const base = storedPilots[currentPilot]?.base || null;
+            parsed = inferAwayLayovers(parsed, base);
+            storedPilots[currentPilot] = storedPilots[currentPilot] || { name: currentPilot, segments: [], base };
+            storedPilots[currentPilot].segments = parsed;
+            savePilotSchedule(currentPilot, parsed);
+            segments = parsed;
+            document.getElementById('pilot-header').textContent = storedPilots[currentPilot].name || currentPilot;
+            render();
+            if (currentView === 'map' && map) renderMap();
+        }
+
+        function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); }
+        loadPilot('kyle');
+    </script>
+</body>
+</html>
