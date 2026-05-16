@@ -93,10 +93,14 @@ function formatICSDatetime(s) {
 function normalizeTime(time) {
     if (!time) return '00:00';
     const txt = time.trim().replace(/[^\d:]/g, '');
-    const parts = txt.split(':');
-    const hh = String(parts[0] || '00').padStart(2, '0');
-    const mm = String(parts[1] || '00').padStart(2, '0');
-    return `${hh}:${mm}`;
+    if (txt.includes(':')) {
+        const parts = txt.split(':');
+        const hh = String(parts[0] || '00').padStart(2, '0').slice(-2);
+        const mm = String(parts[1] || '00').padStart(2, '0').slice(-2);
+        return `${hh}:${mm}`;
+    }
+    const s = txt.padStart(4, '0');
+    return `${s.slice(0, 2)}:${s.slice(2, 4)}`;
 }
 
 function parseCSV(text) {
