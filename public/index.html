@@ -14,14 +14,13 @@
         .view-section { display: none; height: 100%; }
         .view-active { display: block; }
 
-        /* Desktop: calendar grid fits the screen, no scrolling */
+        /* Desktop: calendar grid — fills screen when possible, scrolls on small monitors */
         @media (min-width: 768px) {
-            #view-grid { display: flex !important; flex-direction: column !important; overflow: hidden !important; padding: 10px 14px !important; }
-            #view-grid > div { flex: 1 !important; min-height: 0 !important; max-width: 100% !important; grid-template-rows: auto; grid-auto-rows: 1fr; gap: 6px !important; }
-            #calendar-grid-content > div { min-height: 0 !important; overflow: hidden; padding: 8px !important; border-radius: 12px !important; }
-            #calendar-grid-content .day-number { font-size: 18px !important; }
-            #calendar-grid-content .flex.justify-between { margin-bottom: 6px !important; }
-            #calendar-grid-content .flight-item { padding: 3px 5px !important; font-size: 9px !important; border-radius: 5px !important; }
+            #view-grid { display: flex !important; flex-direction: column !important; overflow-y: auto !important; padding: 10px 14px !important; }
+            #view-grid > div { flex: 1 !important; min-height: 0 !important; max-width: 100% !important; grid-template-rows: auto; grid-auto-rows: minmax(120px, 1fr); gap: 6px !important; }
+            #calendar-grid-content > div { min-height: 0 !important; overflow: hidden; padding: 6px 8px !important; border-radius: 12px !important; }
+            #calendar-grid-content .day-number { font-size: 16px !important; }
+            #calendar-grid-content .flex.justify-between { margin-bottom: 4px !important; }
         }
 
         /* Mobile: compact grid + readable list */
@@ -139,7 +138,7 @@
         </header>
 
         <!-- Mobile header -->
-        <header class="md:hidden h-14 border-b border-zinc-800 flex items-center justify-between px-4 bg-black/60 backdrop-blur-md shrink-0">
+        <header class="md:hidden border-b border-zinc-800 flex items-end justify-between px-4 bg-black/60 backdrop-blur-md shrink-0" style="height: calc(56px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); padding-bottom: 10px;">
             <div class="flex flex-col leading-tight">
                 <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic">Dispatch</span>
                 <span id="current-month-display-mobile" class="text-base font-black italic tracking-tighter text-white uppercase">May 2026</span>
@@ -539,6 +538,7 @@
         let currentView = 'grid';
         let map, mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
         let showPast = true, showFuture = true;
+        let airportVisibilityMap = {}, airportFlightTypes = {};
         let isLoading = false;
 
         const AIRPORTS = {
@@ -828,6 +828,8 @@
             [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels]
                 .forEach(l => map.removeLayer(l));
             mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
+            airportVisibilityMap = {};
+            airportFlightTypes = {};
 
             const now = new Date();
             const pilotBase = (pilotsCache[currentPilot]?.base || '').toUpperCase();
@@ -895,34 +897,49 @@
                     mapLayers.active.push(dot);
                 }
 
-                // Airport dots and labels
+                // Track which airports belong to past vs future flights
                 [f.departureAirport, f.arrivalAirport].forEach(code => {
                     const upper = code ? code.toUpperCase() : '';
-                    const coords = resolveAirport(upper);
-                    if (!upper || airportSet.has(upper) || !coords) return;
-                    airportSet.add(upper);
-                    bounds.push(coords);
-
-                    const isBase = upper === pilotBase;
-                    const isLayover = layoverAirports.has(upper);
-                    const dotColor = isBase ? '#22c55e' : isLayover ? '#f59e0b' : '#f8fafc';
-                    const radius = isBase ? 7 : isLayover ? 6 : 5;
-
-                    const point = L.circleMarker(coords, {
-                        radius, color: '#0f172a', fillColor: dotColor, fillOpacity: 1, weight: 1.5
-                    }).addTo(map);
-                    mapLayers.airports.push(point);
-
-                    const labelColor = isBase ? '#4ade80' : isLayover ? '#fbbf24' : '#f8fafc';
-                    const label = L.marker(coords, {
-                        icon: L.divIcon({
-                            className: '',
-                            html: `<div style="color:${labelColor};font-size:11px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,-180%);white-space:nowrap">${upper}</div>`,
-                            iconAnchor: [0, 0]
-                        })
-                    }).addTo(map);
-                    mapLayers.labels.push(label);
+                    if (!upper || !resolveAirport(upper)) return;
+                    if (!airportFlightTypes[upper]) airportFlightTypes[upper] = { past: false, future: false };
+                    if (isPast) airportFlightTypes[upper].past = true;
+                    else airportFlightTypes[upper].future = true;
                 });
+            });
+
+            // Build airport markers after all flights are processed
+            Object.keys(airportFlightTypes).forEach(upper => {
+                const coords = resolveAirport(upper);
+                if (!coords || airportSet.has(upper)) return;
+                airportSet.add(upper);
+                bounds.push(coords);
+
+                const { past, future } = airportFlightTypes[upper];
+                const visible = (past && showPast) || (future && showFuture);
+
+                const isBase = upper === pilotBase;
+                const isLayover = layoverAirports.has(upper);
+                const dotColor = isBase ? '#22c55e' : isLayover ? '#f59e0b' : '#f8fafc';
+                const radius = isBase ? 7 : isLayover ? 6 : 5;
+
+                const point = L.circleMarker(coords, {
+                    radius, color: '#0f172a', fillColor: dotColor, fillOpacity: 1, weight: 1.5
+                });
+                if (visible) point.addTo(map);
+                mapLayers.airports.push(point);
+
+                const labelColor = isBase ? '#4ade80' : isLayover ? '#fbbf24' : '#f8fafc';
+                const label = L.marker(coords, {
+                    icon: L.divIcon({
+                        className: '',
+                        html: `<div style="color:${labelColor};font-size:11px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,-180%);white-space:nowrap">${upper}</div>`,
+                        iconAnchor: [0, 0]
+                    })
+                });
+                if (visible) label.addTo(map);
+                mapLayers.labels.push(label);
+
+                airportVisibilityMap[upper] = { past, future, marker: point, label };
             });
 
             // Current position pin
@@ -977,6 +994,12 @@
                 mapLayers.future.forEach(l => showFuture ? l.addTo(map) : map.removeLayer(l));
                 document.getElementById('btn-future').style.opacity = showFuture ? "1" : "0.4";
             }
+            // Sync airport markers to match the visible flight set
+            Object.values(airportVisibilityMap).forEach(({ past, future, marker, label }) => {
+                const visible = (past && showPast) || (future && showFuture);
+                visible ? marker.addTo(map) : map.removeLayer(marker);
+                visible ? label.addTo(map) : map.removeLayer(label);
+            });
         }
 
         // Tooltip element for flight details
@@ -1126,10 +1149,23 @@
                         const flightNumAttr = f.flightNumber || '';
                         const depApt = f.departureAirport || '';
                         const arrApt = f.arrivalAirport || '';
-                        const dhDot = f.dh ? `<span class="text-pink-400 font-black ml-1">·DH</span>` : '';
-                        html += `<div class="py-[2px] px-[4px] bg-black/50 rounded border border-white/5 text-[9px] font-bold leading-tight flight-item" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">${depApt}→${arrApt}${dhDot}</div>`;
+                        const dhDot = f.dh ? `<span style="color:#f9a8d4;font-weight:900;margin-left:2px">·DH</span>` : '';
+                        const depTimeFmt = depAttr ? formatTimeISO(depAttr) : '';
+                        let groundLine = '';
+                        if (arrApt && arrAttr && arrApt !== pilotBase) {
+                            const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
+                                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                            if (nextLeg) {
+                                const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
+                                if (groundMins > 0) {
+                                    const lbl = groundMins < 240 ? 'Trn' : 'Lyr';
+                                    groundLine = `<div style="color:#fcd34d;font-size:7px;line-height:1.1;margin-top:1px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
+                                }
+                            }
+                        }
+                        html += `<div class="py-[2px] px-[4px] bg-black/50 rounded border border-white/5 leading-tight flight-item" style="font-size:9px;font-weight:700" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}"><div style="display:flex;align-items:center;justify-content:space-between;gap:2px"><span>${depApt}→${arrApt}${dhDot}</span><span style="color:#94a3b8;font-size:8px;font-weight:600">${depTimeFmt}</span></div>${groundLine}</div>`;
                     });
-                    if (overflowCount > 0) html += `<div class="text-[8px] text-zinc-500 font-bold text-center mt-0.5">+${overflowCount} more</div>`;
+                    if (overflowCount > 0) html += `<div style="font-size:8px;color:#71717a;font-weight:700;text-align:center;margin-top:2px">+${overflowCount} more</div>`;
                     gridContainer.innerHTML += html + `</div></div>`;
                 }
             } else if (currentView === 'list') {
