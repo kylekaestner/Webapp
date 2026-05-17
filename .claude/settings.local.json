@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(cd /d \"e:\\\\Webapp\")",
-      "Bash(node -e \"const s=require\\('./server.js'\\)\")"
+      "Bash(node -e \"const s=require\\('./server.js'\\)\")",
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -s \"https://raw.githubusercontent.com/airplanes-live/tar1090/master/html/markers.js\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/airplanes-live/tar1090/master/html/markers.js\" -o \"C:\\\\Users\\\\kylek\\\\AppData\\\\Local\\\\Temp\\\\markers.js\")",
+      "Bash(node -e ' *)"
     ]
   }
 }

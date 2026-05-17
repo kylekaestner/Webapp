@@ -755,9 +755,46 @@ app.get('/api/airport-coords', async (req, res) => {
     res.json(result);
 });
 
-// Live flight position via OpenSky Network (free, no key required)
+// Live flight tracking — position + accumulated trail
 const _liveCache = {};
-const LIVE_TTL = 45000; // 45s cache — OpenSky updates every ~10s, this keeps us polite
+const LIVE_TTL = 15000; // 15s; client polls every 20s so cache is usually stale
+
+const _posTrail = {};  // hex → [[lat, lon], ...]
+const _trailSeeded = new Set(); // hexes whose OpenSky history has been fetched
+
+async function seedTrailFromOpenSky(hex) {
+    if (_trailSeeded.has(hex)) return;
+    _trailSeeded.add(hex);
+    try {
+        const url = `https://opensky-network.org/api/tracks/all?icao24=${hex}&time=0`;
+        const resp = await fetch(url, { signal: AbortSignal.timeout(12000) });
+        if (!resp.ok) return;
+        const json = await resp.json();
+        const path = json?.path;
+        if (!path || path.length < 2) return;
+        const coords = path
+            .filter(p => p[1] != null && p[2] != null && !p[5])
+            .map(p => [p[1], p[2]]);
+        if (coords.length < 2) return;
+        // Prepend OpenSky history; our live points (if any) go after
+        _posTrail[hex] = [...coords, ...(_posTrail[hex] || [])];
+        if (_posTrail[hex].length > 2000) _posTrail[hex].splice(0, _posTrail[hex].length - 2000);
+        console.log(`Seeded trail for ${hex}: ${coords.length} OpenSky points`);
+    } catch (e) {
+        _trailSeeded.delete(hex); // allow retry
+        console.warn(`OpenSky seed error for ${hex}:`, e.message);
+    }
+}
+
+function parseAdsbAircraft(s, callsign) {
+    const onGround = s.alt_baro === 'ground' || (typeof s.alt_baro === 'number' && s.alt_baro < 200);
+    return s.lat != null && s.lon != null
+        ? { found: true, lat: s.lat, lon: s.lon,
+            altFt: typeof s.alt_baro === 'number' ? s.alt_baro : null,
+            onGround, speedKts: s.gs ?? null, heading: s.track ?? null,
+            callsign: (s.flight || callsign).trim(), type: s.t ?? null, hex: s.hex ?? null }
+        : null;
+}
 
 app.get('/api/live-position', async (req, res) => {
     const callsign = (req.query.callsign || '').toUpperCase().replace(/\s/g, '');
@@ -766,28 +803,59 @@ app.get('/api/live-position', async (req, res) => {
     const cached = _liveCache[callsign];
     if (cached && Date.now() - cached.ts < LIVE_TTL) return res.json(cached.data);
 
-    try {
-        // OpenSky expects callsign padded to 8 chars
-        const padded = callsign.padEnd(8, ' ');
-        const url = `https://opensky-network.org/api/states/all?callsign=${encodeURIComponent(padded)}`;
-        const resp = await fetch(url, { signal: AbortSignal.timeout(6000) });
-        if (!resp.ok) throw new Error(`OpenSky ${resp.status}`);
+    // Race adsb.lol and airplanes.live — use whichever responds first with data
+    const sources = [
+        `https://api.adsb.lol/v2/callsign/${encodeURIComponent(callsign)}`,
+        `https://api.airplanes.live/v2/callsign/${encodeURIComponent(callsign)}`
+    ];
 
+    const trySource = async (url) => {
+        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!resp.ok) throw new Error(`${resp.status}`);
         const json = await resp.json();
-        const s = json?.states?.[0];
+        const aircraft = json?.ac;
+        if (!aircraft || aircraft.length === 0) throw new Error('no aircraft');
+        const s = aircraft.sort((a, b) => (b.seen_pos ?? 0) - (a.seen_pos ?? 0))[0];
+        const parsed = parseAdsbAircraft(s, callsign);
+        if (!parsed) throw new Error('no position');
+        return parsed;
+    };
 
-        // State vector indices: [icao24, callsign, origin_country, time_position, last_contact,
-        //   longitude(5), latitude(6), baro_alt(7), on_ground(8), velocity(9), heading(10), ...]
-        const data = s && s[6] != null && s[5] != null
-            ? { found: true, lat: s[6], lon: s[5], altM: s[7], onGround: s[8], velocityMs: s[9], heading: s[10], callsign: s[1]?.trim() }
-            : { found: false };
-
-        _liveCache[callsign] = { ts: Date.now(), data };
-        res.json(data);
+    let data;
+    try {
+        data = await Promise.any(sources.map(trySource));
     } catch (e) {
-        console.warn('OpenSky error:', e.message);
-        res.json({ found: false });
+        console.warn('live-position: all sources failed:', e.message);
+        // Return last known trail even when current position unavailable
+        const trail = Object.values(_posTrail).find(() => true); // best effort
+        data = { found: false };
     }
+
+    // Accumulate position trail keyed by ICAO hex
+    if (data.found && data.hex) {
+        const hex = data.hex;
+        if (data.onGround) {
+            // Flight landed — clear trail so next flight starts fresh
+            delete _posTrail[hex];
+            _trailSeeded.delete(hex);
+        } else {
+            if (!_posTrail[hex]) {
+                _posTrail[hex] = [];
+                seedTrailFromOpenSky(hex); // async, fire-and-forget
+            }
+            const trail = _posTrail[hex];
+            const last = trail[trail.length - 1];
+            // Add point only if aircraft has moved meaningfully (~0.3 mi)
+            if (!last || Math.abs(last[0] - data.lat) > 0.005 || Math.abs(last[1] - data.lon) > 0.005) {
+                trail.push([data.lat, data.lon]);
+                if (trail.length > 2000) trail.splice(0, trail.length - 2000);
+            }
+            data.trail = [...trail];
+        }
+    }
+
+    _liveCache[callsign] = { ts: Date.now(), data };
+    res.json(data);
 });
 
 // Health check
@@ -798,6 +866,14 @@ app.get('/api/health', (req, res) => {
 // Serve index.html for all other routes (SPA)
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Keep the process alive — log unhandled errors instead of crashing silently
+process.on('unhandledRejection', (reason) => {
+    console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[uncaughtException]', err);
 });
 
 // Start server

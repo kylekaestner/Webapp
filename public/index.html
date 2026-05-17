@@ -66,6 +66,7 @@
         .map-ctrl-on  { color:#d4d4d8 !important; border-color:rgba(113,113,122,0.5) !important; }
         .map-ctrl-day { color:#34d399 !important; border-color:rgba(52,211,153,0.45) !important; background:rgba(52,211,153,0.08) !important; }
         .map-ctrl-month { color:#a5b4fc !important; border-color:rgba(165,180,252,0.45) !important; background:rgba(165,180,252,0.08) !important; }
+        .map-ctrl-radar { color:#f87171 !important; border-color:rgba(248,113,113,0.5) !important; background:rgba(248,113,113,0.08) !important; }
         .flight-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 8px; }
         .day-past { opacity: 0.55; }
         #calendar-list-content .list-past { filter: grayscale(30%) brightness(0.75); }
@@ -227,10 +228,14 @@
                         <button onclick="toggleMapFilter('past')" id="btn-past" class="map-ctrl-pill map-ctrl-on">Past</button>
                         <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Future</button>
                     </div>
-                    <div class="flex gap-1">
-                        <button onclick="toggleAllPilotsMonth()" id="btn-all-pilots-month" class="map-ctrl-pill">Month</button>
-                        <button onclick="toggleDayView()" id="btn-day-view" class="map-ctrl-pill">Today</button>
+                    <div>
+                        <div class="text-right text-[7px] font-black uppercase tracking-widest text-zinc-600 mb-0.5 pr-0.5">All Crew</div>
+                        <div class="flex gap-1">
+                            <button onclick="toggleAllPilotsMonth()" id="btn-all-pilots-month" class="map-ctrl-pill">Month</button>
+                            <button onclick="toggleDayView()" id="btn-day-view" class="map-ctrl-pill">Today</button>
+                        </div>
                     </div>
+                    <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill hidden">⛈ Radar</button>
                     <input type="date" id="day-view-date" class="hidden px-2 py-1 bg-zinc-900/90 border border-zinc-700 rounded text-[10px] text-zinc-100 outline-none focus:border-blue-500 backdrop-blur" onchange="renderMap()">
                     <div id="day-view-legend" class="hidden flex-col gap-0.5 px-2 py-1.5 bg-zinc-950/85 border border-zinc-800 rounded-lg text-[9px] font-black uppercase backdrop-blur"></div>
                 </div>
@@ -757,6 +762,8 @@
         let currentPilot = 'kyle';
         let currentView = 'grid';
         let map, mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
+        const _livePollers = {}; // callsign → intervalId; cleared on every map render
+        let radarLayer = null, radarOn = false;
         let showPast = true, showFuture = true;
         let airportVisibilityMap = {}, airportFlightTypes = {};
         let mapDayMode = false;
@@ -1449,14 +1456,26 @@
         }
 
         // ── All-Pilots Month Map ───────────────────────────────────────────
+        function exitDayMode() {
+            mapDayMode = false;
+            document.getElementById('btn-day-view')?.classList.remove('map-ctrl-day');
+            document.getElementById('day-view-date')?.classList.add('hidden');
+            document.getElementById('day-view-legend')?.classList.add('hidden');
+            document.getElementById('legend-single')?.classList.remove('hidden');
+            document.getElementById('legend-day')?.classList.add('hidden');
+            const pc = document.getElementById('map-pilot-controls');
+            if (pc) { pc.style.opacity = ''; pc.style.pointerEvents = ''; }
+        }
+
         function toggleAllPilotsMonth() {
             mapAllMode = !mapAllMode;
-            if (mapAllMode && mapDayMode) { mapDayMode = false; document.getElementById('btn-day-view')?.classList.remove('map-ctrl-day'); }
+            if (mapAllMode && mapDayMode) exitDayMode();
             document.getElementById('btn-all-pilots-month')?.classList.toggle('map-ctrl-month', mapAllMode);
             renderMap();
         }
 
         async function renderAllPilotsMap() {
+            stopLivePollers();
             [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels]
                 .forEach(l => map.removeLayer(l));
             mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
@@ -1514,7 +1533,7 @@
                             const dot = L.marker(arcCoords[idx], { icon: makePlaneIcon(computeBearing(arcCoords[idx], arcCoords[idx+1] || arcCoords[idx]), pilotColor), zIndexOffset: 1000 }).addTo(map);
                             mapLayers.active.push(dot);
                             const cs = deriveCallsign(al, key);
-                            if (cs) updateLiveMarker(dot, cs, pilotColor);
+                            if (cs) startLiveTracking(dot, cs, pilotColor, depC, arrC, line, mapLayers.active);
                         }
                     }
 
@@ -1565,6 +1584,7 @@
 
         function renderMap() {
             if (!map) return;
+            stopLivePollers();
             if (mapDayMode) { renderDayMap(); return; }
             if (mapAllMode) { renderAllPilotsMap(); return; }
             // Restore single-pilot legend
@@ -1667,7 +1687,7 @@
                         dot.bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                         mapLayers.active.push(dot);
                         const cs = deriveCallsign(activeLeg, currentPilot);
-                        if (cs) updateLiveMarker(dot, cs, '#22c55e');
+                        if (cs) startLiveTracking(dot, cs, '#22c55e', depCoords, arrCoords, line, mapLayers.active);
                     }
                 }
 
@@ -1780,33 +1800,24 @@
         function toggleDayView() {
             if (mapAllMode) { mapAllMode = false; document.getElementById('btn-all-pilots-month')?.classList.remove('map-ctrl-month'); }
             mapDayMode = !mapDayMode;
-            const btn = document.getElementById('btn-day-view');
-            const dateInput = document.getElementById('day-view-date');
-            const sidebarLegend = document.getElementById('day-view-legend');
-            const pilotControls = document.getElementById('map-pilot-controls');
-            const legendSingle = document.getElementById('legend-single');
-            const legendDay = document.getElementById('legend-day');
             if (mapDayMode) {
                 mapDayDate = new Date().toISOString().slice(0, 10);
-                dateInput.value = mapDayDate;
-                dateInput.classList.remove('hidden');
-                sidebarLegend.classList.remove('hidden');
-                sidebarLegend.innerHTML = PILOT_KEYS.map(k =>
-                    `<div class="flex items-center gap-1.5"><span style="width:10px;height:10px;border-radius:50%;background:${PILOT_COLORS[k]};display:inline-block;flex-shrink:0"></span><span style="color:#cbd5e1">${k.charAt(0).toUpperCase() + k.slice(1)}</span></div>`
-                ).join('');
-                pilotControls.style.opacity = '0.4';
-                pilotControls.style.pointerEvents = 'none';
-                btn.classList.add('map-ctrl-day');
-                legendSingle.classList.add('hidden');
-                legendDay.classList.remove('hidden');
+                const dateInput = document.getElementById('day-view-date');
+                if (dateInput) { dateInput.value = mapDayDate; dateInput.classList.remove('hidden'); }
+                const sidebarLegend = document.getElementById('day-view-legend');
+                if (sidebarLegend) {
+                    sidebarLegend.classList.remove('hidden');
+                    sidebarLegend.innerHTML = PILOT_KEYS.map(k =>
+                        `<div class="flex items-center gap-1.5"><span style="width:10px;height:10px;border-radius:50%;background:${PILOT_COLORS[k]};display:inline-block;flex-shrink:0"></span><span style="color:#cbd5e1">${k.charAt(0).toUpperCase() + k.slice(1)}</span></div>`
+                    ).join('');
+                }
+                const pc = document.getElementById('map-pilot-controls');
+                if (pc) { pc.style.opacity = '0.4'; pc.style.pointerEvents = 'none'; }
+                document.getElementById('btn-day-view')?.classList.add('map-ctrl-day');
+                document.getElementById('legend-single')?.classList.add('hidden');
+                document.getElementById('legend-day')?.classList.remove('hidden');
             } else {
-                dateInput.classList.add('hidden');
-                sidebarLegend.classList.add('hidden');
-                pilotControls.style.opacity = '';
-                pilotControls.style.pointerEvents = '';
-                btn.classList.remove('map-ctrl-day');
-                legendSingle.classList.remove('hidden');
-                legendDay.classList.add('hidden');
+                exitDayMode();
             }
             renderMap();
         }
@@ -1866,6 +1877,15 @@
             return null;
         }
 
+        function closestArcIndex(arcCoords, lat, lon) {
+            let minDist = Infinity, minIdx = 0;
+            for (let i = 0; i < arcCoords.length; i++) {
+                const d = haversineMi(arcCoords[i][0], arcCoords[i][1], lat, lon);
+                if (d < minDist) { minDist = d; minIdx = i; }
+            }
+            return minIdx;
+        }
+
         function isPositionOnRoute(lat, lon, depCoords, arrCoords) {
             const routeDist  = haversineMi(depCoords[0], depCoords[1], arrCoords[0], arrCoords[1]);
             const distToDep  = haversineMi(lat, lon, depCoords[0], depCoords[1]);
@@ -1875,38 +1895,156 @@
             return (distToDep + distToArr) <= routeDist * 1.25;
         }
 
-        async function updateLiveMarker(marker, callsign, color, depCoords, arrCoords) {
-            try {
-                const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}`).then(r => r.json());
-                if (!d.found || d.onGround || d.lat == null) return;
-                if (depCoords && arrCoords && !isPositionOnRoute(d.lat, d.lon, depCoords, arrCoords)) return;
-                marker.setLatLng([d.lat, d.lon]);
-                if (d.heading != null) marker.setIcon(makePlaneIcon(d.heading, color));
-                const altFt = d.altM  ? Math.round(d.altM  * 3.28084)  : null;
-                const kts   = d.velocityMs ? Math.round(d.velocityMs * 1.94384) : null;
-                marker.bindTooltip(
-                    `✈ ${callsign} · Live` +
-                    (altFt ? ` · ${altFt.toLocaleString()} ft` : '') +
-                    (kts   ? ` · ${kts} kts` : ''),
-                    { permanent: false, className: 'dark-popup' }
-                );
-            } catch (_) {}
+        function addRadarLayer() {
+            if (!map) return;
+            radarLayer = L.tileLayer(
+                'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png',
+                { opacity: 0.25, zIndex: 500, attribution: '© Iowa Env. Mesonet / NOAA NEXRAD' }
+            );
+            radarLayer.addTo(map);
         }
 
-        function makePlaneIcon(bearing, color) {
+        function removeRadarLayer() {
+            if (radarLayer && map) { map.removeLayer(radarLayer); radarLayer = null; }
+        }
+
+        function toggleRadar() {
+            radarOn = !radarOn;
+            document.getElementById('btn-radar')?.classList.toggle('map-ctrl-radar', radarOn);
+            if (radarOn) addRadarLayer(); else removeRadarLayer();
+        }
+
+        function stopLivePollers() {
+            Object.values(_livePollers).forEach(id => clearInterval(id));
+            for (const k in _livePollers) delete _livePollers[k];
+            removeRadarLayer();
+            document.getElementById('btn-radar')?.classList.add('hidden');
+        }
+
+        function startLiveTracking(marker, callsign, color, depCoords, arrCoords, routeLine, activeLayersArr) {
+            if (_livePollers[callsign]) return; // already polling
+
+            const radarBtn = document.getElementById('btn-radar');
+            if (radarBtn) radarBtn.classList.remove('hidden');
+            if (radarOn && !radarLayer) addRadarLayer();
+
+            let flownLine = null;
+            let remainLine = null;
+            let routeRemoved = false;
+
+            const update = async () => {
+                try {
+                    const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}`).then(r => r.json());
+
+                    // If flight landed or data totally gone, stop polling and redraw so past route reappears
+                    if (d.onGround) {
+                        clearInterval(_livePollers[callsign]);
+                        delete _livePollers[callsign];
+                        renderMap();
+                        return;
+                    }
+
+                    if (!d.found || d.lat == null) return; // gap — keep last drawn lines, wait for next poll
+
+                    if (depCoords && arrCoords && !isPositionOnRoute(d.lat, d.lon, depCoords, arrCoords)) return;
+
+                    // Move marker to live GPS position
+                    marker.setLatLng([d.lat, d.lon]);
+                    if (d.heading != null) marker.setIcon(makePlaneIcon(d.heading, color, d.type));
+
+                    // Remove original static route line once
+                    if (!routeRemoved && routeLine && map) {
+                        map.removeLayer(routeLine);
+                        routeRemoved = true;
+                        ['past', 'future', 'active'].forEach(k => {
+                            const i = mapLayers[k].indexOf(routeLine);
+                            if (i >= 0) mapLayers[k].splice(i, 1);
+                        });
+                    }
+
+                    // Remove previous dynamic lines
+                    if (flownLine) { map.removeLayer(flownLine); const i = activeLayersArr.indexOf(flownLine); if (i >= 0) activeLayersArr.splice(i, 1); }
+                    if (remainLine) { map.removeLayer(remainLine); const i = activeLayersArr.indexOf(remainLine); if (i >= 0) activeLayersArr.splice(i, 1); }
+
+                    const livePoint = [d.lat, d.lon];
+
+                    // Flown: actual GPS trail from server (seeded from OpenSky + live polls), fallback to arc
+                    const flownPath = (d.trail && d.trail.length >= 2)
+                        ? d.trail
+                        : distanceProportionalArc(depCoords, livePoint);
+
+                    flownLine = L.polyline(flownPath, { color, weight: 1.5, opacity: 0.4, smoothFactor: 0.5 });
+                    flownLine.addTo(map);
+                    activeLayersArr.push(flownLine);
+
+                    // Remaining: arc from live position to destination
+                    remainLine = L.polyline(distanceProportionalArc(livePoint, arrCoords), { color, weight: 2.5, opacity: 1.0, smoothFactor: 1 });
+                    remainLine.addTo(map);
+                    activeLayersArr.push(remainLine);
+
+                    const altFt = d.altFt ? Math.round(d.altFt) : null;
+                    const kts   = d.speedKts ? Math.round(d.speedKts) : null;
+                    marker.bindTooltip(
+                        `✈ ${callsign} · Live` +
+                        (d.type ? ` · ${d.type}` : '') +
+                        (altFt  ? ` · ${altFt.toLocaleString()} ft` : '') +
+                        (kts    ? ` · ${kts} kts` : ''),
+                        { permanent: false, className: 'dark-popup' }
+                    );
+                } catch (_) {}
+            };
+
+            update(); // immediate first update
+            _livePollers[callsign] = setInterval(update, 20000);
+        }
+
+        // Aircraft SVG shapes from ADS-B Exchange / tar1090 (BSD-2 licensed)
+        const _AC_SHAPES = {
+            narrowbody: {
+                // Boeing 737-800 (b738) — underwing CFM56s, swept wings
+                vb: '-2 -2 74.5 87.3', w: 24, h: 32, sw: 2,
+                d: 'M34.894 80.404c-1.458.366-14.151 2.859-14.151 2.859l-.069-2.434 12.769-7.019c-1.535-6.779-1.876-8.758-2.061-14.716l-.022-15.412-4.679.026c.018.731-.129 1.457-.429 2.125-.418-.667-.401-1.322-.397-2.101-.794 0-1.561.198-2.352.329.024.836-.095 1.488-.437 2.156-.347-.635-.352-1.136-.402-1.971l-5.735 1.323c-.008.857.04 1.345-.392 2.119-.373-.631-.41-1.257-.41-1.962L1.793 48.877c-1.957.397-1.572.561-1.74 1.544.013-.86-.036-2.334-.026-3.249 0-.52.116-.751.595-.976 7.89-4.004 16.208-7.251 23.891-11.472-.101-.701-.568-.221-.737-.493-.311-2.068-.344-4.905-.118-6.453.04-.224.102-.456.299-.455 1.586.008 1.912-.042 3.26-.013.198.004.294.208.331.427a28.34 28.34 0 0 1 .083 4.839l3.735-3.088.069-13.676C31.706 9.73 33.288.467 35.292.024c2.004.443 3.586 9.706 3.858 15.785.103 1.762.095 11.43.082 13.678l3.735 3.086a28.18 28.18 0 0 1 .075-4.847c.037-.218.124-.415.321-.419 1.349-.029 1.673.021 3.26.013.198 0 .259.233.299.456.225 1.548.194 4.384-.118 6.452-.169.274-.635-.208-.736.495 7.681 4.22 16.001 7.468 23.892 11.471.476.225.594.456.593.978.011.914-.04 2.388-.026 3.248-.168-.983.217-1.148-1.738-1.543l-14.335-3.153c.001.705-.037 1.332-.41 1.963-.431-.775-.384-1.263-.392-2.119l-5.735-1.323c-.049.833-.054 1.336-.401 1.971-.341-.669-.46-1.322-.437-2.156-.791-.132-1.561-.331-2.353-.331.004.781.021 1.434-.397 2.101-.3-.667-.446-1.392-.429-2.123l-4.679-.026-.011 15.412c-.185 5.958-.527 7.938-2.061 14.715l12.769 7.018-.069 2.437-14.151-2.86c-.098.415-.09 1.303-.402 1.292-.312.012-.304-.876-.402-1.291z'
+            },
+            regional: {
+                // Embraer E-jet style (e737) — underwing engines, shorter fuselage
+                vb: '-2 -2 74.5 74.5', w: 22, h: 28, sw: 2,
+                d: 'M34.89 67.926c-1.458.367-14.152 2.859-14.152 2.859l-.069-2.436 12.769-7.019c-1.535-6.778-1.875-8.756-2.061-14.716l-.016-9.017-4.68.026c.014.786-.128 1.422-.429 2.124-.418-.666-.401-1.321-.397-2.1-.793-.001-1.561.197-2.352.329.023.836-.096 1.488-.437 2.157-.347-.636-.352-1.137-.402-1.972l-5.735 1.324c-.008.857.04 1.345-.392 2.119-.372-.631-.411-1.258-.41-1.963L1.794 42.794c-1.953.524-1.762.769-1.765-1.705 0-.521.117-.752.594-.977 7.89-4.004 16.21-7.251 23.891-11.472-.1-.702-.567-.221-.736-.494-.312-2.068-.343-4.905-.118-6.453.04-.223.102-.457.299-.456 1.586.008 1.912-.042 3.259-.013.197.004.294.209.331.428.162 1.382.191 3.489.074 4.848l3.736-3.087c-.013-2.248-.028-5.838.075-7.6.271-6.08 1.853-15.343 3.858-15.786 2.004.443 3.586 9.706 3.858 15.785.103 1.762.088 5.352.075 7.6l3.736 3.087c-.116-1.358-.087-3.465.074-4.848.037-.219.133-.424.331-.428 1.348-.029 1.674.021 3.259.013.197-.001.259.232.299.456.226 1.548.194 4.385-.118 6.453-.169.273-.636-.207-.736.494C53.75 32.86 62.07 36.108 69.96 40.111c.478.225.595.456.594.977.044 2.197.194 2.108-1.765 1.705l-14.335-3.152c.001.705-.037 1.332-.41 1.963-.431-.774-.384-1.263-.392-2.119l-5.735-1.324c-.049.836-.055 1.336-.402 1.972-.341-.669-.46-1.322-.437-2.157-.791-.132-1.559-.33-2.352-.329.004.779.021 1.434-.397 2.1-.301-.702-.443-1.338-.429-2.124l-4.68-.026-.016 9.017c-.186 5.959-.526 7.938-2.061 14.716l12.769 7.019-.069 2.436-14.152-2.859c-.097.415-.089 1.303-.402 1.291-.312.012-.304-.876-.402-1.291z'
+            },
+            bizjet: {
+                // Swept-wing jet (jet_swept) — H25B, Gulfstream, CRJ style
+                vb: '-1 -1 20 26', w: 20, h: 26, sw: 0.5,
+                d: 'M9.44,23c-.1.6-.35.6-.44.6s-.34,0-.44-.6l-3,.67V22.6A.54.54,0,0,1,6,22.05l2.38-1.12L8,19.33H6.69l0-.2a8.23,8.23,0,0,1-.14-3.85l.06-.18H7.73V13.19h-2L.26,14.29v-.93c0-.28.07-.46.22-.53l7.25-3.6V3.85A4.47,4.47,0,0,1,8.83.49L9,.34l.17.15a4.47,4.47,0,0,1,1.1,3.36V9.23l7.25,3.6c.14.07.22.25.22.53v.93l-5.51-1.1h-2V15.1h1.17l.06.18a8.24,8.24,0,0,1-.15,3.84l0,.2H10l-.36,1.6,2.43,1.14a.52.52,0,0,1,.35.53v1.08Z'
+            },
+            turboprop: {
+                // Straight unswept wings — jet_nonswept from tar1090 (good for turboprops too)
+                vb: '-2 -2.4 22 22', w: 22, h: 22, sw: 0.5,
+                d: 'M9,17.09l-3.51.61v-.3c0-.65.11-1,.33-1.09L8.5,15a5.61,5.61,0,0,1-.28-1.32l-.53-.41-.1-.69H7.12l0-.21a7.19,7.19,0,0,1-.15-2.19L.24,9.05V8.84c0-1.1.51-1.15.61-1.15L7.8,7.18V2.88C7.8.64,8.89.3,8.93.28L9,.26l.07,0s1.13.36,1.13,2.6v4.3l7,.51c.09,0,.59.06.59,1.15v.21l-6.69,1.16a7.17,7.17,0,0,1-.15,2.19l0,.21h-.47l-.1.69-.53.41A5.61,5.61,0,0,1,9.5,15l2.74,1.28c.2.07.31.43.31,1.08v.3Z'
+            }
+        };
+
+        function getAircraftCategory(typeCode) {
+            if (!typeCode) return 'bizjet';
+            const t = typeCode.toUpperCase();
+            if (/^(PC12|PC6T?|TBM[679]|BE[12][09]|B190|SF34|C208|DHC[36]|P180|PAY[23]|C40[12]|C421|C441)/.test(t)) return 'turboprop';
+            if (/^(B73[2-9M]|B73MAX|B752|B753|B727|A31[0-9]|A32[0-9]|A22[0-9]|MD[89][0-9]|DC9|B72[0-9]|B74[0-9]|B76[0-9]|B77[0-9]|B78[0-9]|A30[0-9]|A33[0-9]|A34[0-9]|A35[0-9]|A38[0-9])/.test(t)) return 'narrowbody';
+            if (/^(E[17][0-9]{2}|E75[LS]|ERJ[0-9]|ER[0-9]|BCS[0-9]|RJ[0-9]{2}|SF3|D328|DH8)/.test(t)) return 'regional';
+            return 'bizjet';
+        }
+
+        function makePlaneIcon(bearing, color, typeCode) {
             const rot = Math.round(bearing);
-            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="22" height="22" style="overflow:visible;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.9));transform:rotate(${rot}deg);transform-origin:11px 11px">
-                <g transform="translate(10,10)">
-                    <path d="M0,-8.5 L3.5,5 L0,3 L-3.5,5 Z" fill="${color}" stroke="rgba(0,0,0,0.5)" stroke-width="0.7" stroke-linejoin="round"/>
-                    <path d="M-0.5,0.5 L-8,4.5 L-6,5.5 L-0.5,2.5 L0.5,2.5 L6,5.5 L8,4.5 L0.5,0.5 Z" fill="${color}" stroke="rgba(0,0,0,0.5)" stroke-width="0.5" stroke-linejoin="round"/>
-                    <path d="M-0.5,3.5 L-3,7.5 L-1.5,7.5 L0,5.5 L1.5,7.5 L3,7.5 L0.5,3.5 Z" fill="${color}" stroke="rgba(0,0,0,0.4)" stroke-width="0.4" stroke-linejoin="round"/>
-                </g>
+            const cat = getAircraftCategory(typeCode);
+            const shape = _AC_SHAPES[cat] || _AC_SHAPES.bizjet;
+            const { vb, w, h, sw, d } = shape;
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}" width="${w}" height="${h}" style="overflow:visible;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.95));transform:rotate(${rot}deg);transform-origin:${w/2}px ${h/2}px">
+                <path d="${d}" fill="${color}" stroke="rgba(0,0,0,0.7)" stroke-width="${sw}" stroke-linejoin="round"/>
             </svg>`;
-            return L.divIcon({ className: '', html: svg, iconSize: [22, 22], iconAnchor: [11, 11] });
+            return L.divIcon({ className: '', html: svg, iconSize: [w, h], iconAnchor: [w/2, h/2] });
         }
 
         async function renderDayMap() {
             if (!map) return;
+            stopLivePollers();
             [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels].forEach(l => map.removeLayer(l));
             mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
 
