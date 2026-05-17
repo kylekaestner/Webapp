@@ -6,7 +6,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Dispatch">
+    <meta name="theme-color" content="#09090b">
     <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icon-192.png">
     <title>Dispatch | Crowded Skies</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -23,7 +25,6 @@
 
         /* Mobile: compact grid + readable list */
         @media (max-width: 767px) {
-            body { height: 100dvh !important; }
             /* Calendar grid: small colored tiles, tap for details */
             #view-grid { padding: 4px 2px !important; }
             #view-grid > div { gap: 2px !important; }
@@ -77,6 +78,8 @@
         .dark-popup .leaflet-popup-content-wrapper { background: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.8); }
         .dark-popup .leaflet-popup-tip { background: #0f172a; }
         .dark-popup .leaflet-popup-content { margin: 12px 14px; }
+        .live-label { background: rgba(9,9,11,0.82) !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 5px !important; padding: 3px 7px !important; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7) !important; backdrop-filter: blur(6px); pointer-events: none; }
+        .live-label::before { display: none !important; }
         @keyframes plane-pulse { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.7); } 70% { box-shadow: 0 0 0 14px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
         .plane-dot { width: 14px; height: 14px; border-radius: 50%; background: #22c55e; border: 2px solid #fff; animation: plane-pulse 1.6s ease-out infinite; }
         @keyframes here-pulse { 0% { box-shadow: 0 0 0 0 rgba(168,85,247,0.7); } 70% { box-shadow: 0 0 0 16px rgba(168,85,247,0); } 100% { box-shadow: 0 0 0 0 rgba(168,85,247,0); } }
@@ -85,7 +88,7 @@
         .active-route path { stroke-dasharray: 10, 5; stroke-dashoffset: 0; animation: dash-flow 0.5s linear infinite; }
     </style>
 </head>
-<body class="bg-[#050505] text-zinc-100 flex h-screen overflow-hidden font-sans">
+<body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;">
 
     <div id="sidebar" class="hidden md:flex w-64 border-r border-zinc-800 bg-zinc-900/20 flex-col shrink-0">
         <div class="p-6 border-b border-zinc-800 text-center">
@@ -275,14 +278,14 @@
             <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
                 <span class="text-base leading-none">📅</span><span class="text-[8px] font-black uppercase tracking-wide">Grid</span>
             </button>
+            <button onclick="switchView('list')" id="mbtn-list" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
+                <span class="text-base leading-none">📜</span><span class="text-[8px] font-black uppercase tracking-wide">List</span>
+            </button>
             <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
                 <span class="text-base leading-none">🗺️</span><span class="text-[8px] font-black uppercase tracking-wide">Map</span>
             </button>
             <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
                 <span class="text-base leading-none">🤝</span><span class="text-[8px] font-black uppercase tracking-wide">Overlap</span>
-            </button>
-            <button onclick="switchView('stats')" id="mbtn-stats" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
-                <span class="text-base leading-none">📊</span><span class="text-[8px] font-black uppercase tracking-wide">Stats</span>
             </button>
             <button onclick="document.getElementById('mobile-upload-pilot-select').value=currentPilot||'kyle';document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
                 <span class="text-base leading-none">⬆️</span><span class="text-[8px] font-black uppercase tracking-wide">Upload</span>
@@ -1535,7 +1538,7 @@
                             const dot = L.marker(arcCoords[idx], { icon: makePlaneIcon(computeBearing(arcCoords[idx], arcCoords[idx+1] || arcCoords[idx]), pilotColor), zIndexOffset: 1000 }).addTo(map);
                             mapLayers.active.push(dot);
                             const cs = deriveCallsign(al, key);
-                            if (cs) startLiveTracking(dot, cs, pilotColor, depC, arrC, line, mapLayers.active);
+                            if (cs) startLiveTracking(dot, cs, pilotColor, depC, arrC, line, mapLayers.active, PILOT_NAMES[key]?.split(' ')[0]);
                         }
                     }
 
@@ -1689,7 +1692,7 @@
                         dot.bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                         mapLayers.active.push(dot);
                         const cs = deriveCallsign(activeLeg, currentPilot);
-                        if (cs) startLiveTracking(dot, cs, '#22c55e', depCoords, arrCoords, line, mapLayers.active);
+                        if (cs) startLiveTracking(dot, cs, '#22c55e', depCoords, arrCoords, line, mapLayers.active, PILOT_NAMES[currentPilot]?.split(' ')[0]);
                     }
                 }
 
@@ -1923,12 +1926,18 @@
             document.getElementById('btn-radar')?.classList.add('hidden');
         }
 
-        function startLiveTracking(marker, callsign, color, depCoords, arrCoords, routeLine, activeLayersArr) {
+        function startLiveTracking(marker, callsign, color, depCoords, arrCoords, routeLine, activeLayersArr, pilotName) {
             if (_livePollers[callsign]) return; // already polling
 
             const radarBtn = document.getElementById('btn-radar');
             if (radarBtn) radarBtn.classList.remove('hidden');
             if (radarOn && !radarLayer) addRadarLayer();
+
+            marker.bindTooltip(
+                `<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
+                (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : ''),
+                { permanent: true, className: 'live-label', direction: 'right', offset: [14, 0] }
+            );
 
             let flownLine = null;
             let remainLine = null;
@@ -1986,12 +1995,11 @@
 
                     const altFt = d.altFt ? Math.round(d.altFt) : null;
                     const kts   = d.speedKts ? Math.round(d.speedKts) : null;
-                    marker.bindTooltip(
-                        `✈ ${callsign} · Live` +
-                        (d.type ? ` · ${d.type}` : '') +
-                        (altFt  ? ` · ${altFt.toLocaleString()} ft` : '') +
-                        (kts    ? ` · ${kts} kts` : ''),
-                        { permanent: false, className: 'dark-popup' }
+                    const detail = [altFt ? `${altFt.toLocaleString()} ft` : null, kts ? `${kts} kts` : null].filter(Boolean).join(' · ');
+                    marker.getTooltip()?.setContent(
+                        `<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
+                        (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : '') +
+                        (detail ? `<br><span style="font-size:9px;color:#71717a">${detail}</span>` : '')
                     );
                 } catch (_) {}
             };
