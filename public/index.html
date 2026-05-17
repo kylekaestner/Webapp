@@ -60,7 +60,12 @@
         #sidebar.sidebar-hidden { width: 0 !important; min-width: 0 !important; overflow: hidden; opacity: 0; border-right-width: 0 !important; }
         .nav-active { border-color: #3b82f6 !important; color: white !important; background: rgba(59, 130, 246, 0.1); }
         #map { height: 100%; width: 100%; background: #0a0a0a; }
-        .map-controls { position: absolute; top: 20px; right: 20px; z-index: 1000; }
+        .map-controls { position: absolute; top: 10px; right: 10px; z-index: 1000; }
+        .map-ctrl-pill { display:block; padding:3px 8px; background:rgba(18,18,20,0.88); border:1px solid rgba(63,63,70,0.6); border-radius:5px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#71717a; white-space:nowrap; backdrop-filter:blur(8px); cursor:pointer; transition:color .15s,border-color .15s,background .15s; }
+        .map-ctrl-pill:hover { color:#e4e4e7; border-color:rgba(113,113,122,0.7); }
+        .map-ctrl-on  { color:#d4d4d8 !important; border-color:rgba(113,113,122,0.5) !important; }
+        .map-ctrl-day { color:#34d399 !important; border-color:rgba(52,211,153,0.45) !important; background:rgba(52,211,153,0.08) !important; }
+        .map-ctrl-month { color:#a5b4fc !important; border-color:rgba(165,180,252,0.45) !important; background:rgba(165,180,252,0.08) !important; }
         .flight-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 8px; }
         .day-past { opacity: 0.55; }
         #calendar-list-content .list-past { filter: grayscale(30%) brightness(0.75); }
@@ -199,42 +204,35 @@
             <div id="view-map" class="view-section relative">
                 <div id="map"></div>
                 <!-- Map legend (bottom-left) — switches content based on mode -->
-                <div id="map-legend" class="absolute bottom-5 left-5 z-[1000] bg-zinc-900/90 border border-zinc-700 rounded-xl px-4 py-3 text-[10px] font-black uppercase tracking-wide space-y-1.5 backdrop-blur-sm pointer-events-none">
-                    <!-- Single-pilot legend (default) -->
-                    <div id="legend-single" class="space-y-1.5">
-                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[3px] rounded-full bg-blue-500"></span><span class="text-zinc-400">Upcoming</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[3px] rounded-full bg-zinc-500"></span><span class="text-zinc-400">Past</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[3px] rounded-full bg-green-500"></span><span class="text-zinc-400">In Air Now</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-blue-400 border-2 border-white"></span><span class="text-zinc-400">Turn</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-amber-400 border-2 border-white"></span><span class="text-zinc-400">Layover</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-green-500 border-2 border-white"></span><span class="text-zinc-400">Home Base</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-purple-500 border-2 border-white" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-400">Position Now</span></div>
+                <!-- Legend — compact, bottom-left -->
+                <div id="map-legend" class="absolute bottom-4 left-3 z-[1000] bg-zinc-950/85 border border-zinc-800/70 rounded-lg px-2.5 py-2 text-[9px] font-black uppercase tracking-wide space-y-1 backdrop-blur-sm pointer-events-none">
+                    <div id="legend-single" class="space-y-1">
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-blue-500"></span><span class="text-zinc-500">Upcoming</span></div>
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-zinc-500"></span><span class="text-zinc-500">Past</span></div>
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-green-500"></span><span class="text-zinc-500">In Air</span></div>
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 border border-white/60"></span><span class="text-zinc-500">Layover</span></div>
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 border border-white/60" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-500">Here Now</span></div>
                     </div>
-                    <!-- All-pilots legend (day view) -->
-                    <div id="legend-day" class="hidden space-y-1.5">
-                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-blue-500"></span><span class="text-zinc-400">Kyle</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-teal-400"></span><span class="text-zinc-400">Adam</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-orange-500"></span><span class="text-zinc-400">Sam</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-indigo-400"></span><span class="text-zinc-400">Logan</span></div>
-                        <div class="border-t border-zinc-700/60 pt-1.5 mt-1.5 space-y-1.5">
-                            <div class="flex items-center gap-2"><span class="inline-block w-5 h-[4px] rounded-full bg-zinc-200"></span><span class="text-zinc-400">Thicker = live</span></div>
-                            <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-zinc-200 border-2 border-white" style="animation:plane-pulse 1.6s ease-out infinite"></span><span class="text-zinc-400">In air now</span></div>
-                        </div>
+                    <div id="legend-day" class="hidden space-y-1">
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-blue-500"></span><span class="text-zinc-500">Kyle</span></div>
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-teal-400"></span><span class="text-zinc-500">Adam</span></div>
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-orange-500"></span><span class="text-zinc-500">Sam</span></div>
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-indigo-400"></span><span class="text-zinc-500">Logan</span></div>
                     </div>
                 </div>
-                <div class="map-controls flex flex-col gap-2" style="min-width:180px">
-                    <div id="map-pilot-controls" class="flex flex-col gap-2">
-                        <button onclick="toggleMapFilter('past')" id="btn-past" class="px-4 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-[10px] font-black uppercase text-white hover:bg-zinc-700">Toggle Past (Gray)</button>
-                        <button onclick="toggleMapFilter('future')" id="btn-future" class="px-4 py-2 bg-blue-600 border border-blue-400 rounded-lg text-[10px] font-black uppercase text-white hover:bg-blue-500">Toggle Future (Blue)</button>
+
+                <!-- Controls — compact pills, top-right -->
+                <div class="map-controls flex flex-col gap-1 items-end">
+                    <div id="map-pilot-controls" class="flex gap-1">
+                        <button onclick="toggleMapFilter('past')" id="btn-past" class="map-ctrl-pill map-ctrl-on">Past</button>
+                        <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Future</button>
                     </div>
-                    <div class="border-t border-zinc-700/60 pt-2 flex flex-col gap-1.5">
-                        <button onclick="toggleDayView()" id="btn-day-view" class="px-4 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-[10px] font-black uppercase text-white hover:bg-zinc-700">All Pilots — Today</button>
-                        <input type="date" id="day-view-date" class="hidden px-3 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-xs text-zinc-100 outline-none focus:border-blue-500" onchange="renderMap()">
-                        <div id="day-view-legend" class="hidden flex flex-col gap-1 px-3 py-2 bg-zinc-900/80 border border-zinc-700 rounded-lg text-[10px] font-black uppercase"></div>
+                    <div class="flex gap-1">
+                        <button onclick="toggleAllPilotsMonth()" id="btn-all-pilots-month" class="map-ctrl-pill">Month</button>
+                        <button onclick="toggleDayView()" id="btn-day-view" class="map-ctrl-pill">Today</button>
                     </div>
-                    <div class="border-t border-zinc-700/60 pt-2">
-                        <button onclick="toggleAllPilotsMonth()" id="btn-all-pilots-month" class="w-full px-4 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-[10px] font-black uppercase text-white hover:bg-zinc-700">All Pilots — Month</button>
-                    </div>
+                    <input type="date" id="day-view-date" class="hidden px-2 py-1 bg-zinc-900/90 border border-zinc-700 rounded text-[10px] text-zinc-100 outline-none focus:border-blue-500 backdrop-blur" onchange="renderMap()">
+                    <div id="day-view-legend" class="hidden flex-col gap-0.5 px-2 py-1.5 bg-zinc-950/85 border border-zinc-800 rounded-lg text-[9px] font-black uppercase backdrop-blur"></div>
                 </div>
             </div>
 
@@ -266,24 +264,21 @@
         </main>
 
         <!-- Mobile bottom nav -->
-        <nav class="md:hidden border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md flex items-stretch shrink-0" style="height: calc(60px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);">
-            <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
-                <span class="text-lg leading-none">📅</span><span class="text-[9px] font-black uppercase tracking-wide">Grid</span>
+        <nav class="md:hidden border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md flex items-end shrink-0" style="padding-bottom: env(safe-area-inset-bottom);">
+            <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
+                <span class="text-base leading-none">📅</span><span class="text-[8px] font-black uppercase tracking-wide">Grid</span>
             </button>
-            <button onclick="switchView('list')" id="mbtn-list" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
-                <span class="text-lg leading-none">📋</span><span class="text-[9px] font-black uppercase tracking-wide">List</span>
+            <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
+                <span class="text-base leading-none">🗺️</span><span class="text-[8px] font-black uppercase tracking-wide">Map</span>
             </button>
-            <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
-                <span class="text-lg leading-none">🗺️</span><span class="text-[9px] font-black uppercase tracking-wide">Map</span>
+            <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
+                <span class="text-base leading-none">🤝</span><span class="text-[8px] font-black uppercase tracking-wide">Overlap</span>
             </button>
-            <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
-                <span class="text-lg leading-none">🤝</span><span class="text-[9px] font-black uppercase tracking-wide">Overlap</span>
+            <button onclick="switchView('stats')" id="mbtn-stats" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
+                <span class="text-base leading-none">📊</span><span class="text-[8px] font-black uppercase tracking-wide">Stats</span>
             </button>
-            <button onclick="switchView('stats')" id="mbtn-stats" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
-                <span class="text-lg leading-none">📊</span><span class="text-[9px] font-black uppercase tracking-wide">Stats</span>
-            </button>
-            <button onclick="document.getElementById('mobile-upload-pilot-select').value=currentPilot||'kyle';document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
-                <span class="text-lg leading-none">⬆️</span><span class="text-[9px] font-black uppercase tracking-wide">Upload</span>
+            <button onclick="document.getElementById('mobile-upload-pilot-select').value=currentPilot||'kyle';document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
+                <span class="text-base leading-none">⬆️</span><span class="text-[8px] font-black uppercase tracking-wide">Upload</span>
             </button>
         </nav>
     </div>
@@ -1456,9 +1451,8 @@
         // ── All-Pilots Month Map ───────────────────────────────────────────
         function toggleAllPilotsMonth() {
             mapAllMode = !mapAllMode;
-            if (mapAllMode && mapDayMode) { mapDayMode = false; }
-            const btn = document.getElementById('btn-all-pilots-month');
-            if (btn) { btn.style.borderColor = mapAllMode ? '#818cf8' : ''; btn.style.color = mapAllMode ? '#a5b4fc' : ''; }
+            if (mapAllMode && mapDayMode) { mapDayMode = false; document.getElementById('btn-day-view')?.classList.remove('map-ctrl-day'); }
+            document.getElementById('btn-all-pilots-month')?.classList.toggle('map-ctrl-month', mapAllMode);
             renderMap();
         }
 
@@ -1519,6 +1513,8 @@
                             const idx = Math.min(Math.floor(t * (arcCoords.length-1)), arcCoords.length-2);
                             const dot = L.marker(arcCoords[idx], { icon: makePlaneIcon(computeBearing(arcCoords[idx], arcCoords[idx+1] || arcCoords[idx]), pilotColor), zIndexOffset: 1000 }).addTo(map);
                             mapLayers.active.push(dot);
+                            const cs = deriveCallsign(al, key);
+                            if (cs) updateLiveMarker(dot, cs, pilotColor);
                         }
                     }
 
@@ -1670,6 +1666,8 @@
                         const dot = L.marker(pos, { icon: makePlaneIcon(bearing, '#22c55e'), zIndexOffset: 1000 }).addTo(map);
                         dot.bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                         mapLayers.active.push(dot);
+                        const cs = deriveCallsign(activeLeg, currentPilot);
+                        if (cs) updateLiveMarker(dot, cs, '#22c55e');
                     }
                 }
 
@@ -1765,11 +1763,11 @@
             if (type === 'past') {
                 showPast = !showPast;
                 mapLayers.past.forEach(l => showPast ? l.addTo(map) : map.removeLayer(l));
-                document.getElementById('btn-past').style.opacity = showPast ? "1" : "0.4";
+                document.getElementById('btn-past').classList.toggle('map-ctrl-on', showPast);
             } else {
                 showFuture = !showFuture;
                 mapLayers.future.forEach(l => showFuture ? l.addTo(map) : map.removeLayer(l));
-                document.getElementById('btn-future').style.opacity = showFuture ? "1" : "0.4";
+                document.getElementById('btn-future').classList.toggle('map-ctrl-on', showFuture);
             }
             // Sync airport markers to match the visible flight set
             Object.values(airportVisibilityMap).forEach(({ past, future, marker, label }) => {
@@ -1780,7 +1778,7 @@
         }
 
         function toggleDayView() {
-            if (mapAllMode) { mapAllMode = false; const ab = document.getElementById('btn-all-pilots-month'); if(ab){ab.style.borderColor='';ab.style.color='';} }
+            if (mapAllMode) { mapAllMode = false; document.getElementById('btn-all-pilots-month')?.classList.remove('map-ctrl-month'); }
             mapDayMode = !mapDayMode;
             const btn = document.getElementById('btn-day-view');
             const dateInput = document.getElementById('day-view-date');
@@ -1798,8 +1796,7 @@
                 ).join('');
                 pilotControls.style.opacity = '0.4';
                 pilotControls.style.pointerEvents = 'none';
-                btn.classList.add('bg-emerald-700', 'border-emerald-500');
-                btn.classList.remove('bg-zinc-800', 'border-zinc-600');
+                btn.classList.add('map-ctrl-day');
                 legendSingle.classList.add('hidden');
                 legendDay.classList.remove('hidden');
             } else {
@@ -1807,8 +1804,7 @@
                 sidebarLegend.classList.add('hidden');
                 pilotControls.style.opacity = '';
                 pilotControls.style.pointerEvents = '';
-                btn.classList.remove('bg-emerald-700', 'border-emerald-500');
-                btn.classList.add('bg-zinc-800', 'border-zinc-600');
+                btn.classList.remove('map-ctrl-day');
                 legendSingle.classList.remove('hidden');
                 legendDay.classList.add('hidden');
             }
@@ -1855,6 +1851,46 @@
                     (1 - t) * (1 - t) * start[1] + 2 * (1 - t) * t * newMid[1] + t * t * end[1]
                 ];
             });
+        }
+
+        // ── Live flight tracking (OpenSky Network) ────────────────────────
+        function deriveCallsign(seg, pilotKey) {
+            // Explicit flight number always wins — works for any carrier (RPA, SKW, SJJ, AAL, UAL, etc.)
+            const fn = (seg.flightNumber || seg.flight_number || '').replace(/\s/g, '');
+            if (fn) return fn.toUpperCase();
+            // No flight number: only Kyle's work flights can be derived from the tail number
+            if (pilotKey === 'kyle') {
+                const digits = (seg.tail || '').replace(/\D/g, '');
+                return digits ? `SJJ${digits}` : null;
+            }
+            return null;
+        }
+
+        function isPositionOnRoute(lat, lon, depCoords, arrCoords) {
+            const routeDist  = haversineMi(depCoords[0], depCoords[1], arrCoords[0], arrCoords[1]);
+            const distToDep  = haversineMi(lat, lon, depCoords[0], depCoords[1]);
+            const distToArr  = haversineMi(lat, lon, arrCoords[0], arrCoords[1]);
+            // A point on the great circle satisfies distToDep + distToArr ≈ routeDist.
+            // Allow 25% slack for ATC deviations; anything more means a different aircraft.
+            return (distToDep + distToArr) <= routeDist * 1.25;
+        }
+
+        async function updateLiveMarker(marker, callsign, color, depCoords, arrCoords) {
+            try {
+                const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}`).then(r => r.json());
+                if (!d.found || d.onGround || d.lat == null) return;
+                if (depCoords && arrCoords && !isPositionOnRoute(d.lat, d.lon, depCoords, arrCoords)) return;
+                marker.setLatLng([d.lat, d.lon]);
+                if (d.heading != null) marker.setIcon(makePlaneIcon(d.heading, color));
+                const altFt = d.altM  ? Math.round(d.altM  * 3.28084)  : null;
+                const kts   = d.velocityMs ? Math.round(d.velocityMs * 1.94384) : null;
+                marker.bindTooltip(
+                    `✈ ${callsign} · Live` +
+                    (altFt ? ` · ${altFt.toLocaleString()} ft` : '') +
+                    (kts   ? ` · ${kts} kts` : ''),
+                    { permanent: false, className: 'dark-popup' }
+                );
+            } catch (_) {}
         }
 
         function makePlaneIcon(bearing, color) {
