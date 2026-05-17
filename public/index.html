@@ -239,7 +239,7 @@
                     <div id="overlap-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm px-6 pt-6 pb-4 mb-2 border-b border-zinc-800/60 flex items-center justify-between gap-4">
                         <div>
                             <h2 class="text-lg font-black text-white uppercase tracking-tight">Location Overlap</h2>
-                            <p class="text-xs text-zinc-500 mt-0.5">Same airport within a 2-hour window</p>
+                            <p class="text-xs text-zinc-500 mt-0.5">Within 50 miles · 6-hour window</p>
                         </div>
                         <button onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors shrink-0">Refresh</button>
                     </div>
@@ -752,6 +752,15 @@
         const PILOT_COLORS = { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8' };
         const PILOT_NAMES = { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine' };
         let isLoading = false;
+        const overlapRadiusMi = 50;
+
+        function haversineMi(lat1, lon1, lat2, lon2) {
+            const R = 3958.8;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
 
         const AIRPORTS = {
             'LGA': [40.7769, -73.8740], 'KLGA': [40.7769, -73.8740],
@@ -1021,7 +1030,8 @@
             const container = document.getElementById('overlap-content');
             container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
 
-            const bufferMs = 2 * 60 * 60 * 1000; // 2-hour window
+            const now = new Date();
+            const bufferMs = 6 * 60 * 60 * 1000; // 6-hour window
 
             // Load all pilots
             await Promise.all(PILOT_KEYS.map(async key => {
@@ -1049,22 +1059,30 @@
                     const arrT = new Date(f.arrival_time);
 
                     // Before this flight: pilot is at departure airport
-                    // Find when they landed here (prior arrival), else use 2h pre-departure estimate
-                    const prevAtDep = flights.slice(0, i).filter(p => p.arrival_airport?.toUpperCase() === dep)
+                    const recentArr = flights.slice(0, i)
+                        .filter(p => p.arrival_airport?.toUpperCase() === dep)
                         .sort((a, b) => new Date(b.arrival_time) - new Date(a.arrival_time))[0];
-                    const groundStart = prevAtDep ? new Date(prevAtDep.arrival_time)
+                    // For home base: only use actual arrival if it's a same-trip layover (<24h gap),
+                    // otherwise fall back to 2h pre-departure to avoid inflating inter-trip gaps
+                    const useRecentArr = recentArr && (dep !== home || (depT - new Date(recentArr.arrival_time)) < 24 * 3600000);
+                    const groundStart = useRecentArr ? new Date(recentArr.arrival_time)
                         : new Date(depT.getTime() - 2 * 3600000);
-                    // Only add if this period isn't already covered by a prior arrival entry
                     const alreadyCovered = periods.some(p => p.airport === dep &&
                         p.start.getTime() <= groundStart.getTime() && p.end.getTime() >= depT.getTime());
                     if (!alreadyCovered) periods.push({ airport: dep, start: groundStart, end: depT });
 
                     // After this flight: pilot is at arrival airport until next departure from there
+                    // Landing at home base = pilot commutes home, not a stay at the airport
+                    if (home && arr === home) return;
                     const nextFromArr = flights.slice(i + 1).find(n => n.departure_airport?.toUpperCase() === arr);
-                    // Landing at home base with no onward flight = going home, not a stay
-                    if (home && arr === home && !nextFromArr) return;
-                    const groundEnd = nextFromArr ? new Date(nextFromArr.departure_time)
-                        : new Date(arrT.getTime() + 20 * 3600000); // stay 20h if last leg
+                    let groundEnd;
+                    if (nextFromArr) {
+                        groundEnd = new Date(nextFromArr.departure_time);
+                    } else {
+                        // No future flight from this airport — use next flight from anywhere as proxy for when they leave
+                        const nextAny = flights.slice(i + 1)[0];
+                        groundEnd = nextAny ? new Date(nextAny.departure_time) : new Date(arrT.getTime() + 6 * 3600000);
+                    }
                     periods.push({ airport: arr, start: arrT, end: groundEnd });
                 });
                 return periods;
@@ -1076,6 +1094,15 @@
                 pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base) : [];
             });
 
+            const getCoords = code => AIRPORTS[code] || AIRPORTS['K' + code] || null;
+            const airportsNear = (a, b) => {
+                if (a === b) return true;
+                if (overlapRadiusMi <= 0) return false;
+                const ca = getCoords(a), cb = getCoords(b);
+                if (!ca || !cb) return false;
+                return haversineMi(ca[0], ca[1], cb[0], cb[1]) <= overlapRadiusMi;
+            };
+
             // Find overlaps between every pair of pilots
             const overlaps = [];
             for (let i = 0; i < PILOT_KEYS.length; i++) {
@@ -1083,7 +1110,11 @@
                     const kA = PILOT_KEYS[i], kB = PILOT_KEYS[j];
                     for (const pA of pilotPeriods[kA]) {
                         for (const pB of pilotPeriods[kB]) {
-                            if (pA.airport !== pB.airport) continue;
+                            if (!airportsNear(pA.airport, pB.airport)) continue;
+                            const _ca = getCoords(pA.airport), _cb = getCoords(pB.airport);
+                            const distMi = (pA.airport !== pB.airport && _ca && _cb)
+                                ? Math.round(haversineMi(_ca[0], _ca[1], _cb[0], _cb[1]))
+                                : 0;
                             // Buffered check: do the windows overlap when each is expanded by buffer?
                             if (pA.start.getTime() - bufferMs > pB.end.getTime()) continue;
                             if (pB.start.getTime() - bufferMs > pA.end.getTime()) continue;
@@ -1101,6 +1132,8 @@
 
                             overlaps.push({
                                 airport: pA.airport,
+                                airportB: pB.airport,
+                                distMi,
                                 kA, kB,
                                 pA, pB,
                                 isDirect,
@@ -1116,10 +1149,14 @@
 
             // Deduplicate (same airport + same pair + overlapping sort windows can produce dupes)
             const seen = new Set();
+            const cutoff = now.getTime() - 6 * 3600000;
             const unique = overlaps.filter(o => {
-                const k = `${o.airport}|${o.kA}|${o.kB}|${o.pA.start.toISOString()}|${o.pB.start.toISOString()}`;
+                const k = `${o.airport}|${o.airportB}|${o.kA}|${o.kB}|${o.pA.start.toISOString()}|${o.pB.start.toISOString()}`;
                 if (seen.has(k)) return false;
-                seen.add(k); return true;
+                seen.add(k);
+                // Drop overlaps that ended more than 6 hours ago
+                const endTime = o.isDirect ? o.directEnd?.getTime() : Math.max(o.pA.end.getTime(), o.pB.end.getTime());
+                return endTime >= cutoff;
             });
 
             if (unique.length === 0) {
@@ -1130,8 +1167,9 @@
             // Sort chronologically
             unique.sort((a, b) => a.sortKey - b.sortKey);
 
-            const now = new Date();
-            const todayStr = now.toISOString().slice(0, 10);
+            const _pad = n => String(n).padStart(2, '0');
+            const localDateStr = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
+            const todayStr = localDateStr(now);
 
             // Helpers
             const fmtTime = t => t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -1144,19 +1182,20 @@
             // Show full date+time if dates differ, just time if same day
             const fmtRange = (start, end) => {
                 if (!start || !end) return '';
-                const startDay = start.toISOString().slice(0, 10);
-                const endDay   = end.toISOString().slice(0, 10);
+                const startDay = localDateStr(start);
+                const endDay   = localDateStr(end);
                 const startStr = `${fmtDateShort(start)}, ${fmtTime(start)}`;
                 const endStr   = startDay === endDay ? fmtTime(end) : `${fmtDateShort(end)}, ${fmtTime(end)}`;
                 return `${startStr} – ${endStr}`;
             };
 
             // First non-past card index for auto-scroll
-            const scrollTargetIdx = unique.findIndex(o => o.sortKey >= new Date(todayStr).getTime());
+            const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const scrollTargetIdx = unique.findIndex(o => o.sortKey >= todayMidnight.getTime());
 
             container.innerHTML = unique.map((o, idx) => {
                 const refTime = o.directStart || new Date(o.sortKey);
-                const refDay  = refTime.toISOString().slice(0, 10);
+                const refDay  = localDateStr(refTime);
                 const isToday = refDay === todayStr;
                 const isPast  = refDay < todayStr;
                 const isNear  = !o.isDirect;
@@ -1195,10 +1234,18 @@
                     ? '<span class="text-[9px] font-black uppercase text-amber-400 bg-amber-950/30 border border-amber-800/40 px-2 py-0.5 rounded-full">Near miss</span>'
                     : '';
 
+                const locationLabel = o.airport === o.airportB
+                    ? o.airport
+                    : `${o.airport} <span class="text-zinc-500 text-base font-normal">·</span> ${o.airportB}`;
+                const distLabel = o.distMi > 0
+                    ? `<span class="text-[10px] text-zinc-500 font-mono">${o.distMi} mi apart</span>`
+                    : '';
+
                 return `<div${scrollId} class="border ${border} rounded-2xl p-4 ${bg} ${opacity}">
                     <div class="flex items-start justify-between gap-2 mb-2.5">
-                        <div class="flex items-center gap-3">
-                            <span class="text-xl font-black text-white tracking-tight">${o.airport}</span>
+                        <div class="flex items-center gap-3 flex-wrap">
+                            <span class="text-xl font-black text-white tracking-tight">${locationLabel}</span>
+                            ${distLabel}
                             <div class="flex gap-1.5 flex-wrap">${chips}</div>
                         </div>
                         ${badge}

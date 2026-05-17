@@ -713,6 +713,48 @@ app.post('/api/pilots/kyle/sync-schedaero', async (req, res) => {
     });
 });
 
+// Airport coordinates — cache in SQLite, fetch from aviationapi.com on miss
+app.get('/api/airport-coords', async (req, res) => {
+    const codes = (req.query.codes || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    if (!codes.length) return res.json({});
+
+    const db = getDB();
+    db.run(`CREATE TABLE IF NOT EXISTS airport_coords (
+        code TEXT PRIMARY KEY,
+        lat REAL NOT NULL,
+        lon REAL NOT NULL
+    )`);
+
+    const result = {};
+    const missing = [];
+
+    await new Promise(resolve => {
+        const ph = codes.map(() => '?').join(',');
+        db.all(`SELECT code, lat, lon FROM airport_coords WHERE code IN (${ph})`, codes, (err, rows) => {
+            if (!err && rows) rows.forEach(r => { result[r.code] = { lat: r.lat, lon: r.lon }; });
+            codes.forEach(c => { if (!result[c]) missing.push(c); });
+            resolve();
+        });
+    });
+
+    for (const code of missing) {
+        try {
+            const icao = code.length === 3 ? `K${code}` : code;
+            const resp = await fetch(`https://api.aviationapi.com/v1/airports?apt=${icao}`);
+            const data = await resp.json();
+            const info = data[icao];
+            if (info?.latitude && info?.longitude) {
+                const lat = parseFloat(info.latitude);
+                const lon = parseFloat(info.longitude);
+                result[code] = { lat, lon };
+                db.run(`INSERT OR REPLACE INTO airport_coords (code, lat, lon) VALUES (?, ?, ?)`, [code, lat, lon]);
+            }
+        } catch (_) {}
+    }
+
+    res.json(result);
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

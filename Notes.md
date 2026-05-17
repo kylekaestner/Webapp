@@ -15,3 +15,6 @@
 ~~If a calendar box says on call, and i click on it the popup should say day off.~~
 ~~Make sync schedaero only appear when Kyle is reselected. Make the button pretty invisible to other users as it's only for Kyle.~~
 ~~Some of the times are incorrect on April for Kyle. May be time zone issues or the way the data was pulled.~~
+~~Location overlap has a 67hr overlap for Adam and Sam. This isn't right. The more likely scenario is they ended their trip at their base LGA. If they ended their trip and are OFF the next day it's safe to assume they left LGA and commuted home. We just don't have the commute info unless the user adds is manually.~~
+
+~~For location overlap perhaps take into account city area. For example, Kyle, flies corporate jets who will frequent smaller airports in large cities, but another user may be at the big airport. Can we make a way to filter a radius. Adam may be on a layover at LGA and Kyle is on a TEB layover in New Jersey, but that airport servers the create NYC Area.~~
