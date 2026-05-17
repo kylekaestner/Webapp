@@ -755,6 +755,41 @@ app.get('/api/airport-coords', async (req, res) => {
     res.json(result);
 });
 
+// Live flight position via OpenSky Network (free, no key required)
+const _liveCache = {};
+const LIVE_TTL = 45000; // 45s cache — OpenSky updates every ~10s, this keeps us polite
+
+app.get('/api/live-position', async (req, res) => {
+    const callsign = (req.query.callsign || '').toUpperCase().replace(/\s/g, '');
+    if (!callsign) return res.json({ found: false });
+
+    const cached = _liveCache[callsign];
+    if (cached && Date.now() - cached.ts < LIVE_TTL) return res.json(cached.data);
+
+    try {
+        // OpenSky expects callsign padded to 8 chars
+        const padded = callsign.padEnd(8, ' ');
+        const url = `https://opensky-network.org/api/states/all?callsign=${encodeURIComponent(padded)}`;
+        const resp = await fetch(url, { signal: AbortSignal.timeout(6000) });
+        if (!resp.ok) throw new Error(`OpenSky ${resp.status}`);
+
+        const json = await resp.json();
+        const s = json?.states?.[0];
+
+        // State vector indices: [icao24, callsign, origin_country, time_position, last_contact,
+        //   longitude(5), latitude(6), baro_alt(7), on_ground(8), velocity(9), heading(10), ...]
+        const data = s && s[6] != null && s[5] != null
+            ? { found: true, lat: s[6], lon: s[5], altM: s[7], onGround: s[8], velocityMs: s[9], heading: s[10], callsign: s[1]?.trim() }
+            : { found: false };
+
+        _liveCache[callsign] = { ts: Date.now(), data };
+        res.json(data);
+    } catch (e) {
+        console.warn('OpenSky error:', e.message);
+        res.json({ found: false });
+    }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
