@@ -90,6 +90,7 @@
             <button onclick="switchView('list')" id="btn-list" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📜 List View</button>
             <button onclick="switchView('map')" id="btn-map" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🗺️ Route Map</button>
             <button onclick="switchView('overlap')" id="btn-overlap" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🤝 Location Overlap</button>
+            <button onclick="switchView('stats')" id="btn-stats" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📊 Stats</button>
         </div>
 
         <div class="p-4 space-y-1 mt-4">
@@ -206,8 +207,8 @@
                         <div class="flex items-center gap-2"><span class="inline-block w-5 h-[3px] rounded-full bg-green-500"></span><span class="text-zinc-400">In Air Now</span></div>
                         <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-blue-400 border-2 border-white"></span><span class="text-zinc-400">Turn</span></div>
                         <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-amber-400 border-2 border-white"></span><span class="text-zinc-400">Layover</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-purple-500 border-2 border-white"></span><span class="text-zinc-400">Home Base</span></div>
-                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-green-500 border-2 border-white" style="animation:plane-pulse 1.6s ease-out infinite"></span><span class="text-zinc-400">Position Now</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-green-500 border-2 border-white"></span><span class="text-zinc-400">Home Base</span></div>
+                        <div class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full bg-purple-500 border-2 border-white" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-400">Position Now</span></div>
                     </div>
                     <!-- All-pilots legend (day view) -->
                     <div id="legend-day" class="hidden space-y-1.5">
@@ -231,6 +232,9 @@
                         <input type="date" id="day-view-date" class="hidden px-3 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-xs text-zinc-100 outline-none focus:border-blue-500" onchange="renderMap()">
                         <div id="day-view-legend" class="hidden flex flex-col gap-1 px-3 py-2 bg-zinc-900/80 border border-zinc-700 rounded-lg text-[10px] font-black uppercase"></div>
                     </div>
+                    <div class="border-t border-zinc-700/60 pt-2">
+                        <button onclick="toggleAllPilotsMonth()" id="btn-all-pilots-month" class="w-full px-4 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-[10px] font-black uppercase text-white hover:bg-zinc-700">All Pilots — Month</button>
+                    </div>
                 </div>
             </div>
 
@@ -245,6 +249,17 @@
                     </div>
                     <div id="overlap-content" class="space-y-3 px-6">
                         <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate overlaps</div>
+                    </div>
+                </div>
+            </div>
+            <div id="view-stats" class="view-section overflow-y-auto">
+                <div class="max-w-2xl mx-auto pb-24">
+                    <div class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm px-6 pt-6 pb-4 mb-4 border-b border-zinc-800/60">
+                        <h2 class="text-lg font-black text-white uppercase tracking-tight">Stats</h2>
+                        <p id="stats-subtitle" class="text-xs text-zinc-500 mt-0.5">—</p>
+                    </div>
+                    <div id="stats-content" class="px-6 space-y-8">
+                        <div class="text-center py-12 text-zinc-600 text-sm">Loading…</div>
                     </div>
                 </div>
             </div>
@@ -263,6 +278,9 @@
             </button>
             <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
                 <span class="text-lg leading-none">🤝</span><span class="text-[9px] font-black uppercase tracking-wide">Overlap</span>
+            </button>
+            <button onclick="switchView('stats')" id="mbtn-stats" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
+                <span class="text-lg leading-none">📊</span><span class="text-[9px] font-black uppercase tracking-wide">Stats</span>
             </button>
             <button onclick="document.getElementById('mobile-upload-pilot-select').value=currentPilot||'kyle';document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors">
                 <span class="text-lg leading-none">⬆️</span><span class="text-[9px] font-black uppercase tracking-wide">Upload</span>
@@ -747,6 +765,7 @@
         let showPast = true, showFuture = true;
         let airportVisibilityMap = {}, airportFlightTypes = {};
         let mapDayMode = false;
+        let mapAllMode = false;
         let mapDayDate = new Date().toISOString().slice(0, 10);
         const PILOT_KEYS = ['kyle', 'adam', 'sam', 'logan'];
         const PILOT_COLORS = { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8' };
@@ -1005,6 +1024,7 @@
                     mpill.style.background = 'rgba(59,130,246,0.12)';
                 }
                 render();
+                if (currentView === 'stats') renderStats();
             });
         }
 
@@ -1013,7 +1033,7 @@
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('view-active'));
             document.getElementById(`view-${view}`).classList.add('view-active');
             // Desktop nav
-            ['grid','list','map','overlap'].forEach(v => {
+            ['grid','list','map','overlap','stats'].forEach(v => {
                 const btn = document.getElementById(`btn-${v}`);
                 if (btn) btn.classList.toggle('nav-active', v === view);
             });
@@ -1023,6 +1043,7 @@
             if (mbtn) mbtn.style.color = '#3b82f6';
             if (view === 'map') initMap();
             if (view === 'overlap') computeOverlap();
+            if (view === 'stats') renderStats();
             render();
         }
 
@@ -1301,9 +1322,258 @@
             return path;
         }
 
+        // ── Stats ──────────────────────────────────────────────────────────
+        function renderStats() {
+            const raw = pilotsCache[currentPilot];
+            const container = document.getElementById('stats-content');
+            const subtitle  = document.getElementById('stats-subtitle');
+            if (subtitle) subtitle.textContent = raw?.name || currentPilot;
+            if (!raw?.segments?.length) {
+                container.innerHTML = `<div class="text-center py-12 text-zinc-600 text-sm">No schedule data loaded.</div>`;
+                return;
+            }
+
+            const allFlights = raw.segments.filter(s =>
+                s.type === 'flight' && s.departure_time && s.arrival_time &&
+                s.departure_airport && s.arrival_airport
+            );
+            const monthFlights = allFlights.filter(f => {
+                const d = new Date(f.departure_time);
+                return d.getFullYear() === viewDate.getFullYear() && d.getMonth() === viewDate.getMonth();
+            });
+
+            const segMi = f => {
+                const a = resolveAirport(f.departure_airport), b = resolveAirport(f.arrival_airport);
+                return a && b ? haversineMi(a[0], a[1], b[0], b[1]) : 0;
+            };
+            const segH = f => f.block_minutes
+                ? f.block_minutes / 60
+                : (new Date(f.arrival_time) - new Date(f.departure_time)) / 3600000;
+
+            const sum = (arr, fn) => arr.reduce((s, f) => s + fn(f), 0);
+            const uniqAirports = arr => new Set(arr.flatMap(f =>
+                [f.departure_airport?.toUpperCase(), f.arrival_airport?.toUpperCase()].filter(Boolean)
+            )).size;
+
+            const fmtH = h => { const hr = Math.floor(h), mn = Math.round((h-hr)*60); return `${hr}h ${mn}m`; };
+            const fmtMi = m => m >= 1000 ? `${(m/1000).toFixed(1)}k` : `${Math.round(m)}`;
+
+            // Month
+            const mCount = monthFlights.length;
+            const mHours = sum(monthFlights, segH);
+            const mMiles = Math.round(sum(monthFlights, segMi));
+            const mAirports = uniqAirports(monthFlights);
+
+            // All time
+            const tCount = allFlights.length;
+            const tHours = sum(allFlights, segH);
+            const tMiles = Math.round(sum(allFlights, segMi));
+            const tAirports = uniqAirports(allFlights);
+
+            // Top routes
+            const routeCounts = {};
+            allFlights.forEach(f => {
+                const k = `${f.departure_airport?.toUpperCase()} → ${f.arrival_airport?.toUpperCase()}`;
+                routeCounts[k] = (routeCounts[k] || 0) + 1;
+            });
+            const topRoutes = Object.entries(routeCounts).sort((a,b) => b[1]-a[1]).slice(0, 3);
+
+            // Records
+            let longDistFlight = null, longDistMi = 0;
+            let longBlockFlight = null, longBlockH = 0;
+            allFlights.forEach(f => {
+                const mi = segMi(f), h = segH(f);
+                if (mi > longDistMi)  { longDistMi = mi;  longDistFlight  = f; }
+                if (h  > longBlockH)  { longBlockH  = h;  longBlockFlight = f; }
+            });
+
+            const card = (label, value, sub='') => `
+                <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
+                    <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">${label}</div>
+                    <div class="text-2xl font-black text-white tracking-tight leading-none">${value}</div>
+                    ${sub ? `<div class="text-[11px] text-zinc-500 mt-1">${sub}</div>` : ''}
+                </div>`;
+
+            const monthName = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+            container.innerHTML = `
+                <section>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">${monthName}</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        ${card('Flights', mCount)}
+                        ${card('Block Time', fmtH(mHours))}
+                        ${card('Miles Flown', fmtMi(mMiles))}
+                        ${card('Airports', mAirports)}
+                    </div>
+                </section>
+
+                <section>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">All Time</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        ${card('Total Flights', tCount.toLocaleString())}
+                        ${card('Total Block', fmtH(tHours))}
+                        ${card('Miles Flown', fmtMi(tMiles), tMiles > 0 ? `${((tMiles/24901)*100).toFixed(1)}% around Earth` : '')}
+                        ${card('Airports Visited', tAirports)}
+                    </div>
+                </section>
+
+                ${topRoutes.length ? `
+                <section>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">Top Routes</p>
+                    <div class="space-y-2">
+                        ${topRoutes.map(([route, n], i) => `
+                            <div class="bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3 flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-[10px] font-black text-zinc-600">#${i+1}</span>
+                                    <span class="font-black text-sm text-white">${route}</span>
+                                </div>
+                                <span class="text-xs font-black text-zinc-400">${n}×</span>
+                            </div>`).join('')}
+                    </div>
+                </section>` : ''}
+
+                ${longDistFlight || longBlockFlight ? `
+                <section>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">Records</p>
+                    <div class="space-y-2">
+                        ${longDistFlight ? `
+                        <div class="bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3">
+                            <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Longest by Distance</div>
+                            <div class="font-black text-white text-sm">${longDistFlight.departure_airport?.toUpperCase()} → ${longDistFlight.arrival_airport?.toUpperCase()}</div>
+                            <div class="text-xs text-zinc-400 mt-0.5">${Math.round(longDistMi).toLocaleString()} mi · ${fmtH(segH(longDistFlight))}</div>
+                        </div>` : ''}
+                        ${longBlockFlight && longBlockFlight !== longDistFlight ? `
+                        <div class="bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3">
+                            <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Longest Block Time</div>
+                            <div class="font-black text-white text-sm">${longBlockFlight.departure_airport?.toUpperCase()} → ${longBlockFlight.arrival_airport?.toUpperCase()}</div>
+                            <div class="text-xs text-zinc-400 mt-0.5">${fmtH(longBlockH)} · ${Math.round(segMi(longBlockFlight)).toLocaleString()} mi</div>
+                        </div>` : ''}
+                    </div>
+                </section>` : ''}
+            `;
+        }
+
+        // ── All-Pilots Month Map ───────────────────────────────────────────
+        function toggleAllPilotsMonth() {
+            mapAllMode = !mapAllMode;
+            if (mapAllMode && mapDayMode) { mapDayMode = false; }
+            const btn = document.getElementById('btn-all-pilots-month');
+            if (btn) { btn.style.borderColor = mapAllMode ? '#818cf8' : ''; btn.style.color = mapAllMode ? '#a5b4fc' : ''; }
+            renderMap();
+        }
+
+        async function renderAllPilotsMap() {
+            [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels]
+                .forEach(l => map.removeLayer(l));
+            mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
+
+            // Ensure all pilots are loaded
+            await Promise.all(PILOT_KEYS.map(async key => {
+                if (!pilotsCache[key]) {
+                    try { pilotsCache[key] = await (await fetch(`${API_BASE}/pilots/${key}`)).json(); }
+                    catch(_) {}
+                }
+            }));
+
+            const now = new Date();
+            const monthPrefix = `${viewDate.getFullYear()}-${String(viewDate.getMonth()+1).padStart(2,'0')}`;
+            const bounds = [];
+            const airportSeen = new Set();
+
+            for (const key of PILOT_KEYS) {
+                const data = pilotsCache[key];
+                if (!data?.segments) continue;
+                const pilotColor = PILOT_COLORS[key];
+
+                const allFlights = data.segments.filter(s => s.type === 'flight' && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport);
+                const monthFlights = allFlights.filter(f => f.departure_time.startsWith(monthPrefix));
+
+                // Group by exact route direction
+                const routeGroups = {};
+                monthFlights.forEach(f => {
+                    const pk = `${f.departure_airport}|${f.arrival_airport}`;
+                    if (!routeGroups[pk]) routeGroups[pk] = [];
+                    routeGroups[pk].push(f);
+                });
+
+                Object.entries(routeGroups).forEach(([, legs]) => {
+                    const dep = legs[0].departure_airport, arr = legs[0].arrival_airport;
+                    const depC = resolveAirport(dep), arrC = resolveAirport(arr);
+                    if (!depC || !arrC) return;
+
+                    const hasActive = legs.some(f => new Date(f.departure_time) <= now && now <= new Date(f.arrival_time));
+                    const hasFuture = !hasActive && legs.some(f => new Date(f.arrival_time) > now);
+                    const weight = 1.5 + Math.min(Math.log2(legs.length + 1), 2);
+                    const opacity = hasActive ? 1 : hasFuture ? 0.8 : 0.35;
+
+                    const arcCoords = distanceProportionalArc(depC, arrC);
+                    const line = L.polyline(arcCoords, { weight, opacity, color: pilotColor, smoothFactor: 1 });
+                    line.bindTooltip(`${PILOT_NAMES[key].split(' ')[0]}: ${dep} → ${arr} (${legs.length}×)`, { className: 'dark-popup' });
+                    line.addTo(map);
+                    mapLayers.future.push(line);
+
+                    if (hasActive) {
+                        const al = legs.find(f => new Date(f.departure_time) <= now && now <= new Date(f.arrival_time));
+                        if (al) {
+                            const t = Math.max(0, Math.min(1, (now - new Date(al.departure_time)) / (new Date(al.arrival_time) - new Date(al.departure_time))));
+                            const idx = Math.min(Math.floor(t * (arcCoords.length-1)), arcCoords.length-2);
+                            const dot = L.marker(arcCoords[idx], { icon: makePlaneIcon(computeBearing(arcCoords[idx], arcCoords[idx+1] || arcCoords[idx]), pilotColor), zIndexOffset: 1000 }).addTo(map);
+                            mapLayers.active.push(dot);
+                        }
+                    }
+
+                    [dep, arr].forEach(code => {
+                        const upper = code?.toUpperCase();
+                        if (!upper || airportSeen.has(upper)) return;
+                        const coords = resolveAirport(upper);
+                        if (!coords) return;
+                        airportSeen.add(upper);
+                        bounds.push(coords);
+                        const pt = L.circleMarker(coords, { radius: 4, color: '#0f172a', fillColor: '#e2e8f0', fillOpacity: 0.9, weight: 1.5 }).addTo(map);
+                        const lbl = L.marker(coords, { icon: L.divIcon({ className: '', html: `<div style="color:#e2e8f0;font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,-180%);white-space:nowrap">${upper}</div>`, iconAnchor: [0,0] }) }).addTo(map);
+                        mapLayers.airports.push(pt);
+                        mapLayers.labels.push(lbl);
+                    });
+                });
+            }
+
+            // Update legend
+            document.getElementById('legend-single').classList.add('hidden');
+            document.getElementById('legend-day').classList.remove('hidden');
+            if (bounds.length) map.fitBounds(L.latLngBounds(bounds).pad(0.2));
+        }
+
+        function distanceProportionalArc(start, end, steps = 80) {
+            const dx = end[1] - start[1], dy = end[0] - start[0];
+            const routeDeg = Math.sqrt(dx * dx + dy * dy);
+            // Short hops barely curve; long routes bow more — cap so trans-con doesn't go wild
+            const bowFactor = Math.min(routeDeg * 0.10, 1.8);
+            if (bowFactor < 0.08) return greatCircleArcCoords(start, end, steps);
+
+            const gcPoints = greatCircleArcCoords(start, end, steps);
+            const bearing = computeBearing(start, end);
+            const perpRad = toRadians((bearing + 90) % 360);
+            const midPt = gcPoints[Math.floor(steps / 2)];
+            const ctrl = [
+                midPt[0] + bowFactor * Math.cos(perpRad),
+                midPt[1] + bowFactor * Math.sin(perpRad)
+            ];
+            return Array.from({ length: steps + 1 }, (_, i) => {
+                const t = i / steps;
+                return [
+                    (1-t)*(1-t)*start[0] + 2*(1-t)*t*ctrl[0] + t*t*end[0],
+                    (1-t)*(1-t)*start[1] + 2*(1-t)*t*ctrl[1] + t*t*end[1]
+                ];
+            });
+        }
+
         function renderMap() {
             if (!map) return;
             if (mapDayMode) { renderDayMap(); return; }
+            if (mapAllMode) { renderAllPilotsMap(); return; }
+            // Restore single-pilot legend
+            document.getElementById('legend-single')?.classList.remove('hidden');
+            document.getElementById('legend-day')?.classList.add('hidden');
             [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels]
                 .forEach(l => map.removeLayer(l));
             mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
@@ -1334,71 +1604,81 @@
                 else if (!layoverAirports.has(upper)) turnAirports.add(upper);
             });
 
-            // Group by city pair to offset same-route arcs apart (e.g., ORD→DTW and DTW→ORD)
-            const singlePairGroups = {};
+            // Group by exact route direction — one arc per unique DEP→ARR pair
+            const routeGroups = {};
             flights.forEach(f => {
                 if (!f.departureAirport || !f.arrivalAirport) return;
-                const pk = [f.departureAirport, f.arrivalAirport].sort().join('|');
-                if (!singlePairGroups[pk]) singlePairGroups[pk] = [];
-                singlePairGroups[pk].push(f);
+                const pk = `${f.departureAirport}|${f.arrivalAirport}`;
+                if (!routeGroups[pk]) routeGroups[pk] = [];
+                routeGroups[pk].push(f);
             });
 
-            flights.forEach(f => {
-                const depCoords = resolveAirport(f.departureAirport);
-                const arrCoords = resolveAirport(f.arrivalAirport);
+            Object.entries(routeGroups).forEach(([pk, legs]) => {
+                const dep = legs[0].departureAirport;
+                const arr = legs[0].arrivalAirport;
+                const depCoords = resolveAirport(dep);
+                const arrCoords = resolveAirport(arr);
                 if (!depCoords || !arrCoords) return;
 
-                const depTime = new Date(f.departureTime);
-                const arrTime = new Date(f.arrivalTime);
-                const isActive = f.departureTime && f.arrivalTime && depTime <= now && now <= arrTime;
-                const isPast = !isActive && arrTime < now;
+                const hasActive = legs.some(f => f.departureTime && f.arrivalTime && new Date(f.departureTime) <= now && now <= new Date(f.arrivalTime));
+                const hasFuture = !hasActive && legs.some(f => f.arrivalTime && new Date(f.arrivalTime) > now);
+                const allPast   = !hasActive && !hasFuture;
 
-                const color = isActive ? '#22c55e' : isPast ? '#6b7280' : '#3b82f6';
-                const weight = isActive ? 3.5 : isPast ? 1.5 : 2.8;
-                const pk = [f.departureAirport, f.arrivalAirport].sort().join('|');
-                const group = singlePairGroups[pk];
-                const arcCoords = offsetArc(depCoords, arrCoords, 60, group.indexOf(f), group.length);
-                const lineOpts = { weight, opacity: 0.95, color, smoothFactor: 1 };
-                if (isActive) lineOpts.className = 'active-route';
+                const color   = hasActive ? '#22c55e' : hasFuture ? '#3b82f6' : '#6b7280';
+                const count   = legs.length;
+                const weight  = 1.5 + Math.min(Math.log2(count + 1) * 1.0, 2.5);
+                const opacity = hasActive ? 1.0 : hasFuture ? 0.85 : 0.45;
+
+                const arcCoords = distanceProportionalArc(depCoords, arrCoords);
+                const lineOpts = { weight, opacity, color, smoothFactor: 1 };
+                if (hasActive) lineOpts.className = 'active-route';
                 const line = L.polyline(arcCoords, lineOpts);
 
-                // Click popup
-                const dateStr = depTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                const blockMins = f.blockMinutes != null ? f.blockMinutes : (f.departureTime && f.arrivalTime ? (arrTime - depTime) / 60000 : null);
-                const flightLabel = f.flightNumber ? `· ${f.flightNumber}` : f.trip ? `· Trip ${f.trip}` : '';
+                // Popup: list all legs chronologically
+                const sorted = legs.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+                const legRows = sorted.map(f => {
+                    const dt = new Date(f.departureTime);
+                    const ds = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                    const label = f.flightNumber ? f.flightNumber : f.trip ? `Trip ${f.trip}` : '';
+                    const isLegActive = f.departureTime && f.arrivalTime && new Date(f.departureTime) <= now && now <= new Date(f.arrivalTime);
+                    return `<div style="font-size:11px;color:${isLegActive ? '#22c55e' : '#94a3b8'};margin-top:3px">
+                        ${ds} &nbsp;${formatTimeISO(f.departureTime)} → ${formatTimeISO(f.arrivalTime)}${label ? ' &nbsp;· ' + label : ''}${isLegActive ? ' ▶' : ''}
+                    </div>`;
+                }).join('');
+                const countLabel = count === 1 ? '1 flight' : `${count} flights`;
                 line.bindPopup(`
-                    <div style="font-weight:900;font-size:14px;margin-bottom:4px;color:#f8fafc">${f.departureAirport} → ${f.arrivalAirport}</div>
-                    <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">${dateStr} ${flightLabel}</div>
-                    <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime)} → ${formatTimeISO(f.arrivalTime)}</div>
-                    <div style="font-size:12px;color:#94a3b8">Block ${blockMins ? formatDurationMinutes(blockMins) : '—'}${f.tail ? ' · ' + f.tail : ''}</div>
-                    ${isActive ? '<div style="font-size:11px;color:#22c55e;font-weight:700;margin-top:6px">▶ In the air now</div>' : ''}
+                    <div style="font-weight:900;font-size:14px;margin-bottom:3px;color:#f8fafc">${dep} → ${arr}</div>
+                    <div style="font-size:10px;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">${countLabel} this month</div>
+                    ${legRows}
                 `, { className: 'dark-popup' });
 
-                if (isPast) mapLayers.past.push(line);
+                if (allPast) mapLayers.past.push(line);
                 else mapLayers.future.push(line);
-                if ((isPast && showPast) || (!isPast && showFuture) || isActive) line.addTo(map);
+                if ((allPast && showPast) || (!allPast && showFuture) || hasActive) line.addTo(map);
 
-                // Airplane icon for active flight — rotated to direction of travel
-                if (isActive) {
-                    const t = Math.max(0, Math.min(1, (now - depTime) / (arrTime - depTime)));
-                    const dotIdx = Math.min(Math.floor(t * (arcCoords.length - 1)), arcCoords.length - 2);
-                    const pos = arcCoords[dotIdx];
-                    const nextPos = arcCoords[dotIdx + 1] || arcCoords[dotIdx];
-                    const bearing = computeBearing(pos, nextPos);
-                    const dot = L.marker(pos, {
-                        icon: makePlaneIcon(bearing, '#22c55e'),
-                        zIndexOffset: 1000
-                    }).addTo(map);
-                    dot.bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
-                    mapLayers.active.push(dot);
+                // Airplane icon for any active leg
+                if (hasActive) {
+                    const activeLeg = legs.find(f => f.departureTime && f.arrivalTime && new Date(f.departureTime) <= now && now <= new Date(f.arrivalTime));
+                    if (activeLeg) {
+                        const depTime = new Date(activeLeg.departureTime);
+                        const arrTime = new Date(activeLeg.arrivalTime);
+                        const t = Math.max(0, Math.min(1, (now - depTime) / (arrTime - depTime)));
+                        const dotIdx = Math.min(Math.floor(t * (arcCoords.length - 1)), arcCoords.length - 2);
+                        const pos = arcCoords[dotIdx];
+                        const nextPos = arcCoords[dotIdx + 1] || arcCoords[dotIdx];
+                        const bearing = computeBearing(pos, nextPos);
+                        const dot = L.marker(pos, { icon: makePlaneIcon(bearing, '#22c55e'), zIndexOffset: 1000 }).addTo(map);
+                        dot.bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
+                        mapLayers.active.push(dot);
+                    }
                 }
 
-                // Track which airports belong to past vs future flights
-                [f.departureAirport, f.arrivalAirport].forEach(code => {
-                    const upper = code ? code.toUpperCase() : '';
+                // Airport type tracking
+                [dep, arr].forEach(code => {
+                    const upper = code?.toUpperCase();
                     if (!upper || !resolveAirport(upper)) return;
                     if (!airportFlightTypes[upper]) airportFlightTypes[upper] = { past: false, future: false };
-                    if (isPast) airportFlightTypes[upper].past = true;
+                    if (allPast) airportFlightTypes[upper].past = true;
                     else airportFlightTypes[upper].future = true;
                 });
             });
@@ -1500,6 +1780,7 @@
         }
 
         function toggleDayView() {
+            if (mapAllMode) { mapAllMode = false; const ab = document.getElementById('btn-all-pilots-month'); if(ab){ab.style.borderColor='';ab.style.color='';} }
             mapDayMode = !mapDayMode;
             const btn = document.getElementById('btn-day-view');
             const dateInput = document.getElementById('day-view-date');
@@ -2476,7 +2757,7 @@
         }
         // ────────────────────────────────────────────────────────────────
 
-        function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); }
+        function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); if (currentView === 'stats') renderStats(); }
 
         async function handleMobileUpload(input) {
             if (!input.files[0]) return;
