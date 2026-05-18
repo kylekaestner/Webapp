@@ -8,7 +8,8 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(curl -s \"https://raw.githubusercontent.com/airplanes-live/tar1090/master/html/markers.js\")",
       "Bash(curl -s \"https://raw.githubusercontent.com/airplanes-live/tar1090/master/html/markers.js\" -o \"C:\\\\Users\\\\kylek\\\\AppData\\\\Local\\\\Temp\\\\markers.js\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(node -e \"const p = require\\('pdf-parse'\\); console.log\\(typeof p, typeof p.default, Object.keys\\(p\\).slice\\(0,5\\)\\)\")"
     ]
   }
 }

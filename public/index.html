@@ -176,7 +176,7 @@
                 </select>
             </div>
             <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
-            <button onclick="document.getElementById('file-input').click()" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Upload Schedule</button>
+            <button onclick="(function(){const p=document.getElementById('upload-pilot-select').value;const i=document.getElementById('file-input');i.accept=p==='drew'?'.pdf':'.ics,.csv';i.click()})()" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Upload Schedule</button>
             <button id="btn-sync-schedaero" onclick="openSchedaeroSync()" class="w-full py-3 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-xl transition text-[10px] font-black uppercase text-center">⟳ Sync Schedaero</button>
         </div>
     </div>
@@ -379,23 +379,30 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">From</label>
-                        <input type="text" id="add-dep" maxlength="4" placeholder="ORD" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                        <input type="text" id="add-dep" maxlength="4" placeholder="ORD" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
                     </div>
                     <div>
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">To</label>
-                        <input type="text" id="add-arr" maxlength="4" placeholder="SFO" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                        <input type="text" id="add-arr" maxlength="4" placeholder="SFO" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
                     </div>
                 </div>
                 <!-- Times -->
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Departs</label>
-                        <input type="time" id="add-dep-time" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                        <input type="time" id="add-dep-time" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
                     </div>
                     <div>
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Arrives <span class="text-zinc-600 normal-case font-normal">(next day auto-detected)</span></label>
-                        <input type="time" id="add-arr-time" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                        <input type="time" id="add-arr-time" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
                     </div>
+                </div>
+                <!-- Block time -->
+                <div>
+                    <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Block Time <span id="add-block-auto-label" class="text-zinc-600 normal-case font-normal">(auto-calculated)</span></label>
+                    <input type="text" id="add-block-time" placeholder="0:00" maxlength="5"
+                        oninput="_blockUserEdited=true;document.getElementById('add-block-auto-label').textContent='(manual)'"
+                        class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
                 </div>
                 <!-- Optional fields -->
                 <div class="grid grid-cols-2 gap-3">
@@ -502,7 +509,7 @@
                 </select>
             </div>
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
-            <button onclick="document.getElementById('mobile-file-input').click()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
+            <button onclick="(function(){const p=document.getElementById('mobile-upload-pilot-select').value;const i=document.getElementById('mobile-file-input');i.accept=p==='drew'?'.pdf':'.ics,.csv';i.click()})()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
             <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openSchedaeroSync()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
@@ -968,16 +975,21 @@
                     body: formData
                 });
 
-                if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+                if (!response.ok) {
+                    let errMsg = `Upload failed: ${response.status}`;
+                    try { const j = await response.json(); errMsg = j.error || errMsg; } catch(_) {}
+                    throw new Error(errMsg);
+                }
 
                 const result = await response.json();
                 console.log('Upload successful:', result);
-                
+
                 // Reload pilot data
                 await fetchPilotData(pilot);
                 return result;
             } catch (error) {
                 console.error('Upload error:', error);
+                alert(`Upload error: ${error.message}`);
                 return null;
             } finally {
                 isLoading = false;
@@ -1853,15 +1865,6 @@
             return null;
         }
 
-        function closestArcIndex(arcCoords, lat, lon) {
-            let minDist = Infinity, minIdx = 0;
-            for (let i = 0; i < arcCoords.length; i++) {
-                const d = haversineMi(arcCoords[i][0], arcCoords[i][1], lat, lon);
-                if (d < minDist) { minDist = d; minIdx = i; }
-            }
-            return minIdx;
-        }
-
         function isPositionOnRoute(lat, lon, depCoords, arrCoords) {
             const routeDist  = haversineMi(depCoords[0], depCoords[1], arrCoords[0], arrCoords[1]);
             const distToDep  = haversineMi(lat, lon, depCoords[0], depCoords[1]);
@@ -2125,7 +2128,7 @@
                 if (isActive) dayLineOpts.className = 'active-route';
                 const line = L.polyline(arcCoords, dayLineOpts);
 
-                const blockMins = f.blockMinutes != null ? f.blockMinutes : (f.arrivalTime ? (arrTime - depTime) / 60000 : null);
+                const blockMins = calcBlockMins(f);
                 line.bindPopup(`
                     <div style="font-weight:900;font-size:13px;color:${color};margin-bottom:3px">${PILOT_NAMES[f.pilotKey]}</div>
                     <div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${f.departureAirport} → ${f.arrivalAirport}</div>
@@ -2215,224 +2218,20 @@
         function moveTooltip(x, y) { positionTooltip(x, y); }
         function hideTooltip() { tooltip.style.display = 'none'; }
 
-        const _tzCache = {
-            // Eastern (America/New_York)
-            'ATL':'America/New_York','KATL':'America/New_York','ALB':'America/New_York','KALB':'America/New_York',
-            'ABE':'America/New_York','KABE':'America/New_York','ACY':'America/New_York','KACY':'America/New_York',
-            'AVL':'America/New_York','KAVL':'America/New_York','BGM':'America/New_York','KBGM':'America/New_York',
-            'BOS':'America/New_York','KBOS':'America/New_York','BTV':'America/New_York','KBTV':'America/New_York',
-            'BUF':'America/New_York','KBUF':'America/New_York','BWI':'America/New_York','KBWI':'America/New_York',
-            'CAE':'America/New_York','KCAE':'America/New_York','CHO':'America/New_York','KCHO':'America/New_York',
-            'CHS':'America/New_York','KCHS':'America/New_York','CLE':'America/New_York','KCLE':'America/New_York',
-            'CLT':'America/New_York','KCLT':'America/New_York','CMH':'America/New_York','KCMH':'America/New_York',
-            'CRW':'America/New_York','KCRW':'America/New_York','CVG':'America/New_York','KCVG':'America/New_York',
-            'DAY':'America/New_York','KDAY':'America/New_York','DCA':'America/New_York','KDCA':'America/New_York',
-            'DTW':'America/New_York','KDTW':'America/New_York','ELM':'America/New_York','KELM':'America/New_York',
-            'EVV':'America/New_York','KEVV':'America/New_York','EWR':'America/New_York','KEWR':'America/New_York',
-            'FLL':'America/New_York','KFLL':'America/New_York','FNT':'America/New_York','KFNT':'America/New_York',
-            'FWA':'America/New_York','KFWA':'America/New_York','GRR':'America/New_York','KGRR':'America/New_York',
-            'GSO':'America/New_York','KGSO':'America/New_York','GSP':'America/New_York','KGSP':'America/New_York',
-            'HPN':'America/New_York','KHPN':'America/New_York','HTS':'America/New_York','KHTS':'America/New_York',
-            'IAD':'America/New_York','KIAD':'America/New_York','ILM':'America/New_York','KILM':'America/New_York',
-            'IND':'America/New_York','KIND':'America/New_York','ISP':'America/New_York','KISP':'America/New_York',
-            'ITH':'America/New_York','KITH':'America/New_York','JAX':'America/New_York','KJAX':'America/New_York',
-            'JFK':'America/New_York','KJFK':'America/New_York','LAN':'America/New_York','KLAN':'America/New_York',
-            'LEX':'America/New_York','KLEX':'America/New_York','LGA':'America/New_York','KLGA':'America/New_York',
-            'LYH':'America/New_York','KLYH':'America/New_York','MBS':'America/New_York','KMBS':'America/New_York',
-            'MCO':'America/New_York','KMCO':'America/New_York','MDT':'America/New_York','KMDT':'America/New_York',
-            'MHT':'America/New_York','KMHT':'America/New_York','MIA':'America/New_York','KMIA':'America/New_York',
-            'MBL':'America/New_York','KMBL':'America/New_York',
-            'MKG':'America/New_York','KMKG':'America/New_York','MYR':'America/New_York','KMYR':'America/New_York',
-            'OAJ':'America/New_York','KOAJ':'America/New_York','ORF':'America/New_York','KORF':'America/New_York',
-            'AZO':'America/New_York','KAZO':'America/New_York','SBN':'America/New_York','KSBN':'America/New_York',
-            'PBI':'America/New_York','KPBI':'America/New_York','PHL':'America/New_York','KPHL':'America/New_York',
-            'PIT':'America/New_York','KPIT':'America/New_York','PWM':'America/New_York','KPWM':'America/New_York',
-            'PVD':'America/New_York','KPVD':'America/New_York','RDU':'America/New_York','KRDU':'America/New_York',
-            'RIC':'America/New_York','KRIC':'America/New_York','ROC':'America/New_York','KROC':'America/New_York',
-            'RSW':'America/New_York','KRSW':'America/New_York','SAV':'America/New_York','KSAV':'America/New_York',
-            'SBY':'America/New_York','KSBY':'America/New_York','SDF':'America/New_York','KSDF':'America/New_York',
-            'SRQ':'America/New_York','KSRQ':'America/New_York','SWF':'America/New_York','KSWF':'America/New_York',
-            'SYR':'America/New_York','KSYR':'America/New_York','TPA':'America/New_York','KTPA':'America/New_York',
-            'TRI':'America/New_York','KTRI':'America/New_York','TOL':'America/New_York','KTOL':'America/New_York',
-            'TVC':'America/New_York','KTVC':'America/New_York','TTN':'America/New_York','KTTN':'America/New_York',
-            // Central (America/Chicago)
-            'ABI':'America/Chicago','KABI':'America/Chicago','AMA':'America/Chicago','KAMA':'America/Chicago',
-            'AUS':'America/Chicago','KAUS':'America/Chicago','BHM':'America/Chicago','KBHM':'America/Chicago',
-            'BNA':'America/Chicago','KBNA':'America/Chicago','BMI':'America/Chicago','KBMI':'America/Chicago',
-            'BTR':'America/Chicago','KBTR':'America/Chicago','CID':'America/Chicago','KCID':'America/Chicago',
-            'CMI':'America/Chicago','KCMI':'America/Chicago','CRP':'America/Chicago','KCRP':'America/Chicago',
-            'DAL':'America/Chicago','KDAL':'America/Chicago','DBQ':'America/Chicago','KDBQ':'America/Chicago',
-            'DEC':'America/Chicago','KDEC':'America/Chicago','DFW':'America/Chicago','KDFW':'America/Chicago',
-            'DLH':'America/Chicago','KDLH':'America/Chicago','DSM':'America/Chicago','KDSM':'America/Chicago',
-            'EAU':'America/Chicago','KEAU':'America/Chicago','ECP':'America/Chicago','KECP':'America/Chicago',
-            'FSD':'America/Chicago','KFSD':'America/Chicago','FSM':'America/Chicago','KFSM':'America/Chicago',
-            'GFK':'America/Chicago','KGFK':'America/Chicago','GGG':'America/Chicago','KGGG':'America/Chicago',
-            'GPT':'America/Chicago','KGPT':'America/Chicago','GRK':'America/Chicago','KGRK':'America/Chicago',
-            'GYY':'America/Chicago','KGYY':'America/Chicago','HOU':'America/Chicago','KHOU':'America/Chicago',
-            'HSV':'America/Chicago','KHSV':'America/Chicago','IAH':'America/Chicago','KIAH':'America/Chicago',
-            'ICT':'America/Chicago','KICT':'America/Chicago','JAN':'America/Chicago','KJAN':'America/Chicago',
-            'LBB':'America/Chicago','KLBB':'America/Chicago','LFT':'America/Chicago','KLFT':'America/Chicago',
-            'LIT':'America/Chicago','KLIT':'America/Chicago','LSE':'America/Chicago','KLSE':'America/Chicago',
-            'MAF':'America/Chicago','KMAF':'America/Chicago','MCI':'America/Chicago','KMCI':'America/Chicago',
-            'MDW':'America/Chicago','KMDW':'America/Chicago','MEM':'America/Chicago','KMEM':'America/Chicago',
-            'MHK':'America/Chicago','KMHK':'America/Chicago','MKE':'America/Chicago','KMKE':'America/Chicago',
-            'MLI':'America/Chicago','KMLI':'America/Chicago','MLU':'America/Chicago','KMLU':'America/Chicago',
-            'MOB':'America/Chicago','KMOB':'America/Chicago','MOT':'America/Chicago','KMOT':'America/Chicago',
-            'MSN':'America/Chicago','KMSN':'America/Chicago','MSP':'America/Chicago','KMSP':'America/Chicago',
-            'MSY':'America/Chicago','KMSY':'America/Chicago','OKC':'America/Chicago','KOKC':'America/Chicago',
-            'OMA':'America/Chicago','KOMA':'America/Chicago','ORD':'America/Chicago','KORD':'America/Chicago',
-            'PIA':'America/Chicago','KPIA':'America/Chicago','PNS':'America/Chicago','KPNS':'America/Chicago',
-            'RFD':'America/Chicago','KRFD':'America/Chicago','RST':'America/Chicago','KRST':'America/Chicago',
-            'SAT':'America/Chicago','KSAT':'America/Chicago','SGF':'America/Chicago','KSGF':'America/Chicago',
-            'SHV':'America/Chicago','KSHV':'America/Chicago','SLN':'America/Chicago','KSLN':'America/Chicago',
-            'SPI':'America/Chicago','KSPI':'America/Chicago','STL':'America/Chicago','KSTL':'America/Chicago',
-            'SUS':'America/Chicago','KSUS':'America/Chicago','SUX':'America/Chicago','KSUX':'America/Chicago',
-            'TOP':'America/Chicago','KTOP':'America/Chicago','TUL':'America/Chicago','KTUL':'America/Chicago',
-            'TXK':'America/Chicago','KTXK':'America/Chicago','TYR':'America/Chicago','KTYR':'America/Chicago',
-            'UIN':'America/Chicago','KUIN':'America/Chicago','VPS':'America/Chicago','KVPS':'America/Chicago',
-            'XNA':'America/Chicago','KXNA':'America/Chicago','BIS':'America/Chicago','KBIS':'America/Chicago',
-            'DIK':'America/Chicago','KDIK':'America/Chicago','LNK':'America/Chicago','KLNK':'America/Chicago',
-            'BRD':'America/Chicago','KBRD':'America/Chicago','HIB':'America/Chicago','KHIB':'America/Chicago',
-            'INL':'America/Chicago','KINL':'America/Chicago',
-            // Mountain (America/Denver)
-            'ABQ':'America/Denver','KABQ':'America/Denver','ASE':'America/Denver','KASE':'America/Denver',
-            'BIL':'America/Denver','KBIL':'America/Denver','BOI':'America/Denver','KBOI':'America/Denver',
-            'BZN':'America/Denver','KBZN':'America/Denver','COD':'America/Denver','KCOD':'America/Denver',
-            'COS':'America/Denver','KCOS':'America/Denver','CPR':'America/Denver','KCPR':'America/Denver',
-            'CYS':'America/Denver','KCYS':'America/Denver','DEN':'America/Denver','KDEN':'America/Denver',
-            'DRO':'America/Denver','KDRO':'America/Denver','ELP':'America/Denver','KELP':'America/Denver',
-            'FCA':'America/Denver','KGPI':'America/Denver','GCC':'America/Denver','KGCC':'America/Denver',
-            'GJT':'America/Denver','KGJT':'America/Denver','GTF':'America/Denver','KGTF':'America/Denver',
-            'GUC':'America/Denver','KGUC':'America/Denver','HLN':'America/Denver','KHLN':'America/Denver',
-            'IDA':'America/Denver','KIDA':'America/Denver','JAC':'America/Denver','KJAC':'America/Denver',
-            'LAR':'America/Denver','KLAR':'America/Denver','MTJ':'America/Denver','KMTJ':'America/Denver',
-            'PIH':'America/Denver','KPIH':'America/Denver','PUB':'America/Denver','KPUB':'America/Denver',
-            'RAP':'America/Denver','KRAP':'America/Denver','RIW':'America/Denver','KRIW':'America/Denver',
-            'RKS':'America/Denver','KRKS':'America/Denver','SGU':'America/Denver','KSGU':'America/Denver',
-            'SLC':'America/Denver','KSLC':'America/Denver','TWF':'America/Denver','KTWF':'America/Denver',
-            'CNY':'America/Denver','KCNY':'America/Denver',
-            // Arizona — no DST
-            'PHX':'America/Phoenix','KPHX':'America/Phoenix','TUS':'America/Phoenix','KTUS':'America/Phoenix',
-            'FLG':'America/Phoenix','KFLG':'America/Phoenix','PRC':'America/Phoenix','KPRC':'America/Phoenix',
-            'YUM':'America/Phoenix','KYUM':'America/Phoenix','AZA':'America/Phoenix','IWA':'America/Phoenix',
-            'SDL':'America/Phoenix','DVT':'America/Phoenix','GYR':'America/Phoenix','CHD':'America/Phoenix',
-            // Pacific (America/Los_Angeles)
-            'BFI':'America/Los_Angeles','KBFI':'America/Los_Angeles','BLI':'America/Los_Angeles','KBLI':'America/Los_Angeles',
-            'BUR':'America/Los_Angeles','KBUR':'America/Los_Angeles','EUG':'America/Los_Angeles','KEUG':'America/Los_Angeles',
-            'FAT':'America/Los_Angeles','KFAT':'America/Los_Angeles','GEG':'America/Los_Angeles','KGEG':'America/Los_Angeles',
-            'LAS':'America/Los_Angeles','KLAS':'America/Los_Angeles','LAX':'America/Los_Angeles','KLAX':'America/Los_Angeles',
-            'LGB':'America/Los_Angeles','KLGB':'America/Los_Angeles','MFR':'America/Los_Angeles','KMFR':'America/Los_Angeles',
-            'MRY':'America/Los_Angeles','KMRY':'America/Los_Angeles','OAK':'America/Los_Angeles','KOAK':'America/Los_Angeles',
-            'ONT':'America/Los_Angeles','KONT':'America/Los_Angeles','PDX':'America/Los_Angeles','KPDX':'America/Los_Angeles',
-            'PSC':'America/Los_Angeles','KPSC':'America/Los_Angeles','PSP':'America/Los_Angeles','KPSP':'America/Los_Angeles',
-            'RDM':'America/Los_Angeles','KRDM':'America/Los_Angeles','RNO':'America/Los_Angeles','KRNO':'America/Los_Angeles',
-            'SAN':'America/Los_Angeles','KSAN':'America/Los_Angeles','SBA':'America/Los_Angeles','KSBA':'America/Los_Angeles',
-            'SBP':'America/Los_Angeles','KSBP':'America/Los_Angeles','SEA':'America/Los_Angeles','KSEA':'America/Los_Angeles',
-            'SFO':'America/Los_Angeles','KSFO':'America/Los_Angeles','SJC':'America/Los_Angeles','KSJC':'America/Los_Angeles',
-            'SMF':'America/Los_Angeles','KSMF':'America/Los_Angeles','SNA':'America/Los_Angeles','KSNA':'America/Los_Angeles',
-            'STS':'America/Los_Angeles','KSTS':'America/Los_Angeles','YKM':'America/Los_Angeles','KYKM':'America/Los_Angeles',
-            'ACV':'America/Los_Angeles','KACV':'America/Los_Angeles',
-            'APC':'America/Los_Angeles','KAPC':'America/Los_Angeles',
-            // Alaska
-            'ANC':'America/Anchorage','PANC':'America/Anchorage','FAI':'America/Anchorage','PAFA':'America/Anchorage',
-            'JNU':'America/Anchorage','PAJN':'America/Anchorage','KTN':'America/Anchorage','PAKT':'America/Anchorage',
-            'SIT':'America/Sitka','PASI':'America/Sitka','BET':'America/Anchorage','PABE':'America/Anchorage',
-            'ADQ':'America/Anchorage','PADQ':'America/Anchorage','CDV':'America/Anchorage','PACV':'America/Anchorage',
-            // Hawaii — no DST
-            'HNL':'Pacific/Honolulu','PHNL':'Pacific/Honolulu','OGG':'Pacific/Honolulu','PHOG':'Pacific/Honolulu',
-            'KOA':'Pacific/Honolulu','PHKO':'Pacific/Honolulu','LIH':'Pacific/Honolulu','PHLI':'Pacific/Honolulu',
-            'ITO':'Pacific/Honolulu','PHTO':'Pacific/Honolulu',
-            // Puerto Rico & USVI — no DST, UTC-4
-            'SJU':'America/Puerto_Rico','TJSJ':'America/Puerto_Rico','BQN':'America/Puerto_Rico','TJBQ':'America/Puerto_Rico',
-            'PSE':'America/Puerto_Rico','TJPS':'America/Puerto_Rico','VQS':'America/Puerto_Rico','TJVQ':'America/Puerto_Rico',
-            'STT':'America/St_Thomas','TIST':'America/St_Thomas','STX':'America/St_Croix','TISX':'America/St_Croix',
-            // Bahamas (Eastern, observes DST)
-            'NAS':'America/Nassau','MYNN':'America/Nassau','FPO':'America/Nassau','GGT':'America/Nassau',
-            // Bermuda (Atlantic, observes DST)
-            'BDA':'Atlantic/Bermuda','TXKF':'Atlantic/Bermuda',
-            // Caribbean — UTC-4, no DST
-            'ANU':'America/Antigua','TAPA':'America/Antigua','AUA':'America/Aruba','TNCA':'America/Aruba',
-            'BGI':'America/Barbados','TBPB':'America/Barbados','CUR':'America/Curacao','TNCC':'America/Curacao',
-            'GND':'America/Grenada','TGPY':'America/Grenada','FDF':'America/Martinique','TFFF':'America/Martinique',
-            'PTP':'America/Guadeloupe','TFFR':'America/Guadeloupe','POS':'America/Port_of_Spain','TTPP':'America/Port_of_Spain',
-            'TAB':'America/Port_of_Spain','TTCP':'America/Port_of_Spain','UVF':'America/St_Lucia','TLPL':'America/St_Lucia',
-            'SVD':'America/St_Vincent','TVSV':'America/St_Vincent','SXM':'America/Lower_Princes','TNCM':'America/Lower_Princes',
-            // Jamaica — UTC-5, no DST
-            'MBJ':'America/Jamaica','MKJS':'America/Jamaica','KIN':'America/Jamaica','MKJP':'America/Jamaica',
-            // Cayman — UTC-5, no DST
-            'GCM':'America/Cayman','MWCR':'America/Cayman',
-            // Cuba — observes DST
-            'HAV':'America/Havana','MUHA':'America/Havana','VRA':'America/Havana','MUVR':'America/Havana',
-            // Dominican Republic — UTC-4, no DST
-            'SDQ':'America/Santo_Domingo','MDSD':'America/Santo_Domingo','POP':'America/Santo_Domingo','MDPP':'America/Santo_Domingo',
-            'PUJ':'America/Santo_Domingo','MDPC':'America/Santo_Domingo',
-            // Haiti
-            'PAP':'America/Port-au-Prince','MTPP':'America/Port-au-Prince',
-            // Turks & Caicos
-            'PLS':'America/Grand_Turk','MBPV':'America/Grand_Turk',
-            // Mexico
-            'CUN':'America/Cancun','MMUN':'America/Cancun','CZM':'America/Cancun','MMCZ':'America/Cancun',
-            'MEX':'America/Mexico_City','MMMX':'America/Mexico_City','GDL':'America/Mexico_City','MMGL':'America/Mexico_City',
-            'PVR':'America/Mexico_City','MMPR':'America/Mexico_City','ZIH':'America/Mexico_City','MMZH':'America/Mexico_City',
-            'ZLO':'America/Mexico_City','MMZO':'America/Mexico_City','MTY':'America/Monterrey','MMMY':'America/Monterrey',
-            'TRC':'America/Monterrey','MZT':'America/Mazatlan','MMMZ':'America/Mazatlan','SJD':'America/Mazatlan','MMSD':'America/Mazatlan',
-            'HMO':'America/Hermosillo','MMHO':'America/Hermosillo','TIJ':'America/Tijuana','MMTJ':'America/Tijuana',
-            'CUU':'America/Chihuahua','MMCU':'America/Chihuahua',
-            // Central America — UTC-6, no DST
-            'GUA':'America/Guatemala','MGGT':'America/Guatemala','SAL':'America/El_Salvador','MSLP':'America/El_Salvador',
-            'TGU':'America/Tegucigalpa','MHTG':'America/Tegucigalpa','MGA':'America/Managua','MNMG':'America/Managua',
-            'SJO':'America/Costa_Rica','MROC':'America/Costa_Rica','LIR':'America/Costa_Rica','MRLB':'America/Costa_Rica',
-            'PTY':'America/Panama','MPTO':'America/Panama',
-            // South America
-            'BOG':'America/Bogota','SKBO':'America/Bogota','MDE':'America/Bogota','SKRG':'America/Bogota',
-            'CTG':'America/Bogota','SKCG':'America/Bogota','GYE':'America/Guayaquil','SEGU':'America/Guayaquil',
-            'UIO':'America/Guayaquil','SEQU':'America/Guayaquil','LIM':'America/Lima','SPJC':'America/Lima',
-            'GIG':'America/Sao_Paulo','GRU':'America/Sao_Paulo','BSB':'America/Sao_Paulo',
-            'EZE':'America/Argentina/Buenos_Aires','AEP':'America/Argentina/Buenos_Aires',
-            'SCL':'America/Santiago','MVD':'America/Montevideo',
-            // Canada
-            'YYZ':'America/Toronto','CYYZ':'America/Toronto','YTZ':'America/Toronto','CYTZ':'America/Toronto',
-            'YOW':'America/Toronto','CYOW':'America/Toronto','YUL':'America/Montreal','CYUL':'America/Montreal',
-            'YQB':'America/Montreal','CYQB':'America/Montreal','YHZ':'America/Halifax','CYHZ':'America/Halifax',
-            'YWG':'America/Winnipeg','CYWG':'America/Winnipeg','YQR':'America/Regina','CYQR':'America/Regina',
-            'YXE':'America/Regina','CYXE':'America/Regina','YYC':'America/Edmonton','CYYC':'America/Edmonton',
-            'YEG':'America/Edmonton','CYEG':'America/Edmonton','YVR':'America/Vancouver','CYVR':'America/Vancouver',
-            'YYJ':'America/Vancouver','CYYJ':'America/Vancouver','YLW':'America/Vancouver','CYLW':'America/Vancouver',
-            // Europe
-            'LHR':'Europe/London','EGLL':'Europe/London','LGW':'Europe/London','EGKK':'Europe/London',
-            'LCY':'Europe/London','EGLC':'Europe/London','MAN':'Europe/London','EGCC':'Europe/London',
-            'EDI':'Europe/London','EGPH':'Europe/London','GLA':'Europe/London','EGPF':'Europe/London',
-            'DUB':'Europe/Dublin','EIDW':'Europe/Dublin','SNN':'Europe/Dublin','EINN':'Europe/Dublin',
-            'CDG':'Europe/Paris','LFPG':'Europe/Paris','ORY':'Europe/Paris','LFPO':'Europe/Paris',
-            'NCE':'Europe/Paris','LFMN':'Europe/Paris','LYS':'Europe/Paris','LFLL':'Europe/Paris',
-            'AMS':'Europe/Amsterdam','EHAM':'Europe/Amsterdam',
-            'FRA':'Europe/Berlin','EDDF':'Europe/Berlin','MUC':'Europe/Berlin','EDDM':'Europe/Berlin',
-            'BER':'Europe/Berlin','EDDB':'Europe/Berlin','DUS':'Europe/Berlin','EDDL':'Europe/Berlin',
-            'HAM':'Europe/Berlin','EDDH':'Europe/Berlin',
-            'ZRH':'Europe/Zurich','LSZH':'Europe/Zurich','GVA':'Europe/Zurich','LSGG':'Europe/Zurich',
-            'MAD':'Europe/Madrid','LEMD':'Europe/Madrid','BCN':'Europe/Madrid','LEBL':'Europe/Madrid',
-            'PMI':'Europe/Madrid','LEPA':'Europe/Madrid','LIS':'Europe/Lisbon','LPPT':'Europe/Lisbon',
-            'FCO':'Europe/Rome','LIRF':'Europe/Rome','MXP':'Europe/Rome','LIMC':'Europe/Rome',
-            'VCE':'Europe/Rome','LIPZ':'Europe/Rome','NAP':'Europe/Rome','LIRN':'Europe/Rome',
-            'VIE':'Europe/Vienna','LOWW':'Europe/Vienna','ATH':'Europe/Athens','LGAV':'Europe/Athens',
-            'IST':'Europe/Istanbul','LTBA':'Europe/Istanbul','SAW':'Europe/Istanbul','LTFJ':'Europe/Istanbul',
-            'CPH':'Europe/Copenhagen','EKCH':'Europe/Copenhagen','OSL':'Europe/Oslo','ENGM':'Europe/Oslo',
-            'ARN':'Europe/Stockholm','ESSA':'Europe/Stockholm','HEL':'Europe/Helsinki','EFHK':'Europe/Helsinki',
-            'WAW':'Europe/Warsaw','EPWA':'Europe/Warsaw','PRG':'Europe/Prague','LKPR':'Europe/Prague',
-            'BRU':'Europe/Brussels','EBBR':'Europe/Brussels','BUD':'Europe/Budapest','LHBP':'Europe/Budapest',
-            // Middle East / Asia / Pacific
-            'DXB':'Asia/Dubai','OMDB':'Asia/Dubai','AUH':'Asia/Dubai','OMAA':'Asia/Dubai',
-            'DOH':'Asia/Qatar','OTBD':'Asia/Qatar','TLV':'Asia/Jerusalem','LLBG':'Asia/Jerusalem',
-            'HKG':'Asia/Hong_Kong','VHHH':'Asia/Hong_Kong','NRT':'Asia/Tokyo','RJAA':'Asia/Tokyo',
-            'HND':'Asia/Tokyo','RJTT':'Asia/Tokyo','ICN':'Asia/Seoul','RKSI':'Asia/Seoul',
-            'SIN':'Asia/Singapore','WSSS':'Asia/Singapore',
-            'SYD':'Australia/Sydney','YSSY':'Australia/Sydney','MEL':'Australia/Melbourne','YMML':'Australia/Melbourne',
-            'AKL':'Pacific/Auckland','NZAA':'Pacific/Auckland',
-        };
+        const _tzCache = {}; // populated on demand by airportTz() via tz-lookup + coordinates
         function airportTz(code) {
             if (!code) return null;
             const c = code.toUpperCase().trim();
-            return _tzCache[c] || null;
+            if (_tzCache[c]) return _tzCache[c];
+            // Derive from coordinates if tz-lookup is available
+            const coords = AIRPORTS[c] || AIRPORT_DB.byIcao[c] || AIRPORT_DB.byIata[c];
+            if (coords && typeof tzlookup === 'function') {
+                try {
+                    const tz = tzlookup(coords[0], coords[1]);
+                    if (tz) { _tzCache[c] = tz; return tz; }
+                } catch (e) { /* ignore */ }
+            }
+            return null;
         }
         const _TZ_SHORT = { 'EST':'ET','EDT':'ET','CST':'CT','CDT':'CT','MST':'MT','MDT':'MT','PST':'PT','PDT':'PT','AKST':'AKT','AKDT':'AKT','HST':'HT','HDT':'HT','AST':'AT','ADT':'AT' };
         function tzAbbr(airportCode, iso) {
@@ -2621,7 +2420,7 @@
                         const cellBg = isActiveLeg
                             ? (isPersonal ? 'background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)' : 'background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)')
                             : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : 'background:rgba(0,0,0,0.4)');
-                        html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${f.blockMinutes != null ? f.blockMinutes : ''}">`;
+                        html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}">`;
                         html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
@@ -2677,12 +2476,7 @@
                             const depTz = depApt ? tzAbbr(depApt, depAttr) : '';
                             const arrTz = arrApt ? tzAbbr(arrApt, arrAttr) : '';
                             const tzSup = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:2px">${lbl}</span>` : '';
-                            const blockMins = f.blockMinutes != null ? f.blockMinutes : (depAttr && arrAttr ? (() => {
-                                const d1 = new Date(depAttr);
-                                const d2 = new Date(arrAttr);
-                                if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return null;
-                                return (d2 - d1) / 60000;
-                            })() : null);
+                            const blockMins = calcBlockMins(f);
                             const isPersonal = tripAttr === 'PERSONAL';
                             const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-500/60 text-pink-300 bg-pink-950/40">DH</span>` : '';
                             const personalBadge = isPersonal ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-violet-500/60 text-violet-300 bg-violet-950/40">Personal</span>` : '';
@@ -3029,7 +2823,7 @@
                 const depTz = f.departureAirport ? tzAbbr(f.departureAirport, f.departureTime) : '';
                 const arrTz = f.arrivalAirport ? tzAbbr(f.arrivalAirport, f.arrivalTime) : '';
                 const tzTag = (lbl) => lbl ? ` <span class="text-[10px] font-semibold text-zinc-500">${lbl}</span>` : '';
-                const blockMins = f.blockMinutes != null ? f.blockMinutes : (f.departureTime && f.arrivalTime ? (new Date(f.arrivalTime) - new Date(f.departureTime)) / 60000 : null);
+                const blockMins = calcBlockMins(f);
                 const isPersonal = f.trip === 'PERSONAL';
                 const dhBadge = f.dh ? `<span class="ml-2 text-[9px] font-black text-pink-300">DH</span>` : '';
                 const personalBadge = isPersonal ? `<span class="ml-2 text-[9px] font-black text-violet-300">Personal</span>` : '';
@@ -3085,14 +2879,89 @@
             });
         }
 
+        let _blockUserEdited = false;
+
+        function calcBlockMins(f) {
+            if (f.blockMinutes != null) return f.blockMinutes;
+            if (!f.departureTime || !f.arrivalTime) return null;
+            if (f.isManual) {
+                const depTz = airportTz(f.departureAirport);
+                const arrTz = airportTz(f.arrivalAirport);
+                if (depTz && arrTz) {
+                    try {
+                        const depUTC = localTimeToUTC(f.departureTime.slice(0, 16), depTz);
+                        const arrUTC = localTimeToUTC(f.arrivalTime.slice(0, 16), arrTz);
+                        const m = Math.round((arrUTC - depUTC) / 60000);
+                        return (m > 0 && m < 24 * 60) ? m : null;
+                    } catch (e) { /* fall through */ }
+                }
+            }
+            return Math.round((new Date(f.arrivalTime) - new Date(f.departureTime)) / 60000);
+        }
+
+        function localTimeToUTC(localISO, tzName) {
+            const approx = new Date(localISO + 'Z');
+            const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, timeZoneName: 'longOffset' }).formatToParts(approx);
+            const tzStr = parts.find(p => p.type === 'timeZoneName')?.value || '';
+            const m = tzStr.match(/GMT([+-])(\d+):(\d{2})/);
+            if (!m) return approx;
+            const offsetMin = (m[1] === '+' ? 1 : -1) * (parseInt(m[2]) * 60 + parseInt(m[3]));
+            return new Date(approx.getTime() - offsetMin * 60000);
+        }
+
+        function parseBlockInput(val) {
+            if (!val) return null;
+            const m = val.match(/^(\d+):(\d{2})$/);
+            if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
+            const h = parseFloat(val);
+            return isNaN(h) ? null : Math.round(h * 60);
+        }
+
+        function autoComputeBlockTime() {
+            if (_blockUserEdited) return;
+            const dep = document.getElementById('add-dep').value.trim().toUpperCase();
+            const arr = document.getElementById('add-arr').value.trim().toUpperCase();
+            const depTime = document.getElementById('add-dep-time').value;
+            const arrTime = document.getElementById('add-arr-time').value;
+            const date = document.getElementById('add-date').value;
+            if (!dep || !arr || !depTime || !arrTime || !date) return;
+            const depTz = airportTz(dep);
+            const arrTz = airportTz(arr);
+            const [dH, dM] = depTime.split(':').map(Number);
+            const [aH, aM] = arrTime.split(':').map(Number);
+            let arrDate = date;
+            if (aH * 60 + aM <= dH * 60 + dM) {
+                const d = new Date(date + 'T12:00:00');
+                d.setDate(d.getDate() + 1);
+                arrDate = d.toISOString().slice(0, 10);
+            }
+            const depISO = `${date}T${depTime}:00`;
+            const arrISO = `${arrDate}T${arrTime}:00`;
+            let blockMin;
+            if (depTz && arrTz) {
+                const depUTC = localTimeToUTC(depISO, depTz);
+                const arrUTC = localTimeToUTC(arrISO, arrTz);
+                blockMin = Math.round((arrUTC - depUTC) / 60000);
+            } else {
+                blockMin = Math.round((new Date(arrISO + 'Z') - new Date(depISO + 'Z')) / 60000);
+            }
+            if (blockMin > 0 && blockMin < 24 * 60) {
+                const h = Math.floor(blockMin / 60);
+                const mn = blockMin % 60;
+                document.getElementById('add-block-time').value = `${h}:${String(mn).padStart(2, '0')}`;
+            }
+        }
+
         function openAddFlight() {
             _editSegmentId = null;
+            _blockUserEdited = false;
             document.getElementById('add-flight-title').textContent = 'Add Flight';
             document.getElementById('add-flight-submit-btn').textContent = 'Add Flight';
             const today = new Date();
             document.getElementById('add-date').value = today.toISOString().slice(0, 10);
             document.getElementById('add-pilot').value = currentPilot || 'kyle';
-            ['add-dep','add-arr','add-dep-time','add-arr-time','add-flight-num','add-tail-num'].forEach(id => document.getElementById(id).value = '');
+            ['add-dep','add-arr','add-dep-time','add-arr-time','add-flight-num','add-tail-num','add-block-time'].forEach(id => document.getElementById(id).value = '');
+            document.getElementById('add-block-auto-label').textContent = '(auto-calculated)';
             document.getElementById('add-flight-error').classList.add('hidden');
             setAddFlightType('work');
             document.getElementById('add-flight-modal').classList.remove('hidden');
@@ -3116,6 +2985,20 @@
             document.getElementById('add-flight-num').value = seg.flightNumber || '';
             document.getElementById('add-tail-num').value = seg.tail || '';
             document.getElementById('add-flight-error').classList.add('hidden');
+            // Block time
+            _blockUserEdited = false;
+            const blockEl = document.getElementById('add-block-time');
+            const blockLbl = document.getElementById('add-block-auto-label');
+            if (seg.blockMinutes != null && seg.blockMinutes > 0) {
+                const bh = Math.floor(seg.blockMinutes / 60);
+                const bm = seg.blockMinutes % 60;
+                blockEl.value = `${bh}:${String(bm).padStart(2, '0')}`;
+                blockLbl.textContent = '(saved)';
+                _blockUserEdited = true;
+            } else {
+                blockEl.value = '';
+                blockLbl.textContent = '(auto-calculated)';
+            }
             const type = seg.trip === 'PERSONAL' ? 'personal' : (seg.dh ? 'dh' : 'work');
             setAddFlightType(type);
             document.getElementById('add-flight-modal').classList.remove('hidden');
@@ -3160,7 +3043,8 @@
                 flight_number: document.getElementById('add-flight-num').value.trim() || null,
                 tail: document.getElementById('add-tail-num').value.trim() || null,
                 is_dh: _addFlightType === 'dh',
-                is_personal: _addFlightType === 'personal'
+                is_personal: _addFlightType === 'personal',
+                block_minutes: parseBlockInput(document.getElementById('add-block-time').value)
             };
         }
 

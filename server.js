@@ -367,6 +367,139 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
     return events;
 }
 
+// ===== NetLine/Crew PDF Parser (GoJet / Drew) =====
+const pdfParse = require('pdf-parse');
+const tzlookup = require('tz-lookup');
+const fs = require('fs');
+
+// Build airport code → [lat, lon] from bundled airports.dat (OpenFlights format)
+const _aptCoords = {};
+try {
+    const lines = fs.readFileSync(path.join(__dirname, 'airports.dat'), 'utf8').split('\n');
+    for (const line of lines) {
+        const p = line.split(',').map(s => s.replace(/^"|"$/g, ''));
+        const iata = p[4]?.trim(), icao = p[5]?.trim();
+        const lat = parseFloat(p[6]), lon = parseFloat(p[7]);
+        if (!isFinite(lat) || !isFinite(lon)) continue;
+        if (iata && iata !== '\\N' && iata !== 'N/A') _aptCoords[iata.toUpperCase()] = [lat, lon];
+        if (icao && icao !== '\\N' && icao !== 'N/A') _aptCoords[icao.toUpperCase()] = [lat, lon];
+    }
+    console.log(`Airport DB loaded: ${Object.keys(_aptCoords).length} codes`);
+} catch (e) {
+    console.error('Could not load airports.dat:', e.message);
+}
+
+// Returns the UTC offset in minutes for an airport on a given YYYY-MM-DD date (handles DST)
+function airportUTCOffset(dateStr, airport) {
+    const coords = _aptCoords[airport?.toUpperCase()];
+    if (!coords) return 0;
+    let tz;
+    try { tz = tzlookup(coords[0], coords[1]); } catch (e) { return 0; }
+    const refUTC = new Date(`${dateStr}T12:00:00Z`);
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, hour: 'numeric', minute: 'numeric', hour12: false
+    }).formatToParts(refUTC);
+    const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '12');
+    const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0');
+    return (h * 60 + m) - 720;
+}
+
+async function parseNetlinePDF(buffer) {
+    const data = await pdfParse(buffer);
+    const text = data.text;
+
+    // Extract period start month/year from "Period: 01Jun26 – 30Jun26"
+    const periodMatch = text.match(/Period:\s*\d{2}([A-Za-z]{3})(\d{2})/);
+    if (!periodMatch) throw new Error('Could not find Period line in PDF');
+    const MONTH_ABBRS = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+    let baseMonth = MONTH_ABBRS[periodMatch[1].toLowerCase()];
+    let baseYear  = 2000 + parseInt(periodMatch[2]);
+    if (!baseMonth) throw new Error('Could not parse month from PDF header');
+
+    const segments = [];
+
+    // Find every duty-start header: "Mon01 C/I", "Fri08 OPR", etc.
+    const ciRe = /(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(\d{2})\s+(?:C\/I|OPR)/g;
+    let m;
+    const duties = [];
+    while ((m = ciRe.exec(text)) !== null) {
+        duties.push({ index: m.index, day: parseInt(m[1]) });
+    }
+
+    // Detect month rollover between duties (day numbers restart at 01 after ~28-31)
+    let curMonth = baseMonth;
+    let curYear  = baseYear;
+    let prevDay  = 0;
+    const resolvedDuties = duties.map(d => {
+        if (d.day < prevDay - 15) { // rolled over to next month
+            curMonth++;
+            if (curMonth > 12) { curMonth = 1; curYear++; }
+        }
+        prevDay = d.day;
+        return { ...d, month: curMonth, year: curYear };
+    });
+
+    for (let i = 0; i < resolvedDuties.length; i++) {
+        const { index, day, month, year } = resolvedDuties[i];
+        const blockEnd = i + 1 < resolvedDuties.length ? resolvedDuties[i + 1].index : text.length;
+        const block = text.slice(index, blockEnd);
+
+        // Track the current date as we walk through legs in this duty
+        let trackDate = new Date(year, month - 1, day);
+
+        // Match G7 and DH legs in document order
+        // G7 4567 STL 0810 !0945 ORD CR7  |  DH/UA 6213 STL 1110 1325 IAH
+        // Handles: /NN day-suffix on flt num (G7 4545 /07), +N next-day marker on arr (0136+1)
+        const legRe = /(?:(G7)\s+(\d{4})(?:\s*\/\d+)?|(DH)\/([A-Z0-9]+)\s+(\d+))\s+([A-Z]{2,4})\s+!?(\d{4})\s+!?(\d{4})(?:\+\d+)?\s+([A-Z]{2,4})/g;
+        let lm;
+        while ((lm = legRe.exec(block)) !== null) {
+            const isDH    = !!lm[3];
+            const carrier = isDH ? lm[4] : 'G7';
+            const fltNum  = isDH ? lm[5] : lm[2];
+            const depApt  = lm[6];
+            const depHH   = lm[7].slice(0, 2), depMM = lm[7].slice(2);
+            const arrHH   = lm[8].slice(0, 2), arrMM = lm[8].slice(2);
+            const arrApt  = lm[9];
+
+            const depInt = parseInt(lm[7]);
+            const arrInt = parseInt(lm[8]);
+
+            const yy = trackDate.getFullYear();
+            const mo = String(trackDate.getMonth() + 1).padStart(2, '0');
+            const dd = String(trackDate.getDate()).padStart(2, '0');
+            const depTime = `${yy}-${mo}-${dd}T${depHH}:${depMM}:00`;
+
+            // If arrival HHMM is before departure HHMM, the flight crosses midnight
+            if (arrInt < depInt) {
+                trackDate = new Date(trackDate.getTime() + 86400000);
+            }
+            const ay = trackDate.getFullYear();
+            const am = String(trackDate.getMonth() + 1).padStart(2, '0');
+            const ad = String(trackDate.getDate()).padStart(2, '0');
+            const arrTime = `${ay}-${am}-${ad}T${arrHH}:${arrMM}:00`;
+
+            // Times are airport-local, so correct for timezone difference between airports
+            const depOffset = airportUTCOffset(`${yy}-${mo}-${dd}`, depApt);
+            const arrOffset = airportUTCOffset(`${ay}-${am}-${ad}`, arrApt);
+            const blockMins = Math.round((new Date(arrTime) - new Date(depTime)) / 60000) + (depOffset - arrOffset);
+
+            segments.push({
+                type: 'flight',
+                departureTime: depTime,
+                arrivalTime:   arrTime,
+                departureAirport: depApt,
+                arrivalAirport:   arrApt,
+                flightNumber: `${carrier} ${fltNum}`,
+                tail: '', trip: '',
+                dh: isDH,
+                blockMinutes: blockMins > 0 ? blockMins : null
+            });
+        }
+    }
+
+    return segments;
+}
+
 // Pilot parser configuration
 const pilotParsers = {
     kyle: 'ics',
@@ -379,6 +512,7 @@ const pilotParsers = {
 const pilotAirlineCodes = {
     adam: 'RPA',
     sam: 'RPA',
+    logan: 'SKW',
     drew: 'GJS'
 };
 
@@ -422,7 +556,7 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
 });
 
 // POST upload schedule file
-app.post('/api/pilots/:pilotKey/upload', upload.single('file'), (req, res) => {
+app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
 
@@ -430,7 +564,6 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), (req, res) => {
         return res.status(400).json({ error: 'No file provided' });
     }
 
-    const fileContent = req.file.buffer.toString('utf-8');
     let events = [];
 
     // Detect file type and parse
@@ -438,17 +571,21 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), (req, res) => {
     const parserType = getParserForPilot(pilotKey);
 
     try {
-        if (filename.endsWith('.ics')) {
-            events = parseICS(fileContent);
-        } else if (filename.endsWith('.csv')) {
-            // Route to appropriate CSV parser based on pilot
-            if (parserType === 'csv_skywest') {
-                events = parseCSV_skywest(fileContent);
-            } else {
-                events = parseCSV(fileContent, pilotAirlineCodes[pilotKey] || '');
-            }
+        if (filename.endsWith('.pdf')) {
+            events = await parseNetlinePDF(req.file.buffer);
         } else {
-            return res.status(400).json({ error: 'Unsupported file type. Use .ics or .csv' });
+            const fileContent = req.file.buffer.toString('utf-8');
+            if (filename.endsWith('.ics')) {
+                events = parseICS(fileContent);
+            } else if (filename.endsWith('.csv')) {
+                if (parserType === 'csv_skywest') {
+                    events = parseCSV_skywest(fileContent);
+                } else {
+                    events = parseCSV(fileContent, pilotAirlineCodes[pilotKey] || '');
+                }
+            } else {
+                return res.status(400).json({ error: 'Unsupported file type. Use .ics, .csv, or .pdf' });
+            }
         }
     } catch (parseError) {
         return res.status(400).json({ error: `Parse error: ${parseError.message}` });
@@ -463,8 +600,68 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), (req, res) => {
             return res.status(404).json({ error: 'Pilot not found' });
         }
 
-        // Delete existing non-manual segments for this pilot (preserve manually-added flights)
-        db.run('DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)', [pilot.id], (err) => {
+        // Delete only the months covered by this upload so other months are preserved
+        const uploadedMonths = [...new Set(
+            events
+                .map(e => (e.departureTime || '').substring(0, 7))
+                .filter(m => /^\d{4}-\d{2}$/.test(m))
+        )];
+        const doInsert = (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            // Insert new segments
+            const stmt = db.prepare(`
+                INSERT INTO segments
+                (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            let completed = 0;
+            const errors = [];
+
+            events.forEach((event) => {
+                const params = [
+                    pilot.id,
+                    event.type,
+                    event.departureTime || null,
+                    event.arrivalTime || null,
+                    event.departureAirport || null,
+                    event.arrivalAirport || null,
+                    event.tail || null,
+                    event.trip || null,
+                    event.flightNumber || null,
+                    event.dh ? 1 : 0,
+                    event.blockMinutes || null
+                ];
+
+                stmt.run(params, function (err) {
+                    if (err) errors.push(err.message);
+                    completed++;
+                    if (completed === events.length) {
+                        stmt.finalize();
+                        if (errors.length > 0)
+                            return res.status(500).json({ error: 'Some segments failed to insert', details: errors });
+                        res.json({ success: true, segmentsAdded: events.length, parser: parserType });
+                    }
+                });
+            });
+
+            if (events.length === 0) {
+                stmt.finalize();
+                res.json({ success: true, segmentsAdded: 0, parser: parserType });
+            }
+        };
+
+        if (uploadedMonths.length > 0) {
+            const placeholders = uploadedMonths.map(() => "departure_time LIKE ? || '%'").join(' OR ');
+            db.run(
+                `DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0) AND (${placeholders})`,
+                [pilot.id, ...uploadedMonths],
+                doInsert
+            );
+        } else {
+            // No date info (e.g. hard-day-only upload) — fall back to full replace
+            db.run('DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)', [pilot.id], (err) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
@@ -515,6 +712,7 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), (req, res) => {
                 res.json({ success: true, segmentsAdded: 0, parser: parserType });
             }
         });
+        }
     });
 });
 
@@ -544,7 +742,7 @@ app.delete('/api/pilots/:pilotKey/segments', (req, res) => {
 app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
-    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal } = req.body;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, block_minutes } = req.body;
 
     if (!departure_time || !departure_airport || !arrival_airport) {
         return res.status(400).json({ error: 'departure_time, departure_airport, and arrival_airport are required' });
@@ -555,13 +753,14 @@ app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
         const tripValue = is_personal ? 'PERSONAL' : null;
+        const blockMin = (block_minutes != null && block_minutes > 0) ? Math.round(block_minutes) : null;
 
         db.run(
-            `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, trip, is_dh, is_manual)
-             VALUES (?, 'flight', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+            `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, trip, is_dh, is_manual, block_minutes)
+             VALUES (?, 'flight', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
             [pilot.id, departure_time, arrival_time || null,
              departure_airport.trim().toUpperCase(), arrival_airport.trim().toUpperCase(),
-             flight_number || null, tail || null, tripValue, is_dh ? 1 : 0],
+             flight_number || null, tail || null, tripValue, is_dh ? 1 : 0, blockMin],
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
                 res.json({ success: true, id: this.lastID });
@@ -574,7 +773,7 @@ app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
 app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
     const db = getDB();
     const { pilotKey, id } = req.params;
-    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal } = req.body;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, block_minutes } = req.body;
 
     if (!departure_time || !departure_airport || !arrival_airport) {
         return res.status(400).json({ error: 'departure_time, departure_airport, and arrival_airport are required' });
@@ -585,14 +784,15 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
         const tripValue = is_personal ? 'PERSONAL' : null;
+        const blockMin = (block_minutes != null && block_minutes > 0) ? Math.round(block_minutes) : null;
 
         db.run(
             `UPDATE segments SET departure_time=?, arrival_time=?, departure_airport=?, arrival_airport=?,
-             flight_number=?, tail=?, trip=?, is_dh=?, is_manual=1
+             flight_number=?, tail=?, trip=?, is_dh=?, is_manual=1, block_minutes=?
              WHERE id=? AND pilot_id=?`,
             [departure_time, arrival_time || null,
              departure_airport.trim().toUpperCase(), arrival_airport.trim().toUpperCase(),
-             flight_number || null, tail || null, tripValue, is_dh ? 1 : 0,
+             flight_number || null, tail || null, tripValue, is_dh ? 1 : 0, blockMin,
              id, pilot.id],
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
@@ -753,48 +953,6 @@ app.post('/api/pilots/kyle/sync-schedaero', async (req, res) => {
             }
         );
     });
-});
-
-// Airport coordinates — cache in SQLite, fetch from aviationapi.com on miss
-app.get('/api/airport-coords', async (req, res) => {
-    const codes = (req.query.codes || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-    if (!codes.length) return res.json({});
-
-    const db = getDB();
-    db.run(`CREATE TABLE IF NOT EXISTS airport_coords (
-        code TEXT PRIMARY KEY,
-        lat REAL NOT NULL,
-        lon REAL NOT NULL
-    )`);
-
-    const result = {};
-    const missing = [];
-
-    await new Promise(resolve => {
-        const ph = codes.map(() => '?').join(',');
-        db.all(`SELECT code, lat, lon FROM airport_coords WHERE code IN (${ph})`, codes, (err, rows) => {
-            if (!err && rows) rows.forEach(r => { result[r.code] = { lat: r.lat, lon: r.lon }; });
-            codes.forEach(c => { if (!result[c]) missing.push(c); });
-            resolve();
-        });
-    });
-
-    for (const code of missing) {
-        try {
-            const icao = code.length === 3 ? `K${code}` : code;
-            const resp = await fetch(`https://api.aviationapi.com/v1/airports?apt=${icao}`);
-            const data = await resp.json();
-            const info = data[icao];
-            if (info?.latitude && info?.longitude) {
-                const lat = parseFloat(info.latitude);
-                const lon = parseFloat(info.longitude);
-                result[code] = { lat, lon };
-                db.run(`INSERT OR REPLACE INTO airport_coords (code, lat, lon) VALUES (?, ?, ?)`, [code, lat, lon]);
-            }
-        } catch (_) {}
-    }
-
-    res.json(result);
 });
 
 // Live flight tracking — position + accumulated trail
