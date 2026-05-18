@@ -18,6 +18,10 @@
     <style>
         .view-section { display: none; height: 100%; }
         .view-active { display: block; }
+        @media (max-width: 767px) {
+            #view-map.view-active { display: flex !important; flex-direction: column; }
+            #map { flex: 1 1 0 !important; height: auto !important; min-height: 0; }
+        }
 
         /* Desktop: calendar grid — fixed-height cells, internal scroll per day */
         @media (min-width: 768px) {
@@ -71,9 +75,18 @@
         .map-mode-pill { flex:1; text-align:center; padding:4px 2px; border-radius:7px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#52525b; transition:color .15s,background .15s; cursor:pointer; }
         .map-mode-pill:hover { color:#a1a1aa; }
         .map-mode-pill.map-mode-active { color:#e4e4e7; background:rgba(39,39,42,0.9); }
-        .map-mode-bar-pill { flex:1; text-align:center; padding:9px 4px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#52525b; transition:color .15s,background .15s; cursor:pointer; }
+        .map-sub-item { display:block; width:100%; text-align:left; padding:5px 10px 5px 8px; border-left:2px solid transparent; border-radius:0 6px 6px 0; font-size:12px; font-weight:700; color:#52525b; transition:color .15s,border-color .15s,background .15s; cursor:pointer; margin-left:-1px; }
+        .map-sub-item:hover { color:#a1a1aa; }
+        .map-sub-item.map-mode-active { color:#f4f4f5; border-left-color:#3b82f6; background:rgba(59,130,246,0.08); }
+        .map-sub-item-crew { display:block; width:100%; text-align:left; padding:6px 12px; font-size:12px; font-weight:700; color:#52525b; border-left:2px solid transparent; transition:color .15s,border-color .15s,background .15s; cursor:pointer; }
+        .map-sub-item-crew:hover { color:#a1a1aa; background:rgba(255,255,255,0.03); }
+        .map-sub-item-crew.map-mode-active { color:#f4f4f5; border-left-color:#818cf8; background:rgba(129,140,248,0.1); }
+        .map-sub-header-btn { display:flex; align-items:center; gap:8px; width:100%; padding:9px 12px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; color:#52525b; transition:color .15s,background .15s; cursor:pointer; }
+        .map-sub-header-btn:hover { color:#a1a1aa; background:rgba(255,255,255,0.03); }
+        .map-sub-header-btn.map-mode-active { color:#f4f4f5; background:rgba(59,130,246,0.12); }
+        .map-mode-bar-pill { text-align:center; padding:11px 4px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#52525b; transition:color .15s,background .15s; cursor:pointer; }
         .map-mode-bar-pill:hover { color:#a1a1aa; }
-        .map-mode-bar-pill.map-mode-active { color:#e4e4e7; background:rgba(39,39,42,0.55); }
+        .map-mode-bar-pill.map-mode-active { color:#e4e4e7; background:rgba(39,39,42,0.6); }
         .map-ctrl-radar { color:#f87171 !important; border-color:rgba(248,113,113,0.5) !important; background:rgba(248,113,113,0.08) !important; }
         .flight-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 8px; }
         .day-past { opacity: 0.55; }
@@ -88,9 +101,12 @@
         @keyframes plane-pulse { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.7); } 70% { box-shadow: 0 0 0 14px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
         .plane-dot { width: 14px; height: 14px; border-radius: 50%; background: #22c55e; border: 2px solid #fff; animation: plane-pulse 1.6s ease-out infinite; }
         @keyframes here-pulse { 0% { box-shadow: 0 0 0 0 rgba(168,85,247,0.7); } 70% { box-shadow: 0 0 0 16px rgba(168,85,247,0); } 100% { box-shadow: 0 0 0 0 rgba(168,85,247,0); } }
+        @keyframes here-pulse-plane { 0% { box-shadow:0 0 0 0 var(--pc); } 70% { box-shadow:0 0 0 16px var(--pc0); } 100% { box-shadow:0 0 0 0 var(--pc0); } }
         .here-dot { width: 16px; height: 16px; border-radius: 50%; background: #a855f7; border: 2px solid #fff; animation: here-pulse 2s ease-out infinite; }
         @keyframes dash-flow { to { stroke-dashoffset: -18; } }
         .active-route path { stroke-dasharray: 10, 5; stroke-dashoffset: 0; animation: dash-flow 0.5s linear infinite; }
+        @keyframes active-leg-pulse { 0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.15); } 50% { box-shadow: 0 0 14px rgba(34,197,94,0.65); } }
+        .active-leg { animation: active-leg-pulse 1.8s ease-in-out infinite; }
     </style>
 </head>
 <body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;">
@@ -105,14 +121,20 @@
             <button onclick="switchView('grid')" id="btn-grid" class="nav-active w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📅 Calendar Grid</button>
             <button onclick="switchView('list')" id="btn-list" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📜 List View</button>
             <button onclick="switchView('map')" id="btn-map" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🗺️ Route Map</button>
-            <div id="map-mode-nav" class="hidden flex-col gap-1 pl-2 pr-1 pb-1">
-                <button onclick="setMapMode('mine')" id="mapmode-mine" class="map-mode-pill map-mode-active text-left px-2">My Routes</button>
-                <div class="flex flex-col gap-0.5">
-                    <span class="text-[8px] font-black uppercase tracking-widest text-zinc-700 px-2 pt-0.5">All Crew</span>
-                    <div class="flex gap-0.5 px-0">
-                        <button onclick="setMapMode('month')" id="mapmode-month" class="map-mode-pill">Month</button>
-                        <button onclick="setMapMode('day')" id="mapmode-day" class="map-mode-pill">Day</button>
+            <div id="map-mode-nav" class="hidden flex-col gap-1.5 px-1 pb-1 pt-0.5">
+                <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+                    <button onclick="setMapMode('mine')" id="mapmode-mine" class="map-sub-header-btn map-mode-active">
+                        <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                        <span>My Routes</span>
+                    </button>
+                </div>
+                <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+                    <div class="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 bg-zinc-900/60">
+                        <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+                        <span class="text-[9px] font-black uppercase tracking-widest text-zinc-400">All Crew</span>
                     </div>
+                    <button onclick="setMapMode('month')" id="mapmode-month" class="map-sub-item-crew">Month</button>
+                    <button onclick="setMapMode('day')" id="mapmode-day" class="map-sub-item-crew">Day</button>
                 </div>
             </div>
             <button onclick="switchView('overlap')" id="btn-overlap" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🤝 Location Overlap</button>
@@ -228,19 +250,25 @@
             </div>
 
             <div id="view-map" class="view-section relative">
-                <!-- Mobile mode bar -->
-                <div class="md:hidden absolute top-0 left-0 right-0 z-[999] flex items-stretch bg-zinc-950/92 backdrop-blur-sm border-b border-zinc-800/60">
-                    <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill map-mode-active flex-1">My Routes</button>
-                    <div class="w-px bg-zinc-800/80 my-2"></div>
-                    <div class="flex flex-col items-center justify-center px-1 py-0.5">
-                        <span class="text-[7px] font-black uppercase tracking-widest text-zinc-700 leading-none mb-0.5">All Crew</span>
-                        <div class="flex">
-                            <button onclick="setMapMode('month')" id="mapmode-bar-month" class="map-mode-bar-pill">Month</button>
-                            <button onclick="setMapMode('day')" id="mapmode-bar-day" class="map-mode-bar-pill">Day</button>
+                <div id="map"></div>
+                <!-- Mobile mode bar — sits below map tiles, above bottom nav -->
+                <div class="md:hidden flex shrink-0 border-t border-zinc-800/70 bg-zinc-950/98 backdrop-blur-sm">
+                    <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill map-mode-active flex-1 flex flex-col items-center justify-center gap-1" style="padding:8px 4px">
+                        <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                        <span>My Routes</span>
+                    </button>
+                    <div class="flex-1 flex flex-col bg-zinc-900/60 border-l border-zinc-800">
+                        <div class="flex items-center justify-center gap-1.5 pt-1.5 pb-0.5 border-b border-zinc-800/70">
+                            <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+                            <span class="text-[8px] font-black uppercase tracking-widest text-zinc-400">All Crew</span>
+                        </div>
+                        <div class="flex flex-1">
+                            <button onclick="setMapMode('month')" id="mapmode-bar-month" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Month</button>
+                            <div class="w-px bg-zinc-800/60 self-stretch my-1.5"></div>
+                            <button onclick="setMapMode('day')" id="mapmode-bar-day" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Day</button>
                         </div>
                     </div>
                 </div>
-                <div id="map"></div>
                 <!-- Map legend (bottom-left) — switches content based on mode -->
                 <!-- Legend — compact, bottom-left -->
                 <div id="map-legend" class="absolute bottom-4 left-3 z-[1000] bg-zinc-950/85 border border-zinc-800/70 rounded-lg px-2.5 py-2 text-[9px] font-black uppercase tracking-wide space-y-1 backdrop-blur-sm pointer-events-none">
@@ -1203,7 +1231,7 @@
                                 directStart: isDirect ? directStart : null,
                                 directEnd:   isDirect ? directEnd   : null,
                                 gapMs,
-                                sortKey: Math.min(pA.start.getTime(), pB.start.getTime())
+                                sortKey: isDirect ? directStart.getTime() : Math.max(pA.start.getTime(), pB.start.getTime())
                             });
                         }
                     }
@@ -1212,14 +1240,13 @@
 
             // Deduplicate (same airport + same pair + overlapping sort windows can produce dupes)
             const seen = new Set();
-            const cutoff = now.getTime() - 6 * 3600000;
             const unique = overlaps.filter(o => {
                 const k = `${o.airport}|${o.airportB}|${o.kA}|${o.kB}|${o.pA.start.toISOString()}|${o.pB.start.toISOString()}`;
                 if (seen.has(k)) return false;
                 seen.add(k);
-                // Drop overlaps that ended more than 6 hours ago
+                // Only show current or future overlaps
                 const endTime = o.isDirect ? o.directEnd?.getTime() : Math.max(o.pA.end.getTime(), o.pB.end.getTime());
-                return endTime >= cutoff;
+                return endTime >= now.getTime();
             });
 
             if (unique.length === 0) {
@@ -1242,27 +1269,38 @@
                 const h = Math.floor(ms / 3600000), m = Math.round((ms % 3600000) / 60000);
                 return h > 0 ? `${h}h ${m}m` : `${m}m`;
             };
-            // Show full date+time if dates differ, just time if same day
-            const fmtRange = (start, end) => {
+            const fmtTimeRange = (start, end) => {
                 if (!start || !end) return '';
-                const startDay = localDateStr(start);
-                const endDay   = localDateStr(end);
-                const startStr = `${fmtDateShort(start)}, ${fmtTime(start)}`;
-                const endStr   = startDay === endDay ? fmtTime(end) : `${fmtDateShort(end)}, ${fmtTime(end)}`;
-                return `${startStr} – ${endStr}`;
+                const sDay = localDateStr(start), eDay = localDateStr(end);
+                const fmtH = t => t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                if (sDay === eDay) {
+                    const sAP = start.getHours() >= 12 ? 'PM' : 'AM';
+                    const eAP = end.getHours() >= 12 ? 'PM' : 'AM';
+                    if (sAP === eAP) {
+                        const h = start.getHours() % 12 || 12;
+                        const m = String(start.getMinutes()).padStart(2, '0');
+                        return `${h}:${m} – ${fmtH(end)}`;
+                    }
+                    return `${fmtH(start)} – ${fmtH(end)}`;
+                }
+                const day = d => d.toLocaleDateString('en-US', { weekday: 'short' });
+                return `${day(start)} ${fmtH(start)} – ${day(end)} ${fmtH(end)}`;
             };
 
             // First non-past card index for auto-scroll
+            const tomorrowStr = localDateStr(new Date(now.getTime() + 86400000));
             const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const scrollTargetIdx = unique.findIndex(o => o.sortKey >= todayMidnight.getTime());
 
             container.innerHTML = unique.map((o, idx) => {
-                const refTime = o.directStart || new Date(o.sortKey);
-                const refDay  = localDateStr(refTime);
-                const isToday = refDay === todayStr;
-                const isPast  = refDay < todayStr;
-                const isNear  = !o.isDirect;
-                const scrollId = idx === scrollTargetIdx ? ' id="overlap-scroll-target"' : '';
+                const refTime    = o.directStart || new Date(o.sortKey);
+                const refDay     = localDateStr(refTime);
+                const isToday    = refDay === todayStr;
+                const isTomorrow = refDay === tomorrowStr;
+                const isPast     = refDay < todayStr;
+                const isNear     = !o.isDirect;
+                const isNow      = o.isDirect && o.directStart <= now && o.directEnd >= now;
+                const scrollId   = idx === scrollTargetIdx ? ' id="overlap-scroll-target"' : '';
 
                 // Pilot chips
                 const chips = [o.kA, o.kB].map(k => {
@@ -1271,50 +1309,74 @@
                     return `<span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase" style="background:${c}22;color:${c};border:1px solid ${c}55">${name}</span>`;
                 }).join('');
 
-                // Time range line
-                let timeRange, durationLine;
-                if (o.isDirect) {
-                    timeRange = fmtRange(o.directStart, o.directEnd);
-                    const dur = fmtDur(o.directEnd - o.directStart);
-                    durationLine = dur ? `<div class="text-[11px] text-zinc-500 mt-1">${dur} together</div>` : '';
+                // Status label
+                let dateLabel;
+                if (isNow)           dateLabel = null;
+                else if (isToday)    dateLabel = 'Today';
+                else if (isTomorrow) dateLabel = 'Tomorrow';
+                else                 dateLabel = fmtDateShort(refTime);
+
+                let statusHtml;
+                if (isNow) {
+                    statusHtml = `<span class="flex items-center gap-1.5 text-[10px] font-black uppercase text-green-400"><span class="inline-block w-2 h-2 rounded-full bg-green-400" style="animation:here-pulse 2s ease-out infinite"></span>Right Now</span>`;
+                } else if (isNear) {
+                    const col = isPast ? 'text-zinc-500' : 'text-amber-400';
+                    statusHtml = `<span class="text-[10px] font-black uppercase ${col}">${dateLabel} · Near Miss</span>`;
+                } else if (isToday) {
+                    statusHtml = `<span class="text-[10px] font-black uppercase text-sky-400">Today</span>`;
+                } else if (isTomorrow) {
+                    statusHtml = `<span class="text-[10px] font-black uppercase text-amber-400">Tomorrow</span>`;
+                } else if (isPast) {
+                    statusHtml = `<span class="text-[10px] font-black uppercase text-zinc-600">${dateLabel}</span>`;
                 } else {
-                    // Near miss: show each pilot's window on its own line
+                    statusHtml = `<span class="text-[10px] font-black uppercase text-zinc-400">${dateLabel}</span>`;
+                }
+
+                // Airport headline
+                const locationLabel = o.airport === o.airportB
+                    ? o.airport
+                    : `${o.airport} · ${o.airportB}`;
+                const distLabel = o.distMi > 0
+                    ? ` <span class="text-base font-normal text-zinc-500">${o.distMi} mi</span>`
+                    : '';
+
+                // Body
+                let body;
+                if (o.isDirect) {
+                    const timeStr = fmtTimeRange(o.directStart, o.directEnd);
+                    const dur = fmtDur(o.directEnd - o.directStart);
+                    const durColor = isNow ? 'text-green-400' : isToday ? 'text-sky-400' : 'text-zinc-300';
+                    const overlapMs = o.directEnd - o.directStart;
+                    const spansNight = localDateStr(o.directStart) !== localDateStr(o.directEnd);
+                    const isLayover = spansNight || overlapMs >= 5 * 3600000;
+                    const stayLabel = isLayover
+                        ? `<span class="text-zinc-500 font-normal text-xs ml-1">· Layover</span>`
+                        : o.airport !== o.airportB
+                        ? `<span class="text-zinc-500 font-normal text-xs ml-1">· Nearby</span>`
+                        : `<span class="text-zinc-500 font-normal text-xs ml-1">· Airport meetup</span>`;
+                    body = `<div class="text-3xl font-black text-white tracking-tight leading-none mb-2">${locationLabel}${distLabel}</div>
+                    <div class="text-sm text-zinc-400 font-mono">${timeStr}</div>
+                    <div class="text-sm font-black mt-2 ${durColor}">${dur} together${stayLabel}</div>`;
+                } else {
                     const nameA = PILOT_NAMES[o.kA].split(' ')[0];
                     const nameB = PILOT_NAMES[o.kB].split(' ')[0];
                     const gap = fmtDur(o.gapMs);
-                    timeRange = `<span class="text-zinc-500">${nameA}:</span> ${fmtRange(o.pA.start, o.pA.end)}<br><span class="text-zinc-500">${nameB}:</span> ${fmtRange(o.pB.start, o.pB.end)}`;
-                    durationLine = `<div class="text-[11px] text-amber-500/80 mt-1">${gap} between them</div>`;
+                    const gapDesc = o.pA.end <= o.pB.start
+                        ? `${nameA} leaves ${gap} before ${nameB} arrives`
+                        : `${nameB} leaves ${gap} before ${nameA} arrives`;
+                    body = `<div class="text-3xl font-black text-white tracking-tight leading-none mb-2">${locationLabel}${distLabel}</div>
+                    <div class="text-sm text-amber-400/80">${gapDesc}</div>`;
                 }
 
-                // Border + bg based on state
-                const border = isToday ? 'border-sky-500/60' : isNear ? 'border-amber-900/40' : 'border-zinc-800';
-                const bg     = isToday ? 'bg-sky-950/20' : isNear ? 'bg-amber-950/10' : 'bg-zinc-900/50';
-                const opacity = isPast ? 'opacity-40' : '';
-
-                const badge = isToday
-                    ? '<span class="text-[9px] font-black uppercase text-sky-400 bg-sky-950/40 border border-sky-800/50 px-2 py-0.5 rounded-full">Today</span>'
-                    : isNear
-                    ? '<span class="text-[9px] font-black uppercase text-amber-400 bg-amber-950/30 border border-amber-800/40 px-2 py-0.5 rounded-full">Near miss</span>'
-                    : '';
-
-                const locationLabel = o.airport === o.airportB
-                    ? o.airport
-                    : `${o.airport} <span class="text-zinc-500 text-base font-normal">·</span> ${o.airportB}`;
-                const distLabel = o.distMi > 0
-                    ? `<span class="text-[10px] text-zinc-500 font-mono">${o.distMi} mi apart</span>`
-                    : '';
-
-                return `<div${scrollId} class="border ${border} rounded-2xl p-4 ${bg} ${opacity}">
-                    <div class="flex items-start justify-between gap-2 mb-2.5">
-                        <div class="flex items-center gap-3 flex-wrap">
-                            <span class="text-xl font-black text-white tracking-tight">${locationLabel}</span>
-                            ${distLabel}
-                            <div class="flex gap-1.5 flex-wrap">${chips}</div>
-                        </div>
-                        ${badge}
+                // Card styling
+                const border = isNow ? 'border-green-700/50' : isToday ? 'border-sky-700/40' : isNear ? 'border-amber-900/30' : 'border-zinc-800';
+                const bg     = isNow ? 'bg-green-950/20' : isToday ? 'bg-sky-950/15' : isNear ? 'bg-amber-950/10' : 'bg-zinc-900/40';
+                return `<div${scrollId} class="border ${border} rounded-2xl p-4 ${bg}">
+                    <div class="flex items-center justify-between gap-2 mb-3">
+                        ${statusHtml}
+                        <div class="flex gap-1.5">${chips}</div>
                     </div>
-                    <div class="text-xs font-mono text-zinc-300 leading-relaxed">${timeRange}</div>
-                    ${durationLine}
+                    ${body}
                 </div>`;
             }).join('');
 
@@ -1454,7 +1516,7 @@
                         if (al) {
                             const t = Math.max(0, Math.min(1, (now - new Date(al.departure_time)) / (new Date(al.arrival_time) - new Date(al.departure_time))));
                             const idx = Math.min(Math.floor(t * (arcCoords.length-1)), arcCoords.length-2);
-                            const dot = L.marker(arcCoords[idx], { icon: makePlaneIcon(computeBearing(arcCoords[idx], arcCoords[idx+1] || arcCoords[idx]), pilotColor), zIndexOffset: 1000 }).addTo(map);
+                            const dot = L.marker(arcCoords[idx], { icon: makePlaneIcon(computeBearing(arcCoords[idx], arcCoords[idx+1] || arcCoords[idx]), pilotColor, null, true), zIndexOffset: 1000 }).addTo(map);
                             mapLayers.active.push(dot);
                             const cs = deriveCallsign(al, key);
                             if (cs) startLiveTracking(dot, cs, pilotColor, depC, arrC, line, mapLayers.active, PILOT_NAMES[key]?.split(' ')[0]);
@@ -1606,7 +1668,7 @@
                         const pos = arcCoords[dotIdx];
                         const nextPos = arcCoords[dotIdx + 1] || arcCoords[dotIdx];
                         const bearing = computeBearing(pos, nextPos);
-                        const dot = L.marker(pos, { icon: makePlaneIcon(bearing, '#22c55e'), zIndexOffset: 1000 }).addTo(map);
+                        const dot = L.marker(pos, { icon: makePlaneIcon(bearing, '#22c55e', null, true), zIndexOffset: 1000 }).addTo(map);
                         dot.bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                         mapLayers.active.push(dot);
                         const cs = deriveCallsign(activeLeg, currentPilot);
@@ -1887,7 +1949,7 @@
                     if (depCoords && arrCoords && !isPositionOnRoute(d.lat, d.lon, depCoords, arrCoords)) return;
 
                     marker.setLatLng([d.lat, d.lon]);
-                    if (d.heading != null) marker.setIcon(makePlaneIcon(d.heading, color, d.type));
+                    if (d.heading != null) marker.setIcon(makePlaneIcon(d.heading, color, d.type, true));
 
                     // Remove previous dynamic lines
                     if (flownLine) { map.removeLayer(flownLine); const i = activeLayersArr.indexOf(flownLine); if (i >= 0) activeLayersArr.splice(i, 1); }
@@ -1902,8 +1964,8 @@
                     flownLine.addTo(map);
                     activeLayersArr.push(flownLine);
 
-                    // Remaining: dashed predictive arc from live position to destination
-                    remainLine = L.polyline(distanceProportionalArc(livePoint, arrCoords), { color, weight: 1.5, opacity: 0.7, smoothFactor: 1, dashArray: '8 10' });
+                    // Remaining: great-circle path from live position to destination (no artificial bow)
+                    remainLine = L.polyline(greatCircleArcCoords(livePoint, arrCoords), { color, weight: 1.5, opacity: 0.7, smoothFactor: 1, dashArray: '8 10' });
                     remainLine.addTo(map);
                     activeLayersArr.push(remainLine);
 
@@ -1955,7 +2017,12 @@
             return 'bizjet';
         }
 
-        function makePlaneIcon(bearing, color, typeCode) {
+        function hexToRgba(hex, a) {
+            const n = parseInt(hex.replace('#', ''), 16);
+            return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+        }
+
+        function makePlaneIcon(bearing, color, typeCode, live = false) {
             const rot = Math.round(bearing);
             const cat = getAircraftCategory(typeCode);
             const shape = _AC_SHAPES[cat] || _AC_SHAPES.bizjet;
@@ -1963,7 +2030,14 @@
             const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}" width="${w}" height="${h}" style="overflow:visible;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.95));transform:rotate(${rot}deg);transform-origin:${w/2}px ${h/2}px">
                 <path d="${d}" fill="${color}" stroke="rgba(0,0,0,0.7)" stroke-width="${sw}" stroke-linejoin="round"/>
             </svg>`;
-            return L.divIcon({ className: '', html: svg, iconSize: [w, h], iconAnchor: [w/2, h/2] });
+            let html = svg;
+            if (live) {
+                const pc  = hexToRgba(color, 0.7);
+                const pc0 = hexToRgba(color, 0);
+                const ring = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;--pc:${pc};--pc0:${pc0};animation:here-pulse-plane 2s ease-out infinite;pointer-events:none"></div>`;
+                html = `<div style="position:relative;width:${w}px;height:${h}px">${ring}${svg}</div>`;
+            }
+            return L.divIcon({ className: '', html, iconSize: [w, h], iconAnchor: [w/2, h/2] });
         }
 
         async function renderDayMap() {
@@ -2392,6 +2466,19 @@
             if (h > 0) return `${h}h ${m}m`;
             return `${m}m`;
         }
+        // Returns YYYY-MM-DD in the airport's local timezone (handles both UTC 'Z' and local-time stored ISO strings)
+        function flightLocalDate(isoStr, apt) {
+            if (!isoStr) return null;
+            try {
+                const d = new Date(isoStr);
+                if (isNaN(d.getTime())) return isoStr.substring(0, 10);
+                if ((isoStr.endsWith('Z') || isoStr.endsWith('z')) && apt) {
+                    const tz = airportTz(apt);
+                    if (tz) return new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d);
+                }
+                return isoStr.substring(0, 10);
+            } catch(e) { return isoStr.substring(0, 10); }
+        }
 
         function attachTooltips() {
             document.querySelectorAll('.flight-item').forEach(el => {
@@ -2473,7 +2560,14 @@
                     const dayClasses = [];
                     if (isPastDay) dayClasses.push('day-past');
                     if (isToday) dayClasses.push('day-today');
-                    const dayEvents = segments.filter(s => s.departureTime && s.departureTime.startsWith(dateKey));
+                    const dayEvents = segments.filter(s => {
+                        if (!s.departureTime) return false;
+                        if (s.departureTime.startsWith(dateKey)) return true;
+                        if (s.type !== 'flight' || !s.arrivalTime) return false;
+                        const arrLocal = flightLocalDate(s.arrivalTime, s.arrivalAirport);
+                        const depLocal = flightLocalDate(s.departureTime, s.departureAirport);
+                        return arrLocal === dateKey && arrLocal !== depLocal;
+                    });
                     const isHard = dayEvents.some(e => e.type === 'hard');
                     const isFlying = dayEvents.some(e => e.type === 'flight');
                     let away = dayEvents.find(e => e.type === 'away');
@@ -2520,8 +2614,14 @@
                                 }
                             }
                         }
-                        const cellBg = isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : 'background:rgba(0,0,0,0.4)';
-                        html += `<div class="rounded-lg px-2 py-[5px] flight-item" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${f.blockMinutes != null ? f.blockMinutes : ''}">`;
+                        const nowMs = Date.now();
+                        const depMs = depAttr ? new Date(depAttr).getTime() : null;
+                        const arrMs = arrAttr ? new Date(arrAttr).getTime() : null;
+                        const isActiveLeg = depMs && arrMs && depMs <= nowMs && nowMs <= arrMs;
+                        const cellBg = isActiveLeg
+                            ? (isPersonal ? 'background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)' : 'background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)')
+                            : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : 'background:rgba(0,0,0,0.4)');
+                        html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${f.blockMinutes != null ? f.blockMinutes : ''}">`;
                         html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
@@ -2534,7 +2634,14 @@
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    const dayEvents = segments.filter(s => s.departureTime && s.departureTime.startsWith(dateKey));
+                    const dayEvents = segments.filter(s => {
+                        if (!s.departureTime) return false;
+                        if (s.departureTime.startsWith(dateKey)) return true;
+                        if (s.type !== 'flight' || !s.arrivalTime) return false;
+                        const arrLocal = flightLocalDate(s.arrivalTime, s.arrivalAirport);
+                        const depLocal = flightLocalDate(s.departureTime, s.departureAirport);
+                        return arrLocal === dateKey && arrLocal !== depLocal;
+                    });
                     const dateObj = new Date(year, month, d);
                     const dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
                     const today = new Date();
@@ -2594,10 +2701,14 @@
                                     }
                                 }
                             }
-                            const rowBorder = isPersonal ? 'border-violet-900/50' : 'border-blue-900/30';
+                            const nowMs2 = Date.now();
+                            const depMs2 = depAttr ? new Date(depAttr).getTime() : null;
+                            const arrMs2 = arrAttr ? new Date(arrAttr).getTime() : null;
+                            const isActiveLeg2 = depMs2 && arrMs2 && depMs2 <= nowMs2 && nowMs2 <= arrMs2;
+                            const rowBorder = isActiveLeg2 ? 'border-green-500/80 ring-1 ring-green-500/30' : (isPersonal ? 'border-violet-900/50' : 'border-blue-900/30');
                             const rowBg = isPersonal ? 'bg-violet-950/20' : 'bg-black/30';
                             const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
-                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg} text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div></div>`;
+                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div></div>`;
                         }).join('');
                     }
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];

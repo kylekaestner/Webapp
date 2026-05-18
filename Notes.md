@@ -23,3 +23,4 @@
 ~~Today map has both the live line with Adsb and a green arc. So the flight is doubled on the map. Get rid of thick lines. Make another way to show it live.~~
 ~~When a live flight is active draw the arc is a predictive manner so it follows direction of travel.~~
 ~~Here now needs to be adjusted. Should be located at last airport, unless there’s a live flight, or off day.~~
+for manually added flights configure the blocktime but take in account time changes not to inflate block time
