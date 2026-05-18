@@ -1076,6 +1076,24 @@ process.on('uncaughtException', (err) => {
     console.error('[uncaughtException]', err);
 });
 
+// Settings — generic key/value store for persisting app config across devices
+app.get('/api/settings/:key', (req, res) => {
+    const db = getDB();
+    db.get(`SELECT value FROM settings WHERE key=?`, [req.params.key], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(row ? JSON.parse(row.value) : {});
+    });
+});
+
+app.post('/api/settings/:key', (req, res) => {
+    const db = getDB();
+    db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
+    db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`,
+        [req.params.key, JSON.stringify(req.body)],
+        err => err ? res.status(500).json({ error: err.message }) : res.json({ success: true })
+    );
+});
+
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
