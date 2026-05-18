@@ -103,7 +103,27 @@ function normalizeTime(time) {
     return `${s.slice(0, 2)}:${s.slice(2, 4)}`;
 }
 
-function parseCSV(text) {
+const IATA_TO_ICAO = {
+    'AA': 'AAL', 'DL': 'DAL', 'UA': 'UAL', 'WN': 'SWA', 'B6': 'JBU',
+    'AS': 'ASA', 'F9': 'FFT', 'NK': 'NKS', 'G4': 'AAY', 'SY': 'SCX',
+    'HA': 'HAL', 'OO': 'SKW', 'YV': 'MES', 'OH': 'COM', 'CP': 'GWY',
+};
+
+function parseBlockToMinutes(raw) {
+    if (!raw) return null;
+    const s = raw.trim();
+    if (s.includes('.')) {
+        const val = parseFloat(s);
+        return isNaN(val) ? null : Math.round(val * 60);
+    }
+    const digits = s.replace(/\D/g, '').padStart(4, '0');
+    const h = parseInt(digits.slice(0, -2), 10);
+    const m = parseInt(digits.slice(-2), 10);
+    if (isNaN(h) || isNaN(m) || m >= 60) return null;
+    return h * 60 + m;
+}
+
+function parseCSV(text, defaultAirlineCode = '') {
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     const headerRaw = lines.shift();
     const header = headerRaw.split(',').map(h => h.trim().toUpperCase());
@@ -124,6 +144,9 @@ function parseCSV(text) {
     const idxArrTime = findIdx(['ARRTIME', 'ARR_TIME', 'ARRIVALTIME', 'ARR TIME', 'ARR/TIME', 'ARRT']);
     const idxTail = findIdx(['FCVTAIL', 'TAIL', 'AIRCRAFT', 'REGISTRATION', 'TAILNUMBER']);
     const idxDh = findIdx(['DH', 'DUTY', 'IS_DH']);
+    const idxBlock = findIdx(['BLOCK', 'BLOCK TIME', 'BLOCKTIME', 'BLOCK_TIME']);
+    const idxFlightNum = findIdx(['FLIGHT', 'FLT', 'FLIGHT NUMBER', 'FLIGHT#', 'FLT#', 'FLIGHTNUM']);
+    const idxRawTail = header.indexOf('TAIL'); // separate from FCVTAIL — holds carrier code on DH rows
 
     const events = [];
 
@@ -149,6 +172,19 @@ function parseCSV(text) {
         const arrtime = idxArrTime >= 0 ? (cols[idxArrTime] || '').replace(/"/g, '').trim() : '';
         const tail = idxTail >= 0 ? (cols[idxTail] || '').replace(/"/g, '').trim() : '';
         const dh = idxDh >= 0 ? (cols[idxDh] || '').replace(/"/g, '').trim() : '';
+        const blockRaw = idxBlock >= 0 ? (cols[idxBlock] || '').replace(/"/g, '').trim() : '';
+        const blockMinutes = parseBlockToMinutes(blockRaw);
+        const rawFlightNum = idxFlightNum >= 0 ? (cols[idxFlightNum] || '').replace(/"/g, '').trim() : '';
+        const rawTailCode = idxRawTail >= 0 ? (cols[idxRawTail] || '').replace(/"/g, '').trim() : '';
+        const isDH = dh && (dh.toUpperCase() === 'DH' || dh === '1' || dh.toLowerCase() === 'true');
+        let flightNum = rawFlightNum;
+        if (rawFlightNum && /^\d+$/.test(rawFlightNum)) {
+            if (isDH && /^[A-Z]{2,3}$/.test(rawTailCode)) {
+                flightNum = (IATA_TO_ICAO[rawTailCode] || rawTailCode) + rawFlightNum;
+            } else if (defaultAirlineCode) {
+                flightNum = defaultAirlineCode + rawFlightNum;
+            }
+        }
 
         if (!date) continue;
 
@@ -180,8 +216,7 @@ function parseCSV(text) {
             if (arrMinutes <= depMinutes) arrivalDate = addDays(ym, mm, dd, 1);
             const isoStart = `${ym}-${mm}-${dd}T${dt}:00`;
             const isoEnd = `${arrivalDate.y}-${arrivalDate.m}-${arrivalDate.dd}T${at}:00`;
-            const isDH = dh && (dh.toUpperCase() === 'DH' || dh === '1' || dh.toLowerCase() === 'true');
-            events.push({ type: 'flight', departureTime: isoStart, arrivalTime: isoEnd, departureAirport: dep, arrivalAirport: arr, tail, dh: isDH });
+            events.push({ type: 'flight', departureTime: isoStart, arrivalTime: isoEnd, departureAirport: dep, arrivalAirport: arr, tail, flightNumber: flightNum, dh: isDH, blockMinutes });
             continue;
         }
 
@@ -244,7 +279,7 @@ function parseCSV_skywest(text) {
         const flightNum = idxFlightNum >= 0 ? (cols[idxFlightNum] || '').replace(/"/g, '').trim() : '';
         const dh        = idxDh       >= 0 ? (cols[idxDh]       || '').replace(/"/g, '').trim() : '';
         const blockRaw  = idxBlock    >= 0 ? (cols[idxBlock]    || '').replace(/"/g, '').trim() : '';
-        const blockMinutes = blockRaw ? Math.round(parseFloat(blockRaw) * 60) : null;
+        const blockMinutes = parseBlockToMinutes(blockRaw);
 
         if (!date) continue;
 
@@ -337,7 +372,14 @@ const pilotParsers = {
     kyle: 'ics',
     adam: 'csv',
     sam: 'csv',
-    logan: 'csv_skywest'
+    logan: 'csv_skywest',
+    drew: 'csv'
+};
+
+const pilotAirlineCodes = {
+    adam: 'RPA',
+    sam: 'RPA',
+    drew: 'GJS'
 };
 
 function getParserForPilot(pilotKey) {
@@ -403,7 +445,7 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), (req, res) => {
             if (parserType === 'csv_skywest') {
                 events = parseCSV_skywest(fileContent);
             } else {
-                events = parseCSV(fileContent);
+                events = parseCSV(fileContent, pilotAirlineCodes[pilotKey] || '');
             }
         } else {
             return res.status(400).json({ error: 'Unsupported file type. Use .ics or .csv' });

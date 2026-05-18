@@ -18,3 +18,8 @@
 ~~Location overlap has a 67hr overlap for Adam and Sam. This isn't right. The more likely scenario is they ended their trip at their base LGA. If they ended their trip and are OFF the next day it's safe to assume they left LGA and commuted home. We just don't have the commute info unless the user adds is manually.~~
 
 ~~For location overlap perhaps take into account city area. For example, Kyle, flies corporate jets who will frequent smaller airports in large cities, but another user may be at the big airport. Can we make a way to filter a radius. Adam may be on a layover at LGA and Kyle is on a TEB layover in New Jersey, but that airport servers the create NYC Area.~~
+~~Adsb lines smoothing. Sometimes appears jagged.~~
+
+~~Today map has both the live line with Adsb and a green arc. So the flight is doubled on the map. Get rid of thick lines. Make another way to show it live.~~
+~~When a live flight is active draw the arc is a predictive manner so it follows direction of travel.~~
+~~Here now needs to be adjusted. Should be located at last airport, unless there’s a live flight, or off day.~~

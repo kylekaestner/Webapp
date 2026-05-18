@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.Geodesic/2.5.5/leaflet.geodesic.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tz-lookup/tz.js"></script>
     <style>
         .view-section { display: none; height: 100%; }
         .view-active { display: block; }
@@ -64,11 +65,15 @@
         .nav-active { border-color: #3b82f6 !important; color: white !important; background: rgba(59, 130, 246, 0.1); }
         #map { height: 100%; width: 100%; background: #0a0a0a; }
         .map-controls { position: absolute; top: 10px; right: 10px; z-index: 1000; }
-        .map-ctrl-pill { display:block; padding:3px 8px; background:rgba(18,18,20,0.88); border:1px solid rgba(63,63,70,0.6); border-radius:5px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#71717a; white-space:nowrap; backdrop-filter:blur(8px); cursor:pointer; transition:color .15s,border-color .15s,background .15s; }
-        .map-ctrl-pill:hover { color:#e4e4e7; border-color:rgba(113,113,122,0.7); }
-        .map-ctrl-on  { color:#d4d4d8 !important; border-color:rgba(113,113,122,0.5) !important; }
-        .map-ctrl-day { color:#34d399 !important; border-color:rgba(52,211,153,0.45) !important; background:rgba(52,211,153,0.08) !important; }
-        .map-ctrl-month { color:#a5b4fc !important; border-color:rgba(165,180,252,0.45) !important; background:rgba(165,180,252,0.08) !important; }
+        .map-ctrl-pill { display:block; padding:5px 13px; background:rgba(18,18,20,0.82); border:1px solid rgba(63,63,70,0.5); border-radius:8px; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.07em; color:#52525b; white-space:nowrap; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); cursor:pointer; transition:color .15s,border-color .15s,background .15s,box-shadow .15s; }
+        .map-ctrl-pill:hover { color:#e4e4e7; border-color:rgba(113,113,122,0.8); background:rgba(36,36,40,0.92); }
+        .map-ctrl-on  { color:#f4f4f5 !important; border-color:rgba(161,161,170,0.65) !important; background:rgba(39,39,42,0.95) !important; box-shadow:0 1px 6px rgba(0,0,0,0.35) !important; }
+        .map-mode-pill { flex:1; text-align:center; padding:4px 2px; border-radius:7px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#52525b; transition:color .15s,background .15s; cursor:pointer; }
+        .map-mode-pill:hover { color:#a1a1aa; }
+        .map-mode-pill.map-mode-active { color:#e4e4e7; background:rgba(39,39,42,0.9); }
+        .map-mode-bar-pill { flex:1; text-align:center; padding:9px 4px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#52525b; transition:color .15s,background .15s; cursor:pointer; }
+        .map-mode-bar-pill:hover { color:#a1a1aa; }
+        .map-mode-bar-pill.map-mode-active { color:#e4e4e7; background:rgba(39,39,42,0.55); }
         .map-ctrl-radar { color:#f87171 !important; border-color:rgba(248,113,113,0.5) !important; background:rgba(248,113,113,0.08) !important; }
         .flight-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 8px; }
         .day-past { opacity: 0.55; }
@@ -100,8 +105,17 @@
             <button onclick="switchView('grid')" id="btn-grid" class="nav-active w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📅 Calendar Grid</button>
             <button onclick="switchView('list')" id="btn-list" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📜 List View</button>
             <button onclick="switchView('map')" id="btn-map" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🗺️ Route Map</button>
+            <div id="map-mode-nav" class="hidden flex-col gap-1 pl-2 pr-1 pb-1">
+                <button onclick="setMapMode('mine')" id="mapmode-mine" class="map-mode-pill map-mode-active text-left px-2">My Routes</button>
+                <div class="flex flex-col gap-0.5">
+                    <span class="text-[8px] font-black uppercase tracking-widest text-zinc-700 px-2 pt-0.5">All Crew</span>
+                    <div class="flex gap-0.5 px-0">
+                        <button onclick="setMapMode('month')" id="mapmode-month" class="map-mode-pill">Month</button>
+                        <button onclick="setMapMode('day')" id="mapmode-day" class="map-mode-pill">Day</button>
+                    </div>
+                </div>
+            </div>
             <button onclick="switchView('overlap')" id="btn-overlap" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🤝 Location Overlap</button>
-            <button onclick="switchView('stats')" id="btn-stats" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📊 Stats</button>
         </div>
 
         <div class="p-4 space-y-1 mt-4">
@@ -122,6 +136,10 @@
                 <span class="text-[9px] block text-zinc-500 font-black uppercase">Logan</span>
                 <span class="font-bold text-sm tracking-tight">Logan Hine</span>
             </button>
+            <button onclick="loadPilot('drew')" id="pilot-drew" class="w-full text-left p-4 rounded-xl border border-zinc-800 hover:border-blue-500 transition-colors">
+                <span class="text-[9px] block text-zinc-500 font-black uppercase">Drew</span>
+                <span class="font-bold text-sm tracking-tight">Drew Sinelli</span>
+            </button>
         </div>
 
         <div class="mt-auto p-4 border-t border-zinc-800 bg-black/20 space-y-3">
@@ -132,6 +150,7 @@
                     <option value="adam">Adam Burke</option>
                     <option value="sam">Sam Byrne</option>
                     <option value="logan">Logan Hine</option>
+                    <option value="drew">Drew Sinelli</option>
                 </select>
             </div>
             <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
@@ -182,6 +201,7 @@
             <button onclick="loadPilot('adam')" id="mpilot-adam" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Adam</button>
             <button onclick="loadPilot('sam')" id="mpilot-sam" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Sam</button>
             <button onclick="loadPilot('logan')" id="mpilot-logan" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Logan</button>
+            <button onclick="loadPilot('drew')" id="mpilot-drew" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Drew</button>
         </div>
 
         <main class="flex-1 overflow-hidden relative bg-black">
@@ -208,6 +228,18 @@
             </div>
 
             <div id="view-map" class="view-section relative">
+                <!-- Mobile mode bar -->
+                <div class="md:hidden absolute top-0 left-0 right-0 z-[999] flex items-stretch bg-zinc-950/92 backdrop-blur-sm border-b border-zinc-800/60">
+                    <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill map-mode-active flex-1">My Routes</button>
+                    <div class="w-px bg-zinc-800/80 my-2"></div>
+                    <div class="flex flex-col items-center justify-center px-1 py-0.5">
+                        <span class="text-[7px] font-black uppercase tracking-widest text-zinc-700 leading-none mb-0.5">All Crew</span>
+                        <div class="flex">
+                            <button onclick="setMapMode('month')" id="mapmode-bar-month" class="map-mode-bar-pill">Month</button>
+                            <button onclick="setMapMode('day')" id="mapmode-bar-day" class="map-mode-bar-pill">Day</button>
+                        </div>
+                    </div>
+                </div>
                 <div id="map"></div>
                 <!-- Map legend (bottom-left) — switches content based on mode -->
                 <!-- Legend — compact, bottom-left -->
@@ -224,25 +256,25 @@
                         <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-teal-400"></span><span class="text-zinc-500">Adam</span></div>
                         <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-orange-500"></span><span class="text-zinc-500">Sam</span></div>
                         <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-indigo-400"></span><span class="text-zinc-500">Logan</span></div>
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-rose-400"></span><span class="text-zinc-500">Drew</span></div>
                     </div>
                 </div>
 
                 <!-- Controls — compact pills, top-right -->
                 <div class="map-controls flex flex-col gap-1 items-end">
-                    <div id="map-pilot-controls" class="flex gap-1">
-                        <button onclick="toggleMapFilter('past')" id="btn-past" class="map-ctrl-pill map-ctrl-on">Past</button>
-                        <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Future</button>
-                    </div>
                     <div>
-                        <div class="text-right text-[7px] font-black uppercase tracking-widest text-zinc-600 mb-0.5 pr-0.5">All Crew</div>
-                        <div class="flex gap-1">
-                            <button onclick="toggleAllPilotsMonth()" id="btn-all-pilots-month" class="map-ctrl-pill">Month</button>
-                            <button onclick="toggleDayView()" id="btn-day-view" class="map-ctrl-pill">Today</button>
+                        <div class="text-right text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 pr-0.5">Filters</div>
+                        <div id="map-pilot-controls" class="flex gap-1">
+                            <button onclick="toggleMapFilter('past')" id="btn-past" class="map-ctrl-pill map-ctrl-on">Flown</button>
+                            <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Upcoming</button>
                         </div>
                     </div>
                     <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill hidden">⛈ Radar</button>
-                    <input type="date" id="day-view-date" class="hidden px-2 py-1 bg-zinc-900/90 border border-zinc-700 rounded text-[10px] text-zinc-100 outline-none focus:border-blue-500 backdrop-blur" onchange="renderMap()">
-                    <div id="day-view-legend" class="hidden flex-col gap-0.5 px-2 py-1.5 bg-zinc-950/85 border border-zinc-800 rounded-lg text-[9px] font-black uppercase backdrop-blur"></div>
+                    <div id="day-nav" class="hidden items-center gap-1">
+                        <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
+                        <span id="day-nav-label" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center select-none"></span>
+                        <button onclick="stepDayNav(1)" class="map-ctrl-pill px-2">&#8594;</button>
+                    </div>
                 </div>
             </div>
 
@@ -257,17 +289,6 @@
                     </div>
                     <div id="overlap-content" class="space-y-3 px-6">
                         <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate overlaps</div>
-                    </div>
-                </div>
-            </div>
-            <div id="view-stats" class="view-section overflow-y-auto">
-                <div class="max-w-2xl mx-auto pb-24">
-                    <div class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm px-6 pt-6 pb-4 mb-4 border-b border-zinc-800/60">
-                        <h2 class="text-lg font-black text-white uppercase tracking-tight">Stats</h2>
-                        <p id="stats-subtitle" class="text-xs text-zinc-500 mt-0.5">—</p>
-                    </div>
-                    <div id="stats-content" class="px-6 space-y-8">
-                        <div class="text-center py-12 text-zinc-600 text-sm">Loading…</div>
                     </div>
                 </div>
             </div>
@@ -318,6 +339,7 @@
                             <option value="adam">Adam Burke</option>
                             <option value="sam">Sam Byrne</option>
                             <option value="logan">Logan Hine</option>
+                            <option value="drew">Drew Sinelli</option>
                         </select>
                     </div>
                     <div>
@@ -448,6 +470,7 @@
                     <option value="adam">Adam Burke</option>
                     <option value="sam">Sam Byrne</option>
                     <option value="logan">Logan Hine</option>
+                    <option value="drew">Drew Sinelli</option>
                 </select>
             </div>
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
@@ -774,9 +797,9 @@
         let mapDayMode = false;
         let mapAllMode = false;
         let mapDayDate = new Date().toISOString().slice(0, 10);
-        const PILOT_KEYS = ['kyle', 'adam', 'sam', 'logan'];
-        const PILOT_COLORS = { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8' };
-        const PILOT_NAMES = { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine' };
+        const PILOT_KEYS = ['kyle', 'adam', 'sam', 'logan', 'drew'];
+        const PILOT_COLORS = { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185' };
+        const PILOT_NAMES = { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine', drew: 'Drew Sinelli' };
         let isLoading = false;
         const overlapRadiusMi = 50;
 
@@ -808,7 +831,7 @@
             'PHX': [33.4373, -112.0078], 'KPHX': [33.4373, -112.0078]
         };
 
-        const PILOT_HOMES = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX' };
+        const PILOT_HOMES = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX', drew: 'STL' };
 
         // Authoritative airport DB (populated from OpenFlights or OurAirports)
         const AIRPORT_DB = { byIata: {}, byIcao: {} };
@@ -835,9 +858,21 @@
                     if (iata && iata !== '\\N') AIRPORT_DB.byIata[iata.toUpperCase()] = [lat, lon];
                     if (icao && icao !== '\\N') AIRPORT_DB.byIcao[icao.toUpperCase()] = [lat, lon];
                 });
-                // Merge a few authoritative matches into AIRPORTS for immediate lookup
+                // Merge into AIRPORTS for coordinate lookup
                 Object.keys(AIRPORT_DB.byIata).forEach(k => { if (!AIRPORTS[k]) AIRPORTS[k] = AIRPORT_DB.byIata[k]; });
                 Object.keys(AIRPORT_DB.byIcao).forEach(k => { if (!AIRPORTS[k]) AIRPORTS[k] = AIRPORT_DB.byIcao[k]; });
+                // Auto-populate timezone cache from coordinates for every airport in the DB
+                if (typeof tzlookup === 'function') {
+                    const allEntries = [...Object.entries(AIRPORT_DB.byIata), ...Object.entries(AIRPORT_DB.byIcao)];
+                    allEntries.forEach(([code, [lat, lon]]) => {
+                        if (!_tzCache[code]) {
+                            try { _tzCache[code] = tzlookup(lat, lon); } catch (e) { /* ignore */ }
+                        }
+                    });
+                    // Re-render so Kyle's times update with correct airport timezones
+                    if (typeof render === 'function') render();
+                    if (typeof renderMap === 'function' && currentView === 'map') renderMap();
+                }
                 console.log('Loaded airport DB entries:', Object.keys(AIRPORT_DB.byIata).length, Object.keys(AIRPORT_DB.byIcao).length);
             }).catch(err => console.warn('Airport DB load failed', err));
         }
@@ -1031,7 +1066,6 @@
                     mpill.style.background = 'rgba(59,130,246,0.12)';
                 }
                 render();
-                if (currentView === 'stats') renderStats();
             });
         }
 
@@ -1040,7 +1074,7 @@
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('view-active'));
             document.getElementById(`view-${view}`).classList.add('view-active');
             // Desktop nav
-            ['grid','list','map','overlap','stats'].forEach(v => {
+            ['grid','list','map','overlap'].forEach(v => {
                 const btn = document.getElementById(`btn-${v}`);
                 if (btn) btn.classList.toggle('nav-active', v === view);
             });
@@ -1048,9 +1082,10 @@
             document.querySelectorAll('.mbtn').forEach(b => { b.style.color = ''; });
             const mbtn = document.getElementById(`mbtn-${view}`);
             if (mbtn) mbtn.style.color = '#3b82f6';
+            const modeNav = document.getElementById('map-mode-nav');
+            if (modeNav) { if (view === 'map') modeNav.classList.replace('hidden', 'flex'); else modeNav.classList.replace('flex', 'hidden'); }
             if (view === 'map') initMap();
             if (view === 'overlap') computeOverlap();
-            if (view === 'stats') renderStats();
             render();
         }
 
@@ -1329,155 +1364,39 @@
             return path;
         }
 
-        // ── Stats ──────────────────────────────────────────────────────────
-        function renderStats() {
-            const raw = pilotsCache[currentPilot];
-            const container = document.getElementById('stats-content');
-            const subtitle  = document.getElementById('stats-subtitle');
-            if (subtitle) subtitle.textContent = raw?.name || currentPilot;
-            if (!raw?.segments?.length) {
-                container.innerHTML = `<div class="text-center py-12 text-zinc-600 text-sm">No schedule data loaded.</div>`;
-                return;
-            }
-
-            const allFlights = raw.segments.filter(s =>
-                s.type === 'flight' && s.departure_time && s.arrival_time &&
-                s.departure_airport && s.arrival_airport
-            );
-            const monthFlights = allFlights.filter(f => {
-                const d = new Date(f.departure_time);
-                return d.getFullYear() === viewDate.getFullYear() && d.getMonth() === viewDate.getMonth();
-            });
-
-            const segMi = f => {
-                const a = resolveAirport(f.departure_airport), b = resolveAirport(f.arrival_airport);
-                return a && b ? haversineMi(a[0], a[1], b[0], b[1]) : 0;
-            };
-            const segH = f => f.block_minutes
-                ? f.block_minutes / 60
-                : (new Date(f.arrival_time) - new Date(f.departure_time)) / 3600000;
-
-            const sum = (arr, fn) => arr.reduce((s, f) => s + fn(f), 0);
-            const uniqAirports = arr => new Set(arr.flatMap(f =>
-                [f.departure_airport?.toUpperCase(), f.arrival_airport?.toUpperCase()].filter(Boolean)
-            )).size;
-
-            const fmtH = h => { const hr = Math.floor(h), mn = Math.round((h-hr)*60); return `${hr}h ${mn}m`; };
-            const fmtMi = m => m >= 1000 ? `${(m/1000).toFixed(1)}k` : `${Math.round(m)}`;
-
-            // Month
-            const mCount = monthFlights.length;
-            const mHours = sum(monthFlights, segH);
-            const mMiles = Math.round(sum(monthFlights, segMi));
-            const mAirports = uniqAirports(monthFlights);
-
-            // All time
-            const tCount = allFlights.length;
-            const tHours = sum(allFlights, segH);
-            const tMiles = Math.round(sum(allFlights, segMi));
-            const tAirports = uniqAirports(allFlights);
-
-            // Top routes
-            const routeCounts = {};
-            allFlights.forEach(f => {
-                const k = `${f.departure_airport?.toUpperCase()} → ${f.arrival_airport?.toUpperCase()}`;
-                routeCounts[k] = (routeCounts[k] || 0) + 1;
-            });
-            const topRoutes = Object.entries(routeCounts).sort((a,b) => b[1]-a[1]).slice(0, 3);
-
-            // Records
-            let longDistFlight = null, longDistMi = 0;
-            let longBlockFlight = null, longBlockH = 0;
-            allFlights.forEach(f => {
-                const mi = segMi(f), h = segH(f);
-                if (mi > longDistMi)  { longDistMi = mi;  longDistFlight  = f; }
-                if (h  > longBlockH)  { longBlockH  = h;  longBlockFlight = f; }
-            });
-
-            const card = (label, value, sub='') => `
-                <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-                    <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">${label}</div>
-                    <div class="text-2xl font-black text-white tracking-tight leading-none">${value}</div>
-                    ${sub ? `<div class="text-[11px] text-zinc-500 mt-1">${sub}</div>` : ''}
-                </div>`;
-
-            const monthName = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-            container.innerHTML = `
-                <section>
-                    <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">${monthName}</p>
-                    <div class="grid grid-cols-2 gap-3">
-                        ${card('Flights', mCount)}
-                        ${card('Block Time', fmtH(mHours))}
-                        ${card('Miles Flown', fmtMi(mMiles))}
-                        ${card('Airports', mAirports)}
-                    </div>
-                </section>
-
-                <section>
-                    <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">All Time</p>
-                    <div class="grid grid-cols-2 gap-3">
-                        ${card('Total Flights', tCount.toLocaleString())}
-                        ${card('Total Block', fmtH(tHours))}
-                        ${card('Miles Flown', fmtMi(tMiles), tMiles > 0 ? `${((tMiles/24901)*100).toFixed(1)}% around Earth` : '')}
-                        ${card('Airports Visited', tAirports)}
-                    </div>
-                </section>
-
-                ${topRoutes.length ? `
-                <section>
-                    <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">Top Routes</p>
-                    <div class="space-y-2">
-                        ${topRoutes.map(([route, n], i) => `
-                            <div class="bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3 flex items-center justify-between">
-                                <div class="flex items-center gap-3">
-                                    <span class="text-[10px] font-black text-zinc-600">#${i+1}</span>
-                                    <span class="font-black text-sm text-white">${route}</span>
-                                </div>
-                                <span class="text-xs font-black text-zinc-400">${n}×</span>
-                            </div>`).join('')}
-                    </div>
-                </section>` : ''}
-
-                ${longDistFlight || longBlockFlight ? `
-                <section>
-                    <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">Records</p>
-                    <div class="space-y-2">
-                        ${longDistFlight ? `
-                        <div class="bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3">
-                            <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Longest by Distance</div>
-                            <div class="font-black text-white text-sm">${longDistFlight.departure_airport?.toUpperCase()} → ${longDistFlight.arrival_airport?.toUpperCase()}</div>
-                            <div class="text-xs text-zinc-400 mt-0.5">${Math.round(longDistMi).toLocaleString()} mi · ${fmtH(segH(longDistFlight))}</div>
-                        </div>` : ''}
-                        ${longBlockFlight && longBlockFlight !== longDistFlight ? `
-                        <div class="bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3">
-                            <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Longest Block Time</div>
-                            <div class="font-black text-white text-sm">${longBlockFlight.departure_airport?.toUpperCase()} → ${longBlockFlight.arrival_airport?.toUpperCase()}</div>
-                            <div class="text-xs text-zinc-400 mt-0.5">${fmtH(longBlockH)} · ${Math.round(segMi(longBlockFlight)).toLocaleString()} mi</div>
-                        </div>` : ''}
-                    </div>
-                </section>` : ''}
-            `;
-        }
 
         // ── All-Pilots Month Map ───────────────────────────────────────────
-        function exitDayMode() {
-            mapDayMode = false;
-            document.getElementById('btn-day-view')?.classList.remove('map-ctrl-day');
-            document.getElementById('day-view-date')?.classList.add('hidden');
-            document.getElementById('day-view-legend')?.classList.add('hidden');
-            document.getElementById('legend-single')?.classList.remove('hidden');
-            document.getElementById('legend-day')?.classList.add('hidden');
+        function setMapMode(mode) {
+            mapDayMode  = (mode === 'day');
+            mapAllMode  = (mode === 'month');
+
+            // Day nav
+            const dayNav = document.getElementById('day-nav');
+            if (mapDayMode) {
+                mapDayDate = mapDayDate || new Date().toISOString().slice(0, 10);
+                if (dayNav) dayNav.classList.replace('hidden', 'flex');
+                updateDayNavLabel();
+            } else {
+                if (dayNav) dayNav.classList.replace('flex', 'hidden');
+            }
+
+            // Dim filter buttons in all-crew modes
             const pc = document.getElementById('map-pilot-controls');
-            if (pc) { pc.style.opacity = ''; pc.style.pointerEvents = ''; }
+            if (pc) {
+                pc.style.opacity = (mapDayMode || mapAllMode) ? '0.35' : '';
+                pc.style.pointerEvents = (mapDayMode || mapAllMode) ? 'none' : '';
+            }
+
+            // Active state on desktop sub-row and mobile bar
+            ['mine', 'month', 'day'].forEach(m => {
+                document.getElementById(`mapmode-${m}`)?.classList.toggle('map-mode-active', m === mode);
+                document.getElementById(`mapmode-bar-${m}`)?.classList.toggle('map-mode-active', m === mode);
+            });
+
+            if (currentView === 'map') renderMap();
         }
 
-        function toggleAllPilotsMonth() {
-            mapAllMode = !mapAllMode;
-            if (mapAllMode && mapDayMode) exitDayMode();
-            document.getElementById('btn-all-pilots-month')?.classList.toggle('map-ctrl-month', mapAllMode);
-            renderMap();
-        }
+        function toggleAllPilotsMonth() { setMapMode(mapAllMode ? 'mine' : 'month'); }
 
         async function renderAllPilotsMap() {
             stopLivePollers();
@@ -1652,7 +1571,6 @@
 
                 const arcCoords = distanceProportionalArc(depCoords, arrCoords);
                 const lineOpts = { weight, opacity, color, smoothFactor: 1 };
-                if (hasActive) lineOpts.className = 'active-route';
                 const line = L.polyline(arcCoords, lineOpts);
 
                 // Popup: list all legs chronologically
@@ -1663,7 +1581,7 @@
                     const label = f.flightNumber ? f.flightNumber : f.trip ? `Trip ${f.trip}` : '';
                     const isLegActive = f.departureTime && f.arrivalTime && new Date(f.departureTime) <= now && now <= new Date(f.arrivalTime);
                     return `<div style="font-size:11px;color:${isLegActive ? '#22c55e' : '#94a3b8'};margin-top:3px">
-                        ${ds} &nbsp;${formatTimeISO(f.departureTime)} → ${formatTimeISO(f.arrivalTime)}${label ? ' &nbsp;· ' + label : ''}${isLegActive ? ' ▶' : ''}
+                        ${ds} &nbsp;${formatTimeISO(f.departureTime, f.departureAirport)} → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}${label ? ' &nbsp;· ' + label : ''}${isLegActive ? ' ▶' : ''}
                     </div>`;
                 }).join('');
                 const countLabel = count === 1 ? '1 flight' : `${count} flights`;
@@ -1747,14 +1665,15 @@
             const isAirborne = allFlightsSorted.some(f => f.departureTime && f.arrivalTime && new Date(f.departureTime) <= now && now <= new Date(f.arrivalTime));
             if (!isAirborne) {
                 const completedFlights = allFlightsSorted.filter(f => f.arrivalTime && new Date(f.arrivalTime) <= now);
-                const lastArrival = completedFlights.length > 0
-                    ? completedFlights[completedFlights.length - 1].arrivalAirport
-                    : null;
+                const lastFlight = completedFlights.length > 0 ? completedFlights[completedFlights.length - 1] : null;
+                const lastArrival = lastFlight ? lastFlight.arrivalAirport : null;
+                // Only trust lastArrival if it landed within the last 36 hours; older = assume pilot went home
+                const recentEnough = lastFlight && (now - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
                 const atBase = lastArrival && pilotBase && lastArrival.toUpperCase() === pilotBase.toUpperCase();
-                const locationCode = (!lastArrival || atBase) ? home : lastArrival;
+                const locationCode = (recentEnough && lastArrival && !atBase) ? lastArrival : home;
                 const locationCoords = locationCode ? resolveAirport(locationCode) : null;
                 if (locationCoords) {
-                    const isAtHome = !lastArrival || atBase || (home && locationCode && locationCode.toUpperCase() === home.toUpperCase());
+                    const isAtHome = !recentEnough || !lastArrival || atBase || (home && locationCode && locationCode.toUpperCase() === home.toUpperCase());
                     const label = isAtHome ? 'Home' : locationCode;
                     const pilotName = pilotsCache[currentPilot]?.name?.split(' ')[0] || currentPilot;
                     const pin = L.marker(locationCoords, {
@@ -1802,30 +1721,20 @@
             });
         }
 
-        function toggleDayView() {
-            if (mapAllMode) { mapAllMode = false; document.getElementById('btn-all-pilots-month')?.classList.remove('map-ctrl-month'); }
-            mapDayMode = !mapDayMode;
-            if (mapDayMode) {
-                mapDayDate = new Date().toISOString().slice(0, 10);
-                const dateInput = document.getElementById('day-view-date');
-                if (dateInput) { dateInput.value = mapDayDate; dateInput.classList.remove('hidden'); }
-                const sidebarLegend = document.getElementById('day-view-legend');
-                if (sidebarLegend) {
-                    sidebarLegend.classList.remove('hidden');
-                    sidebarLegend.innerHTML = PILOT_KEYS.map(k =>
-                        `<div class="flex items-center gap-1.5"><span style="width:10px;height:10px;border-radius:50%;background:${PILOT_COLORS[k]};display:inline-block;flex-shrink:0"></span><span style="color:#cbd5e1">${k.charAt(0).toUpperCase() + k.slice(1)}</span></div>`
-                    ).join('');
-                }
-                const pc = document.getElementById('map-pilot-controls');
-                if (pc) { pc.style.opacity = '0.4'; pc.style.pointerEvents = 'none'; }
-                document.getElementById('btn-day-view')?.classList.add('map-ctrl-day');
-                document.getElementById('legend-single')?.classList.add('hidden');
-                document.getElementById('legend-day')?.classList.remove('hidden');
-            } else {
-                exitDayMode();
-            }
+        function updateDayNavLabel() {
+            const d = new Date(mapDayDate + 'T00:00:00');
+            document.getElementById('day-nav-label').textContent =
+                d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+
+        function stepDayNav(delta) {
+            const d = new Date(mapDayDate + 'T00:00:00');
+            d.setDate(d.getDate() + delta);
+            mapDayDate = d.toISOString().slice(0, 10);
+            updateDayNavLabel();
             renderMap();
         }
+
 
         function computeBearing(from, to) {
             const lat1 = toRadians(from[0]), lat2 = toRadians(to[0]);
@@ -1926,12 +1835,32 @@
             document.getElementById('btn-radar')?.classList.add('hidden');
         }
 
+        function smoothTrail(rawPoints) {
+            if (!rawPoints || rawPoints.length < 2) return rawPoints || [];
+            const out = [];
+            for (let i = 0; i < rawPoints.length - 1; i++) {
+                const seg = greatCircleArcCoords(rawPoints[i], rawPoints[i + 1], 8);
+                if (i === 0) out.push(...seg);
+                else out.push(...seg.slice(1));
+            }
+            return out;
+        }
+
         function startLiveTracking(marker, callsign, color, depCoords, arrCoords, routeLine, activeLayersArr, pilotName) {
             if (_livePollers[callsign]) return; // already polling
 
             const radarBtn = document.getElementById('btn-radar');
             if (radarBtn) radarBtn.classList.remove('hidden');
             if (radarOn && !radarLayer) addRadarLayer();
+
+            // Remove static arc immediately — live tracking draws its own lines
+            if (routeLine && map) {
+                map.removeLayer(routeLine);
+                ['past', 'future', 'active'].forEach(k => {
+                    const i = mapLayers[k].indexOf(routeLine);
+                    if (i >= 0) mapLayers[k].splice(i, 1);
+                });
+            }
 
             marker.bindTooltip(
                 `<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
@@ -1941,13 +1870,11 @@
 
             let flownLine = null;
             let remainLine = null;
-            let routeRemoved = false;
 
             const update = async () => {
                 try {
                     const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}`).then(r => r.json());
 
-                    // If flight landed or data totally gone, stop polling and redraw so past route reappears
                     if (d.onGround) {
                         clearInterval(_livePollers[callsign]);
                         delete _livePollers[callsign];
@@ -1955,23 +1882,12 @@
                         return;
                     }
 
-                    if (!d.found || d.lat == null) return; // gap — keep last drawn lines, wait for next poll
+                    if (!d.found || d.lat == null) return;
 
                     if (depCoords && arrCoords && !isPositionOnRoute(d.lat, d.lon, depCoords, arrCoords)) return;
 
-                    // Move marker to live GPS position
                     marker.setLatLng([d.lat, d.lon]);
                     if (d.heading != null) marker.setIcon(makePlaneIcon(d.heading, color, d.type));
-
-                    // Remove original static route line once
-                    if (!routeRemoved && routeLine && map) {
-                        map.removeLayer(routeLine);
-                        routeRemoved = true;
-                        ['past', 'future', 'active'].forEach(k => {
-                            const i = mapLayers[k].indexOf(routeLine);
-                            if (i >= 0) mapLayers[k].splice(i, 1);
-                        });
-                    }
 
                     // Remove previous dynamic lines
                     if (flownLine) { map.removeLayer(flownLine); const i = activeLayersArr.indexOf(flownLine); if (i >= 0) activeLayersArr.splice(i, 1); }
@@ -1979,17 +1895,15 @@
 
                     const livePoint = [d.lat, d.lon];
 
-                    // Flown: actual GPS trail from server (seeded from OpenSky + live polls), fallback to arc
-                    const flownPath = (d.trail && d.trail.length >= 2)
-                        ? d.trail
-                        : distanceProportionalArc(depCoords, livePoint);
-
-                    flownLine = L.polyline(flownPath, { color, weight: 1.5, opacity: 0.4, smoothFactor: 0.5 });
+                    // Flown: smooth GPS trail (interpolate great-circle between each pair of fixes)
+                    const rawTrail = (d.trail && d.trail.length >= 2) ? d.trail : null;
+                    const flownPath = rawTrail ? smoothTrail(rawTrail) : distanceProportionalArc(depCoords, livePoint);
+                    flownLine = L.polyline(flownPath, { color, weight: 1.5, opacity: 0.5, smoothFactor: 1 });
                     flownLine.addTo(map);
                     activeLayersArr.push(flownLine);
 
-                    // Remaining: arc from live position to destination
-                    remainLine = L.polyline(distanceProportionalArc(livePoint, arrCoords), { color, weight: 2.5, opacity: 1.0, smoothFactor: 1 });
+                    // Remaining: dashed predictive arc from live position to destination
+                    remainLine = L.polyline(distanceProportionalArc(livePoint, arrCoords), { color, weight: 1.5, opacity: 0.7, smoothFactor: 1, dashArray: '8 10' });
                     remainLine.addTo(map);
                     activeLayersArr.push(remainLine);
 
@@ -2058,8 +1972,7 @@
             [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels].forEach(l => map.removeLayer(l));
             mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
 
-            const dateInput = document.getElementById('day-view-date');
-            mapDayDate = dateInput.value || new Date().toISOString().slice(0, 10);
+            mapDayDate = mapDayDate || new Date().toISOString().slice(0, 10);
 
             // Load all pilots (cache where possible)
             const allPilotSegments = {};
@@ -2142,7 +2055,7 @@
                 line.bindPopup(`
                     <div style="font-weight:900;font-size:13px;color:${color};margin-bottom:3px">${PILOT_NAMES[f.pilotKey]}</div>
                     <div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${f.departureAirport} → ${f.arrivalAirport}</div>
-                    <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime)} → ${formatTimeISO(f.arrivalTime)}</div>
+                    <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime, f.departureAirport)} → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}</div>
                     <div style="font-size:12px;color:#94a3b8">Block ${blockMins ? formatDurationMinutes(blockMins) : '—'}${f.tail ? ' · ' + f.tail : ''}</div>
                     ${isActive ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:6px">▶ In the air now</div>` : ''}
                 `, { className: 'dark-popup' });
@@ -2180,7 +2093,7 @@
                 // Popup: which pilots, which flights
                 const flightLines = data.flights.map(f =>
                     `<div style="font-size:11px;color:${PILOT_COLORS[f.pilotKey]};margin-top:3px">` +
-                    `${PILOT_NAMES[f.pilotKey].split(' ')[0]}: ${f.departureAirport}→${f.arrivalAirport} ${formatTimeISO(f.departureTime)}</div>`
+                    `${PILOT_NAMES[f.pilotKey].split(' ')[0]}: ${f.departureAirport}→${f.arrivalAirport} ${formatTimeISO(f.departureTime, f.departureAirport)}</div>`
                 ).join('');
                 circle.bindPopup(`<div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${apt}</div>${flightLines}`, { className: 'dark-popup' });
 
@@ -2228,11 +2141,246 @@
         function moveTooltip(x, y) { positionTooltip(x, y); }
         function hideTooltip() { tooltip.style.display = 'none'; }
 
-        function formatTimeISO(iso) {
+        const _tzCache = {
+            // Eastern (America/New_York)
+            'ATL':'America/New_York','KATL':'America/New_York','ALB':'America/New_York','KALB':'America/New_York',
+            'ABE':'America/New_York','KABE':'America/New_York','ACY':'America/New_York','KACY':'America/New_York',
+            'AVL':'America/New_York','KAVL':'America/New_York','BGM':'America/New_York','KBGM':'America/New_York',
+            'BOS':'America/New_York','KBOS':'America/New_York','BTV':'America/New_York','KBTV':'America/New_York',
+            'BUF':'America/New_York','KBUF':'America/New_York','BWI':'America/New_York','KBWI':'America/New_York',
+            'CAE':'America/New_York','KCAE':'America/New_York','CHO':'America/New_York','KCHO':'America/New_York',
+            'CHS':'America/New_York','KCHS':'America/New_York','CLE':'America/New_York','KCLE':'America/New_York',
+            'CLT':'America/New_York','KCLT':'America/New_York','CMH':'America/New_York','KCMH':'America/New_York',
+            'CRW':'America/New_York','KCRW':'America/New_York','CVG':'America/New_York','KCVG':'America/New_York',
+            'DAY':'America/New_York','KDAY':'America/New_York','DCA':'America/New_York','KDCA':'America/New_York',
+            'DTW':'America/New_York','KDTW':'America/New_York','ELM':'America/New_York','KELM':'America/New_York',
+            'EVV':'America/New_York','KEVV':'America/New_York','EWR':'America/New_York','KEWR':'America/New_York',
+            'FLL':'America/New_York','KFLL':'America/New_York','FNT':'America/New_York','KFNT':'America/New_York',
+            'FWA':'America/New_York','KFWA':'America/New_York','GRR':'America/New_York','KGRR':'America/New_York',
+            'GSO':'America/New_York','KGSO':'America/New_York','GSP':'America/New_York','KGSP':'America/New_York',
+            'HPN':'America/New_York','KHPN':'America/New_York','HTS':'America/New_York','KHTS':'America/New_York',
+            'IAD':'America/New_York','KIAD':'America/New_York','ILM':'America/New_York','KILM':'America/New_York',
+            'IND':'America/New_York','KIND':'America/New_York','ISP':'America/New_York','KISP':'America/New_York',
+            'ITH':'America/New_York','KITH':'America/New_York','JAX':'America/New_York','KJAX':'America/New_York',
+            'JFK':'America/New_York','KJFK':'America/New_York','LAN':'America/New_York','KLAN':'America/New_York',
+            'LEX':'America/New_York','KLEX':'America/New_York','LGA':'America/New_York','KLGA':'America/New_York',
+            'LYH':'America/New_York','KLYH':'America/New_York','MBS':'America/New_York','KMBS':'America/New_York',
+            'MCO':'America/New_York','KMCO':'America/New_York','MDT':'America/New_York','KMDT':'America/New_York',
+            'MHT':'America/New_York','KMHT':'America/New_York','MIA':'America/New_York','KMIA':'America/New_York',
+            'MBL':'America/New_York','KMBL':'America/New_York',
+            'MKG':'America/New_York','KMKG':'America/New_York','MYR':'America/New_York','KMYR':'America/New_York',
+            'OAJ':'America/New_York','KOAJ':'America/New_York','ORF':'America/New_York','KORF':'America/New_York',
+            'AZO':'America/New_York','KAZO':'America/New_York','SBN':'America/New_York','KSBN':'America/New_York',
+            'PBI':'America/New_York','KPBI':'America/New_York','PHL':'America/New_York','KPHL':'America/New_York',
+            'PIT':'America/New_York','KPIT':'America/New_York','PWM':'America/New_York','KPWM':'America/New_York',
+            'PVD':'America/New_York','KPVD':'America/New_York','RDU':'America/New_York','KRDU':'America/New_York',
+            'RIC':'America/New_York','KRIC':'America/New_York','ROC':'America/New_York','KROC':'America/New_York',
+            'RSW':'America/New_York','KRSW':'America/New_York','SAV':'America/New_York','KSAV':'America/New_York',
+            'SBY':'America/New_York','KSBY':'America/New_York','SDF':'America/New_York','KSDF':'America/New_York',
+            'SRQ':'America/New_York','KSRQ':'America/New_York','SWF':'America/New_York','KSWF':'America/New_York',
+            'SYR':'America/New_York','KSYR':'America/New_York','TPA':'America/New_York','KTPA':'America/New_York',
+            'TRI':'America/New_York','KTRI':'America/New_York','TOL':'America/New_York','KTOL':'America/New_York',
+            'TVC':'America/New_York','KTVC':'America/New_York','TTN':'America/New_York','KTTN':'America/New_York',
+            // Central (America/Chicago)
+            'ABI':'America/Chicago','KABI':'America/Chicago','AMA':'America/Chicago','KAMA':'America/Chicago',
+            'AUS':'America/Chicago','KAUS':'America/Chicago','BHM':'America/Chicago','KBHM':'America/Chicago',
+            'BNA':'America/Chicago','KBNA':'America/Chicago','BMI':'America/Chicago','KBMI':'America/Chicago',
+            'BTR':'America/Chicago','KBTR':'America/Chicago','CID':'America/Chicago','KCID':'America/Chicago',
+            'CMI':'America/Chicago','KCMI':'America/Chicago','CRP':'America/Chicago','KCRP':'America/Chicago',
+            'DAL':'America/Chicago','KDAL':'America/Chicago','DBQ':'America/Chicago','KDBQ':'America/Chicago',
+            'DEC':'America/Chicago','KDEC':'America/Chicago','DFW':'America/Chicago','KDFW':'America/Chicago',
+            'DLH':'America/Chicago','KDLH':'America/Chicago','DSM':'America/Chicago','KDSM':'America/Chicago',
+            'EAU':'America/Chicago','KEAU':'America/Chicago','ECP':'America/Chicago','KECP':'America/Chicago',
+            'FSD':'America/Chicago','KFSD':'America/Chicago','FSM':'America/Chicago','KFSM':'America/Chicago',
+            'GFK':'America/Chicago','KGFK':'America/Chicago','GGG':'America/Chicago','KGGG':'America/Chicago',
+            'GPT':'America/Chicago','KGPT':'America/Chicago','GRK':'America/Chicago','KGRK':'America/Chicago',
+            'GYY':'America/Chicago','KGYY':'America/Chicago','HOU':'America/Chicago','KHOU':'America/Chicago',
+            'HSV':'America/Chicago','KHSV':'America/Chicago','IAH':'America/Chicago','KIAH':'America/Chicago',
+            'ICT':'America/Chicago','KICT':'America/Chicago','JAN':'America/Chicago','KJAN':'America/Chicago',
+            'LBB':'America/Chicago','KLBB':'America/Chicago','LFT':'America/Chicago','KLFT':'America/Chicago',
+            'LIT':'America/Chicago','KLIT':'America/Chicago','LSE':'America/Chicago','KLSE':'America/Chicago',
+            'MAF':'America/Chicago','KMAF':'America/Chicago','MCI':'America/Chicago','KMCI':'America/Chicago',
+            'MDW':'America/Chicago','KMDW':'America/Chicago','MEM':'America/Chicago','KMEM':'America/Chicago',
+            'MHK':'America/Chicago','KMHK':'America/Chicago','MKE':'America/Chicago','KMKE':'America/Chicago',
+            'MLI':'America/Chicago','KMLI':'America/Chicago','MLU':'America/Chicago','KMLU':'America/Chicago',
+            'MOB':'America/Chicago','KMOB':'America/Chicago','MOT':'America/Chicago','KMOT':'America/Chicago',
+            'MSN':'America/Chicago','KMSN':'America/Chicago','MSP':'America/Chicago','KMSP':'America/Chicago',
+            'MSY':'America/Chicago','KMSY':'America/Chicago','OKC':'America/Chicago','KOKC':'America/Chicago',
+            'OMA':'America/Chicago','KOMA':'America/Chicago','ORD':'America/Chicago','KORD':'America/Chicago',
+            'PIA':'America/Chicago','KPIA':'America/Chicago','PNS':'America/Chicago','KPNS':'America/Chicago',
+            'RFD':'America/Chicago','KRFD':'America/Chicago','RST':'America/Chicago','KRST':'America/Chicago',
+            'SAT':'America/Chicago','KSAT':'America/Chicago','SGF':'America/Chicago','KSGF':'America/Chicago',
+            'SHV':'America/Chicago','KSHV':'America/Chicago','SLN':'America/Chicago','KSLN':'America/Chicago',
+            'SPI':'America/Chicago','KSPI':'America/Chicago','STL':'America/Chicago','KSTL':'America/Chicago',
+            'SUS':'America/Chicago','KSUS':'America/Chicago','SUX':'America/Chicago','KSUX':'America/Chicago',
+            'TOP':'America/Chicago','KTOP':'America/Chicago','TUL':'America/Chicago','KTUL':'America/Chicago',
+            'TXK':'America/Chicago','KTXK':'America/Chicago','TYR':'America/Chicago','KTYR':'America/Chicago',
+            'UIN':'America/Chicago','KUIN':'America/Chicago','VPS':'America/Chicago','KVPS':'America/Chicago',
+            'XNA':'America/Chicago','KXNA':'America/Chicago','BIS':'America/Chicago','KBIS':'America/Chicago',
+            'DIK':'America/Chicago','KDIK':'America/Chicago','LNK':'America/Chicago','KLNK':'America/Chicago',
+            'BRD':'America/Chicago','KBRD':'America/Chicago','HIB':'America/Chicago','KHIB':'America/Chicago',
+            'INL':'America/Chicago','KINL':'America/Chicago',
+            // Mountain (America/Denver)
+            'ABQ':'America/Denver','KABQ':'America/Denver','ASE':'America/Denver','KASE':'America/Denver',
+            'BIL':'America/Denver','KBIL':'America/Denver','BOI':'America/Denver','KBOI':'America/Denver',
+            'BZN':'America/Denver','KBZN':'America/Denver','COD':'America/Denver','KCOD':'America/Denver',
+            'COS':'America/Denver','KCOS':'America/Denver','CPR':'America/Denver','KCPR':'America/Denver',
+            'CYS':'America/Denver','KCYS':'America/Denver','DEN':'America/Denver','KDEN':'America/Denver',
+            'DRO':'America/Denver','KDRO':'America/Denver','ELP':'America/Denver','KELP':'America/Denver',
+            'FCA':'America/Denver','KGPI':'America/Denver','GCC':'America/Denver','KGCC':'America/Denver',
+            'GJT':'America/Denver','KGJT':'America/Denver','GTF':'America/Denver','KGTF':'America/Denver',
+            'GUC':'America/Denver','KGUC':'America/Denver','HLN':'America/Denver','KHLN':'America/Denver',
+            'IDA':'America/Denver','KIDA':'America/Denver','JAC':'America/Denver','KJAC':'America/Denver',
+            'LAR':'America/Denver','KLAR':'America/Denver','MTJ':'America/Denver','KMTJ':'America/Denver',
+            'PIH':'America/Denver','KPIH':'America/Denver','PUB':'America/Denver','KPUB':'America/Denver',
+            'RAP':'America/Denver','KRAP':'America/Denver','RIW':'America/Denver','KRIW':'America/Denver',
+            'RKS':'America/Denver','KRKS':'America/Denver','SGU':'America/Denver','KSGU':'America/Denver',
+            'SLC':'America/Denver','KSLC':'America/Denver','TWF':'America/Denver','KTWF':'America/Denver',
+            'CNY':'America/Denver','KCNY':'America/Denver',
+            // Arizona — no DST
+            'PHX':'America/Phoenix','KPHX':'America/Phoenix','TUS':'America/Phoenix','KTUS':'America/Phoenix',
+            'FLG':'America/Phoenix','KFLG':'America/Phoenix','PRC':'America/Phoenix','KPRC':'America/Phoenix',
+            'YUM':'America/Phoenix','KYUM':'America/Phoenix','AZA':'America/Phoenix','IWA':'America/Phoenix',
+            'SDL':'America/Phoenix','DVT':'America/Phoenix','GYR':'America/Phoenix','CHD':'America/Phoenix',
+            // Pacific (America/Los_Angeles)
+            'BFI':'America/Los_Angeles','KBFI':'America/Los_Angeles','BLI':'America/Los_Angeles','KBLI':'America/Los_Angeles',
+            'BUR':'America/Los_Angeles','KBUR':'America/Los_Angeles','EUG':'America/Los_Angeles','KEUG':'America/Los_Angeles',
+            'FAT':'America/Los_Angeles','KFAT':'America/Los_Angeles','GEG':'America/Los_Angeles','KGEG':'America/Los_Angeles',
+            'LAS':'America/Los_Angeles','KLAS':'America/Los_Angeles','LAX':'America/Los_Angeles','KLAX':'America/Los_Angeles',
+            'LGB':'America/Los_Angeles','KLGB':'America/Los_Angeles','MFR':'America/Los_Angeles','KMFR':'America/Los_Angeles',
+            'MRY':'America/Los_Angeles','KMRY':'America/Los_Angeles','OAK':'America/Los_Angeles','KOAK':'America/Los_Angeles',
+            'ONT':'America/Los_Angeles','KONT':'America/Los_Angeles','PDX':'America/Los_Angeles','KPDX':'America/Los_Angeles',
+            'PSC':'America/Los_Angeles','KPSC':'America/Los_Angeles','PSP':'America/Los_Angeles','KPSP':'America/Los_Angeles',
+            'RDM':'America/Los_Angeles','KRDM':'America/Los_Angeles','RNO':'America/Los_Angeles','KRNO':'America/Los_Angeles',
+            'SAN':'America/Los_Angeles','KSAN':'America/Los_Angeles','SBA':'America/Los_Angeles','KSBA':'America/Los_Angeles',
+            'SBP':'America/Los_Angeles','KSBP':'America/Los_Angeles','SEA':'America/Los_Angeles','KSEA':'America/Los_Angeles',
+            'SFO':'America/Los_Angeles','KSFO':'America/Los_Angeles','SJC':'America/Los_Angeles','KSJC':'America/Los_Angeles',
+            'SMF':'America/Los_Angeles','KSMF':'America/Los_Angeles','SNA':'America/Los_Angeles','KSNA':'America/Los_Angeles',
+            'STS':'America/Los_Angeles','KSTS':'America/Los_Angeles','YKM':'America/Los_Angeles','KYKM':'America/Los_Angeles',
+            'ACV':'America/Los_Angeles','KACV':'America/Los_Angeles',
+            'APC':'America/Los_Angeles','KAPC':'America/Los_Angeles',
+            // Alaska
+            'ANC':'America/Anchorage','PANC':'America/Anchorage','FAI':'America/Anchorage','PAFA':'America/Anchorage',
+            'JNU':'America/Anchorage','PAJN':'America/Anchorage','KTN':'America/Anchorage','PAKT':'America/Anchorage',
+            'SIT':'America/Sitka','PASI':'America/Sitka','BET':'America/Anchorage','PABE':'America/Anchorage',
+            'ADQ':'America/Anchorage','PADQ':'America/Anchorage','CDV':'America/Anchorage','PACV':'America/Anchorage',
+            // Hawaii — no DST
+            'HNL':'Pacific/Honolulu','PHNL':'Pacific/Honolulu','OGG':'Pacific/Honolulu','PHOG':'Pacific/Honolulu',
+            'KOA':'Pacific/Honolulu','PHKO':'Pacific/Honolulu','LIH':'Pacific/Honolulu','PHLI':'Pacific/Honolulu',
+            'ITO':'Pacific/Honolulu','PHTO':'Pacific/Honolulu',
+            // Puerto Rico & USVI — no DST, UTC-4
+            'SJU':'America/Puerto_Rico','TJSJ':'America/Puerto_Rico','BQN':'America/Puerto_Rico','TJBQ':'America/Puerto_Rico',
+            'PSE':'America/Puerto_Rico','TJPS':'America/Puerto_Rico','VQS':'America/Puerto_Rico','TJVQ':'America/Puerto_Rico',
+            'STT':'America/St_Thomas','TIST':'America/St_Thomas','STX':'America/St_Croix','TISX':'America/St_Croix',
+            // Bahamas (Eastern, observes DST)
+            'NAS':'America/Nassau','MYNN':'America/Nassau','FPO':'America/Nassau','GGT':'America/Nassau',
+            // Bermuda (Atlantic, observes DST)
+            'BDA':'Atlantic/Bermuda','TXKF':'Atlantic/Bermuda',
+            // Caribbean — UTC-4, no DST
+            'ANU':'America/Antigua','TAPA':'America/Antigua','AUA':'America/Aruba','TNCA':'America/Aruba',
+            'BGI':'America/Barbados','TBPB':'America/Barbados','CUR':'America/Curacao','TNCC':'America/Curacao',
+            'GND':'America/Grenada','TGPY':'America/Grenada','FDF':'America/Martinique','TFFF':'America/Martinique',
+            'PTP':'America/Guadeloupe','TFFR':'America/Guadeloupe','POS':'America/Port_of_Spain','TTPP':'America/Port_of_Spain',
+            'TAB':'America/Port_of_Spain','TTCP':'America/Port_of_Spain','UVF':'America/St_Lucia','TLPL':'America/St_Lucia',
+            'SVD':'America/St_Vincent','TVSV':'America/St_Vincent','SXM':'America/Lower_Princes','TNCM':'America/Lower_Princes',
+            // Jamaica — UTC-5, no DST
+            'MBJ':'America/Jamaica','MKJS':'America/Jamaica','KIN':'America/Jamaica','MKJP':'America/Jamaica',
+            // Cayman — UTC-5, no DST
+            'GCM':'America/Cayman','MWCR':'America/Cayman',
+            // Cuba — observes DST
+            'HAV':'America/Havana','MUHA':'America/Havana','VRA':'America/Havana','MUVR':'America/Havana',
+            // Dominican Republic — UTC-4, no DST
+            'SDQ':'America/Santo_Domingo','MDSD':'America/Santo_Domingo','POP':'America/Santo_Domingo','MDPP':'America/Santo_Domingo',
+            'PUJ':'America/Santo_Domingo','MDPC':'America/Santo_Domingo',
+            // Haiti
+            'PAP':'America/Port-au-Prince','MTPP':'America/Port-au-Prince',
+            // Turks & Caicos
+            'PLS':'America/Grand_Turk','MBPV':'America/Grand_Turk',
+            // Mexico
+            'CUN':'America/Cancun','MMUN':'America/Cancun','CZM':'America/Cancun','MMCZ':'America/Cancun',
+            'MEX':'America/Mexico_City','MMMX':'America/Mexico_City','GDL':'America/Mexico_City','MMGL':'America/Mexico_City',
+            'PVR':'America/Mexico_City','MMPR':'America/Mexico_City','ZIH':'America/Mexico_City','MMZH':'America/Mexico_City',
+            'ZLO':'America/Mexico_City','MMZO':'America/Mexico_City','MTY':'America/Monterrey','MMMY':'America/Monterrey',
+            'TRC':'America/Monterrey','MZT':'America/Mazatlan','MMMZ':'America/Mazatlan','SJD':'America/Mazatlan','MMSD':'America/Mazatlan',
+            'HMO':'America/Hermosillo','MMHO':'America/Hermosillo','TIJ':'America/Tijuana','MMTJ':'America/Tijuana',
+            'CUU':'America/Chihuahua','MMCU':'America/Chihuahua',
+            // Central America — UTC-6, no DST
+            'GUA':'America/Guatemala','MGGT':'America/Guatemala','SAL':'America/El_Salvador','MSLP':'America/El_Salvador',
+            'TGU':'America/Tegucigalpa','MHTG':'America/Tegucigalpa','MGA':'America/Managua','MNMG':'America/Managua',
+            'SJO':'America/Costa_Rica','MROC':'America/Costa_Rica','LIR':'America/Costa_Rica','MRLB':'America/Costa_Rica',
+            'PTY':'America/Panama','MPTO':'America/Panama',
+            // South America
+            'BOG':'America/Bogota','SKBO':'America/Bogota','MDE':'America/Bogota','SKRG':'America/Bogota',
+            'CTG':'America/Bogota','SKCG':'America/Bogota','GYE':'America/Guayaquil','SEGU':'America/Guayaquil',
+            'UIO':'America/Guayaquil','SEQU':'America/Guayaquil','LIM':'America/Lima','SPJC':'America/Lima',
+            'GIG':'America/Sao_Paulo','GRU':'America/Sao_Paulo','BSB':'America/Sao_Paulo',
+            'EZE':'America/Argentina/Buenos_Aires','AEP':'America/Argentina/Buenos_Aires',
+            'SCL':'America/Santiago','MVD':'America/Montevideo',
+            // Canada
+            'YYZ':'America/Toronto','CYYZ':'America/Toronto','YTZ':'America/Toronto','CYTZ':'America/Toronto',
+            'YOW':'America/Toronto','CYOW':'America/Toronto','YUL':'America/Montreal','CYUL':'America/Montreal',
+            'YQB':'America/Montreal','CYQB':'America/Montreal','YHZ':'America/Halifax','CYHZ':'America/Halifax',
+            'YWG':'America/Winnipeg','CYWG':'America/Winnipeg','YQR':'America/Regina','CYQR':'America/Regina',
+            'YXE':'America/Regina','CYXE':'America/Regina','YYC':'America/Edmonton','CYYC':'America/Edmonton',
+            'YEG':'America/Edmonton','CYEG':'America/Edmonton','YVR':'America/Vancouver','CYVR':'America/Vancouver',
+            'YYJ':'America/Vancouver','CYYJ':'America/Vancouver','YLW':'America/Vancouver','CYLW':'America/Vancouver',
+            // Europe
+            'LHR':'Europe/London','EGLL':'Europe/London','LGW':'Europe/London','EGKK':'Europe/London',
+            'LCY':'Europe/London','EGLC':'Europe/London','MAN':'Europe/London','EGCC':'Europe/London',
+            'EDI':'Europe/London','EGPH':'Europe/London','GLA':'Europe/London','EGPF':'Europe/London',
+            'DUB':'Europe/Dublin','EIDW':'Europe/Dublin','SNN':'Europe/Dublin','EINN':'Europe/Dublin',
+            'CDG':'Europe/Paris','LFPG':'Europe/Paris','ORY':'Europe/Paris','LFPO':'Europe/Paris',
+            'NCE':'Europe/Paris','LFMN':'Europe/Paris','LYS':'Europe/Paris','LFLL':'Europe/Paris',
+            'AMS':'Europe/Amsterdam','EHAM':'Europe/Amsterdam',
+            'FRA':'Europe/Berlin','EDDF':'Europe/Berlin','MUC':'Europe/Berlin','EDDM':'Europe/Berlin',
+            'BER':'Europe/Berlin','EDDB':'Europe/Berlin','DUS':'Europe/Berlin','EDDL':'Europe/Berlin',
+            'HAM':'Europe/Berlin','EDDH':'Europe/Berlin',
+            'ZRH':'Europe/Zurich','LSZH':'Europe/Zurich','GVA':'Europe/Zurich','LSGG':'Europe/Zurich',
+            'MAD':'Europe/Madrid','LEMD':'Europe/Madrid','BCN':'Europe/Madrid','LEBL':'Europe/Madrid',
+            'PMI':'Europe/Madrid','LEPA':'Europe/Madrid','LIS':'Europe/Lisbon','LPPT':'Europe/Lisbon',
+            'FCO':'Europe/Rome','LIRF':'Europe/Rome','MXP':'Europe/Rome','LIMC':'Europe/Rome',
+            'VCE':'Europe/Rome','LIPZ':'Europe/Rome','NAP':'Europe/Rome','LIRN':'Europe/Rome',
+            'VIE':'Europe/Vienna','LOWW':'Europe/Vienna','ATH':'Europe/Athens','LGAV':'Europe/Athens',
+            'IST':'Europe/Istanbul','LTBA':'Europe/Istanbul','SAW':'Europe/Istanbul','LTFJ':'Europe/Istanbul',
+            'CPH':'Europe/Copenhagen','EKCH':'Europe/Copenhagen','OSL':'Europe/Oslo','ENGM':'Europe/Oslo',
+            'ARN':'Europe/Stockholm','ESSA':'Europe/Stockholm','HEL':'Europe/Helsinki','EFHK':'Europe/Helsinki',
+            'WAW':'Europe/Warsaw','EPWA':'Europe/Warsaw','PRG':'Europe/Prague','LKPR':'Europe/Prague',
+            'BRU':'Europe/Brussels','EBBR':'Europe/Brussels','BUD':'Europe/Budapest','LHBP':'Europe/Budapest',
+            // Middle East / Asia / Pacific
+            'DXB':'Asia/Dubai','OMDB':'Asia/Dubai','AUH':'Asia/Dubai','OMAA':'Asia/Dubai',
+            'DOH':'Asia/Qatar','OTBD':'Asia/Qatar','TLV':'Asia/Jerusalem','LLBG':'Asia/Jerusalem',
+            'HKG':'Asia/Hong_Kong','VHHH':'Asia/Hong_Kong','NRT':'Asia/Tokyo','RJAA':'Asia/Tokyo',
+            'HND':'Asia/Tokyo','RJTT':'Asia/Tokyo','ICN':'Asia/Seoul','RKSI':'Asia/Seoul',
+            'SIN':'Asia/Singapore','WSSS':'Asia/Singapore',
+            'SYD':'Australia/Sydney','YSSY':'Australia/Sydney','MEL':'Australia/Melbourne','YMML':'Australia/Melbourne',
+            'AKL':'Pacific/Auckland','NZAA':'Pacific/Auckland',
+        };
+        function airportTz(code) {
+            if (!code) return null;
+            const c = code.toUpperCase().trim();
+            return _tzCache[c] || null;
+        }
+        const _TZ_SHORT = { 'EST':'ET','EDT':'ET','CST':'CT','CDT':'CT','MST':'MT','MDT':'MT','PST':'PT','PDT':'PT','AKST':'AKT','AKDT':'AKT','HST':'HT','HDT':'HT','AST':'AT','ADT':'AT' };
+        function tzAbbr(airportCode, iso) {
+            const tz = airportTz(airportCode);
+            if (!tz) return '';
+            try {
+                const d = new Date(iso || Date.now());
+                const raw = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+                    .formatToParts(d).find(p => p.type === 'timeZoneName')?.value || '';
+                return _TZ_SHORT[raw] || raw;
+            } catch (e) { return ''; }
+        }
+        function formatTimeISO(iso, airportCode) {
             if (!iso) return '—';
             try {
                 const d = new Date(iso);
                 if (isNaN(d.getTime())) return '—';
+                const isUtc = iso.endsWith('Z') || iso.endsWith('z');
+                if (isUtc && airportCode) {
+                    const tz = airportTz(airportCode);
+                    if (tz) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: tz });
+                }
                 return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
             } catch (e) {
                 return '—';
@@ -2253,7 +2401,8 @@
                     const arrApt = el.dataset.arrApt || '';
                     const depDate = dep ? new Date(dep) : null;
                     const arrDate = arr ? new Date(arr) : null;
-                    const blockMins = (depDate && arrDate && !isNaN(depDate.getTime()) && !isNaN(arrDate.getTime())) ? (arrDate - depDate) / 60000 : null;
+                    const blockStored = el.dataset.block !== '' ? parseInt(el.dataset.block, 10) : NaN;
+                    const blockMins = !isNaN(blockStored) ? blockStored : ((depDate && arrDate && !isNaN(depDate.getTime()) && !isNaN(arrDate.getTime())) ? (arrDate - depDate) / 60000 : null);
 
                     // compute ground time to next connecting leg
                     let layoverText = '';
@@ -2276,7 +2425,7 @@
                     const dhLabel = el.dataset.dh === 'true' ? `<div style="font-size:11px;color:#f9a8d4;font-weight:700;margin-bottom:4px">DH Flight</div>` : '';
                     const html = `<div style="font-weight:800;margin-bottom:6px">${depApt} → ${arrApt} ${flightNum ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">${flightNum}</span>` : (trip ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">Trip ${trip}</span>` : '')}</div>` +
                         dhLabel +
-                        `<div style="font-size:12px;color:#cbd5e1">Dep: ${formatTimeISO(dep)} • Arr: ${formatTimeISO(arr)}</div>` +
+                        `<div style="font-size:12px;color:#cbd5e1">Dep: ${formatTimeISO(dep, depApt)}<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${tzAbbr(depApt, dep)}</span> • Arr: ${formatTimeISO(arr, arrApt)}<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${tzAbbr(arrApt, arr)}</span></div>` +
                         `<div style="font-size:12px;color:#cbd5e1">Block: ${formatDurationMinutes(blockMins)}</div>` +
                         `<div style="font-size:12px;color:#cbd5e1">Tail: ${tail}</div>` +
                         (layoverText ? `<div style="margin-top:6px;color:#ffd57a;font-weight:700">${layoverText}</div>` : '');
@@ -2353,8 +2502,11 @@
                         const isPersonal = tripAttr === 'PERSONAL';
                         const dhDot = f.dh ? `<span style="color:#f9a8d4;font-size:8px;font-weight:900;margin-left:3px">DH</span>` : '';
                         const personalDot = isPersonal ? `<span style="color:#c084fc;font-size:8px;font-weight:900;margin-left:3px">P</span>` : '';
-                        const depTimeFmt = depAttr ? formatTimeISO(depAttr) : '';
-                        const arrTimeFmt = arrAttr ? formatTimeISO(arrAttr) : '';
+                        const depTimeFmt = depAttr ? formatTimeISO(depAttr, depApt) : '';
+                        const arrTimeFmt = arrAttr ? formatTimeISO(arrAttr, arrApt) : '';
+                        const depTzLbl = depApt ? tzAbbr(depApt, depAttr) : '';
+                        const arrTzLbl = arrApt ? tzAbbr(arrApt, arrAttr) : '';
+                        const tzSpan = (lbl) => lbl ? `<span style="font-size:7.5px;color:#52525b;font-weight:700;margin-left:1px">${lbl}</span>` : '';
                         let groundLine = '';
                         if (!isPersonal && arrApt && arrAttr) {
                             const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
@@ -2369,9 +2521,9 @@
                             }
                         }
                         const cellBg = isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : 'background:rgba(0,0,0,0.4)';
-                        html += `<div class="rounded-lg px-2 py-[5px] flight-item" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}">`;
+                        html += `<div class="rounded-lg px-2 py-[5px] flight-item" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${f.blockMinutes != null ? f.blockMinutes : ''}">`;
                         html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}</div>`;
-                        html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt} → ${arrTimeFmt}</div>`;
+                        html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
                         html += `</div>`;
                     });
@@ -2413,8 +2565,11 @@
                             const tripAttr = f.trip || '';
                             const depApt = f.departureAirport || '';
                             const arrApt = f.arrivalAirport || '';
-                            const depTime = formatTimeISO(depAttr);
-                            const arrTime = formatTimeISO(arrAttr);
+                            const depTime = formatTimeISO(depAttr, depApt);
+                            const arrTime = formatTimeISO(arrAttr, arrApt);
+                            const depTz = depApt ? tzAbbr(depApt, depAttr) : '';
+                            const arrTz = arrApt ? tzAbbr(arrApt, arrAttr) : '';
+                            const tzSup = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:2px">${lbl}</span>` : '';
                             const blockMins = f.blockMinutes != null ? f.blockMinutes : (depAttr && arrAttr ? (() => {
                                 const d1 = new Date(depAttr);
                                 const d2 = new Date(arrAttr);
@@ -2442,7 +2597,7 @@
                             const rowBorder = isPersonal ? 'border-violet-900/50' : 'border-blue-900/30';
                             const rowBg = isPersonal ? 'bg-violet-950/20' : 'bg-black/30';
                             const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
-                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg} text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime} <span class="text-zinc-600">→</span> ${arrTime}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div></div>`;
+                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg} text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div></div>`;
                         }).join('');
                     }
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];
@@ -2758,8 +2913,11 @@
             flights.forEach(f => {
                 const dep = f.departureAirport || '';
                 const arr = f.arrivalAirport || '';
-                const depTime = formatTimeISO(f.departureTime || '');
-                const arrTime = formatTimeISO(f.arrivalTime || '');
+                const depTime = formatTimeISO(f.departureTime || '', f.departureAirport);
+                const arrTime = formatTimeISO(f.arrivalTime || '', f.arrivalAirport);
+                const depTz = f.departureAirport ? tzAbbr(f.departureAirport, f.departureTime) : '';
+                const arrTz = f.arrivalAirport ? tzAbbr(f.arrivalAirport, f.arrivalTime) : '';
+                const tzTag = (lbl) => lbl ? ` <span class="text-[10px] font-semibold text-zinc-500">${lbl}</span>` : '';
                 const blockMins = f.blockMinutes != null ? f.blockMinutes : (f.departureTime && f.arrivalTime ? (new Date(f.arrivalTime) - new Date(f.departureTime)) / 60000 : null);
                 const isPersonal = f.trip === 'PERSONAL';
                 const dhBadge = f.dh ? `<span class="ml-2 text-[9px] font-black text-pink-300">DH</span>` : '';
@@ -2787,7 +2945,7 @@
                         ${flightNum}
                     </div>
                     <div class="flex items-center justify-between text-sm">
-                        <div class="font-bold text-zinc-200">${depTime} <span class="text-zinc-600">→</span> ${arrTime}</div>
+                        <div class="font-bold text-zinc-200">${depTime}${tzTag(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzTag(arrTz)}</div>
                         <div class="text-zinc-500">${blockMins !== null ? `Block ${formatDurationMinutes(blockMins)}` : ''}</div>
                     </div>
                     ${groundBadge}
@@ -2941,7 +3099,7 @@
         }
         // ────────────────────────────────────────────────────────────────
 
-        function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); if (currentView === 'stats') renderStats(); }
+        function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); }
 
         async function handleMobileUpload(input) {
             if (!input.files[0]) return;

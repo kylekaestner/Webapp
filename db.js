@@ -59,12 +59,13 @@ function initDB() {
 
         // Seed initial pilots if not exists
         db.run(`
-            INSERT OR IGNORE INTO pilots (pilot_key, name, base) 
-            VALUES 
+            INSERT OR IGNORE INTO pilots (pilot_key, name, base)
+            VALUES
                 ('kyle', 'Kyle Kaestner', 'KSUS'),
                 ('adam', 'Adam Burke', 'LGA'),
                 ('sam', 'Sam Byrne', 'LGA'),
-                ('logan', 'Logan Hine', 'SFO')
+                ('logan', 'Logan Hine', 'SFO'),
+                ('drew', 'Drew Sinelli', 'STL')
         `, (err) => {
             if (err) {
                 console.error('Error seeding pilots:', err);
