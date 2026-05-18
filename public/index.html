@@ -30,37 +30,39 @@
 
         /* Mobile: compact grid + readable list */
         @media (max-width: 767px) {
-            /* Calendar grid: small colored tiles, tap for details */
+            /* Calendar grid: compact colored tiles */
             #view-grid { padding: 4px 2px !important; }
             #view-grid > div { gap: 2px !important; }
             #view-grid .col-span-7 { margin-bottom: 2px; font-size: 9px !important; }
             #calendar-grid-content > div {
-                height: 62px !important;
+                height: 52px !important;
                 min-height: 0 !important;
                 border-radius: 6px !important;
                 cursor: pointer;
                 overflow: hidden !important;
             }
-            /* Compact header on mobile */
-            #calendar-grid-content > div > div:first-child { padding: 3px 4px 1px !important; }
-            #calendar-grid-content .day-number { font-size: 11px !important; line-height: 1; }
-            /* Show status pill (was hidden) */
-            #calendar-grid-content span[class*="rounded-full"] { font-size: 6px !important; padding: 1px 4px !important; }
-            /* Show first flight route as a compact preview line */
+            #calendar-grid-content > div > div:first-child { padding: 4px 5px 2px !important; }
+            #calendar-grid-content .day-number { font-size: 13px !important; line-height: 1; }
+
+            /* Flying days: color = status, just show route — hide pill */
+            #calendar-grid-content > div:has(.flight-item) span[class*="rounded-full"] { display: none !important; }
             #calendar-grid-content > div > div:last-child {
                 display: block !important;
-                max-height: 16px !important;
+                max-height: 14px !important;
                 overflow: hidden !important;
-                padding: 0 4px !important;
+                padding: 0 5px !important;
             }
             #calendar-grid-content > div > div:last-child .flight-item {
                 padding: 0 !important;
                 background: none !important;
                 border: none !important;
             }
-            #calendar-grid-content > div > div:last-child .flight-item > div { font-size: 9px !important; font-weight: 800 !important; }
+            #calendar-grid-content > div > div:last-child .flight-item > div:first-child { font-size: 9px !important; font-weight: 800 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
             #calendar-grid-content > div > div:last-child .flight-item > div:not(:first-child) { display: none !important; }
             #calendar-grid-content > div > div:last-child .flight-item + .flight-item { display: none !important; }
+
+            /* Non-flying days (away, hard off, off): show pill only */
+            #calendar-grid-content > div:not(:has(.flight-item)) span[class*="rounded-full"] { font-size: 6px !important; padding: 1px 4px !important; }
             /* List view: compact + wrap flight rows */
             #view-list { padding: 10px !important; }
             #calendar-list-content > div { padding: 10px !important; gap: 10px !important; }
@@ -199,7 +201,7 @@
                 </select>
             </div>
             <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
-            <button onclick="(function(){const p=document.getElementById('upload-pilot-select').value;const i=document.getElementById('file-input');i.accept=p==='drew'?'.pdf':'.ics,.csv';i.click()})()" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Upload Schedule</button>
+            <button onclick="triggerUpload('upload-pilot-select','file-input')" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Upload Schedule</button>
             <button id="btn-sync-schedaero" onclick="openSchedaeroSync()" class="w-full py-3 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-xl transition text-[10px] font-black uppercase text-center">⟳ Sync Schedaero</button>
         </div>
     </div>
@@ -314,9 +316,9 @@
 
                 <!-- Controls — compact pills, top-right -->
                 <div class="map-controls flex flex-col gap-1 items-end">
-                    <div>
+                    <div id="map-pilot-controls">
                         <div class="text-right text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 pr-0.5">Filters</div>
-                        <div id="map-pilot-controls" class="flex gap-1">
+                        <div class="flex gap-1">
                             <button onclick="toggleMapFilter('past')" id="btn-past" class="map-ctrl-pill map-ctrl-on">Flown</button>
                             <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Upcoming</button>
                         </div>
@@ -533,7 +535,7 @@
                 </select>
             </div>
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
-            <button onclick="(function(){const p=document.getElementById('mobile-upload-pilot-select').value;const i=document.getElementById('mobile-file-input');i.accept=p==='drew'?'.pdf':'.ics,.csv';i.click()})()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
+            <button onclick="triggerUpload('mobile-upload-pilot-select','mobile-file-input')" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
             <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openSchedaeroSync()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
@@ -862,6 +864,13 @@
         // Where each pilot actually lives (not airline crew base)
         const PILOT_HOME = { kyle: 'STL', drew: 'STL', sam: 'STL', adam: 'TUL', logan: 'PHX' };
         let isLoading = false;
+
+        function triggerUpload(selectId, inputId) {
+            const pilot = document.getElementById(selectId).value;
+            const input = document.getElementById(inputId);
+            input.accept = pilot === 'drew' ? '.pdf' : '.ics,.csv';
+            input.click();
+        }
         const overlapRadiusMi = 50;
 
         function haversineMi(lat1, lon1, lat2, lon2) {
@@ -1487,12 +1496,9 @@
                 if (dayNav) dayNav.classList.replace('flex', 'hidden');
             }
 
-            // Dim filter buttons in all-crew modes
+            // Hide filter buttons in all-crew modes — they only apply to My Routes
             const pc = document.getElementById('map-pilot-controls');
-            if (pc) {
-                pc.style.opacity = (mapDayMode || mapAllMode) ? '0.35' : '';
-                pc.style.pointerEvents = (mapDayMode || mapAllMode) ? 'none' : '';
-            }
+            if (pc) pc.style.display = (mapDayMode || mapAllMode) ? 'none' : '';
 
             // Active state on desktop sub-row and mobile bar
             ['mine', 'month', 'day'].forEach(m => {
