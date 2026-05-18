@@ -835,6 +835,8 @@
         const PILOT_KEYS = ['kyle', 'adam', 'sam', 'logan', 'drew'];
         const PILOT_COLORS = { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185' };
         const PILOT_NAMES = { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine', drew: 'Drew Sinelli' };
+        // Where each pilot actually lives (not airline crew base)
+        const PILOT_HOME = { kyle: 'STL', drew: 'STL', sam: 'STL', adam: 'TUL', logan: 'PHX' };
         let isLoading = false;
         const overlapRadiusMi = 50;
 
@@ -1019,8 +1021,10 @@
                 
                 if (!current.arrivalAirport) continue;
                 if (!next.departureTime) continue;
-                // Never generate multi-day away events at the pilot's home base — they go home
+                // Never generate away events when the pilot is at their airline base or home city
                 if (base && current.arrivalAirport?.toUpperCase() === base.toUpperCase()) continue;
+                const pilotHome = PILOT_HOMES[currentPilot];
+                if (pilotHome && current.arrivalAirport?.toUpperCase() === pilotHome.toUpperCase()) continue;
 
                 try {
                     let arrDate = new Date(current.arrivalTime);
@@ -1214,6 +1218,9 @@
                     for (const pA of pilotPeriods[kA]) {
                         for (const pB of pilotPeriods[kB]) {
                             if (!airportsNear(pA.airport, pB.airport)) continue;
+                            // Skip if both pilots are at their own home — not interesting
+                            const homeA = PILOT_HOME[kA], homeB = PILOT_HOME[kB];
+                            if (homeA && homeB && airportsNear(pA.airport, homeA) && airportsNear(pB.airport, homeB)) continue;
                             const _ca = getCoords(pA.airport), _cb = getCoords(pB.airport);
                             const distMi = (pA.airport !== pB.airport && _ca && _cb)
                                 ? Math.round(haversineMi(_ca[0], _ca[1], _cb[0], _cb[1]))
@@ -1518,10 +1525,10 @@
                     const opacity = hasActive ? 1 : hasFuture ? 0.8 : 0.35;
 
                     const arcCoords = distanceProportionalArc(depC, arrC);
-                    const line = L.polyline(arcCoords, { weight, opacity, color: pilotColor, smoothFactor: 1 });
-                    line.bindTooltip(`${PILOT_NAMES[key].split(' ')[0]}: ${dep} → ${arr} (${legs.length}×)`, { className: 'dark-popup' });
-                    line.addTo(map);
-                    mapLayers.future.push(line);
+                    const line = L.polyline(arcCoords, { weight, opacity, color: pilotColor, smoothFactor: 1 }).addTo(map);
+                    const hit = L.polyline(arcCoords, { weight: 20, opacity: 0 }).addTo(map);
+                    hit.bindTooltip(`${PILOT_NAMES[key].split(' ')[0]}: ${dep} → ${arr} (${legs.length}×)`, { className: 'dark-popup' });
+                    mapLayers.future.push(line, hit);
 
                     if (hasActive) {
                         const al = legs.find(f => new Date(f.departure_time) <= now && now <= new Date(f.arrival_time));
@@ -1644,8 +1651,8 @@
                 const opacity = hasActive ? 1.0 : hasFuture ? 0.85 : 0.45;
 
                 const arcCoords = distanceProportionalArc(depCoords, arrCoords);
-                const lineOpts = { weight, opacity, color, smoothFactor: 1 };
-                const line = L.polyline(arcCoords, lineOpts);
+                const line = L.polyline(arcCoords, { weight, opacity, color, smoothFactor: 1 });
+                const hit  = L.polyline(arcCoords, { weight: 20, opacity: 0 });
 
                 // Popup: list all legs chronologically
                 const sorted = legs.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
@@ -1659,15 +1666,16 @@
                     </div>`;
                 }).join('');
                 const countLabel = count === 1 ? '1 flight' : `${count} flights`;
-                line.bindPopup(`
+                hit.bindPopup(`
                     <div style="font-weight:900;font-size:14px;margin-bottom:3px;color:#f8fafc">${dep} → ${arr}</div>
                     <div style="font-size:10px;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">${countLabel} this month</div>
                     ${legRows}
                 `, { className: 'dark-popup' });
 
-                if (allPast) mapLayers.past.push(line);
-                else mapLayers.future.push(line);
-                if ((allPast && showPast) || (!allPast && showFuture) || hasActive) line.addTo(map);
+                const showLine = (allPast && showPast) || (!allPast && showFuture) || hasActive;
+                if (allPast) mapLayers.past.push(line, hit);
+                else mapLayers.future.push(line, hit);
+                if (showLine) { line.addTo(map); hit.addTo(map); }
 
                 // Airplane icon for any active leg
                 if (hasActive) {
@@ -1744,7 +1752,8 @@
                 // Only trust lastArrival if it landed within the last 36 hours; older = assume pilot went home
                 const recentEnough = lastFlight && (now - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
                 const atBase = lastArrival && pilotBase && lastArrival.toUpperCase() === pilotBase.toUpperCase();
-                const locationCode = (recentEnough && lastArrival && !atBase) ? lastArrival : home;
+                const atHome = lastArrival && home && lastArrival.toUpperCase() === home.toUpperCase();
+                const locationCode = (recentEnough && lastArrival && !atBase && !atHome) ? lastArrival : home;
                 const locationCoords = locationCode ? resolveAirport(locationCode) : null;
                 if (locationCoords) {
                     const isAtHome = !recentEnough || !lastArrival || atBase || (home && locationCode && locationCode.toUpperCase() === home.toUpperCase());
@@ -2126,18 +2135,18 @@
                 const opacity = isActive ? 1 : 0.75;
                 const dayLineOpts = { weight, opacity, color, smoothFactor: 1 };
                 if (isActive) dayLineOpts.className = 'active-route';
-                const line = L.polyline(arcCoords, dayLineOpts);
+                const line = L.polyline(arcCoords, dayLineOpts).addTo(map);
+                const hit  = L.polyline(arcCoords, { weight: 20, opacity: 0 }).addTo(map);
 
                 const blockMins = calcBlockMins(f);
-                line.bindPopup(`
+                hit.bindPopup(`
                     <div style="font-weight:900;font-size:13px;color:${color};margin-bottom:3px">${PILOT_NAMES[f.pilotKey]}</div>
                     <div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${f.departureAirport} → ${f.arrivalAirport}</div>
                     <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime, f.departureAirport)} → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}</div>
                     <div style="font-size:12px;color:#94a3b8">Block ${blockMins ? formatDurationMinutes(blockMins) : '—'}${f.tail ? ' · ' + f.tail : ''}</div>
                     ${isActive ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:6px">▶ In the air now</div>` : ''}
                 `, { className: 'dark-popup' });
-                line.addTo(map);
-                mapLayers.future.push(line);
+                mapLayers.future.push(line, hit);
 
                 // Live airplane icon — placed at actual progress position, rotated to heading
                 if (isActive) {
