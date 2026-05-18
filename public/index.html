@@ -35,18 +35,32 @@
             #view-grid > div { gap: 2px !important; }
             #view-grid .col-span-7 { margin-bottom: 2px; font-size: 9px !important; }
             #calendar-grid-content > div {
-                height: 44px !important;
+                height: 62px !important;
                 min-height: 0 !important;
                 border-radius: 6px !important;
                 cursor: pointer;
                 overflow: hidden !important;
             }
-            /* Hide flight list on mobile — tap cell to see details */
-            #calendar-grid-content > div > div:last-child { display: none !important; }
             /* Compact header on mobile */
-            #calendar-grid-content > div > div:first-child { padding: 3px 4px !important; }
-            #calendar-grid-content .day-number { font-size: 12px !important; line-height: 1; }
-            #calendar-grid-content span[class*="rounded-full"] { display: none !important; }
+            #calendar-grid-content > div > div:first-child { padding: 3px 4px 1px !important; }
+            #calendar-grid-content .day-number { font-size: 11px !important; line-height: 1; }
+            /* Show status pill (was hidden) */
+            #calendar-grid-content span[class*="rounded-full"] { font-size: 6px !important; padding: 1px 4px !important; }
+            /* Show first flight route as a compact preview line */
+            #calendar-grid-content > div > div:last-child {
+                display: block !important;
+                max-height: 16px !important;
+                overflow: hidden !important;
+                padding: 0 4px !important;
+            }
+            #calendar-grid-content > div > div:last-child .flight-item {
+                padding: 0 !important;
+                background: none !important;
+                border: none !important;
+            }
+            #calendar-grid-content > div > div:last-child .flight-item > div { font-size: 9px !important; font-weight: 800 !important; }
+            #calendar-grid-content > div > div:last-child .flight-item > div:not(:first-child) { display: none !important; }
+            #calendar-grid-content > div > div:last-child .flight-item + .flight-item { display: none !important; }
             /* List view: compact + wrap flight rows */
             #view-list { padding: 10px !important; }
             #calendar-list-content > div { padding: 10px !important; gap: 10px !important; }
@@ -54,6 +68,15 @@
             .flight-row { padding-left: 8px !important; padding-right: 8px !important; }
             .flight-row .flex { flex-wrap: wrap !important; gap: 4px !important; }
             .flight-row .text-right { text-align: left !important; width: 100%; }
+            /* Map: push legend above the mobile mode bar (~50px) */
+            #map-legend { bottom: 58px !important; padding: 4px 6px !important; font-size: 7px !important; gap: 2px !important; }
+            #map-legend .space-y-1 > div { gap: 4px !important; }
+            #map-legend span[class*="w-4"] { width: 10px !important; }
+            #map-legend span[class*="w-2"] { width: 6px !important; height: 6px !important; }
+            /* Map: smaller filter pills on mobile */
+            .map-ctrl-pill { padding: 3px 8px !important; font-size: 9px !important; }
+            /* Hide the "Filters" label on mobile — too cluttered */
+            .map-controls > div > div:first-child { display: none !important; }
         }
         /* Thin scrollbars app-wide */
         ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -277,6 +300,7 @@
                         <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-zinc-500"></span><span class="text-zinc-500">Past</span></div>
                         <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-green-500"></span><span class="text-zinc-500">In Air</span></div>
                         <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 border border-white/60"></span><span class="text-zinc-500">Layover</span></div>
+                        <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-green-400 border border-white/60"></span><span class="text-zinc-500">Base</span></div>
                         <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 border border-white/60" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-500">Here Now</span></div>
                     </div>
                     <div id="legend-day" class="hidden space-y-1">
@@ -1321,81 +1345,83 @@
                 const isNow      = o.isDirect && o.directStart <= now && o.directEnd >= now;
                 const scrollId   = idx === scrollTargetIdx ? ' id="overlap-scroll-target"' : '';
 
-                // Pilot chips
-                const chips = [o.kA, o.kB].map(k => {
-                    const c = PILOT_COLORS[k];
-                    const name = PILOT_NAMES[k].split(' ')[0];
-                    return `<span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase" style="background:${c}22;color:${c};border:1px solid ${c}55">${name}</span>`;
-                }).join('');
-
-                // Status label
+                // Date label
                 let dateLabel;
-                if (isNow)           dateLabel = null;
+                if (isNow)           dateLabel = 'Right Now';
                 else if (isToday)    dateLabel = 'Today';
                 else if (isTomorrow) dateLabel = 'Tomorrow';
                 else                 dateLabel = fmtDateShort(refTime);
 
-                let statusHtml;
-                if (isNow) {
-                    statusHtml = `<span class="flex items-center gap-1.5 text-[10px] font-black uppercase text-green-400"><span class="inline-block w-2 h-2 rounded-full bg-green-400" style="animation:here-pulse 2s ease-out infinite"></span>Right Now</span>`;
-                } else if (isNear) {
-                    const col = isPast ? 'text-zinc-500' : 'text-amber-400';
-                    statusHtml = `<span class="text-[10px] font-black uppercase ${col}">${dateLabel} · Near Miss</span>`;
-                } else if (isToday) {
-                    statusHtml = `<span class="text-[10px] font-black uppercase text-sky-400">Today</span>`;
-                } else if (isTomorrow) {
-                    statusHtml = `<span class="text-[10px] font-black uppercase text-amber-400">Tomorrow</span>`;
-                } else if (isPast) {
-                    statusHtml = `<span class="text-[10px] font-black uppercase text-zinc-600">${dateLabel}</span>`;
-                } else {
-                    statusHtml = `<span class="text-[10px] font-black uppercase text-zinc-400">${dateLabel}</span>`;
+                // Status badge color + pulse dot
+                let badgeCls, pulseDot = '';
+                if (isNow)                { badgeCls = 'text-green-400'; pulseDot = `<span class="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5" style="animation:here-pulse 2s ease-out infinite"></span>`; }
+                else if (isNear && !isPast) badgeCls = 'text-amber-400';
+                else if (isToday)         badgeCls = 'text-sky-400';
+                else if (isTomorrow)      badgeCls = 'text-blue-400';
+                else if (isPast)          badgeCls = 'text-zinc-600';
+                else                      badgeCls = 'text-zinc-400';
+
+                const nearTag  = isNear && !isPast ? ` <span class="text-zinc-500 font-normal normal-case">· Near Miss</span>` : '';
+
+                // Location
+                const locationLabel = o.airport === o.airportB ? o.airport : `${o.airport} / ${o.airportB}`;
+                const distTag = o.distMi > 0 ? `<span class="text-sm font-normal text-zinc-500 ml-1.5">${o.distMi} mi apart</span>` : '';
+
+                // Overlap type tag
+                let typeTag = '';
+                if (o.isDirect) {
+                    const overlapMs  = o.directEnd - o.directStart;
+                    const spansNight = localDateStr(o.directStart) !== localDateStr(o.directEnd);
+                    typeTag = (spansNight || overlapMs >= 5 * 3600000) ? 'Layover' : o.airport !== o.airportB ? 'Nearby' : 'Meetup';
                 }
 
-                // Airport headline
-                const locationLabel = o.airport === o.airportB
-                    ? o.airport
-                    : `${o.airport} · ${o.airportB}`;
-                const distLabel = o.distMi > 0
-                    ? ` <span class="text-base font-normal text-zinc-500">${o.distMi} mi</span>`
-                    : '';
+                // Per-pilot window rows
+                const pilotRows = [{ k: o.kA, p: o.pA }, { k: o.kB, p: o.pB }].map(({ k, p }) => {
+                    const color = PILOT_COLORS[k];
+                    const name  = PILOT_NAMES[k].split(' ')[0];
+                    return `<div class="flex items-center gap-2.5">
+                        <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
+                        <span class="text-xs font-black w-10 shrink-0" style="color:${color}">${name}</span>
+                        <span class="text-xs text-zinc-400 font-mono">${fmtTimeRange(p.start, p.end)}</span>
+                    </div>`;
+                }).join('');
 
-                // Body
-                let body;
+                // Bottom stripe
+                let stripe = '';
                 if (o.isDirect) {
+                    const dur     = fmtDur(o.directEnd - o.directStart);
                     const timeStr = fmtTimeRange(o.directStart, o.directEnd);
-                    const dur = fmtDur(o.directEnd - o.directStart);
-                    const durColor = isNow ? 'text-green-400' : isToday ? 'text-sky-400' : 'text-zinc-300';
-                    const overlapMs = o.directEnd - o.directStart;
-                    const spansNight = localDateStr(o.directStart) !== localDateStr(o.directEnd);
-                    const isLayover = spansNight || overlapMs >= 5 * 3600000;
-                    const stayLabel = isLayover
-                        ? `<span class="text-zinc-500 font-normal text-xs ml-1">· Layover</span>`
-                        : o.airport !== o.airportB
-                        ? `<span class="text-zinc-500 font-normal text-xs ml-1">· Nearby</span>`
-                        : `<span class="text-zinc-500 font-normal text-xs ml-1">· Airport meetup</span>`;
-                    body = `<div class="text-3xl font-black text-white tracking-tight leading-none mb-2">${locationLabel}${distLabel}</div>
-                    <div class="text-sm text-zinc-400 font-mono">${timeStr}</div>
-                    <div class="text-sm font-black mt-2 ${durColor}">${dur} together${stayLabel}</div>`;
-                } else {
-                    const nameA = PILOT_NAMES[o.kA].split(' ')[0];
-                    const nameB = PILOT_NAMES[o.kB].split(' ')[0];
-                    const gap = fmtDur(o.gapMs);
+                    const sCls    = isNow    ? 'bg-green-950/60 border-green-800/40 text-green-400'
+                                  : isToday  ? 'bg-sky-950/50 border-sky-800/30 text-sky-400'
+                                  : 'bg-zinc-900 border-zinc-800/60 text-zinc-300';
+                    stripe = `<div class="px-4 py-2.5 border-t ${sCls} flex items-center justify-between gap-2">
+                        <span class="text-[11px] font-black uppercase tracking-wide">${dur} together</span>
+                        <span class="text-[11px] font-mono opacity-60">${timeStr}</span>
+                    </div>`;
+                } else if (!isPast) {
+                    const nameA  = PILOT_NAMES[o.kA].split(' ')[0];
+                    const nameB  = PILOT_NAMES[o.kB].split(' ')[0];
+                    const gap    = fmtDur(o.gapMs);
                     const gapDesc = o.pA.end <= o.pB.start
                         ? `${nameA} leaves ${gap} before ${nameB} arrives`
                         : `${nameB} leaves ${gap} before ${nameA} arrives`;
-                    body = `<div class="text-3xl font-black text-white tracking-tight leading-none mb-2">${locationLabel}${distLabel}</div>
-                    <div class="text-sm text-amber-400/80">${gapDesc}</div>`;
+                    stripe = `<div class="px-4 py-2.5 border-t border-amber-900/30 bg-amber-950/10 text-amber-500/80 text-[11px]">${gapDesc}</div>`;
                 }
 
-                // Card styling
-                const border = isNow ? 'border-green-700/50' : isToday ? 'border-sky-700/40' : isNear ? 'border-amber-900/30' : 'border-zinc-800';
-                const bg     = isNow ? 'bg-green-950/20' : isToday ? 'bg-sky-950/15' : isNear ? 'bg-amber-950/10' : 'bg-zinc-900/40';
-                return `<div${scrollId} class="border ${border} rounded-2xl p-4 ${bg}">
-                    <div class="flex items-center justify-between gap-2 mb-3">
-                        ${statusHtml}
-                        <div class="flex gap-1.5">${chips}</div>
+                // Card chrome
+                const border  = isNow ? 'border-green-700/50' : isToday ? 'border-sky-700/40' : isNear && !isPast ? 'border-amber-900/40' : 'border-zinc-800';
+                const bg      = isNow ? 'bg-green-950/20' : isToday ? 'bg-sky-950/15' : 'bg-zinc-900/40';
+                const opacity = isPast ? 'opacity-40' : '';
+
+                return `<div${scrollId} class="border ${border} rounded-2xl overflow-hidden ${bg} ${opacity}">
+                    <div class="px-4 pt-3.5 pb-3">
+                        <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5">${pulseDot}${dateLabel}${nearTag}${typeTag ? ` <span class="text-zinc-600 font-normal normal-case">· ${typeTag}</span>` : ''}</div>
+                        <div class="text-2xl font-black text-white leading-none">${locationLabel}${distTag}</div>
                     </div>
-                    ${body}
+                    <div class="px-4 pb-3 pt-2.5 space-y-2 border-t border-zinc-800/50">
+                        ${pilotRows}
+                    </div>
+                    ${stripe}
                 </div>`;
             }).join('');
 
@@ -3125,6 +3151,10 @@
             document.getElementById('schedaero-url').value      = localStorage.getItem('schedaero_url')      || '';
             document.getElementById('schedaero-apitoken').value = localStorage.getItem('schedaero_apitoken') || '';
             document.getElementById('schedaero-cookie').value   = localStorage.getItem('schedaero_cookie')   || '';
+            const savedBack  = localStorage.getItem('schedaero_months_back');
+            const savedAhead = localStorage.getItem('schedaero_months_ahead');
+            if (savedBack)  document.getElementById('schedaero-months-back').value = savedBack;
+            if (savedAhead) document.getElementById('schedaero-months').value = savedAhead;
             document.getElementById('schedaero-error').classList.add('hidden');
             document.getElementById('schedaero-modal').classList.remove('hidden');
         }
@@ -3149,9 +3179,11 @@
                 return;
             }
 
-            localStorage.setItem('schedaero_url',      url);
-            localStorage.setItem('schedaero_apitoken', apiToken);
-            localStorage.setItem('schedaero_cookie',   cookie);
+            localStorage.setItem('schedaero_url',          url);
+            localStorage.setItem('schedaero_apitoken',    apiToken);
+            localStorage.setItem('schedaero_cookie',      cookie);
+            localStorage.setItem('schedaero_months_back', document.getElementById('schedaero-months-back').value);
+            localStorage.setItem('schedaero_months_ahead',document.getElementById('schedaero-months').value);
 
             btn.textContent = 'Syncing…';
             btn.disabled = true;
