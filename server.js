@@ -1118,58 +1118,6 @@ app.post('/api/pilots/kyle/quick-sync-schedaero', async (req, res) => {
     });
 });
 
-// Flight schedule lookup via OpenSky — free, no API key required
-const _flightLookupCache = {}; // `${callsign}:${date}:${depICAO}` → { ts, result }
-
-app.get('/api/flight-lookup', async (req, res) => {
-    const { flight, date, dep } = req.query;
-    if (!flight || !date) return res.status(400).json({ error: 'flight and date required' });
-
-    const fm = flight.replace(/\s+/g, '').match(/^([A-Z]{1,3})(\d+)$/i);
-    if (!fm) return res.status(400).json({ error: 'Invalid flight number (e.g. UA442)' });
-
-    const airlineICAO = IATA_TO_ICAO[fm[1].toUpperCase()] || fm[1].toUpperCase();
-    const callsign = (airlineICAO + fm[2]).toUpperCase();
-    const depICAO = dep ? iataToIcaoAirport(dep) : null;
-
-    const cacheKey = `${callsign}:${date}:${depICAO || ''}`;
-    const cached = _flightLookupCache[cacheKey];
-    if (cached && Date.now() - cached.ts < 3600000) return res.json(cached.result);
-
-    const dayStart = Math.floor(new Date(date + 'T00:00:00Z').getTime() / 1000);
-    const dayEnd = dayStart + 86400;
-
-    let flights = [];
-    const sources = depICAO
-        ? [`https://opensky-network.org/api/flights/departure?airport=${depICAO}&begin=${dayStart}&end=${dayEnd}`]
-        : [];
-
-    for (const url of sources) {
-        try {
-            const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-            if (resp.ok) { flights = (await resp.json()) || []; break; }
-        } catch (e) { /* try next */ }
-    }
-
-    const match = flights.find(f => (f.callsign || '').trim().toUpperCase() === callsign);
-    if (!match || !match.firstSeen) {
-        const result = { found: false };
-        _flightLookupCache[cacheKey] = { ts: Date.now(), result };
-        return res.json(result);
-    }
-
-    const result = {
-        found: true,
-        callsign,
-        depAirport: icaoToIataAirport(match.estDepartureAirport),
-        arrAirport: icaoToIataAirport(match.estArrivalAirport),
-        depUTC: new Date(match.firstSeen * 1000).toISOString(),
-        arrUTC: match.lastSeen ? new Date(match.lastSeen * 1000).toISOString() : null,
-    };
-    _flightLookupCache[cacheKey] = { ts: Date.now(), result };
-    res.json(result);
-});
-
 // Live flight tracking — position + accumulated trail
 const _liveCache = {};
 const LIVE_TTL = 5000; // 5s cache; client polls every 8s

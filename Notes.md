@@ -44,6 +44,34 @@
 ~~Modal add flight tail and flight # fields overlapping~~
 ~~I think a 6 hour window may be too long for location overlap. Near misses may need to be minimized a bit so they aren't too cluttering. Again we want to emphasize good and realistic chances to meet up.~~ 
 ~~Maybe a new feature that shows common off days by users for planning things outside of flying.~~
-Rework ADS-B trail. Home and Base are green. Current location flashaing pulse.
-Make all airport codes 3 letter. (Kyle)
-Sam is missing flight #s on list and calendar tooltips. Make them all consisent for all users. Kyle's might be different. 
+~~Change name of the app. Come up with something more fitting.~~
+
+~~Haptic feedback - using navigator.vibrate() for button taps~~
+
+~~Pull to refresh - swipe down gesture to refresh/reload data~~
+
+~~Loading states - skeleton screens or spinners when loading data~~
+
+~~Smooth transitions - CSS transitions between views~~
+
+~~Swipe gestures - swipe between months in calendar~~
+
+~~Active states - better tap feedback on buttons (:active pseudo-class)~~
+
+~~Bottom safe area - proper handling of iPhone notch/home indicator~~
+
+Touch-friendly targets - ensure all tap targets are at least 44px
+
+~~Momentum scrolling - -webkit-overflow-scrolling: touch~~
+
+~~Add to homescreen prompt - guide users to install as PWA~~
+
+~~Offline indicator - show when offline~~
+
+~~Navigation improvements - maybe a proper mobile nav bar~~
+
+~~Status bar theming - meta theme-color~~
+
+~~Splash screen - custom loading screen for PWA~~
+
+~~Scroll to top - when switching views~~

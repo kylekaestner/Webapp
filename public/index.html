@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Dispatch">
+    <meta name="apple-mobile-web-app-title" content="CrewSync">
     <meta name="theme-color" content="#09090b">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Dispatch | Crowded Skies</title>
+    <title>CrewSync</title>
     <script>
         // Auto-refresh when reopened from iOS home screen after 5 min idle
         (function() {
@@ -142,18 +142,186 @@
         @keyframes here-pulse { 0% { box-shadow: 0 0 0 0 rgba(168,85,247,0.7); } 70% { box-shadow: 0 0 0 16px rgba(168,85,247,0); } 100% { box-shadow: 0 0 0 0 rgba(168,85,247,0); } }
         @keyframes here-pulse-plane { 0% { box-shadow:0 0 0 0 var(--pc); } 70% { box-shadow:0 0 0 16px var(--pc0); } 100% { box-shadow:0 0 0 0 var(--pc0); } }
         .here-dot { width: 16px; height: 16px; border-radius: 50%; background: #a855f7; border: 2px solid #fff; animation: here-pulse 2s ease-out infinite; }
+        @keyframes toast-in  { from { opacity:0; transform:translateY(-14px) scale(0.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+        @keyframes toast-out { from { opacity:1; transform:translateY(0) scale(1); } to { opacity:0; transform:translateY(-10px) scale(0.97); } }
+        #toast-container { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:99999; display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
+        .toast { pointer-events:auto; display:flex; align-items:center; gap:10px; padding:11px 18px; border-radius:14px; font-size:13px; font-weight:600; line-height:1.3; max-width:380px; white-space:pre-wrap; box-shadow:0 8px 32px rgba(0,0,0,0.5); backdrop-filter:blur(12px); animation:toast-in 0.22s cubic-bezier(.2,.8,.3,1) forwards; }
+        .toast.out { animation:toast-out 0.18s ease-in forwards; }
+        .toast-success { background:rgba(20,83,45,0.95); border:1px solid rgba(34,197,94,0.45); color:#bbf7d0; }
+        .toast-error   { background:rgba(69,10,10,0.95);  border:1px solid rgba(239,68,68,0.45);  color:#fecaca; }
+        .toast-info    { background:rgba(15,23,42,0.95);  border:1px solid rgba(99,102,241,0.45); color:#c7d2fe; }
         @keyframes dash-flow { to { stroke-dashoffset: -18; } }
         .active-route { stroke-dasharray: 10, 5; stroke-dashoffset: 0; animation: dash-flow 0.5s linear infinite; }
         @keyframes active-leg-pulse { 0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.15); } 50% { box-shadow: 0 0 14px rgba(34,197,94,0.65); } }
         .active-leg { animation: active-leg-pulse 1.8s ease-in-out infinite; }
         .map-hit { pointer-events: stroke !important; }
+
+        /* ── Tap active states ─────────────────────────────────────── */
+        @media (hover: none) {
+            .mbtn:active            { transform: scale(0.86); opacity: 0.65; }
+            .mpilot-btn:active      { transform: scale(0.92); opacity: 0.75; }
+            .map-ctrl-pill:active   { transform: scale(0.92); opacity: 0.75; }
+            .map-mode-bar-pill:active { transform: scale(0.92); opacity: 0.75; }
+            .flight-item:active     { opacity: 0.6; transform: scale(0.985); }
+            .flight-row:active      { opacity: 0.6; }
+            button:not(:disabled):active { opacity: 0.65; }
+            .mbtn, .mpilot-btn, .map-ctrl-pill, .map-mode-bar-pill, .flight-item, .flight-row, button {
+                transition: transform 0.06s ease, opacity 0.06s ease;
+            }
+        }
+
+        /* ── Pull-to-refresh indicator ─────────────────────────────── */
+        #ptr-indicator {
+            position: absolute; top: 0; left: 50%; transform: translate(-50%, -52px);
+            width: 36px; height: 36px; border-radius: 50%;
+            background: rgba(30,30,36,0.95); border: 1px solid rgba(99,102,241,0.4);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; z-index: 50; opacity: 0;
+            transition: opacity 0.15s; pointer-events: none;
+        }
+        #ptr-indicator.ptr-releasing { animation: ptr-spin 0.5s linear infinite; }
+        @keyframes ptr-spin { to { transform: translate(-50%, -52px) rotate(360deg); } }
+
+        /* ── View fade-in transition ────────────────────────────────── */
+        .view-section.view-active {
+            animation: view-fade 0.14s ease forwards;
+        }
+        @keyframes view-fade {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+
+        /* ── Momentum scrolling ─────────────────────────────────────── */
+        #view-grid, #view-list, #view-overlap {
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* ── Loading overlay ────────────────────────────────────────── */
+        #loading-overlay {
+            position: fixed; inset: 0; z-index: 9000;
+            background: rgba(5,5,5,0.55); backdrop-filter: blur(3px);
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: none; opacity: 0; transition: opacity 0.18s;
+        }
+        #loading-overlay.loading-active { opacity: 1; pointer-events: auto; }
+        .loading-spinner {
+            width: 30px; height: 30px;
+            border: 2px solid rgba(99,102,241,0.2);
+            border-top-color: #818cf8; border-radius: 50%;
+            animation: spin-loader 0.65s linear infinite;
+        }
+        @keyframes spin-loader { to { transform: rotate(360deg); } }
+
+        /* ── Splash screen ──────────────────────────────────────────── */
+        #splash-screen {
+            position: fixed; inset: 0; z-index: 999999;
+            background: #050505;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 0; transition: opacity 0.45s ease;
+        }
+        #splash-screen.splash-hide { opacity: 0; pointer-events: none; }
+        #splash-screen.splash-gone { display: none; }
+        .splash-plane {
+            font-size: 52px; line-height: 1; margin-bottom: 20px;
+            animation: splash-float 2s ease-in-out infinite;
+        }
+        @keyframes splash-float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+        .splash-title {
+            font-size: 28px; font-weight: 900; font-style: italic;
+            color: #3b82f6; letter-spacing: -0.04em; text-transform: uppercase;
+        }
+        .splash-sub {
+            font-size: 11px; font-weight: 700; color: #3f3f46;
+            letter-spacing: 0.18em; text-transform: uppercase; margin-top: 6px;
+        }
+        .splash-dots {
+            display: flex; gap: 6px; margin-top: 40px;
+        }
+        .splash-dot {
+            width: 5px; height: 5px; border-radius: 50%; background: #3b82f6;
+            animation: splash-pulse 1.2s ease-in-out infinite;
+        }
+        .splash-dot:nth-child(2) { animation-delay: 0.2s; }
+        .splash-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes splash-pulse {
+            0%, 80%, 100% { opacity: 0.15; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1); }
+        }
+
+        /* ── Mobile nav — active indicator ──────────────────────────── */
+        .mbtn { position: relative; }
+        .mbtn::before {
+            content: '';
+            position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+            width: 0; height: 2px; border-radius: 0 0 3px 3px;
+            background: #3b82f6;
+            transition: width 0.2s cubic-bezier(.2,.8,.3,1);
+        }
+        .mbtn.mbtn-active { color: #3b82f6 !important; }
+        .mbtn.mbtn-active::before { width: 28px; }
+
+        /* ── PWA install prompt ─────────────────────────────────────── */
+        #pwa-prompt {
+            position: fixed; left: 12px; right: 12px;
+            bottom: calc(60px + env(safe-area-inset-bottom));
+            z-index: 9500;
+            background: rgba(15,23,42,0.97);
+            border: 1px solid rgba(99,102,241,0.35);
+            border-radius: 16px; padding: 12px 14px;
+            display: flex; align-items: center; gap: 10px;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            transform: translateY(16px); opacity: 0;
+            transition: transform 0.32s cubic-bezier(.2,.8,.3,1), opacity 0.28s ease;
+            pointer-events: none;
+        }
+        #pwa-prompt.pwa-visible { transform: translateY(0); opacity: 1; pointer-events: auto; }
+        @media (min-width: 768px) { #pwa-prompt { display: none !important; } }
+
+        /* ── Offline banner ─────────────────────────────────────────── */
+        #offline-banner {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 99998;
+            background: rgba(69,10,10,0.97);
+            border-bottom: 1px solid rgba(239,68,68,0.45);
+            color: #fecaca; text-align: center;
+            font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
+            padding: max(8px, env(safe-area-inset-top)) 16px 8px;
+            transform: translateY(-100%); transition: transform 0.25s ease;
+        }
+        #offline-banner.offline-visible { transform: translateY(0); }
     </style>
 </head>
 <body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;">
+<div id="toast-container"></div>
+<div id="splash-screen">
+    <div class="splash-plane">✈️</div>
+    <div class="splash-title">CrewSync</div>
+    <div class="splash-sub">Crew Scheduling</div>
+    <div class="splash-dots">
+        <div class="splash-dot"></div>
+        <div class="splash-dot"></div>
+        <div class="splash-dot"></div>
+    </div>
+</div>
+<div id="offline-banner">⚡ No internet connection</div>
+<div id="loading-overlay"><div class="loading-spinner"></div></div>
+<div id="ptr-indicator">↻</div>
+<div id="pwa-prompt">
+    <div style="font-size:20px;line-height:1;flex-shrink:0">✈️</div>
+    <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:800;color:#e2e8f0;letter-spacing:0.01em">Install CrewSync</div>
+        <div id="pwa-prompt-sub" style="font-size:10px;color:#94a3b8;margin-top:2px;line-height:1.4">Add to Home Screen for the full experience</div>
+    </div>
+    <button id="pwa-install-btn" onclick="pwaInstall()" style="display:none;background:rgba(99,102,241,0.18);border:1px solid rgba(99,102,241,0.45);color:#a5b4fc;font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;white-space:nowrap;flex-shrink:0">Install</button>
+    <button onclick="pwaDismiss()" style="background:none;border:none;color:#64748b;font-size:16px;padding:2px 4px;flex-shrink:0;line-height:1;cursor:pointer">✕</button>
+</div>
 
     <div id="sidebar" class="hidden md:flex w-64 border-r border-zinc-800 bg-zinc-900/20 flex-col shrink-0">
         <div class="p-6 border-b border-zinc-800 text-center shrink-0">
-            <h1 class="text-blue-500 font-black italic text-xl tracking-tighter uppercase">Crowded Skies</h1>
+            <h1 class="text-blue-500 font-black italic text-xl tracking-tighter uppercase">CrewSync</h1>
         </div>
 
         <div class="flex-1 min-h-0 overflow-y-auto">
@@ -235,7 +403,7 @@
                     <span class="w-5 h-[2px] bg-zinc-500 group-hover:bg-zinc-200 transition-colors rounded-full"></span>
                 </button>
                 <div class="flex flex-col">
-                    <h2 id="pilot-header" class="font-black uppercase tracking-widest text-xs text-zinc-400 italic">Dispatch</h2>
+                    <h2 id="pilot-header" class="font-black uppercase tracking-widest text-xs text-zinc-400 italic">CrewSync</h2>
                     <div class="text-2xl font-black italic tracking-tighter text-white uppercase" id="current-month-display">May 2026</div>
                 </div>
                 <div class="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800">
@@ -254,7 +422,7 @@
         <!-- Mobile header -->
         <header class="md:hidden border-b border-zinc-800 flex items-end justify-between px-4 bg-black/60 backdrop-blur-md shrink-0" style="height: calc(56px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); padding-bottom: 10px;">
             <div class="flex flex-col leading-tight">
-                <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic">Dispatch</span>
+                <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic">CrewSync</span>
                 <span id="current-month-display-mobile" class="text-base font-black italic tracking-tighter text-white uppercase">May 2026</span>
             </div>
             <div class="flex items-center gap-1">
@@ -380,20 +548,25 @@
 
         <!-- Mobile bottom nav -->
         <nav class="md:hidden border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md flex items-end shrink-0" style="padding-bottom: env(safe-area-inset-bottom);">
-            <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
-                <span class="text-base leading-none">📅</span><span class="text-[8px] font-black uppercase tracking-wide">Grid</span>
+            <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Grid</span>
             </button>
-            <button onclick="switchView('list')" id="mbtn-list" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
-                <span class="text-base leading-none">📜</span><span class="text-[8px] font-black uppercase tracking-wide">List</span>
+            <button onclick="switchView('list')" id="mbtn-list" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">List</span>
             </button>
-            <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
-                <span class="text-base leading-none">🗺️</span><span class="text-[8px] font-black uppercase tracking-wide">Map</span>
+            <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Map</span>
             </button>
-            <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
-                <span class="text-base leading-none">🤝</span><span class="text-[8px] font-black uppercase tracking-wide">Overlap</span>
+            <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="12" r="6.5"/><circle cx="15" cy="12" r="6.5"/></svg>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Overlap</span>
             </button>
-            <button onclick="const p=currentPilot||'kyle';document.getElementById('mobile-upload-pilot-select').value=p;updateUploadSyncButtons(p);document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
-                <span class="text-base leading-none">⬆️</span><span class="text-[8px] font-black uppercase tracking-wide">Upload</span>
+            <button onclick="const p=currentPilot||'kyle';document.getElementById('mobile-upload-pilot-select').value=p;updateUploadSyncButtons(p);document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Upload</span>
             </button>
         </nav>
     </div>
@@ -436,11 +609,11 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">From</label>
-                        <input type="text" id="add-dep" maxlength="4" placeholder="ORD" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                        <input type="text" id="add-dep" maxlength="4" placeholder="ORD" oninput="this.value=this.value.toUpperCase()" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
                     </div>
                     <div>
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">To</label>
-                        <input type="text" id="add-arr" maxlength="4" placeholder="SFO" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                        <input type="text" id="add-arr" maxlength="4" placeholder="SFO" oninput="this.value=this.value.toUpperCase()" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
                     </div>
                 </div>
                 <!-- Times -->
@@ -465,15 +638,11 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div class="min-w-0">
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Flight # <span id="add-flight-num-label" class="text-zinc-600 normal-case font-normal">(opt)</span></label>
-                        <div class="flex gap-1.5">
-                            <input type="text" id="add-flight-num" placeholder="UA 442" class="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
-                            <button id="btn-flight-lookup" onclick="lookupFlight()" class="hidden w-10 shrink-0 flex items-center justify-center rounded-xl border border-zinc-700 bg-zinc-800 hover:border-blue-500 hover:text-blue-400 text-zinc-400 transition text-base" title="Look up times">🔍</button>
-                        </div>
-                        <div id="flight-lookup-status" class="hidden text-[10px] mt-1 font-bold"></div>
+                        <input type="text" id="add-flight-num" placeholder="UA 442" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
                     </div>
                     <div class="min-w-0">
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Tail # <span class="text-zinc-600 normal-case font-normal">(opt)</span></label>
-                        <input type="text" id="add-tail-num" placeholder="N12345" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                        <input type="text" id="add-tail-num" placeholder="N12345" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
                     </div>
                 </div>
                 <!-- Error -->
@@ -831,7 +1000,85 @@
         // Server-side data store
         const pilotsCache = {};
         const API_BASE = '/api';
-        
+
+        function showToast(msg, type = 'success', duration = 3800) {
+            const icons = { success: '✓', error: '✕', info: 'ℹ' };
+            const el = document.createElement('div');
+            el.className = `toast toast-${type}`;
+            el.innerHTML = `<span style="font-size:15px;flex-shrink:0">${icons[type] || icons.info}</span><span>${msg}</span>`;
+            const container = document.getElementById('toast-container');
+            container.appendChild(el);
+            const dismiss = () => {
+                el.classList.add('out');
+                el.addEventListener('animationend', () => el.remove(), { once: true });
+            };
+            el.addEventListener('click', dismiss);
+            setTimeout(dismiss, duration);
+        }
+
+        // ── Haptic feedback ──────────────────────────────────────────────────
+        function haptic(type = 'tap') {
+            if (!navigator.vibrate) return;
+            const p = { tap: 8, success: [10, 40, 10], error: [60, 40, 60], heavy: 22 };
+            navigator.vibrate(p[type] ?? 8);
+        }
+
+        // ── Swipe to change month + pull-to-refresh ─────────────────────────
+        function setupMobileGestures() {
+            const scrollEls = ['view-grid', 'view-list'].map(id => document.getElementById(id)).filter(Boolean);
+            const ptr = document.getElementById('ptr-indicator');
+
+            scrollEls.forEach(el => {
+                let startX = 0, startY = 0, ptrActive = false, ptrTriggered = false;
+
+                el.addEventListener('touchstart', e => {
+                    startX = e.touches[0].clientX;
+                    startY = e.touches[0].clientY;
+                    ptrActive = el.scrollTop === 0;
+                    ptrTriggered = false;
+                }, { passive: true });
+
+                el.addEventListener('touchmove', e => {
+                    if (!ptrActive) return;
+                    const dy = e.touches[0].clientY - startY;
+                    const dx = e.touches[0].clientX - startX;
+                    if (dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+                        const pull = Math.min(dy, 90);
+                        const pct  = pull / 70;
+                        ptr.style.opacity  = String(Math.min(pct, 1));
+                        ptr.style.transform = `translate(-50%, ${pull - 52}px) rotate(${pct * 180}deg)`;
+                        ptr.classList.toggle('ptr-releasing', pull >= 70);
+                        ptrTriggered = pull >= 70;
+                    }
+                }, { passive: true });
+
+                el.addEventListener('touchend', e => {
+                    if (!ptrActive) return;
+                    const dx = e.changedTouches[0].clientX - startX;
+                    const dy = e.changedTouches[0].clientY - startY;
+
+                    // Reset pull indicator
+                    ptr.style.opacity = '0';
+                    ptr.style.transform = 'translate(-50%, -52px)';
+                    ptr.classList.remove('ptr-releasing');
+
+                    if (ptrTriggered) {
+                        haptic('success');
+                        loadPilot(currentPilot);
+                        showToast('Schedule refreshed', 'info', 1800);
+                        return;
+                    }
+
+                    // Horizontal swipe → change month (only on grid/list)
+                    if ((currentView === 'grid' || currentView === 'list') &&
+                        Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                        haptic('tap');
+                        changeMonth(dx < 0 ? 1 : -1);
+                    }
+                }, { passive: true });
+            });
+        }
+
         // Preload sample ICS (your attached schedule) so Kyle's trips show immediately
         const SAMPLE_ICS = `BEGIN:VCALENDAR
     VERSION:2.0
@@ -1388,7 +1635,7 @@
                 return result;
             } catch (error) {
                 console.error('Upload error:', error);
-                alert(`Upload error: ${error.message}`);
+                showToast(`Upload error: ${error.message}`, 'error');
                 return null;
             } finally {
                 isLoading = false;
@@ -1447,12 +1694,16 @@
         }
 
         function loadPilot(pilot) {
+            haptic('tap');
             currentPilot = pilot;
             localStorage.setItem('lastPilot', pilot);
 
+            const loadingOverlay = document.getElementById('loading-overlay');
+            loadingOverlay.classList.add('loading-active');
 
             // Fetch from server
             fetchPilotData(pilot).then((data) => {
+                loadingOverlay.classList.remove('loading-active');
                 if (!data) {
                     console.error('Failed to load pilot data');
                     return;
@@ -1516,6 +1767,7 @@
                 }
                 render();
                 if (currentView === 'overlap') computeOverlap();
+                dismissSplash();
             });
         }
 
@@ -1530,18 +1782,21 @@
         }
 
         function switchView(view) {
+            haptic('tap');
             currentView = view;
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('view-active'));
-            document.getElementById(`view-${view}`).classList.add('view-active');
+            const viewEl = document.getElementById(`view-${view}`);
+            viewEl.classList.add('view-active');
+            viewEl.scrollTop = 0;
             // Desktop nav
             ['grid','list','map','overlap'].forEach(v => {
                 const btn = document.getElementById(`btn-${v}`);
                 if (btn) btn.classList.toggle('nav-active', v === view);
             });
             // Mobile bottom nav
-            document.querySelectorAll('.mbtn').forEach(b => { b.style.color = ''; });
+            document.querySelectorAll('.mbtn').forEach(b => b.classList.remove('mbtn-active'));
             const mbtn = document.getElementById(`mbtn-${view}`);
-            if (mbtn) mbtn.style.color = '#3b82f6';
+            if (mbtn) mbtn.classList.add('mbtn-active');
             const modeNav = document.getElementById('map-mode-nav');
             if (modeNav) { if (view === 'map') modeNav.classList.replace('hidden', 'flex'); else modeNav.classList.replace('flex', 'hidden'); }
             if (view === 'map') initMap();
@@ -2296,7 +2551,7 @@
             else hiddenPilots.add(key);
             const el = document.getElementById(`legend-pilot-${key}`);
             if (el) el.style.opacity = hiddenPilots.has(key) ? '0.3' : '';
-            renderAllPilotsMap();
+            if (mapDayMode) renderDayMap(); else renderAllPilotsMap();
         }
 
         async function renderAllPilotsMap() {
@@ -3871,13 +4126,13 @@
             const result = await uploadPilotSchedule(uploadPilot, file);
             
             if (result && result.success) {
-                alert(`Successfully uploaded ${result.segmentsAdded} segments for ${uploadPilot}`);
+                showToast(`Schedule uploaded — ${result.segmentsAdded} segments added for ${uploadPilot}`);
                 // If the uploaded pilot is currently viewed, reload their data
                 if (uploadPilot === currentPilot) {
                     loadPilot(currentPilot);
                 }
             } else {
-                alert('Upload failed. Check console for details.');
+                showToast('Upload failed — check the browser console for details.', 'error');
             }
             
             // Reset input
@@ -3995,64 +4250,9 @@
                 else btn.classList.add('text-zinc-500');
                 btn.classList.toggle('text-zinc-500', t !== type);
             });
-            const isLookupType = type === 'dh' || type === 'commute' || type === 'personal';
-            document.getElementById('btn-flight-lookup')?.classList.toggle('hidden', !isLookupType);
-            const lbl = document.getElementById('add-flight-num-label');
-            if (lbl) lbl.textContent = isLookupType ? '— enter to auto-fill times' : '(optional)';
-            document.getElementById('flight-lookup-status')?.classList.add('hidden');
         }
 
-        function utcToAirportLocal(utcISO, airportCode) {
-            const d = new Date(utcISO);
-            const tz = airportTz(airportCode);
-            if (!tz) return { date: utcISO.slice(0, 10), time: utcISO.slice(11, 16) };
-            const date = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d);
-            const time = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(d).replace(/^24:/, '00:');
-            return { date, time };
-        }
-
-        async function lookupFlight() {
-            const flight = document.getElementById('add-flight-num').value.trim();
-            const date   = document.getElementById('add-date').value;
-            const dep    = document.getElementById('add-dep').value.trim().toUpperCase();
-            const btn    = document.getElementById('btn-flight-lookup');
-            const status = document.getElementById('flight-lookup-status');
-            if (!flight) { status.textContent = 'Enter a flight number first.'; status.className = 'text-[10px] mt-1 font-bold text-yellow-500'; status.classList.remove('hidden'); return; }
-            if (!date)   { status.textContent = 'Enter a date first.'; status.className = 'text-[10px] mt-1 font-bold text-yellow-500'; status.classList.remove('hidden'); return; }
-            status.textContent = 'Looking up…'; status.className = 'text-[10px] mt-1 font-bold text-zinc-400'; status.classList.remove('hidden');
-            btn.textContent = '⏳'; btn.disabled = true;
-            try {
-                const params = new URLSearchParams({ flight, date });
-                if (dep) params.set('dep', dep);
-                const r = await fetch(`${API_BASE}/flight-lookup?${params}`).then(r => r.json());
-                if (!r.found) {
-                    status.textContent = dep ? `Flight not found for ${date} from ${dep}.` : 'Not found — try adding the departure airport.';
-                    status.className = 'text-[10px] mt-1 font-bold text-red-400';
-                } else {
-                    if (r.depAirport) document.getElementById('add-dep').value = r.depAirport;
-                    if (r.arrAirport) document.getElementById('add-arr').value = r.arrAirport;
-                    if (r.depUTC) {
-                        const loc = utcToAirportLocal(r.depUTC, r.depAirport || dep);
-                        document.getElementById('add-date').value = loc.date;
-                        document.getElementById('add-dep-time').value = loc.time;
-                    }
-                    if (r.arrUTC) {
-                        const loc = utcToAirportLocal(r.arrUTC, r.arrAirport || dep);
-                        document.getElementById('add-arr-time').value = loc.time;
-                    }
-                    _blockUserEdited = false;
-                    autoComputeBlockTime();
-                    status.textContent = `Found: ${r.depAirport} → ${r.arrAirport}`;
-                    status.className = 'text-[10px] mt-1 font-bold text-green-400';
-                }
-            } catch (e) {
-                status.textContent = 'Lookup failed — check connection.';
-                status.className = 'text-[10px] mt-1 font-bold text-red-400';
-            }
-            btn.textContent = '🔍'; btn.disabled = false;
-        }
-
-        let _blockUserEdited = false;
+let _blockUserEdited = false;
 
         function calcBlockMins(f) {
             if (f.blockMinutes != null) return f.blockMinutes;
@@ -4169,7 +4369,6 @@
             document.getElementById('add-block-auto-label').textContent = '(auto-calculated)';
             document.getElementById('add-arr-next-day-label').textContent = '';
             document.getElementById('add-flight-error').classList.add('hidden');
-            document.getElementById('flight-lookup-status')?.classList.add('hidden');
             setAddFlightType('work');
             document.getElementById('add-flight-modal').classList.remove('hidden');
         }
@@ -4221,10 +4420,10 @@
             try {
                 const resp = await fetch(`${API_BASE}/pilots/${currentPilot}/segments/${segmentId}`, { method: 'DELETE' });
                 const data = await resp.json();
-                if (data.success) loadPilot(currentPilot);
-                else alert(data.error || 'Failed to delete flight.');
+                if (data.success) { haptic('success'); loadPilot(currentPilot); showToast('Flight deleted'); }
+                else showToast(data.error || 'Failed to delete flight.', 'error');
             } catch (e) {
-                alert('Network error — is the server running?');
+                showToast('Network error — is the server running?', 'error');
             }
         }
 
@@ -4284,6 +4483,7 @@
                 if (data.success) {
                     closeAddFlight();
                     if (pilot === currentPilot) loadPilot(currentPilot);
+                    showToast(isEdit ? 'Flight updated' : 'Flight added');
                 } else {
                     errEl.textContent = data.error || (isEdit ? 'Failed to save changes.' : 'Failed to add flight.');
                     errEl.classList.remove('hidden');
@@ -4304,10 +4504,10 @@
             document.getElementById('mobile-upload-sheet').classList.add('hidden');
             const result = await uploadPilotSchedule(uploadPilot, file);
             if (result && result.success) {
-                alert(`Uploaded ${result.segmentsAdded} segments for ${uploadPilot}`);
+                showToast(`Schedule uploaded — ${result.segmentsAdded} segments for ${uploadPilot}`);
                 if (uploadPilot === currentPilot) loadPilot(currentPilot);
             } else {
-                alert('Upload failed. Check console for details.');
+                showToast('Upload failed — check the browser console for details.', 'error');
             }
             input.value = '';
         }
@@ -4363,7 +4563,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     if (currentPilot === 'kyle') loadPilot('kyle');
-                    alert(`Synced ${data.segmentsAdded} segments from Schedaero.`);
+                    showToast(`Schedaero synced — ${data.segmentsAdded} segments updated`);
                 } else if (data.sessionExpired) {
                     openSchedaeroSync(true);
                 } else {
@@ -4442,7 +4642,7 @@
                     body: JSON.stringify({ url, apiToken, cookie, monthsBack, monthsAhead })
                 }).catch(() => {});
                 closeSchedaeroModal();
-                alert(`Synced ${totalAdded} segments from Schedaero.`);
+                showToast(`Schedaero synced — ${totalAdded} segments updated`);
                 if (currentPilot === 'kyle') loadPilot('kyle');
             }
         }
@@ -4489,7 +4689,7 @@
                 const result = await resp.json();
                 if (result.success) {
                     closeDrewICSModal();
-                    alert(`Synced ${result.segmentsAdded} segments for Drew.`);
+                    showToast(`Drew's schedule synced — ${result.segmentsAdded} segments updated`);
                     if (currentPilot === 'drew') loadPilot('drew');
                 } else {
                     errEl.textContent = result.error || 'Sync failed';
@@ -4505,10 +4705,84 @@
         // ─────────────────────────────────────────────────────────────────
 
         // Initialize on page load
+        // ── Offline indicator ───────────────────────────────────────────
+        (function setupOfflineIndicator() {
+            const banner = document.getElementById('offline-banner');
+            const show = () => { banner.classList.add('offline-visible'); haptic('error'); };
+            const hide = () => {
+                banner.classList.remove('offline-visible');
+                showToast('Back online', 'success', 2500);
+            };
+            window.addEventListener('offline', show);
+            window.addEventListener('online', hide);
+            if (!navigator.onLine) banner.classList.add('offline-visible');
+        })();
+
+        // ── PWA install prompt ──────────────────────────────────────────
+        let _pwaDeferred = null;
+
+        function _pwaCanShow() {
+            if (window.navigator.standalone) return false; // already installed
+            const ts = parseInt(localStorage.getItem('pwa-dismissed') || '0');
+            return Date.now() - ts > 7 * 24 * 60 * 60 * 1000;
+        }
+
+        function _pwaShow(platform) {
+            if (!_pwaCanShow()) return;
+            const prompt = document.getElementById('pwa-prompt');
+            if (!prompt) return;
+            if (platform === 'ios') {
+                document.getElementById('pwa-prompt-sub').textContent = 'Tap the Share button ↑ then "Add to Home Screen"';
+            } else {
+                document.getElementById('pwa-install-btn').style.display = '';
+            }
+            setTimeout(() => prompt.classList.add('pwa-visible'), 2000);
+        }
+
+        async function pwaInstall() {
+            if (!_pwaDeferred) return;
+            _pwaDeferred.prompt();
+            await _pwaDeferred.userChoice;
+            _pwaDeferred = null;
+            pwaDismiss();
+        }
+
+        function pwaDismiss() {
+            localStorage.setItem('pwa-dismissed', String(Date.now()));
+            const prompt = document.getElementById('pwa-prompt');
+            if (prompt) prompt.classList.remove('pwa-visible');
+        }
+
+        // Android/Chrome: capture native prompt
+        window.addEventListener('beforeinstallprompt', e => {
+            e.preventDefault();
+            _pwaDeferred = e;
+            _pwaShow('android');
+        });
+
+        // iOS Safari: show manual instructions if not already installed
+        (function() {
+            const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+            const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+            if (isIOS && isSafari && !window.navigator.standalone) _pwaShow('ios');
+        })();
+
+        // ── Splash screen ───────────────────────────────────────────────
+        function dismissSplash() {
+            const s = document.getElementById('splash-screen');
+            if (!s || s.classList.contains('splash-hide')) return;
+            s.classList.add('splash-hide');
+            s.addEventListener('transitionend', () => s.classList.add('splash-gone'), { once: true });
+        }
+        // Safety fallback — dismiss after 4s no matter what
+        setTimeout(dismissSplash, 4000);
+
         window.addEventListener('DOMContentLoaded', () => {
+            setupMobileGestures();
+
             // Set initial mobile nav active state
             const mbtn = document.getElementById('mbtn-grid');
-            if (mbtn) mbtn.style.color = '#3b82f6';
+            if (mbtn) mbtn.classList.add('mbtn-active');
             const VALID_PILOTS = ['kyle','adam','sam','logan','drew'];
             const urlPilot = new URLSearchParams(window.location.search).get('pilot');
             const defaultPilot = VALID_PILOTS.includes(urlPilot) ? urlPilot

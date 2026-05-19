@@ -1,4 +1,4 @@
-# Crowded Skies — Pilot Bookmarks
+# CrewSync — Pilot Bookmarks
 
 Each pilot should bookmark their personal link and add it to their iPhone home screen.
 The app will auto-load their schedule on every open.
@@ -28,6 +28,6 @@ The app will auto-load their schedule on every open.
 1. Open the link in Safari
 2. Tap the Share button (box with arrow)
 3. Tap **Add to Home Screen**
-4. Name it "Crowded Skies" and tap Add
+4. Name it "CrewSync" and tap Add
 
 The app will open full-screen and auto-load the correct pilot every time.

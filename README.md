@@ -1,4 +1,4 @@
-# Crowded Skies
+# CrewSync
 
 A private pilot scheduling and crew coordination web app. Tracks flight schedules for a group of pilots, shows live ADS-B positions, calculates location overlaps, and works as an installable mobile webapp.
 

@@ -1,7 +1,7 @@
 {
-  "name": "crowded-skies",
+  "name": "crewsync",
   "version": "1.0.0",
-  "description": "Flight crew dispatch scheduling system",
+  "description": "Flight crew scheduling and tracking",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -1,6 +1,6 @@
 {
-  "name": "Dispatch – Crowded Skies",
-  "short_name": "Dispatch",
+  "name": "CrewSync",
+  "short_name": "CrewSync",
   "description": "Flight crew scheduling and tracking",
   "start_url": "/",
   "display": "standalone",
