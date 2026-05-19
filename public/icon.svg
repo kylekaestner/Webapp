@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#0a0f1e"/>
+    </linearGradient>
+    <linearGradient id="plane" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#bfdbfe"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="192" height="192" rx="42" fill="#0a0f1e"/>
+  <rect width="192" height="192" rx="42" fill="url(#bg)" opacity="0.85"/>
+
+  <!-- Airplane — top-down view, pointing NE (rotated 45°) -->
+  <g transform="translate(96,96) rotate(45)">
+    <!-- Fuselage -->
+    <path d="M0,-46 C3.5,-46 5,-42 5,-36 L5,40 C5,45 2.5,48 0,48 C-2.5,48 -5,45 -5,40 L-5,-36 C-5,-42 -3.5,-46 0,-46 Z" fill="url(#plane)"/>
+    <!-- Main wings -->
+    <path d="M5,-12 L50,20 C52,22 51,26 48,26 L5,14 L-5,14 L-48,26 C-51,26 -52,22 -50,20 L-5,-12 Z" fill="url(#plane)"/>
+    <!-- Tail fins -->
+    <path d="M5,32 L24,50 C26,52 24,56 21,55 L5,40 L-5,40 L-21,55 C-24,56 -26,52 -24,50 L-5,32 Z" fill="url(#plane)"/>
+  </g>
+</svg>
