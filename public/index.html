@@ -388,7 +388,7 @@
     </div>
 
     <!-- Add Flight Modal -->
-    <div id="add-flight-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" onclick="if(event.target===this)closeAddFlight()">
+    <div id="add-flight-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)closeAddFlight()">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
             <!-- Modal header -->
@@ -477,7 +477,7 @@
     </div>
 
     <!-- Day detail sheet (bottom sheet on mobile, centered modal on desktop) -->
-    <div id="day-detail-sheet" class="hidden fixed inset-0 z-50 flex items-end md:items-center md:justify-center md:p-6" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div id="day-detail-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:items-center md:justify-center md:p-6" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
         <div class="relative w-full md:w-auto md:min-w-[380px] md:max-w-md bg-zinc-900 border-t md:border border-zinc-700 rounded-t-2xl md:rounded-2xl max-h-[78vh] flex flex-col shadow-2xl" onclick="event.stopPropagation()">
             <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mt-3 mb-1 shrink-0 md:hidden"></div>
@@ -486,7 +486,7 @@
     </div>
 
     <!-- Schedaero Sync Modal -->
-    <div id="schedaero-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" onclick="if(event.target===this)closeSchedaeroModal()">
+    <div id="schedaero-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)closeSchedaeroModal()">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
             <div class="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
@@ -554,7 +554,7 @@
     </div>
 
     <!-- Drew ICS Sync Modal -->
-    <div id="drew-ics-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" onclick="if(event.target===this)closeDrewICSModal()">
+    <div id="drew-ics-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)closeDrewICSModal()">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
             <div class="p-6 space-y-4">
@@ -574,7 +574,7 @@
     </div>
 
     <!-- Mobile upload sheet -->
-    <div id="mobile-upload-sheet" class="hidden fixed inset-0 z-50 flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div id="mobile-upload-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
         <div class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl p-6 space-y-4">
             <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto mb-2"></div>
@@ -1665,7 +1665,7 @@
                     const opacity = hasActive ? 1 : hasFuture ? 0.8 : 0.35;
 
                     const arcCoords = distanceProportionalArc(depC, arrC);
-                    bounds.push(arcCoords[Math.floor(arcCoords.length / 2)]);
+                    bounds.push(arcCoords[0], arcCoords[Math.floor(arcCoords.length / 2)], arcCoords[arcCoords.length - 1]);
                     const line = L.polyline(unwrapLongitudes(arcCoords), { weight, opacity, color: pilotColor, smoothFactor: 1 }).addTo(map);
                     const hit = L.polyline(unwrapLongitudes(arcCoords), { weight: 20, opacity: 0 }).addTo(map);
                     hit.bindPopup(`<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${PILOT_NAMES[key].split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${dep} → ${arr}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`, { className: 'dark-popup' });
@@ -1695,7 +1695,6 @@
                         const coords = resolveAirport(upper);
                         if (!coords) return;
                         airportSeen.add(upper);
-                        bounds.push(coords);
                         const pt = L.circleMarker(coords, { radius: 4, color: '#0f172a', fillColor: '#e2e8f0', fillOpacity: 0.9, weight: 1.5 }).addTo(map);
                         const lbl = L.marker(coords, { icon: L.divIcon({ className: '', html: `<div style="color:#e2e8f0;font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,-180%);white-space:nowrap">${upper}</div>`, iconAnchor: [0,0] }) }).addTo(map);
                         mapLayers.airports.push(pt);
@@ -1818,7 +1817,7 @@
                 const opacity = hasActive ? 1.0 : hasFuture ? 0.85 : 0.45;
 
                 const arcCoords = distanceProportionalArc(depCoords, arrCoords);
-                bounds.push(arcCoords[Math.floor(arcCoords.length / 2)]);
+                bounds.push(arcCoords[0], arcCoords[Math.floor(arcCoords.length / 2)], arcCoords[arcCoords.length - 1]);
                 const line = L.polyline(unwrapLongitudes(arcCoords), { weight, opacity, color, smoothFactor: 1 });
                 const hit  = L.polyline(unwrapLongitudes(arcCoords), { weight: 20, opacity: 0 });
 
@@ -1886,7 +1885,6 @@
                 const coords = resolveAirport(upper);
                 if (!coords || airportSet.has(upper)) return;
                 airportSet.add(upper);
-                bounds.push(coords);
 
                 const { past, future, active } = airportFlightTypes[upper];
                 const visible = (past && showPast) || (future && showFuture) || active;
@@ -2351,7 +2349,6 @@
 
                 addApt(f.departureAirport, f);
                 addApt(f.arrivalAirport, f);
-                bounds.push(depCoords, arrCoords);
 
                 const depTime = flightUTCTime(f.departureTime, f.departureAirport) || new Date(f.departureTime);
                 const arrTime = flightUTCTime(f.arrivalTime || f.departureTime, f.arrivalAirport) || new Date(f.arrivalTime || f.departureTime);
@@ -2363,7 +2360,7 @@
                 const group = pairGroups[pairKey];
                 const offsetIdx = group.indexOf(f);
                 const arcCoords = offsetArc(depCoords, arrCoords, 60, offsetIdx, group.length);
-                bounds.push(arcCoords[Math.floor(arcCoords.length / 2)]);
+                bounds.push(arcCoords[0], arcCoords[Math.floor(arcCoords.length / 2)], arcCoords[arcCoords.length - 1]);
 
                 // Active: stay in pilot color but heavier + full opacity so it reads as "live"
                 const weight = isActive ? 4.5 : 2.5;
