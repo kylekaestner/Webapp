@@ -2117,23 +2117,28 @@
                     marker.setLatLng([d.lat, d.lon]);
                     if (d.heading != null) marker.setIcon(makePlaneIcon(d.heading, color, d.type, true));
 
-                    // Remove previous dynamic lines
-                    if (flownLine) { map.removeLayer(flownLine); const i = activeLayersArr.indexOf(flownLine); if (i >= 0) activeLayersArr.splice(i, 1); }
-                    if (remainLine) { map.removeLayer(remainLine); const i = activeLayersArr.indexOf(remainLine); if (i >= 0) activeLayersArr.splice(i, 1); }
-
                     const livePoint = [d.lat, d.lon];
 
                     // Flown: smooth GPS trail (interpolate great-circle between each pair of fixes)
                     const rawTrail = (d.trail && d.trail.length >= 2) ? d.trail : null;
                     const flownPath = rawTrail ? smoothTrail(rawTrail) : distanceProportionalArc(depCoords, livePoint);
-                    flownLine = L.polyline(flownPath, { color, weight: 1.5, opacity: 0.5, smoothFactor: 1 });
-                    flownLine.addTo(map);
-                    activeLayersArr.push(flownLine);
+                    if (flownLine) {
+                        flownLine.setLatLngs(flownPath); // update in-place — no remove/re-add flicker
+                    } else {
+                        flownLine = L.polyline(flownPath, { color, weight: 1.5, opacity: 0.5, smoothFactor: 0 });
+                        flownLine.addTo(map);
+                        activeLayersArr.push(flownLine);
+                    }
 
-                    // Remaining: great-circle path from live position to destination (no artificial bow)
-                    remainLine = L.polyline(greatCircleArcCoords(livePoint, arrCoords), { color, weight: 1.5, opacity: 0.7, smoothFactor: 1, dashArray: '8 10' });
-                    remainLine.addTo(map);
-                    activeLayersArr.push(remainLine);
+                    // Remaining: great-circle path from live position to destination
+                    const remainPath = greatCircleArcCoords(livePoint, arrCoords);
+                    if (remainLine) {
+                        remainLine.setLatLngs(remainPath);
+                    } else {
+                        remainLine = L.polyline(remainPath, { color, weight: 1.5, opacity: 0.7, smoothFactor: 0, dashArray: '8 10' });
+                        remainLine.addTo(map);
+                        activeLayersArr.push(remainLine);
+                    }
 
                     const altFt = d.altFt ? Math.round(d.altFt) : null;
                     const kts   = d.speedKts ? Math.round(d.speedKts) : null;
