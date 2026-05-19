@@ -999,101 +999,122 @@ app.post('/api/pilots/drew/sync-ics', async (req, res) => {
     });
 });
 
-// Schedaero sync — fetch one month from Schedaero and import into Kyle's schedule
-app.post('/api/pilots/kyle/sync-schedaero', async (req, res) => {
-    const { cookie, schedaeroUrl, apiToken, month, year } = req.body;
+// ── Schedaero helpers ────────────────────────────────────────────────────────
 
-    if (!cookie || !schedaeroUrl || !apiToken) {
-        return res.status(400).json({ error: 'cookie, schedaeroUrl, and apiToken are required' });
+async function fetchSchedaeroMonth(cookie, schedaeroUrl, apiToken, month, year) {
+    const url = `${schedaeroUrl}?month=${month}&year=${year}`;
+    const origin = new URL(schedaeroUrl).origin;
+    const csrfMatch = cookie.match(/(?:^|;\s*)(?:__Host-)?AviCSRF=([^;]+)/);
+    const csrf = csrfMatch ? csrfMatch[1].trim() : null;
+    const headers = {
+        'Cookie': cookie,
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'application/json',
+        'Origin': origin,
+        'Pragma': 'no-cache',
+        'Referer': `${origin}/mvc/crewscheduling/calendar`,
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+        'X-Avinode-SentTimestamp': new Date().toISOString()
+    };
+    if (csrf)     headers['X-AviCSRF'] = csrf;
+    if (apiToken) headers['X-Avinode-ApiToken'] = apiToken;
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+        const err = new Error(`Schedaero returned ${response.status} — session may be expired`);
+        err.status = response.status;
+        err.sessionExpired = response.status === 401 || response.status === 403;
+        throw err;
     }
+    const json = await response.json();
+    return parseSchedaeroData(json.data || json, month, year);
+}
 
-    const targetMonth = parseInt(month) || (new Date().getMonth() + 1);
-    const targetYear  = parseInt(year)  || new Date().getFullYear();
-
-    let schedaeroData;
-    try {
-        const url = `${schedaeroUrl}?month=${targetMonth}&year=${targetYear}`;
-        const parsed = new URL(schedaeroUrl);
-        const origin = parsed.origin;
-
-        // Extract CSRF token from cookie (Schedaero uses __Host-AviCSRF)
-        const csrfMatch = cookie.match(/(?:^|;\s*)(?:__Host-)?AviCSRF=([^;]+)/);
-        const csrf = csrfMatch ? csrfMatch[1].trim() : null;
-
-        const reqHeaders = {
-            'Cookie': cookie,
-            'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Cache-Control': 'no-cache',
-            'Content-Type': 'application/json',
-            'Origin': origin,
-            'Pragma': 'no-cache',
-            'Referer': `${origin}/mvc/crewscheduling/calendar`,
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
-            'X-Avinode-SentTimestamp': new Date().toISOString()
-        };
-        if (csrf) reqHeaders['X-AviCSRF'] = csrf;
-        if (apiToken) reqHeaders['X-Avinode-ApiToken'] = apiToken;
-
-        const response = await fetch(url, { headers: reqHeaders });
-        if (!response.ok) {
-            return res.status(response.status).json({ error: `Schedaero returned ${response.status} — session may be expired` });
-        }
-        const json = await response.json();
-        schedaeroData = json.data || json;
-    } catch (err) {
-        return res.status(500).json({ error: `Could not reach Schedaero: ${err.message}` });
-    }
-
-    const events = parseSchedaeroData(schedaeroData, targetMonth, targetYear);
-
-    const db = getDB();
-    db.get('SELECT id FROM pilots WHERE pilot_key = ?', ['kyle'], (err, pilot) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
-
-        const startDate = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01T00:00:00`;
-        const lastDay   = new Date(targetYear, targetMonth, 0).getDate();
-        const endDate   = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59`;
-
+function importSchedaeroEvents(db, pilotId, events, month, year) {
+    return new Promise((resolve, reject) => {
+        const startDate = `${year}-${String(month).padStart(2,'0')}-01T00:00:00`;
+        const lastDay   = new Date(year, month, 0).getDate();
+        const endDate   = `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}T23:59:59`;
         db.run(
-            'DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0) AND departure_time >= ? AND departure_time <= ?',
-            [pilot.id, startDate, endDate],
+            'DELETE FROM segments WHERE pilot_id=? AND (is_manual IS NULL OR is_manual=0) AND departure_time>=? AND departure_time<=?',
+            [pilotId, startDate, endDate],
             (err) => {
-                if (err) return res.status(500).json({ error: err.message });
-                if (events.length === 0) return res.json({ success: true, segmentsAdded: 0 });
-
-                const stmt = db.prepare(`
-                    INSERT INTO segments
-                    (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `);
-
-                let completed = 0;
-                const errors = [];
-
-                events.forEach(event => {
-                    stmt.run([
-                        pilot.id, event.type,
-                        event.departureTime || null, event.arrivalTime || null,
-                        event.departureAirport || null, event.arrivalAirport || null,
-                        event.tail || null, event.trip || null,
-                        null, 0, null
-                    ], function(err) {
-                        if (err) errors.push(err.message);
-                        completed++;
-                        if (completed === events.length) {
-                            stmt.finalize();
-                            if (errors.length > 0) return res.status(500).json({ error: 'Some segments failed', details: errors });
-                            res.json({ success: true, segmentsAdded: events.length });
-                        }
+                if (err) return reject(err);
+                if (events.length === 0) return resolve(0);
+                const stmt = db.prepare(`INSERT INTO segments (pilot_id,type,departure_time,arrival_time,departure_airport,arrival_airport,tail,trip,flight_number,is_dh,block_minutes) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+                let done = 0; const errs = [];
+                events.forEach(ev => {
+                    stmt.run([pilotId, ev.type, ev.departureTime||null, ev.arrivalTime||null, ev.departureAirport||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, null, 0, null], e => {
+                        if (e) errs.push(e.message);
+                        if (++done === events.length) { stmt.finalize(); errs.length ? reject(new Error(errs.join('; '))) : resolve(events.length); }
                     });
                 });
             }
         );
+    });
+}
+
+// Schedaero sync — fetch one month using credentials from request body
+app.post('/api/pilots/kyle/sync-schedaero', async (req, res) => {
+    const { cookie, schedaeroUrl, apiToken, month, year } = req.body;
+    if (!cookie || !schedaeroUrl || !apiToken) {
+        return res.status(400).json({ error: 'cookie, schedaeroUrl, and apiToken are required' });
+    }
+    const targetMonth = parseInt(month) || (new Date().getMonth() + 1);
+    const targetYear  = parseInt(year)  || new Date().getFullYear();
+    let events;
+    try {
+        events = await fetchSchedaeroMonth(cookie, schedaeroUrl, apiToken, targetMonth, targetYear);
+    } catch (err) {
+        return res.status(err.status || 500).json({ error: err.message, sessionExpired: err.sessionExpired || false });
+    }
+    const db = getDB();
+    db.get('SELECT id FROM pilots WHERE pilot_key=?', ['kyle'], async (err, pilot) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
+        try {
+            const added = await importSchedaeroEvents(db, pilot.id, events, targetMonth, targetYear);
+            res.json({ success: true, segmentsAdded: added });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+});
+
+// Quick sync — uses saved server-side credentials, no body needed (for mobile)
+app.post('/api/pilots/kyle/quick-sync-schedaero', async (req, res) => {
+    const db = getDB();
+    db.get(`SELECT value FROM settings WHERE key='schedaero-creds'`, async (err, row) => {
+        if (err || !row) return res.status(400).json({ error: 'No credentials saved. Use the full sync form first to save your credentials.' });
+        const creds = JSON.parse(row.value);
+        if (!creds.cookie || !creds.url || !creds.apiToken) {
+            return res.status(400).json({ error: 'Incomplete saved credentials.' });
+        }
+        const now = new Date();
+        const months = [];
+        const back  = parseInt(creds.monthsBack)  || 0;
+        const ahead = parseInt(creds.monthsAhead) || 3;
+        for (let i = -back; i < ahead; i++) {
+            const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+            months.push({ month: d.getMonth() + 1, year: d.getFullYear() });
+        }
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', ['kyle'], async (err2, pilot) => {
+            if (err2 || !pilot) return res.status(500).json({ error: 'Pilot not found' });
+            let totalAdded = 0;
+            for (const { month, year } of months) {
+                try {
+                    const events = await fetchSchedaeroMonth(creds.cookie, creds.url, creds.apiToken, month, year);
+                    totalAdded += await importSchedaeroEvents(db, pilot.id, events, month, year);
+                } catch (e) {
+                    return res.status(e.status || 500).json({ error: e.message, sessionExpired: e.sessionExpired || false });
+                }
+            }
+            res.json({ success: true, segmentsAdded: totalAdded });
+        });
     });
 });
 
@@ -1292,3 +1313,20 @@ app.post('/api/settings/:key', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// Keepalive — ping Schedaero every 20 min with stored creds so the session never expires
+setInterval(async () => {
+    const db = getDB();
+    db.get(`SELECT value FROM settings WHERE key='schedaero-creds'`, async (err, row) => {
+        if (err || !row) return;
+        const creds = JSON.parse(row.value);
+        if (!creds.cookie || !creds.url || !creds.apiToken) return;
+        const now = new Date();
+        try {
+            await fetchSchedaeroMonth(creds.cookie, creds.url, creds.apiToken, now.getMonth() + 1, now.getFullYear());
+            console.log('[SchedAero keepalive] session still active');
+        } catch (e) {
+            console.log(`[SchedAero keepalive] ${e.message}`);
+        }
+    });
+}, 20 * 60 * 1000);

@@ -151,10 +151,11 @@
 <body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;">
 
     <div id="sidebar" class="hidden md:flex w-64 border-r border-zinc-800 bg-zinc-900/20 flex-col shrink-0">
-        <div class="p-6 border-b border-zinc-800 text-center">
+        <div class="p-6 border-b border-zinc-800 text-center shrink-0">
             <h1 class="text-blue-500 font-black italic text-xl tracking-tighter uppercase">Crowded Skies</h1>
         </div>
-        
+
+        <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="p-4 space-y-1">
             <p class="text-[10px] font-black text-zinc-600 uppercase px-2 mb-2">Navigation</p>
             <button onclick="switchView('grid')" id="btn-grid" class="nav-active w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📅 Calendar Grid</button>
@@ -203,7 +204,9 @@
             </button>
         </div>
 
-        <div class="mt-auto p-4 border-t border-zinc-800 bg-black/20 space-y-3">
+        </div><!-- end scrollable area -->
+
+        <div class="shrink-0 p-4 border-t border-zinc-800 bg-black/20 space-y-3">
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-zinc-600 uppercase px-2 block">Upload For</label>
                 <select id="upload-pilot-select" onchange="updateUploadSyncButtons(this.value)" class="w-full p-2 rounded-lg border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 hover:border-blue-500 transition">
@@ -482,34 +485,45 @@
         </div>
     </div>
 
-    <!-- Schedaero Sync Modal (WIP) -->
+    <!-- Schedaero Sync Modal -->
     <div id="schedaero-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" onclick="if(event.target===this)closeSchedaeroModal()">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
             <div class="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
                 <div>
-                    <h3 id="schedaero-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Sync from Schedaero</h3>
-                    <p class="text-[10px] text-zinc-500 mt-0.5">Kyle · Work in progress</p>
+                    <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Sync Schedaero</h3>
+                    <p class="text-[10px] text-zinc-500 mt-0.5">Kyle</p>
                 </div>
                 <button onclick="closeSchedaeroModal()" class="text-zinc-500 hover:text-zinc-200 transition text-xl leading-none">✕</button>
             </div>
+            <!-- Session-expired banner (hidden unless triggered from failed quick sync) -->
+            <div id="schedaero-expired-banner" class="hidden px-6 py-3 bg-red-950/60 border-b border-red-800/50">
+                <p class="text-xs font-bold text-red-300">Session expired — paste a fresh cookie below to re-authenticate.</p>
+            </div>
             <div class="px-6 py-5 space-y-4">
-                <div>
-                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">GetMonth URL <span class="text-zinc-600 font-normal normal-case">(from DevTools Network tab)</span></label>
-                    <input id="schedaero-url" type="text" placeholder="https://schedaero.avinode.com/mvc/api/CrewScheduling/GetMonth"
-                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-500">
+                <!-- URL + API Token (hidden in cookie-only mode) -->
+                <div id="schedaero-creds-fields" class="space-y-4">
+                    <div>
+                        <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">GetMonth URL <span class="text-zinc-600 font-normal normal-case">(DevTools → Network tab)</span></label>
+                        <input id="schedaero-url" type="text" placeholder="https://schedaero.avinode.com/mvc/api/CrewScheduling/GetMonth"
+                            class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-500">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">API Token <span class="text-zinc-600 font-normal normal-case">(Request Headers → x-avinode-apitoken)</span></label>
+                        <input id="schedaero-apitoken" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                            class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-500">
+                    </div>
                 </div>
-                <div>
-                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">API Token <span class="text-zinc-600 font-normal normal-case">(Request Headers → x-avinode-apitoken)</span></label>
-                    <input id="schedaero-apitoken" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-500">
-                </div>
+                <!-- "Edit URL & token" toggle — only shown in cookie-only mode -->
+                <button id="schedaero-creds-toggle" onclick="document.getElementById('schedaero-creds-fields').classList.toggle('hidden');document.getElementById('schedaero-month-range').classList.toggle('hidden');this.classList.add('hidden')" class="hidden text-[10px] text-zinc-600 hover:text-zinc-400 underline -mt-2">Edit URL &amp; API token</button>
+                <!-- Cookie (always shown) -->
                 <div>
                     <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Session Cookie <span class="text-zinc-600 font-normal normal-case">(Request Headers → Cookie)</span></label>
                     <textarea id="schedaero-cookie" rows="3" placeholder="Paste the full Cookie: header value here…"
                         class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono resize-none focus:outline-none focus:border-zinc-500"></textarea>
                 </div>
-                <div class="flex gap-3">
+                <!-- Month range (hidden in cookie-only mode) -->
+                <div id="schedaero-month-range" class="flex gap-3">
                     <div class="flex-1">
                         <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Months Back</label>
                         <select id="schedaero-months-back" class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-200 focus:outline-none focus:border-zinc-500">
@@ -577,7 +591,7 @@
             </div>
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
             <button onclick="triggerUpload('mobile-upload-pilot-select','mobile-file-input')" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
-            <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openSchedaeroSync()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
+            <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');quickSyncSchedaero()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
             <button id="mobile-sync-drew-ics-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openDrewICSSync()" class="hidden w-full py-3 border border-teal-800 text-teal-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedule (Drew)</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
@@ -1540,22 +1554,21 @@
             return path;
         }
 
-        // Split a flat arc at antimeridian crossings (lon jump > 180°) so Leaflet
-        // renders it correctly. L.polyline natively accepts an array of arrays.
-        function splitAntimeridian(coords) {
-            if (!coords || coords.length < 2) return [coords || []];
-            const segs = [];
-            let seg = [coords[0]];
+        // Unwrap longitudes so they stay continuous across the antimeridian.
+        // When a step jumps > 180° Leaflet wraps it — instead we let lon exceed
+        // ±180 so Leaflet renders a single unbroken arc over the Pacific.
+        function unwrapLongitudes(coords) {
+            if (!coords || coords.length < 2) return coords || [];
+            const result = [[coords[0][0], coords[0][1]]];
             for (let i = 1; i < coords.length; i++) {
-                if (Math.abs(coords[i][1] - seg[seg.length - 1][1]) > 180) {
-                    segs.push(seg);
-                    seg = [coords[i]];
-                } else {
-                    seg.push(coords[i]);
-                }
+                let lat = coords[i][0];
+                let lon = coords[i][1];
+                const prevLon = result[i - 1][1];
+                while (lon - prevLon >  180) lon -= 360;
+                while (prevLon - lon >  180) lon += 360;
+                result.push([lat, lon]);
             }
-            segs.push(seg);
-            return segs;
+            return result;
         }
 
         // ── All-Pilots Month Map ───────────────────────────────────────────
@@ -1652,8 +1665,9 @@
                     const opacity = hasActive ? 1 : hasFuture ? 0.8 : 0.35;
 
                     const arcCoords = distanceProportionalArc(depC, arrC);
-                    const line = L.polyline(splitAntimeridian(arcCoords), { weight, opacity, color: pilotColor, smoothFactor: 1 }).addTo(map);
-                    const hit = L.polyline(splitAntimeridian(arcCoords), { weight: 20, opacity: 0 }).addTo(map);
+                    bounds.push(arcCoords[Math.floor(arcCoords.length / 2)]);
+                    const line = L.polyline(unwrapLongitudes(arcCoords), { weight, opacity, color: pilotColor, smoothFactor: 1 }).addTo(map);
+                    const hit = L.polyline(unwrapLongitudes(arcCoords), { weight: 20, opacity: 0 }).addTo(map);
                     hit.bindPopup(`<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${PILOT_NAMES[key].split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${dep} → ${arr}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`, { className: 'dark-popup' });
                     mapLayers.future.push(line, hit);
 
@@ -1702,16 +1716,23 @@
         }
 
         function distanceProportionalArc(start, end, steps = 80) {
-            const dx = end[1] - start[1], dy = end[0] - start[0];
-            const routeDeg = Math.sqrt(dx * dx + dy * dy);
-            // Short hops barely curve; long routes bow more — cap so trans-con doesn't go wild
-            const bowFactor = Math.min(routeDeg * 0.10, 1.8);
-            if (bowFactor < 0.08) return greatCircleArcCoords(start, end, steps);
+            // Unwrap end longitude so the Bezier travels the shorter great-circle direction.
+            // For transpacific routes this means lon may exceed ±180; Leaflet handles that fine.
+            let endLon = end[1];
+            while (endLon - start[1] >  180) endLon -= 360;
+            while (start[1] - endLon >  180) endLon += 360;
+            const endU = [end[0], endLon];
 
-            const gcPoints = greatCircleArcCoords(start, end, steps);
-            const bearing = computeBearing(start, end);
+            const dx = endU[1] - start[1], dy = endU[0] - start[0];
+            const routeDeg = Math.sqrt(dx * dx + dy * dy);
+            const bowFactor = Math.min(routeDeg * 0.10, 1.8);
+            if (bowFactor < 0.08) return greatCircleArcCoords(start, endU, steps);
+
+            // Unwrap gc midpoint into the same longitude space before using it as control point
+            const gcUnwrapped = unwrapLongitudes(greatCircleArcCoords(start, endU, steps));
+            const bearing = computeBearing(start, endU);
             const perpRad = toRadians((bearing + 90) % 360);
-            const midPt = gcPoints[Math.floor(steps / 2)];
+            const midPt = gcUnwrapped[Math.floor(steps / 2)];
             const ctrl = [
                 midPt[0] + bowFactor * Math.cos(perpRad),
                 midPt[1] + bowFactor * Math.sin(perpRad)
@@ -1719,8 +1740,8 @@
             return Array.from({ length: steps + 1 }, (_, i) => {
                 const t = i / steps;
                 return [
-                    (1-t)*(1-t)*start[0] + 2*(1-t)*t*ctrl[0] + t*t*end[0],
-                    (1-t)*(1-t)*start[1] + 2*(1-t)*t*ctrl[1] + t*t*end[1]
+                    (1-t)*(1-t)*start[0] + 2*(1-t)*t*ctrl[0] + t*t*endU[0],
+                    (1-t)*(1-t)*start[1] + 2*(1-t)*t*ctrl[1] + t*t*endU[1]
                 ];
             });
         }
@@ -1797,8 +1818,9 @@
                 const opacity = hasActive ? 1.0 : hasFuture ? 0.85 : 0.45;
 
                 const arcCoords = distanceProportionalArc(depCoords, arrCoords);
-                const line = L.polyline(splitAntimeridian(arcCoords), { weight, opacity, color, smoothFactor: 1 });
-                const hit  = L.polyline(splitAntimeridian(arcCoords), { weight: 20, opacity: 0 });
+                bounds.push(arcCoords[Math.floor(arcCoords.length / 2)]);
+                const line = L.polyline(unwrapLongitudes(arcCoords), { weight, opacity, color, smoothFactor: 1 });
+                const hit  = L.polyline(unwrapLongitudes(arcCoords), { weight: 20, opacity: 0 });
 
                 // Popup: list all legs chronologically
                 const sorted = legs.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
@@ -1988,23 +2010,29 @@
 
         // Bezier arc with optional perpendicular offset at midpoint — separates overlapping routes
         function offsetArc(start, end, steps, offsetIndex, groupSize) {
-            const gcPoints = greatCircleArcCoords(start, end, steps);
-            if (groupSize <= 1) return gcPoints;
+            // Unwrap end longitude to take the shorter path (handles antimeridian crossing)
+            let endLon = end[1];
+            while (endLon - start[1] >  180) endLon -= 360;
+            while (start[1] - endLon >  180) endLon += 360;
+            const endU = [end[0], endLon];
+
+            const gcUnwrapped = unwrapLongitudes(greatCircleArcCoords(start, endU, steps));
+            if (groupSize <= 1) return gcUnwrapped;
 
             // Canonical direction so all flights in a pair offset consistently
-            const fwd = start[0] <= end[0];
-            const cA = fwd ? start : end, cB = fwd ? end : start;
+            const fwd = start[0] <= endU[0];
+            const cA = fwd ? start : endU, cB = fwd ? endU : start;
             const bearing = computeBearing(cA, cB);
             const perpRad = toRadians((bearing + 90) % 360);
 
             // Scale offset with route length so short hops and long hauls both look clean
-            const dx = end[1] - start[1], dy = end[0] - start[0];
+            const dx = endU[1] - start[1], dy = endU[0] - start[0];
             const routeDeg = Math.sqrt(dx * dx + dy * dy);
             const unitOffset = Math.max(1.2, routeDeg * 0.13);
             const offsetDeg = (offsetIndex - (groupSize - 1) / 2) * unitOffset;
 
             // Shift the great-circle midpoint perpendicularly
-            const midPt = gcPoints[Math.floor(steps / 2)];
+            const midPt = gcUnwrapped[Math.floor(steps / 2)];
             const newMid = [
                 midPt[0] + offsetDeg * Math.cos(perpRad),
                 midPt[1] + offsetDeg * Math.sin(perpRad)
@@ -2014,8 +2042,8 @@
             return Array.from({ length: steps + 1 }, (_, i) => {
                 const t = i / steps;
                 return [
-                    (1 - t) * (1 - t) * start[0] + 2 * (1 - t) * t * newMid[0] + t * t * end[0],
-                    (1 - t) * (1 - t) * start[1] + 2 * (1 - t) * t * newMid[1] + t * t * end[1]
+                    (1 - t) * (1 - t) * start[0] + 2 * (1 - t) * t * newMid[0] + t * t * endU[0],
+                    (1 - t) * (1 - t) * start[1] + 2 * (1 - t) * t * newMid[1] + t * t * endU[1]
                 ];
             });
         }
@@ -2176,7 +2204,7 @@
 
                     // Remaining: great-circle path from live position to destination
                     const remainPath = greatCircleArcCoords(livePoint, arrCoords);
-                    const remainSegs = splitAntimeridian(remainPath);
+                    const remainSegs = unwrapLongitudes(remainPath);
                     if (remainLine) {
                         remainLine.setLatLngs(remainSegs);
                     } else {
@@ -2335,14 +2363,15 @@
                 const group = pairGroups[pairKey];
                 const offsetIdx = group.indexOf(f);
                 const arcCoords = offsetArc(depCoords, arrCoords, 60, offsetIdx, group.length);
+                bounds.push(arcCoords[Math.floor(arcCoords.length / 2)]);
 
                 // Active: stay in pilot color but heavier + full opacity so it reads as "live"
                 const weight = isActive ? 4.5 : 2.5;
                 const opacity = isActive ? 1 : 0.75;
                 const dayLineOpts = { weight, opacity, color, smoothFactor: 1 };
                 if (isActive) dayLineOpts.className = 'active-route';
-                const line = L.polyline(splitAntimeridian(arcCoords), dayLineOpts).addTo(map);
-                const hit  = L.polyline(splitAntimeridian(arcCoords), { weight: 20, opacity: 0 }).addTo(map);
+                const line = L.polyline(unwrapLongitudes(arcCoords), dayLineOpts).addTo(map);
+                const hit  = L.polyline(unwrapLongitudes(arcCoords), { weight: 20, opacity: 0 }).addTo(map);
 
                 const blockMins = calcBlockMins(f);
                 hit.bindPopup(`
@@ -3417,11 +3446,15 @@
             input.value = '';
         }
 
-        // ── Schedaero Sync (WIP) ─────────────────────────────────────────
-        async function openSchedaeroSync() {
+        // ── Schedaero Sync ───────────────────────────────────────────────
+        async function openSchedaeroSync(expired = false) {
             document.getElementById('schedaero-error').classList.add('hidden');
-            document.getElementById('schedaero-modal').classList.remove('hidden');
-            // Populate from localStorage immediately so modal isn't blank while fetching
+            // Set cookie-only mode when session expired
+            document.getElementById('schedaero-expired-banner').classList.toggle('hidden', !expired);
+            document.getElementById('schedaero-creds-toggle').classList.toggle('hidden', !expired);
+            document.getElementById('schedaero-creds-fields').classList.toggle('hidden', expired);
+            document.getElementById('schedaero-month-range').classList.toggle('hidden', expired);
+            // Populate from localStorage immediately
             document.getElementById('schedaero-url').value      = localStorage.getItem('schedaero_url')      || '';
             document.getElementById('schedaero-apitoken').value = localStorage.getItem('schedaero_apitoken') || '';
             document.getElementById('schedaero-cookie').value   = localStorage.getItem('schedaero_cookie')   || '';
@@ -3437,11 +3470,44 @@
                 if (c.cookie)      document.getElementById('schedaero-cookie').value      = c.cookie;
                 if (c.monthsBack)  document.getElementById('schedaero-months-back').value = c.monthsBack;
                 if (c.monthsAhead) document.getElementById('schedaero-months').value      = c.monthsAhead;
-            } catch (_) { /* server unreachable — localStorage values remain */ }
+            } catch (_) {}
+            document.getElementById('schedaero-modal').classList.remove('hidden');
+            if (expired) {
+                const cookieEl = document.getElementById('schedaero-cookie');
+                cookieEl.focus();
+                cookieEl.select();
+            }
         }
 
         function closeSchedaeroModal() {
             document.getElementById('schedaero-modal').classList.add('hidden');
+            // Reset to full mode for next open
+            document.getElementById('schedaero-expired-banner').classList.add('hidden');
+            document.getElementById('schedaero-creds-toggle').classList.add('hidden');
+            document.getElementById('schedaero-creds-fields').classList.remove('hidden');
+            document.getElementById('schedaero-month-range').classList.remove('hidden');
+        }
+
+        async function quickSyncSchedaero() {
+            const btn = document.getElementById('mobile-sync-schedaero-btn');
+            const orig = btn ? btn.textContent : '';
+            if (btn) { btn.textContent = '⟳ Syncing…'; btn.disabled = true; }
+            try {
+                const resp = await fetch(`${API_BASE}/pilots/kyle/quick-sync-schedaero`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    if (currentPilot === 'kyle') loadPilot('kyle');
+                    alert(`Synced ${data.segmentsAdded} segments from Schedaero.`);
+                } else if (data.sessionExpired) {
+                    openSchedaeroSync(true);
+                } else {
+                    // No creds saved or other error — open full form
+                    openSchedaeroSync(false);
+                }
+            } catch (e) {
+                openSchedaeroSync(false);
+            }
+            if (btn) { btn.textContent = orig; btn.disabled = false; }
         }
 
         async function syncSchedaero() {

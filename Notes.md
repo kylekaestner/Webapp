@@ -26,10 +26,7 @@
 ~~Mobile Map menu on bottom is messed up with the legend. Make top rght filters smaller for Mobile.~~
 -Look at people's apple calendars for flights added by airline apps. AKA southwest flights, etc. Would mostly be for personal, commuting, and DHs.
 ~~Drew ICS subscription sync — RosterBuster ICS URL stored, sync button visible when Drew selected.~~
-
--Find a way to keep the session cookie active. Make it easier to sync on mobile bc safari doesn't have DevTools
 ~~Location meetup thinks Adam is staying at ORD longer than he is. Don't just leave the user at their last destination for a set amount of time. He would most likely add a commute to go home in there. ADam is home 27, 28th, until he starts his next trip in LGA the 29th. This is messing up location overlap. He should manually add a commute to get to LGA to make it more accurate, but those happen a day prior or day of.~~
--Maybe for personal/DH manual add they can just put the flight number in and airport pair and it'll figure out the rest?
 ~~All Crew - Month view, Day on top (sidebar + mobile bar)~~
 ~~All crew -day view doesn't show flight with live data if it's airborne.~~
 ~~Calendar doesn't start with sunday.~~
@@ -37,5 +34,7 @@
 ~~All crew Legend should be clickable to toggle off people.~~
 ~~mobile - when added to home on iphone as webapp, make the app refresh itself automatically.~~
 ~~Kyle has a layover duration for KSUS.~~
--Overlap could have a small inset map of the airport/location
 ~~If a flight was live, but the ETA time past, and the aircraft is airborne (ADSB), continue showing the flight until it lands. Then update the time it landed. Same if a flight lands early. Marked the flight as no longer live/landed. Flight for Adam is showing live bc it hasn't reach the arrival time in CT but it has in ET. So it should've already landed.~~
+-Maybe for personal/DH manual add they can just put the flight number in and airport pair and it'll figure out the rest?
+-Overlap could have a small inset map of the airport/location
+~~Find a way to keep the session cookie active. Make it easier to sync on mobile bc safari doesn't have DevTools~~
