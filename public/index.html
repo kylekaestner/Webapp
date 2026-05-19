@@ -340,6 +340,17 @@
         <div class="p-6 border-b border-zinc-800 text-center shrink-0">
             <h1 class="text-blue-500 font-black italic text-xl tracking-tighter uppercase">CrewSync</h1>
         </div>
+        <!-- Desktop identity row -->
+        <div id="sidebar-identity" class="hidden px-3 py-2.5 border-b border-zinc-800/60 shrink-0">
+            <button onclick="openProfile()" class="flex items-center gap-2.5 w-full rounded-xl px-2 py-2 hover:bg-zinc-800/50 transition-colors text-left">
+                <div id="sidebar-identity-avatar" class="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black shrink-0"></div>
+                <div class="flex flex-col min-w-0">
+                    <span class="text-[8px] font-black uppercase tracking-widest text-zinc-500">Signed in as</span>
+                    <span id="sidebar-identity-name" class="text-xs font-black text-white truncate"></span>
+                </div>
+                <svg class="w-3 h-3 text-zinc-600 ml-auto shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+        </div>
 
         <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="p-4 space-y-1">
@@ -438,9 +449,12 @@
 
         <!-- Mobile header -->
         <header class="md:hidden border-b border-zinc-800 flex items-end justify-between px-4 bg-black/60 backdrop-blur-md shrink-0" style="height: calc(56px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); padding-bottom: 10px;">
-            <div class="flex flex-col leading-tight">
-                <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic">CrewSync</span>
-                <span id="current-month-display-mobile" class="text-base font-black italic tracking-tighter text-white uppercase">May 2026</span>
+            <div class="flex items-center gap-2.5">
+                <button id="identity-avatar" onclick="openProfile()" class="w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs border-2 shrink-0 transition-all" style="background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4);color:#818cf8">?</button>
+                <div class="flex flex-col leading-tight">
+                    <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic">CrewSync</span>
+                    <span id="current-month-display-mobile" class="text-base font-black italic tracking-tighter text-white uppercase">May 2026</span>
+                </div>
             </div>
             <div class="flex items-center gap-1">
                 <button onclick="changeMonth(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">‹</button>
@@ -1013,6 +1027,42 @@
         </div>
     </div>
 
+    <!-- Profile / Identity Sheet -->
+    <div id="profile-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:items-center md:justify-center" onclick="if(event.target===this)closeProfile()">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative w-full md:max-w-md bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl p-6 space-y-5" style="padding-bottom: max(1.5rem, env(safe-area-inset-bottom))" onclick="event.stopPropagation()">
+            <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto -mt-1 mb-1"></div>
+
+            <!-- Identity display -->
+            <div class="flex items-center gap-4">
+                <div id="profile-avatar" class="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl border-2" style="background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4);color:#818cf8">?</div>
+                <div>
+                    <div id="profile-name" class="text-lg font-black text-white">Not signed in</div>
+                    <div id="profile-role" class="text-xs text-zinc-400 font-bold mt-0.5">Open your personal link to sign in</div>
+                </div>
+            </div>
+
+            <!-- Personal link -->
+            <div id="profile-link-section">
+                <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Your Personal Link</label>
+                <div class="flex gap-2">
+                    <div id="profile-link-display" class="flex-1 px-3 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 text-xs font-mono text-zinc-300 overflow-hidden text-ellipsis whitespace-nowrap"></div>
+                    <button onclick="copyMyLink()" class="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-black text-xs whitespace-nowrap transition-colors hover:bg-blue-500">Copy</button>
+                </div>
+                <p class="text-[10px] text-zinc-500 mt-2">Bookmark this link or add it to your Home Screen — opening it signs you in automatically.</p>
+            </div>
+
+            <!-- Crew visibility -->
+            <div id="crew-visibility-section">
+                <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Your Crew</label>
+                <p class="text-[10px] text-zinc-500 mb-3 -mt-1">Choose who you want to see in your schedule view.</p>
+                <div class="space-y-2" id="crew-visibility-btns"></div>
+            </div>
+
+            <button onclick="closeProfile()" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Done</button>
+        </div>
+    </div>
+
     <script>
         // Server-side data store
         const pilotsCache = {};
@@ -1414,11 +1464,179 @@
         const _localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
         let mapDayDate = _localToday();
         const PILOT_KEYS = ['kyle', 'adam', 'sam', 'logan', 'drew'];
+        const VALID_PILOTS = PILOT_KEYS; // global alias used by identity system
         const PILOT_COLORS = { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185' };
         const hiddenPilots = new Set();
         const PILOT_NAMES = { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine', drew: 'Drew Sinelli' };
+        const PILOT_ROLES = { kyle: 'Corporate · SUS', adam: 'Regional · TUL', sam: 'Regional · STL', logan: 'Regional · PHX', drew: 'Regional · STL' };
         // Where each pilot actually lives (not airline crew base)
         const PILOT_HOME = { kyle: 'STL', drew: 'STL', sam: 'STL', adam: 'TUL', logan: 'PHX' };
+
+        // ── Identity system ───────────────────────────────────────────────
+        let myPilot = null; // who you ARE (persists), vs currentPilot (who you're viewing)
+
+        function initIdentity() {
+            const urlPilot = new URLSearchParams(window.location.search).get('pilot');
+            const stored   = localStorage.getItem('myPilot');
+            if (urlPilot && VALID_PILOTS.includes(urlPilot)) {
+                myPilot = urlPilot;
+                localStorage.setItem('myPilot', urlPilot);
+            } else if (stored && VALID_PILOTS.includes(stored)) {
+                myPilot = stored;
+            }
+            // null myPilot = admin/guest (bare URL)
+            _applyIdentityUI();
+            _applyPilotPillVisibility();
+        }
+
+        // ── Crew visibility ───────────────────────────────────────────────
+        function _visKey() { return myPilot ? `crewVisible_${myPilot}` : null; }
+
+        function getCrewVisible() {
+            // Admin (no identity) sees all pilots
+            if (!myPilot) return [...VALID_PILOTS];
+            const stored = localStorage.getItem(_visKey());
+            if (stored) {
+                try {
+                    const arr = JSON.parse(stored);
+                    // Always include self
+                    if (!arr.includes(myPilot)) arr.unshift(myPilot);
+                    return arr.filter(p => VALID_PILOTS.includes(p));
+                } catch { /* fall through */ }
+            }
+            return [...VALID_PILOTS]; // default: see everyone
+        }
+
+        function setCrewVisible(pilot, visible) {
+            const current = getCrewVisible();
+            let next;
+            if (visible) {
+                next = [...new Set([...current, pilot])];
+            } else {
+                next = current.filter(p => p !== pilot && p !== myPilot); // can't hide self
+                if (!next.includes(myPilot)) next.unshift(myPilot);
+            }
+            localStorage.setItem(_visKey(), JSON.stringify(next));
+            _applyPilotPillVisibility();
+            _buildCrewVisibilityUI();
+        }
+
+        function _applyIdentityUI() {
+            const color    = myPilot ? PILOT_COLORS[myPilot] : '#6366f1';
+            const initials = myPilot ? PILOT_NAMES[myPilot].split(' ').map(w => w[0]).join('') : '★';
+            const name     = myPilot ? PILOT_NAMES[myPilot] : 'Admin';
+            const role     = myPilot ? PILOT_ROLES[myPilot] : 'All access · no identity set';
+
+            // Mobile header avatar
+            const av = document.getElementById('identity-avatar');
+            if (av) {
+                av.textContent = initials;
+                av.style.background = color + '22';
+                av.style.borderColor = color + '88';
+                av.style.color = color;
+            }
+
+            // Desktop sidebar
+            const sidebarEl = document.getElementById('sidebar-identity');
+            const sidebarAv = document.getElementById('sidebar-identity-avatar');
+            const sidebarNm = document.getElementById('sidebar-identity-name');
+            if (sidebarEl) sidebarEl.classList.remove('hidden');
+            if (sidebarAv) { sidebarAv.textContent = initials; sidebarAv.style.background = color + '22'; sidebarAv.style.color = color; }
+            if (sidebarNm) sidebarNm.textContent = myPilot ? PILOT_NAMES[myPilot].split(' ')[0] : 'Admin';
+
+            // Profile sheet
+            const pAv = document.getElementById('profile-avatar');
+            if (pAv) { pAv.textContent = initials; pAv.style.background = color + '18'; pAv.style.borderColor = color + '66'; pAv.style.color = color; }
+            const pNm = document.getElementById('profile-name');
+            if (pNm) pNm.textContent = name;
+            const pRl = document.getElementById('profile-role');
+            if (pRl) pRl.textContent = role;
+
+            const linkDisplay = document.getElementById('profile-link-display');
+            const linkSection = document.getElementById('profile-link-section');
+            if (myPilot) {
+                const url = new URL(window.location.href);
+                url.searchParams.set('pilot', myPilot);
+                url.hash = '';
+                if (linkDisplay) linkDisplay.textContent = url.toString();
+                if (linkSection) linkSection.classList.remove('hidden');
+            } else {
+                if (linkSection) linkSection.classList.add('hidden');
+            }
+
+            // Hide crew visibility section for admin (no identity)
+            const cvSection = document.getElementById('crew-visibility-section');
+            if (cvSection) cvSection.classList.toggle('hidden', !myPilot);
+
+            _buildCrewVisibilityUI();
+        }
+
+        function _buildCrewVisibilityUI() {
+            const el = document.getElementById('crew-visibility-btns');
+            if (!el || !myPilot) return;
+            const visible = getCrewVisible();
+            el.innerHTML = VALID_PILOTS.filter(p => p !== myPilot).map(p => {
+                const c  = PILOT_COLORS[p];
+                const on = visible.includes(p);
+                return `<label class="flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-colors ${on ? '' : 'opacity-50'}" style="background:${on ? c+'14' : 'transparent'};border:1px solid ${on ? c+'50' : '#3f3f46'}">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black" style="background:${c}22;color:${c}">${PILOT_NAMES[p][0]}</div>
+                        <span class="text-sm font-black text-white">${PILOT_NAMES[p]}</span>
+                    </div>
+                    <div onclick="setCrewVisible('${p}', ${!on})" class="w-11 h-6 rounded-full flex items-center transition-all cursor-pointer px-0.5 ${on ? '' : ''}" style="background:${on ? c+'cc' : '#3f3f46'}">
+                        <div class="w-5 h-5 rounded-full bg-white shadow transition-transform" style="transform:translateX(${on ? '20px' : '0px'})"></div>
+                    </div>
+                </label>`;
+            }).join('');
+        }
+
+        function _applyPilotPillVisibility() {
+            const visible = getCrewVisible();
+            VALID_PILOTS.forEach(p => {
+                const pill = document.getElementById(`mpilot-${p}`);
+                if (pill) pill.style.display = visible.includes(p) ? '' : 'none';
+                // Desktop sidebar pilot buttons
+                const deskBtn = document.getElementById(`pilot-${p}`);
+                if (deskBtn) deskBtn.style.display = visible.includes(p) ? '' : 'none';
+            });
+        }
+
+        function _applyPillIdentity() {
+            // Mark the "you" pilot pill with a subtle tint (separate from active-viewing style)
+            VALID_PILOTS.forEach(p => {
+                const pill = document.getElementById(`mpilot-${p}`);
+                if (!pill) return;
+                if (p === myPilot && p !== currentPilot) {
+                    const c = PILOT_COLORS[p];
+                    pill.style.borderColor = c + '70';
+                    pill.style.color = c;
+                    pill.style.background = c + '12';
+                }
+            });
+        }
+
+        function openProfile() {
+            haptic('tap');
+            _applyIdentityUI();
+            document.getElementById('profile-sheet').classList.remove('hidden');
+        }
+        function closeProfile() {
+            document.getElementById('profile-sheet').classList.add('hidden');
+        }
+
+        async function copyMyLink() {
+            if (!myPilot) return;
+            const url = new URL(window.location.href);
+            url.searchParams.set('pilot', myPilot);
+            url.hash = '';
+            try {
+                await navigator.clipboard.writeText(url.toString());
+                haptic('success');
+                showToast('Link copied!', 'success', 2000);
+            } catch {
+                showToast('Copy failed — select the text manually', 'error');
+            }
+        }
         let isLoading = false;
 
         function triggerUpload(selectId, inputId) {
@@ -1784,6 +2002,8 @@
                     mpill.style.color = '#93c5fd';
                     mpill.style.background = 'rgba(59,130,246,0.12)';
                 }
+                // Re-apply identity tint to "you" pill (if different from active)
+                _applyPillIdentity();
                 render();
                 if (currentView === 'overlap') computeOverlap();
                 dismissSplash();
@@ -1889,7 +2109,8 @@
             }
 
             const pilotPeriods = {};
-            PILOT_KEYS.forEach(key => {
+            const overlapKeys = getCrewVisible(); // respect crew visibility
+            overlapKeys.forEach(key => {
                 const data = pilotsCache[key];
                 pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base, PILOT_HOME[key]) : [];
             });
@@ -1995,9 +2216,9 @@
             }
 
             const overlaps = [];
-            for (let i = 0; i < PILOT_KEYS.length; i++) {
-                for (let j = i + 1; j < PILOT_KEYS.length; j++) {
-                    const kA = PILOT_KEYS[i], kB = PILOT_KEYS[j];
+            for (let i = 0; i < overlapKeys.length; i++) {
+                for (let j = i + 1; j < overlapKeys.length; j++) {
+                    const kA = overlapKeys[i], kB = overlapKeys[j];
                     for (const pA of pilotPeriods[kA]) {
                         for (const pB of pilotPeriods[kB]) {
                             if (!airportsNear(pA.airport, pB.airport)) continue;
@@ -4802,11 +5023,16 @@ let _blockUserEdited = false;
             // Set initial mobile nav active state
             const mbtn = document.getElementById('mbtn-grid');
             if (mbtn) mbtn.classList.add('mbtn-active');
-            const VALID_PILOTS = ['kyle','adam','sam','logan','drew'];
+
+            // Identity: must run before loadPilot so myPilot is set
+            initIdentity();
+
+            // Default view: URL pilot → my identity → last viewed → kyle (admin/bare URL)
             const urlPilot = new URLSearchParams(window.location.search).get('pilot');
-            const defaultPilot = VALID_PILOTS.includes(urlPilot) ? urlPilot
-                               : VALID_PILOTS.includes(localStorage.getItem('lastPilot')) ? localStorage.getItem('lastPilot')
-                               : 'kyle';
+            const defaultPilot = (VALID_PILOTS.includes(urlPilot) ? urlPilot : null)
+                               || myPilot
+                               || (VALID_PILOTS.includes(localStorage.getItem('lastPilot')) ? localStorage.getItem('lastPilot') : null)
+                               || 'kyle';
             updateUploadSyncButtons(defaultPilot);
             loadPilot(defaultPilot);
         });
