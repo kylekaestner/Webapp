@@ -1458,11 +1458,19 @@
                 if (locA === locB) return locA;
                 return `${locA} / ${locB}`;
             }
-            // Individual airport codes subtitle when same metro but different airports
+            // The two pilot airports when same metro but different
             function locationSub(locA, locB) {
                 const mA = METRO_GROUPS[locA], mB = METRO_GROUPS[locB];
                 if (mA && mA === mB && locA !== locB) return `${locA} · ${locB}`;
                 return null;
+            }
+            // All airports in a metro group, sorted — auto-derived from METRO_GROUPS constant
+            function metroAirportList(locA, locB) {
+                const mA = METRO_GROUPS[locA], mB = METRO_GROUPS[locB];
+                const key = (mA && mA === mB) ? mA : null;
+                if (!key) return null;
+                const apts = Object.keys(METRO_GROUPS).filter(k => METRO_GROUPS[k] === key).sort();
+                return apts.length > 2 ? apts.join(' · ') : null;
             }
 
             const overlaps = [];
@@ -1497,7 +1505,6 @@
                                 gapMs, classification,
                                 sortKey: isDirect ? directStart.getTime() : Math.max(pA.start.getTime(), pB.start.getTime())
                             };
-                            overlap.quality = qualityScore(overlap);
                             overlaps.push(overlap);
                         }
                     }
@@ -1514,7 +1521,7 @@
             });
 
             if (unique.length === 0) {
-                container.innerHTML = `<div class="text-center py-12 text-zinc-500 text-sm">No overlapping locations found.</div>`;
+                container.innerHTML = `<div class="text-center py-12 text-zinc-500 text-sm">No location overlaps found for any crew members.</div>`;
                 return;
             }
 
@@ -1648,8 +1655,9 @@
                     }
                 }
 
-                const locLabel = locationLabel(o.airport, o.airportB);
-                const locSub   = locationSub(o.airport, o.airportB);
+                const locLabel   = locationLabel(o.airport, o.airportB);
+                const locSub     = locationSub(o.airport, o.airportB);
+                const locMetroList = metroAirportList(o.airport, o.airportB);
                 const distTag  = o.distMi > 0 ? `<span class="text-sm font-normal text-zinc-500 ml-1.5">${o.distMi} mi apart</span>` : '';
 
                 const pilotRows = [{ k: o.kA, p: o.pA }, { k: o.kB, p: o.pB }].map(({ k, p }) => {
@@ -1720,7 +1728,8 @@
                     <div class="px-4 pt-3.5 pb-3">
                         <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5 flex items-center flex-wrap gap-1">${pulseDot}${dateLabel}${typeBadge}</div>
                         <div class="text-2xl font-black ${tier === 2 ? 'text-zinc-300' : 'text-white'} leading-none">${locLabel}${distTag}</div>
-                        ${locSub ? `<div class="text-xs text-zinc-500 mt-1 font-mono tracking-widest">${locSub}</div>` : ''}
+                        ${locSub ? `<div class="text-xs text-zinc-400 mt-1 font-mono tracking-wider">${locSub}</div>` : ''}
+                        ${locMetroList ? `<div class="text-[10px] text-zinc-600 mt-0.5 font-mono">${locMetroList}</div>` : ''}
                     </div>
                     ${annotation}
                     <div class="px-4 pb-3 pt-2.5 space-y-2 border-t border-zinc-800/50">
@@ -1735,9 +1744,10 @@
             function renderSecondaryRow(o) {
                 const refTime  = o.directStart || new Date(o.sortKey);
                 const isPast   = localDateStr(refTime) < todayStr;
-                const locLabel = locationLabel(o.airport, o.airportB);
-                const locSub   = locationSub(o.airport, o.airportB);
-                const cls      = o.classification;
+                const locLabel     = locationLabel(o.airport, o.airportB);
+                const locSub       = locationSub(o.airport, o.airportB);
+                const locMetroList = metroAirportList(o.airport, o.airportB);
+                const cls          = o.classification;
                 const nameA    = PILOT_NAMES[o.kA].split(' ')[0];
                 const nameB    = PILOT_NAMES[o.kB].split(' ')[0];
                 const colorA   = PILOT_COLORS[o.kA];
@@ -1759,6 +1769,7 @@
                             <span class="text-[11px] text-zinc-500">${locLabel}${locSub ? ` <span class="font-mono">(${locSub})</span>` : ''}</span>
                         </div>
                         ${noteStr ? `<div class="text-[10px] text-zinc-600">${noteStr}</div>` : ''}
+                        ${locMetroList ? `<div class="text-[10px] text-zinc-700 font-mono">${locMetroList}</div>` : ''}
                     </div>
                     <div class="text-right shrink-0">
                         <div class="text-[10px] text-zinc-600">${dayLabel}</div>
@@ -1766,6 +1777,9 @@
                 </div>`;
             }
 
+            const noneMsg = primary.length === 0
+                ? `<div class="text-center py-12 text-zinc-500 text-sm">No crew crossings found — everyone's going different directions.</div>`
+                : '';
             const primaryCards  = primary.map((o, idx) => renderPrimaryCard(o, idx, idx === scrollTargetIdx)).join('');
             const secondaryRows = secondary.filter(o => {
                 const endTime = o.isDirect ? o.directEnd?.getTime() : Math.max(o.pA.end.getTime(), o.pB.end.getTime());
@@ -1781,7 +1795,7 @@
                 </div>`
                 : '';
 
-            container.innerHTML = summaryHtml + primaryCards + secondaryHtml;
+            container.innerHTML = summaryHtml + noneMsg + primaryCards + secondaryHtml;
 
             if (scrollTargetIdx >= 0) {
                 requestAnimationFrame(() => {
