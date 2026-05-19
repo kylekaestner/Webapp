@@ -1225,14 +1225,15 @@ app.get('/api/live-position', async (req, res) => {
     ];
 
     const trySource = async (url) => {
-        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-        if (!resp.ok) throw new Error(`${resp.status}`);
+        const resp = await fetch(url, { signal: AbortSignal.timeout(7000) });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} from ${new URL(url).hostname}`);
         const json = await resp.json();
         const aircraft = json?.ac;
-        if (!aircraft || aircraft.length === 0) throw new Error('no aircraft');
-        const s = aircraft.sort((a, b) => (b.seen_pos ?? 0) - (a.seen_pos ?? 0))[0];
+        if (!aircraft || aircraft.length === 0) throw new Error(`no aircraft at ${new URL(url).hostname}`);
+        // Sort ascending by seen_pos so the freshest fix is first
+        const s = aircraft.sort((a, b) => (a.seen_pos ?? 999) - (b.seen_pos ?? 999))[0];
         const parsed = parseAdsbAircraft(s, callsign);
-        if (!parsed) throw new Error('no position');
+        if (!parsed) throw new Error(`no position at ${new URL(url).hostname}`);
         return parsed;
     };
 
@@ -1240,10 +1241,13 @@ app.get('/api/live-position', async (req, res) => {
     try {
         data = await Promise.any(sources.map(trySource));
     } catch (e) {
-        console.warn('live-position: all sources failed:', e.message);
-        // Return last known trail even when current position unavailable
-        const trail = Object.values(_posTrail).find(() => true); // best effort
+        const details = e instanceof AggregateError
+            ? e.errors.map(err => err.message).join(' | ')
+            : e.message;
+        console.warn(`live-position [${callsign}]: all sources failed: ${details}`);
         data = { found: false };
+        // Don't cache failures — retry on the next client poll
+        return res.json(data);
     }
 
     // Accumulate position trail keyed by ICAO hex

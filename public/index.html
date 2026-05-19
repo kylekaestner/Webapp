@@ -143,7 +143,7 @@
         @keyframes here-pulse-plane { 0% { box-shadow:0 0 0 0 var(--pc); } 70% { box-shadow:0 0 0 16px var(--pc0); } 100% { box-shadow:0 0 0 0 var(--pc0); } }
         .here-dot { width: 16px; height: 16px; border-radius: 50%; background: #a855f7; border: 2px solid #fff; animation: here-pulse 2s ease-out infinite; }
         @keyframes dash-flow { to { stroke-dashoffset: -18; } }
-        .active-route path { stroke-dasharray: 10, 5; stroke-dashoffset: 0; animation: dash-flow 0.5s linear infinite; }
+        .active-route { stroke-dasharray: 10, 5; stroke-dashoffset: 0; animation: dash-flow 0.5s linear infinite; }
         @keyframes active-leg-pulse { 0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.15); } 50% { box-shadow: 0 0 14px rgba(34,197,94,0.65); } }
         .active-leg { animation: active-leg-pulse 1.8s ease-in-out infinite; }
         .map-hit { pointer-events: stroke !important; }
@@ -335,6 +335,7 @@
                         <button onclick="togglePilotLegend('sam')"   id="legend-pilot-sam"   class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-orange-500 shrink-0"></span><span class="text-zinc-500">Sam</span></button>
                         <button onclick="togglePilotLegend('logan')" id="legend-pilot-logan" class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-indigo-400 shrink-0"></span><span class="text-zinc-500">Logan</span></button>
                         <button onclick="togglePilotLegend('drew')"  id="legend-pilot-drew"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-rose-400 shrink-0"></span><span class="text-zinc-500">Drew</span></button>
+                        <div class="flex items-center gap-1.5 pt-1 mt-0.5 border-t border-zinc-800/60"><span class="inline-block w-4 shrink-0" style="height:2.5px;background:repeating-linear-gradient(90deg,#94a3b8 0,#94a3b8 5px,transparent 5px,transparent 8px)"></span><span class="text-zinc-500">Airborne</span></div>
                     </div>
                 </div>
 
@@ -1137,6 +1138,7 @@
         let currentView = 'grid';
         let map, mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
         const _livePollers = {}; // callsign → intervalId; cleared on every map render
+        const _calListPollers = {}; // callsign → intervalId for calendar/list live data badges
         let radarLayer = null, radarOn = false;
         let showPast = true, showFuture = true;
         let airportVisibilityMap = {}, airportFlightTypes = {};
@@ -2272,6 +2274,15 @@
                 interactive: false
             }));
         }
+        // Creates one plane-icon marker per world copy, all added to map.
+        // Primary copy (w=0) is at index 2. Bind tooltip to [2] only.
+        function worldPlaneMarkers(pos, icon) {
+            return WORLD_OFFSETS.map(w => {
+                const m = L.marker([pos[0], pos[1] + w * 360], { icon, zIndexOffset: 1000 });
+                m.addTo(map);
+                return m;
+            });
+        }
 
         // ── All-Pilots Month Map ───────────────────────────────────────────
         function setMapMode(mode) {
@@ -2387,10 +2398,11 @@
                             const alArrUTC = flightUTCTime(al.arrival_time, al.arrival_airport);
                             const t = Math.max(0, Math.min(1, (now - alDepUTC) / (alArrUTC - alDepUTC)));
                             const idx = Math.min(Math.floor(t * (arcCoords.length-1)), arcCoords.length-2);
-                            const dot = L.marker(arcCoords[idx], { icon: makePlaneIcon(computeBearing(arcCoords[idx], arcCoords[idx+1] || arcCoords[idx]), pilotColor, null, true), zIndexOffset: 1000 }).addTo(map);
-                            mapLayers.active.push(dot);
+                            const bearing = computeBearing(arcCoords[idx], arcCoords[idx+1] || arcCoords[idx]);
+                            const dots = worldPlaneMarkers(arcCoords[idx], makePlaneIcon(bearing, pilotColor, null, true));
+                            dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(al, key);
-                            if (cs) startLiveTracking(dot, cs, pilotColor, depC, arrC, line, mapLayers.active, PILOT_NAMES[key]?.split(' ')[0], alArrUTC);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, PILOT_NAMES[key]?.split(' ')[0], alArrUTC);
                         }
                     }
 
@@ -2482,7 +2494,7 @@
             allFlights.forEach(f => {
                 if (!f.arrivalAirport || !f.arrivalTime) return;
                 const upper = f.arrivalAirport.toUpperCase();
-                if (upper === pilotBase) return;
+                if (upper === pilotBase || isHomeAirport(upper, currentPilot)) return;
                 const nextDep = flights.filter(s => s.departureAirport === f.arrivalAirport && s.departureTime > f.arrivalTime)
                     .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                 if (!nextDep) return;
@@ -2491,6 +2503,9 @@
                 if (depMid > arrMid) layoverAirports.add(upper);
                 else if (!layoverAirports.has(upper)) turnAirports.add(upper);
             });
+
+            // Shared with startLiveTracking so it can remove the here-now dot when ADSB confirms airborne
+            const hereNowMarkers = [];
 
             // Group by exact route direction — one arc per unique DEP→ARR pair
             const routeGroups = {};
@@ -2574,11 +2589,11 @@
                         const pos = arcCoords[dotIdx];
                         const nextPos = arcCoords[dotIdx + 1] || arcCoords[dotIdx];
                         const bearing = computeBearing(pos, nextPos);
-                        const dot = L.marker(pos, { icon: makePlaneIcon(bearing, '#22c55e', null, true), zIndexOffset: 1000 }).addTo(map);
-                        dot.bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
-                        mapLayers.active.push(dot);
+                        const dots = worldPlaneMarkers(pos, makePlaneIcon(bearing, '#22c55e', null, true));
+                        dots[2].bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
+                        dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(activeLeg, currentPilot);
-                        if (cs) startLiveTracking(dot, cs, '#22c55e', depCoords, arrCoords, line, mapLayers.active, PILOT_NAMES[currentPilot]?.split(' ')[0], arrTime);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, PILOT_NAMES[currentPilot]?.split(' ')[0], arrTime, hereNowMarkers);
                     }
                 }
 
@@ -2602,7 +2617,7 @@
                 const { past, future, active } = airportFlightTypes[upper];
                 const visible = (past && showPast) || (future && showFuture) || active;
 
-                const isBase = upper === pilotBase;
+                const isBase = upper === pilotBase || isHomeAirport(upper, currentPilot);
                 const isLayover = layoverAirports.has(upper);
                 const dotColor = isBase ? '#22c55e' : isLayover ? '#f59e0b' : '#f8fafc';
                 const radius = isBase ? 7 : isLayover ? 6 : 5;
@@ -2629,38 +2644,52 @@
                 const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                 return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
             });
-            if (!isAirborne) {
-                const completedFlights = allFlightsSorted.filter(f => {
-                    const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                    return a && a <= now;
-                });
-                const lastFlight = completedFlights.length > 0 ? completedFlights[completedFlights.length - 1] : null;
-                const lastArrival = lastFlight ? lastFlight.arrivalAirport : null;
-                // Only trust lastArrival if it landed within the last 36 hours; older = assume pilot went home
-                const recentEnough = lastFlight && (now - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
-                const atBase = lastArrival && pilotBase && lastArrival.toUpperCase() === pilotBase.toUpperCase();
-                const atHome = isHomeAirport(lastArrival, currentPilot);
-                const locationCode = (recentEnough && lastArrival && !atBase && !atHome) ? lastArrival : home;
+            {
+                let locationCode, label, popupExtra;
+                const pilotName = pilotsCache[currentPilot]?.name?.split(' ')[0] || currentPilot;
+
+                if (isAirborne) {
+                    // Show dot at departure airport until ADSB overrides with a plane icon
+                    const activeLeg = allFlightsSorted.find(f => {
+                        const d = flightUTCTime(f.departureTime, f.departureAirport);
+                        const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                        return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
+                    });
+                    if (activeLeg) {
+                        locationCode = activeLeg.departureAirport;
+                        label = locationCode;
+                        popupExtra = `<div style="font-size:11px;color:#94a3b8;margin-top:2px">Departed — tracking live</div>`;
+                    }
+                } else {
+                    const completedFlights = allFlightsSorted.filter(f => {
+                        const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                        return a && a <= now;
+                    });
+                    const lastFlight = completedFlights.length > 0 ? completedFlights[completedFlights.length - 1] : null;
+                    const lastArrival = lastFlight ? lastFlight.arrivalAirport : null;
+                    // Only trust lastArrival if it landed within the last 36 hours; older = assume pilot went home
+                    const recentEnough = lastFlight && (now - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
+                    const atBase = lastArrival && pilotBase && lastArrival.toUpperCase() === pilotBase.toUpperCase();
+                    const atHome = isHomeAirport(lastArrival, currentPilot);
+                    const isAtHome = !recentEnough || !lastArrival || atBase || atHome || (home && lastArrival && lastArrival.toUpperCase() === home?.toUpperCase());
+                    locationCode = (recentEnough && lastArrival && !atBase && !atHome) ? lastArrival : home;
+                    label = isAtHome ? 'Home' : locationCode;
+                    popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Layover'}</div>`;
+                }
+
                 const locationCoords = locationCode ? resolveAirport(locationCode) : null;
                 if (locationCoords) {
-                    const isAtHome = !recentEnough || !lastArrival || atBase || (home && locationCode && locationCode.toUpperCase() === home.toUpperCase());
-                    const label = isAtHome ? 'Home' : locationCode;
-                    const pilotName = pilotsCache[currentPilot]?.name?.split(' ')[0] || currentPilot;
+                    const herePopup = `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${pilotName} is here</div>${popupExtra}`;
                     WORLD_OFFSETS.forEach(w => {
                         const wCoords = [locationCoords[0], locationCoords[1] + w * 360];
+                        const dotHtml = isAtHome
+                            ? `<div class="here-dot" style="width:20px;height:20px;margin:-2px"></div>`
+                            : `<div class="here-dot"></div>`;
                         const pin = L.marker(wCoords, {
-                            icon: L.divIcon({
-                                className: '',
-                                html: `<div class="here-dot"></div>`,
-                                iconAnchor: [8, 8]
-                            }),
+                            icon: L.divIcon({ className: '', html: dotHtml, iconSize: [16, 16], iconAnchor: [8, 8] }),
                             zIndexOffset: 2000
                         });
-                        if (w === 0) pin.bindPopup(
-                            `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${pilotName} is here</div>
-                             <div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Layover'}</div>`,
-                            { className: 'dark-popup' }
-                        );
+                        pin.bindPopup(herePopup, { className: 'dark-popup' });
                         pin.addTo(map);
                         const hereLabel = L.marker(wCoords, {
                             icon: L.divIcon({
@@ -2671,7 +2700,15 @@
                             interactive: false
                         }).addTo(map);
                         mapLayers.active.push(pin, hereLabel);
+                        // If airborne, register for removal when ADSB confirms real position
+                        if (isAirborne) hereNowMarkers.push(pin, hereLabel);
                     });
+                    // When home, remove the static airport dot/label so here-now is the only marker
+                    if (isAtHome && airportVisibilityMap[locationCode]) {
+                        const { markers: aDots, labels: aLabels } = airportVisibilityMap[locationCode];
+                        [...aDots, ...aLabels].forEach(m => { try { map.removeLayer(m); } catch (_) {} });
+                        delete airportVisibilityMap[locationCode];
+                    }
                 }
             }
 
@@ -2806,8 +2843,39 @@
         function stopLivePollers() {
             Object.values(_livePollers).forEach(id => clearInterval(id));
             for (const k in _livePollers) delete _livePollers[k];
+            stopCalListPollers();
             removeRadarLayer();
             document.getElementById('btn-radar')?.classList.add('hidden');
+        }
+        function stopCalListPollers() {
+            Object.values(_calListPollers).forEach(id => clearInterval(id));
+            for (const k in _calListPollers) delete _calListPollers[k];
+        }
+        function startCalListLivePolling() {
+            stopCalListPollers();
+            document.querySelectorAll('[data-live-callsign]').forEach(el => {
+                const cs = el.dataset.liveCallsign;
+                if (!cs || _calListPollers[cs]) return;
+                const liveEl = document.getElementById(`live-${cs}`);
+                if (!liveEl) return;
+                const poll = async () => {
+                    try {
+                        const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(cs)}`).then(r => r.json());
+                        let txt = '';
+                        if (d.found && d.onGround && d.speedKts > 5) {
+                            txt = `Taxiing · ${Math.round(d.speedKts)} kts`;
+                        } else if (d.found && !d.onGround && d.altFt != null) {
+                            const alt = d.altFt >= 18000 ? `FL${Math.round(d.altFt / 100)}` : `${Math.round(d.altFt).toLocaleString()} ft`;
+                            const kts = d.speedKts ? ` · ${Math.round(d.speedKts)} kts` : '';
+                            txt = `${alt}${kts}`;
+                        }
+                        liveEl.textContent = txt ? `✈ ${txt}` : '';
+                        liveEl.style.display = txt ? '' : 'none';
+                    } catch (_) {}
+                };
+                poll();
+                _calListPollers[cs] = setInterval(poll, 15000);
+            });
         }
 
         function smoothTrail(rawPoints) {
@@ -2842,43 +2910,65 @@
             return out;
         }
 
-        function startLiveTracking(marker, callsign, color, depCoords, arrCoords, routeLine, activeLayersArr, pilotName, scheduledArrUTC) {
+        function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = []) {
             if (_livePollers[callsign]) return; // already polling
 
             const radarBtn = document.getElementById('btn-radar');
             if (radarBtn) radarBtn.classList.remove('hidden');
             if (radarOn && !radarLayer) addRadarLayer();
 
-            // Remove static arc immediately — live tracking draws its own lines
-            marker.bindTooltip(
-                `<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
-                (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : ''),
-                { permanent: true, className: 'live-label', direction: 'right', offset: [14, 0] }
-            );
+            const tooltipOpts = { permanent: true, className: 'live-label', direction: 'right', offset: [14, 0] };
+            const baseTooltip = `<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
+                (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : '');
+            // Bind the permanent callsign tooltip to every world copy so it's always visible
+            markers.forEach(m => m.bindTooltip(baseTooltip, tooltipOpts));
+            const setAllTooltip = (html) => markers.forEach(m => m.getTooltip()?.setContent(html));
 
-            let flownLine = null;
-            let remainLine = null;
+            let flownLines = null;  // one polyline per world copy
+            let remainLines = null;
             let arcRemoved = false;
             let missCount = 0;
+            let hasBeenAirborne = false; // distinguishes taxiing-out from landed
 
             const removeArc = () => {
-                if (arcRemoved || !routeLine || !map) return;
-                map.removeLayer(routeLine);
-                ['past', 'future', 'active'].forEach(k => {
-                    const i = mapLayers[k].indexOf(routeLine);
-                    if (i >= 0) mapLayers[k].splice(i, 1);
+                if (arcRemoved) return;
+                const lines = Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
+                lines.forEach(rl => {
+                    if (!rl || !map) return;
+                    try { map.removeLayer(rl); } catch (_) {}
+                    ['past', 'future', 'active'].forEach(k => {
+                        const i = mapLayers[k].indexOf(rl);
+                        if (i >= 0) mapLayers[k].splice(i, 1);
+                    });
                 });
                 arcRemoved = true;
             };
+
+            // Move all world-copy markers to a new lat/lon
+            const setAllLatLng = (lat, lon) =>
+                markers.forEach((m, i) => m.setLatLng([lat, lon + WORLD_OFFSETS[i] * 360]));
+            const setAllIcon = (icon) => markers.forEach(m => m.setIcon(icon));
 
             const update = async () => {
                 try {
                     const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}`).then(r => r.json());
 
                     if (d.onGround) {
-                        clearInterval(_livePollers[callsign]);
-                        delete _livePollers[callsign];
-                        renderMap();
+                        if (hasBeenAirborne) {
+                            // Just landed — stop tracking and refresh
+                            clearInterval(_livePollers[callsign]);
+                            delete _livePollers[callsign];
+                            renderMap();
+                        } else if (d.lat != null) {
+                            // Taxiing out — show plane icon at current position, keep polling
+                            setAllLatLng(d.lat, d.lon);
+                            if (d.heading != null) setAllIcon(makePlaneIcon(d.heading, color, d.type, true));
+                            const kts = d.speedKts ? Math.round(d.speedKts) : null;
+                            setAllTooltip(
+                                baseTooltip +
+                                `<br><span style="font-size:9px;color:#71717a">Taxiing${kts ? ' · ' + kts + ' kts' : ''}</span>`
+                            );
+                        }
                         return;
                     }
 
@@ -2894,47 +2984,55 @@
                     }
 
                     missCount = 0;
+                    if (!hasBeenAirborne) {
+                        hasBeenAirborne = true;
+                        // Remove the here-now departure dot — we have a real plane position now
+                        hereNowMarkers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
+                        hereNowMarkers.length = 0;
+                    }
 
                     if (depCoords && arrCoords && !isPositionOnRoute(d.lat, d.lon, depCoords, arrCoords)) return;
 
-                    // First confirmed ADS-B hit — remove static arc now
+                    // First confirmed airborne ADS-B hit — remove static arc now
                     removeArc();
 
-                    marker.setLatLng([d.lat, d.lon]);
-                    if (d.heading != null) marker.setIcon(makePlaneIcon(d.heading, color, d.type, true));
+                    setAllLatLng(d.lat, d.lon);
+                    if (d.heading != null) setAllIcon(makePlaneIcon(d.heading, color, d.type, true));
 
                     const livePoint = [d.lat, d.lon];
 
                     // Flown: smooth GPS trail (interpolate great-circle between each pair of fixes)
                     const rawTrail = (d.trail && d.trail.length >= 2) ? d.trail : null;
                     const flownPath = rawTrail ? smoothTrail(rawTrail) : distanceProportionalArc(depCoords, livePoint);
-                    if (flownLine) {
-                        flownLine.setLatLngs(flownPath); // update in-place — no remove/re-add flicker
+                    if (flownLines) {
+                        flownLines.forEach((l, i) => l.setLatLngs(flownPath.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
                     } else {
-                        flownLine = L.polyline(flownPath, { color, weight: 1.5, opacity: 0.5, smoothFactor: 0 });
-                        flownLine.addTo(map);
-                        activeLayersArr.push(flownLine);
+                        flownLines = WORLD_OFFSETS.map((w, i) => {
+                            const l = L.polyline(flownPath.map(([la, lo]) => [la, lo + w * 360]), { color, weight: 1.5, opacity: 0.5, smoothFactor: 0 });
+                            l.addTo(map);
+                            activeLayersArr.push(l);
+                            return l;
+                        });
                     }
 
                     // Remaining: great-circle path from live position to destination
                     const remainPath = greatCircleArcCoords(livePoint, arrCoords);
                     const remainSegs = unwrapLongitudes(remainPath);
-                    if (remainLine) {
-                        remainLine.setLatLngs(remainSegs);
+                    if (remainLines) {
+                        remainLines.forEach((l, i) => l.setLatLngs(remainSegs.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
                     } else {
-                        remainLine = L.polyline(remainSegs, { color, weight: 1.5, opacity: 0.7, smoothFactor: 0, dashArray: '8 10' });
-                        remainLine.addTo(map);
-                        activeLayersArr.push(remainLine);
+                        remainLines = WORLD_OFFSETS.map((w, i) => {
+                            const l = L.polyline(remainSegs.map(([la, lo]) => [la, lo + w * 360]), { color, weight: 1.5, opacity: 0.7, smoothFactor: 0, dashArray: '8 10' });
+                            l.addTo(map);
+                            activeLayersArr.push(l);
+                            return l;
+                        });
                     }
 
                     const altFt = d.altFt ? Math.round(d.altFt) : null;
                     const kts   = d.speedKts ? Math.round(d.speedKts) : null;
                     const detail = [altFt ? `${altFt.toLocaleString()} ft` : null, kts ? `${kts} kts` : null].filter(Boolean).join(' · ');
-                    marker.getTooltip()?.setContent(
-                        `<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
-                        (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : '') +
-                        (detail ? `<br><span style="font-size:9px;color:#71717a">${detail}</span>` : '')
-                    );
+                    setAllTooltip(baseTooltip + (detail ? `<br><span style="font-size:9px;color:#71717a">${detail}</span>` : ''));
                 } catch (_) {}
             };
 
@@ -3006,6 +3104,10 @@
             mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
 
             mapDayDate = mapDayDate || _localToday();
+
+            // Day view uses the pilot-name legend
+            document.getElementById('legend-single')?.classList.add('hidden');
+            document.getElementById('legend-day')?.classList.remove('hidden');
 
             // Load all pilots (cache where possible)
             const allPilotSegments = {};
@@ -3108,11 +3210,11 @@
                     const dotPos = arcCoords[dotIdx];
                     const nextPos = arcCoords[dotIdx + 1] || arcCoords[dotIdx];
                     const bearing = computeBearing(dotPos, nextPos);
-                    const dot = L.marker(dotPos, { icon: makePlaneIcon(bearing, color) }).addTo(map);
-                    dot.bindTooltip(`✈ ${PILOT_NAMES[f.pilotKey]} — in the air`, { permanent: false, className: 'dark-popup' });
-                    mapLayers.active.push(dot);
+                    const dots = worldPlaneMarkers(dotPos, makePlaneIcon(bearing, color));
+                    dots[2].bindTooltip(`✈ ${PILOT_NAMES[f.pilotKey]} — in the air`, { permanent: false, className: 'dark-popup' });
+                    dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
-                    if (cs) startLiveTracking(dot, cs, color, depCoords, arrCoords, line, mapLayers.active, PILOT_NAMES[f.pilotKey]?.split(' ')[0], arrTime);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, PILOT_NAMES[f.pilotKey]?.split(' ')[0], arrTime);
                 }
             });
 
@@ -3404,13 +3506,16 @@
                         const depMs = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                         const arrMs = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                         const isActiveLeg = depMs && arrMs && depMs <= nowMs && nowMs <= arrMs;
+                        const fn = (flightNumAttr || '').replace(/\s/g, '').toUpperCase();
+                        const csig = fn || (currentPilot === 'kyle' && tailAttr ? 'SJJ' + tailAttr.replace(/\D/g, '') : '');
                         const cellBg = isActiveLeg
                             ? (isPersonal ? 'background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)' : isCommute ? 'background:rgba(120,53,15,0.2);border:2px solid rgba(34,197,94,0.85)' : 'background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)')
                             : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : isCommute ? 'background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.25)' : 'background:rgba(0,0,0,0.4)');
-                        html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}">`;
+                        html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}"${isActiveLeg && csig ? ` data-live-callsign="${csig}"` : ''}>`;
                         html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
+                        if (isActiveLeg && csig) html += `<div id="live-${csig}" style="font-size:9px;color:#4ade80;font-weight:700;margin-top:2px;display:none"></div>`;
                         html += `</div>`;
                     });
                     html += `</div></div>`;
@@ -3488,10 +3593,13 @@
                             const depMs2 = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                             const arrMs2 = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                             const isActiveLeg2 = depMs2 && arrMs2 && depMs2 <= nowMs2 && nowMs2 <= arrMs2;
+                            const fn2 = (flightNumAttr || '').replace(/\s/g, '').toUpperCase();
+                            const csig2 = fn2 || (currentPilot === 'kyle' && tailAttr ? 'SJJ' + tailAttr.replace(/\D/g, '') : '');
                             const rowBorder = isActiveLeg2 ? 'border-green-500/80 ring-1 ring-green-500/30' : (isPersonal ? 'border-violet-900/50' : isCommute ? 'border-amber-900/50' : 'border-blue-900/30');
                             const rowBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : 'bg-black/30';
                             const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
-                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}${commuteBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div></div>`;
+                            const liveSlot = isActiveLeg2 && csig2 ? `<div id="live-${csig2}" style="font-size:11px;color:#4ade80;font-weight:700;margin-top:8px;padding-top:6px;border-top:1px solid rgba(34,197,94,0.15);display:none"></div>` : '';
+                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}"` : ''}><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}${commuteBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div>${liveSlot}</div>`;
                         }).join('');
                     }
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];
@@ -3506,6 +3614,8 @@
             }
             // attach tooltips to any newly-rendered flight items
             attachTooltips();
+            // start live ADS-B polling for any active flights in calendar/list
+            if (currentView === 'grid' || currentView === 'list') startCalListLivePolling();
         }
 
         // --- Parsers (client-side) ---
