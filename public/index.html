@@ -362,10 +362,9 @@
                         <div class="px-6 pt-6 pb-4 flex items-center justify-between gap-4">
                             <div>
                                 <h2 class="text-lg font-black text-white uppercase tracking-tight">Location Overlap</h2>
-                                <p class="text-xs text-zinc-500 mt-0.5">Metro-aware · 50 mi radius · 6-hour window</p>
+                                <p class="text-xs text-zinc-500 mt-0.5">Metro-aware · 50 mi radius · 3-hour window</p>
                             </div>
                             <div class="flex items-center gap-2 shrink-0">
-                                <button onclick="document.getElementById('overlap-help-modal').classList.remove('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 text-xs font-black transition-colors">?</button>
                                 <button onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">Refresh</button>
                             </div>
                         </div>
@@ -568,20 +567,20 @@
     <!-- Overlap Help Modal -->
     <div id="overlap-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
-        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
             <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
                 <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">How Location Overlap Works</h3>
                 <button onclick="document.getElementById('overlap-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
             </div>
             <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
-                <p>Location Overlap finds moments when crew members are in the same city or airport at the same time — whether it's a chance encounter at the gate or enough time to grab dinner.</p>
+                <p>Location Overlap shows your crossings with the rest of the crew — switch pilots at the top to see a different person's view. Only crossings involving the selected pilot are shown.</p>
 
                 <div class="space-y-3">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Overlap Types</p>
                     <div class="space-y-2.5">
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-violet-950/60 text-violet-400 uppercase tracking-wide shrink-0 mt-0.5">Layover</span>
-                            <span>Both pilots are at the same airport for 5+ hours or overnight — plenty of time to meet up.</span>
+                            <span>Both pilots at the same airport for 5+ hours or overnight — plenty of time to meet up.</span>
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-cyan-950/60 text-cyan-400 uppercase tracking-wide shrink-0 mt-0.5">Meetup</span>
@@ -593,7 +592,7 @@
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-orange-950/60 text-orange-400 uppercase tracking-wide shrink-0 mt-0.5">City Meetup</span>
-                            <span>Different airports in the same metro area, but both have real layover time — could meet in the city.</span>
+                            <span>Different airports in the same metro, but both have real layover time — could meet in the city.</span>
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 uppercase tracking-wide shrink-0 mt-0.5">Home Turf</span>
@@ -601,29 +600,34 @@
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-950/60 text-amber-400 uppercase tracking-wide shrink-0 mt-0.5">Near Miss</span>
-                            <span>Pilots are at the same location within 6 hours of each other but don't overlap directly.</span>
+                            <span>Same location within 3 hours of each other but no direct overlap — close but not quite.</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Metro Areas</p>
-                    <p>Airports in the same city are grouped together — JFK, LGA, EWR, and TEB all count as "New York Area." The specific airports involved are shown in smaller text below the city name.</p>
+                    <p>Airports in the same city are grouped — JFK, LGA, EWR, and TEB all count as "New York Area." The specific airports are shown in smaller text below the city name.</p>
                 </div>
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Your Upcoming Crossings</p>
-                    <p>The panel at the top filters to just your crossings with other crew members in the next 14 days. Changes automatically when you switch crew members.</p>
+                    <p>Pinned at the top — your next 14 days of real crossings. <strong class="text-zinc-300">Tap any row</strong> to jump to the full card. Refreshes automatically when you switch crew members.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Common Off Days</p>
+                    <p>Collapsed section at the top showing upcoming days where 2+ crew are free — no flights scheduled at all. Great for planning something together. <strong class="text-zinc-300">Tap the header to expand.</strong> For Kyle, only confirmed Hard Day Offs count — on-call days are treated as potentially working.</p>
                 </div>
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Also Nearby</p>
-                    <p>Collapsed at the bottom — geographic coincidences where the airports are close but a meetup isn't realistic (one pilot transiting, different terminals across town, etc.).</p>
+                    <p>Geographic coincidences — airports that are close but a meetup isn't realistic (transiting, different airports across town). <strong class="text-zinc-300">Tap a row</strong> to expand for detail.</p>
                 </div>
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Accuracy</p>
-                    <p>Overlap is calculated from scheduled ground time. Actual timing depends on delays and whether pilots have commutes entered. Add commute and personal flights manually for best results.</p>
+                    <p>Calculated from scheduled ground time. Add commute and personal flights manually for best results — especially for positioning to base before a trip.</p>
                 </div>
             </div>
         </div>
@@ -632,7 +636,7 @@
     <!-- Grid/Calendar Help Modal -->
     <div id="grid-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
-        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
             <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
                 <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">How the Calendar Works</h3>
                 <button onclick="document.getElementById('grid-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
@@ -691,7 +695,7 @@
     <!-- List Help Modal -->
     <div id="list-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
-        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
             <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
                 <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">How the List View Works</h3>
                 <button onclick="document.getElementById('list-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
@@ -730,7 +734,7 @@
     <!-- Map Help Modal -->
     <div id="map-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
-        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
             <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
                 <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">How the Map Works</h3>
                 <button onclick="document.getElementById('map-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
@@ -2109,21 +2113,20 @@
                 const isToday = dateStr === todayStr;
                 const isTomorrow = dateStr === tomorrowStr;
                 const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : fmtDateShort(date);
-                const dots = pilots.map(({ key: k }) =>
-                    `<span class="w-2 h-2 rounded-full shrink-0" style="background:${PILOT_COLORS[k]}"></span>`
-                ).join('');
-                const names = pilots.map(({ key: k }) =>
-                    `<span style="color:${PILOT_COLORS[k]}">${PILOT_NAMES[k].split(' ')[0]}</span>`
-                ).join('<span class="text-zinc-600"> · </span>');
                 const countBadge = pilots.length >= 4
-                    ? `<span class="ml-1.5 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">${pilots.length} of 5</span>`
+                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">${pilots.length} of 5</span>`
                     : pilots.length === 3
-                    ? `<span class="ml-1.5 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/60 text-sky-400 border border-sky-800/50">${pilots.length} of 5</span>`
+                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/60 text-sky-400 border border-sky-800/50">${pilots.length} of 5</span>`
                     : '';
-                return `<div class="flex items-center gap-3 px-4 py-2">
-                    <div class="flex gap-1 shrink-0">${dots}</div>
-                    <div class="flex-1 min-w-0 text-xs font-bold">${names}${countBadge}</div>
-                    <div class="text-[11px] font-black text-zinc-400 shrink-0">${dayLabel}</div>
+                const chips = pilots.map(({ key: k }) =>
+                    `<span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black whitespace-nowrap" style="background:${PILOT_COLORS[k]}22;color:${PILOT_COLORS[k]};border:1px solid ${PILOT_COLORS[k]}44"><span class="w-1.5 h-1.5 rounded-full" style="background:${PILOT_COLORS[k]}"></span>${PILOT_NAMES[k].split(' ')[0]}</span>`
+                ).join('');
+                return `<div class="flex items-center gap-2 px-4 py-2 min-w-0">
+                    <div class="flex items-center gap-1.5 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none">${chips}</div>
+                    <div class="flex items-center gap-1.5 shrink-0 ml-auto pl-1">
+                        ${countBadge}
+                        <div class="text-[11px] font-black text-zinc-400 whitespace-nowrap">${dayLabel}</div>
+                    </div>
                 </div>`;
             }).join('');
             const commonOffHtml = `
