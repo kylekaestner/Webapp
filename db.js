@@ -53,6 +53,9 @@ function initDB() {
                 FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE
             )
         `);
+        // Settings table — generic key/value for persisting config across devices
+        db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
+
         // Migrations: add columns if they don't exist yet
         db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE segments ADD COLUMN block_minutes INTEGER`, () => {});

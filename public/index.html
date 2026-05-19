@@ -1150,6 +1150,7 @@
 
         function loadPilot(pilot) {
             currentPilot = pilot;
+            localStorage.setItem('lastPilot', pilot);
 
 
             // Fetch from server
@@ -1571,6 +1572,22 @@
             return result;
         }
 
+        // Render a polyline on the primary world copy plus ±360°/±720° copies so it
+        // appears on every world copy as the user pans east or west.
+        const WORLD_OFFSETS = [-2, -1, 0, 1, 2];
+        function worldLines(coords, opts) {
+            return WORLD_OFFSETS.map(w => L.polyline(coords.map(([la, lo]) => [la, lo + w * 360]), opts));
+        }
+        function worldDots(ll, opts) {
+            return WORLD_OFFSETS.map(w => L.circleMarker([ll[0], ll[1] + w * 360], opts));
+        }
+        function worldLabels(ll, iconHtml) {
+            return WORLD_OFFSETS.map(w => L.marker([ll[0], ll[1] + w * 360], {
+                icon: L.divIcon({ className: '', html: iconHtml, iconAnchor: [0, 0] }),
+                interactive: false
+            }));
+        }
+
         // ── All-Pilots Month Map ───────────────────────────────────────────
         function setMapMode(mode) {
             mapDayMode  = (mode === 'day');
@@ -1666,10 +1683,13 @@
 
                     const arcCoords = distanceProportionalArc(depC, arrC);
                     bounds.push(arcCoords[0], arcCoords[Math.floor(arcCoords.length / 2)], arcCoords[arcCoords.length - 1]);
-                    const line = L.polyline(unwrapLongitudes(arcCoords), { weight, opacity, color: pilotColor, smoothFactor: 1 }).addTo(map);
-                    const hit = L.polyline(unwrapLongitudes(arcCoords), { weight: 20, opacity: 0 }).addTo(map);
+                    const arcU = unwrapLongitudes(arcCoords);
+                    const lines = worldLines(arcU, { weight, opacity, color: pilotColor, smoothFactor: 1 });
+                    lines.forEach(l => { l.addTo(map); mapLayers.future.push(l); });
+                    const [line] = lines;
+                    const hit = L.polyline(arcU, { weight: 20, opacity: 0 }).addTo(map);
                     hit.bindPopup(`<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${PILOT_NAMES[key].split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${dep} → ${arr}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`, { className: 'dark-popup' });
-                    mapLayers.future.push(line, hit);
+                    mapLayers.future.push(hit);
 
                     if (hasActive) {
                         const al = legs.find(f => {
@@ -1695,10 +1715,10 @@
                         const coords = resolveAirport(upper);
                         if (!coords) return;
                         airportSeen.add(upper);
-                        const pt = L.circleMarker(coords, { radius: 4, color: '#0f172a', fillColor: '#e2e8f0', fillOpacity: 0.9, weight: 1.5 }).addTo(map);
-                        const lbl = L.marker(coords, { icon: L.divIcon({ className: '', html: `<div style="color:#e2e8f0;font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,-180%);white-space:nowrap">${upper}</div>`, iconAnchor: [0,0] }) }).addTo(map);
-                        mapLayers.airports.push(pt);
-                        mapLayers.labels.push(lbl);
+                        worldDots(coords, { radius: 4, color: '#0f172a', fillColor: '#e2e8f0', fillOpacity: 0.9, weight: 1.5 })
+                            .forEach(d => { d.addTo(map); mapLayers.airports.push(d); });
+                        worldLabels(coords, `<div style="color:#e2e8f0;font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,-180%);white-space:nowrap">${upper}</div>`)
+                            .forEach(l => { l.addTo(map); mapLayers.labels.push(l); });
                     });
                 });
             }
@@ -1711,7 +1731,10 @@
                 const el = document.getElementById(`legend-pilot-${k}`);
                 if (el) el.style.opacity = hiddenPilots.has(k) ? '0.3' : '';
             });
-            if (bounds.length) map.fitBounds(L.latLngBounds(bounds).pad(0.2));
+            if (bounds.length) {
+                const nb = bounds.map(p => [p[0], ((p[1] % 360) + 360) % 360]);
+                map.fitBounds(L.latLngBounds(nb).pad(0.2));
+            }
         }
 
         function distanceProportionalArc(start, end, steps = 80) {
@@ -1818,8 +1841,10 @@
 
                 const arcCoords = distanceProportionalArc(depCoords, arrCoords);
                 bounds.push(arcCoords[0], arcCoords[Math.floor(arcCoords.length / 2)], arcCoords[arcCoords.length - 1]);
-                const line = L.polyline(unwrapLongitudes(arcCoords), { weight, opacity, color, smoothFactor: 1 });
-                const hit  = L.polyline(unwrapLongitudes(arcCoords), { weight: 20, opacity: 0 });
+                const arcU = unwrapLongitudes(arcCoords);
+                const routeLines = worldLines(arcU, { weight, opacity, color, smoothFactor: 1 });
+                const [line] = routeLines;
+                const hit  = L.polyline(arcU, { weight: 20, opacity: 0 });
 
                 // Popup: list all legs chronologically
                 const sorted = legs.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
@@ -1842,9 +1867,9 @@
                 `, { className: 'dark-popup' });
 
                 const showLine = (allPast && showPast) || (!allPast && showFuture) || hasActive;
-                if (allPast) mapLayers.past.push(line, hit);
-                else mapLayers.future.push(line, hit);
-                if (showLine) { line.addTo(map); hit.addTo(map); }
+                if (allPast) { routeLines.forEach(l => mapLayers.past.push(l)); mapLayers.past.push(hit); }
+                else { routeLines.forEach(l => mapLayers.future.push(l)); mapLayers.future.push(hit); }
+                if (showLine) { routeLines.forEach(l => l.addTo(map)); hit.addTo(map); }
 
                 // Airplane icon for any active leg
                 if (hasActive) {
@@ -1894,24 +1919,18 @@
                 const dotColor = isBase ? '#22c55e' : isLayover ? '#f59e0b' : '#f8fafc';
                 const radius = isBase ? 7 : isLayover ? 6 : 5;
 
-                const point = L.circleMarker(coords, {
-                    radius, color: '#0f172a', fillColor: dotColor, fillOpacity: 1, weight: 1.5
-                });
-                if (visible) point.addTo(map);
-                mapLayers.airports.push(point);
+                const dotOpts = { radius, color: '#0f172a', fillColor: dotColor, fillOpacity: 1, weight: 1.5 };
+                const points = worldDots(coords, dotOpts);
+                const [point] = points;
+                points.forEach(p => { if (visible) p.addTo(map); mapLayers.airports.push(p); });
 
                 const labelColor = isBase ? '#4ade80' : isLayover ? '#fbbf24' : '#f8fafc';
-                const label = L.marker(coords, {
-                    icon: L.divIcon({
-                        className: '',
-                        html: `<div style="color:${labelColor};font-size:11px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,-180%);white-space:nowrap">${upper}</div>`,
-                        iconAnchor: [0, 0]
-                    })
-                });
-                if (visible) label.addTo(map);
-                mapLayers.labels.push(label);
+                const labelHtml = `<div style="color:${labelColor};font-size:11px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,-180%);white-space:nowrap">${upper}</div>`;
+                const labels = worldLabels(coords, labelHtml);
+                const [label] = labels;
+                labels.forEach(l => { if (visible) l.addTo(map); mapLayers.labels.push(l); });
 
-                airportVisibilityMap[upper] = { past, future, active, marker: point, label };
+                airportVisibilityMap[upper] = { past, future, active, markers: points, labels };
             });
 
             // Current position pin
@@ -1962,7 +1981,10 @@
                 }
             }
 
-            if (bounds.length > 0) map.fitBounds(L.latLngBounds(bounds).pad(0.2));
+            if (bounds.length > 0) {
+                const nb = bounds.map(p => [p[0], ((p[1] % 360) + 360) % 360]);
+                map.fitBounds(L.latLngBounds(nb).pad(0.2));
+            }
         }
 
         function toggleMapFilter(type) {
@@ -1977,10 +1999,10 @@
                 document.getElementById('btn-future').classList.toggle('map-ctrl-on', showFuture);
             }
             // Sync airport markers to match the visible flight set
-            Object.values(airportVisibilityMap).forEach(({ past, future, active, marker, label }) => {
+            Object.values(airportVisibilityMap).forEach(({ past, future, active, markers, labels }) => {
                 const visible = (past && showPast) || (future && showFuture) || active;
-                visible ? marker.addTo(map) : map.removeLayer(marker);
-                visible ? label.addTo(map) : map.removeLayer(label);
+                markers.forEach(m => visible ? m.addTo(map) : map.removeLayer(m));
+                labels.forEach(l => visible ? l.addTo(map) : map.removeLayer(l));
             });
         }
 
@@ -2367,8 +2389,11 @@
                 const opacity = isActive ? 1 : 0.75;
                 const dayLineOpts = { weight, opacity, color, smoothFactor: 1 };
                 if (isActive) dayLineOpts.className = 'active-route';
-                const line = L.polyline(unwrapLongitudes(arcCoords), dayLineOpts).addTo(map);
-                const hit  = L.polyline(unwrapLongitudes(arcCoords), { weight: 20, opacity: 0 }).addTo(map);
+                const arcU = unwrapLongitudes(arcCoords);
+                const dayLines = worldLines(arcU, dayLineOpts);
+                dayLines.forEach(l => l.addTo(map));
+                const [line] = dayLines;
+                const hit  = L.polyline(arcU, { weight: 20, opacity: 0 }).addTo(map);
 
                 const blockMins = calcBlockMins(f);
                 hit.bindPopup(`
@@ -2378,7 +2403,8 @@
                     <div style="font-size:12px;color:#94a3b8">Block ${blockMins ? formatDurationMinutes(blockMins) : '—'}${f.tail ? ' · ' + f.tail : ''}</div>
                     ${isActive ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:6px">▶ In the air now</div>` : ''}
                 `, { className: 'dark-popup' });
-                mapLayers.future.push(line, hit);
+                dayLines.forEach(l => mapLayers.future.push(l));
+                mapLayers.future.push(hit);
 
                 // Live airplane icon — placed at interpolated position, then updated via ADS-B
                 if (isActive) {
@@ -2405,31 +2431,27 @@
                 const fillColor = pilotList.length === 1 ? PILOT_COLORS[pilotList[0]] : '#ffffff';
                 const strokeColor = pilotList.length === 1 ? '#000' : '#64748b';
 
-                const circle = L.circleMarker(coords, {
-                    radius: 5, fillColor, fillOpacity: 0.95,
-                    color: strokeColor, weight: 1.5
-                }).addTo(map);
+                const aptDotOpts = { radius: 5, fillColor, fillOpacity: 0.95, color: strokeColor, weight: 1.5 };
+                const circles = worldDots(coords, aptDotOpts);
+                const [circle] = circles;
+                circles.forEach(c => { c.addTo(map); mapLayers.airports.push(c); });
 
-                // Popup: which pilots, which flights
+                // Popup: which pilots, which flights (primary circle only)
                 const flightLines = data.flights.map(f =>
                     `<div style="font-size:11px;color:${PILOT_COLORS[f.pilotKey]};margin-top:3px">` +
                     `${PILOT_NAMES[f.pilotKey].split(' ')[0]}: ${f.departureAirport}→${f.arrivalAirport} ${formatTimeISO(f.departureTime, f.departureAirport)}</div>`
                 ).join('');
                 circle.bindPopup(`<div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${apt}</div>${flightLines}`, { className: 'dark-popup' });
 
-                const label = L.marker(coords, {
-                    icon: L.divIcon({
-                        className: '',
-                        html: `<div style="color:#e2e8f0;font-size:9px;font-weight:900;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;margin-left:8px;margin-top:-4px">${apt}</div>`,
-                        iconSize: [40, 12], iconAnchor: [0, 6]
-                    })
-                }).addTo(map);
-
-                mapLayers.airports.push(circle);
-                mapLayers.labels.push(label);
+                const aptLabelHtml = `<div style="color:#e2e8f0;font-size:9px;font-weight:900;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;margin-left:8px;margin-top:-4px">${apt}</div>`;
+                worldLabels(coords, aptLabelHtml)
+                    .forEach(l => { l.addTo(map); mapLayers.labels.push(l); });
             });
 
-            if (bounds.length > 0) map.fitBounds(L.latLngBounds(bounds).pad(0.25));
+            if (bounds.length > 0) {
+                const nb = bounds.map(p => [p[0], ((p[1] % 360) + 360) % 360]);
+                map.fitBounds(L.latLngBounds(nb).pad(0.25));
+            }
         }
 
         // Tooltip element for flight details
@@ -3525,23 +3547,12 @@
 
             const monthsBack  = document.getElementById('schedaero-months-back').value;
             const monthsAhead = document.getElementById('schedaero-months').value;
-            localStorage.setItem('schedaero_url',          url);
-            localStorage.setItem('schedaero_apitoken',     apiToken);
-            localStorage.setItem('schedaero_cookie',       cookie);
-            localStorage.setItem('schedaero_months_back',  monthsBack);
-            localStorage.setItem('schedaero_months_ahead', monthsAhead);
-            // Save to server so any device can autofill
-            fetch(`${API_BASE}/settings/schedaero-creds`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, apiToken, cookie, monthsBack, monthsAhead })
-            }).catch(() => {});
 
             btn.textContent = 'Syncing…';
             btn.disabled = true;
 
             const now = new Date();
-            const back  = parseInt(document.getElementById('schedaero-months-back').value);
-            const total = back + count;
+            const back = parseInt(monthsBack);
             let totalAdded = 0;
             const errors = [];
 
@@ -3573,6 +3584,16 @@
                 errEl.textContent = errors.join(' | ');
                 errEl.classList.remove('hidden');
             } else {
+                // Persist creds only after a fully successful sync
+                localStorage.setItem('schedaero_url',          url);
+                localStorage.setItem('schedaero_apitoken',     apiToken);
+                localStorage.setItem('schedaero_cookie',       cookie);
+                localStorage.setItem('schedaero_months_back',  monthsBack);
+                localStorage.setItem('schedaero_months_ahead', monthsAhead);
+                fetch(`${API_BASE}/settings/schedaero-creds`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, apiToken, cookie, monthsBack, monthsAhead })
+                }).catch(() => {});
                 closeSchedaeroModal();
                 alert(`Synced ${totalAdded} segments from Schedaero.`);
                 if (currentPilot === 'kyle') loadPilot('kyle');
@@ -3641,8 +3662,13 @@
             // Set initial mobile nav active state
             const mbtn = document.getElementById('mbtn-grid');
             if (mbtn) mbtn.style.color = '#3b82f6';
-            updateUploadSyncButtons('kyle');
-            loadPilot('kyle');
+            const VALID_PILOTS = ['kyle','adam','sam','logan','drew'];
+            const urlPilot = new URLSearchParams(window.location.search).get('pilot');
+            const defaultPilot = VALID_PILOTS.includes(urlPilot) ? urlPilot
+                               : VALID_PILOTS.includes(localStorage.getItem('lastPilot')) ? localStorage.getItem('lastPilot')
+                               : 'kyle';
+            updateUploadSyncButtons(defaultPilot);
+            loadPilot(defaultPilot);
         });
     </script>
 </body>
