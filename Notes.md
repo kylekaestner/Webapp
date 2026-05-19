@@ -37,7 +37,7 @@
 ~~Kyle has a layover duration for KSUS.~~
 ~~If a flight was live, but the ETA time past, and the aircraft is airborne (ADSB), continue showing the flight until it lands. Then update the time it landed. Same if a flight lands early. Marked the flight as no longer live/landed. Flight for Adam is showing live bc it hasn't reach the arrival time in CT but it has in ET. So it should've already landed.~~
 -Maybe for personal/DH manual add they can just put the flight number in and airport pair and it'll figure out the rest?
--Overlap could have a small inset map of the airport/location
+~~Overlap could have a small inset map of the airport/location~~
 ~~Find a way to keep the session cookie active. Make it easier to sync on mobile bc safari doesn't have DevTools~~
 ~~Changing crew selection while on location overlap should automatically refresh.~~
 ~~Look to optimize mobile. Help tooltip cut off my iphone dynamic island. Add help buttons to each page on mobile.~~

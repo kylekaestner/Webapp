@@ -1695,9 +1695,9 @@
 
             // Build location display label
             function locationLabel(locA, locB) {
+                if (locA === locB) return locA;
                 const mA = METRO_GROUPS[locA], mB = METRO_GROUPS[locB];
                 if (mA && mA === mB) return METRO_LABELS[mA] || `${locA} / ${locB}`;
-                if (locA === locB) return locA;
                 return `${locA} / ${locB}`;
             }
             // The two pilot airports when same metro but different
@@ -1858,6 +1858,24 @@
             const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const scrollTargetIdx = primary.findIndex(o => o.sortKey >= todayMidnight.getTime());
 
+            // Mini tile map — CARTO dark tile centered on lat/lon with a dot marker
+            function miniMapHtml(lat, lon, dotColor, z = 10) {
+                const n = Math.pow(2, z);
+                const tileX = Math.floor((lon + 180) / 360 * n);
+                const latRad = lat * Math.PI / 180;
+                const tileY = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+                const pxX = ((lon + 180) / 360 * n - tileX) * 256;
+                const pxY = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n - tileY) * 256;
+                const W = 80, H = 64;
+                const imgLeft = Math.round(W / 2 - pxX);
+                const imgTop  = Math.round(H / 2 - pxY);
+                const url = `https://a.basemaps.cartocdn.com/dark_nolabels/${z}/${tileX}/${tileY}.png`;
+                return `<div class="relative rounded-xl overflow-hidden shrink-0 border border-zinc-700/40 bg-zinc-900" style="width:${W}px;height:${H}px">
+                    <img src="${url}" loading="lazy" style="position:absolute;width:256px;height:256px;top:${imgTop}px;left:${imgLeft}px;pointer-events:none">
+                    <div class="absolute" style="left:50%;top:50%;transform:translate(-50%,-50%);width:9px;height:9px;border-radius:50%;background:${dotColor};border:2px solid #09090b;box-shadow:0 0 0 2px ${dotColor}55"></div>
+                </div>`;
+            }
+
             // Render a primary card (tiers 1 & 2)
             function renderPrimaryCard(o, idx, isScrollTarget) {
                 const refTime    = o.directStart || new Date(o.sortKey);
@@ -1973,11 +1991,21 @@
                 const bg      = tier === 2 ? 'bg-zinc-900/20' : (isNow ? 'bg-green-950/20' : isToday ? 'bg-sky-950/15' : 'bg-zinc-900/40');
                 const opacity = isPast ? 'opacity-40' : '';
 
+                const cA = getCoords(o.airport), cB = getCoords(o.airportB);
+                const mapLat = cA && cB ? (cA[0] + cB[0]) / 2 : cA?.[0];
+                const mapLon = cA && cB ? (cA[1] + cB[1]) / 2 : cA?.[1];
+                const mapHtml = (mapLat != null && mapLon != null)
+                    ? miniMapHtml(mapLat, mapLon, cls?.color || '#818cf8')
+                    : '';
+
                 return `<div${scrollId} class="border ${border} rounded-2xl overflow-hidden ${bg} ${opacity}">
-                    <div class="px-4 pt-3.5 pb-3">
-                        <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5 flex items-center flex-wrap gap-1">${pulseDot}${dateLabel}${typeBadge}</div>
-                        <div class="text-2xl font-black ${tier === 2 ? 'text-zinc-300' : 'text-white'} leading-none">${locLabel}${distTag}</div>
-                        ${locSub ? `<div class="text-xs text-zinc-400 mt-1 font-mono tracking-wider">${locSub}</div>` : ''}
+                    <div class="px-4 pt-3.5 pb-3 flex items-start gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5 flex items-center flex-wrap gap-1">${pulseDot}${dateLabel}${typeBadge}</div>
+                            <div class="text-2xl font-black ${tier === 2 ? 'text-zinc-300' : 'text-white'} leading-none">${locLabel}${distTag}</div>
+                            ${locSub ? `<div class="text-xs text-zinc-400 mt-1 font-mono tracking-wider">${locSub}</div>` : ''}
+                        </div>
+                        ${mapHtml}
                     </div>
                     ${annotation}
                     <div class="px-4 pb-3 pt-2.5 space-y-2 border-t border-zinc-800/50">
@@ -2067,6 +2095,7 @@
 
             // Common off days — days where 2+ pilots have no flights (free to plan anything)
             const pilotFlyingDates = {};
+            const pilotMaxDate = {};
             const kyleHardOffDates = new Set();
             let allDatesMax = null;
             PILOT_KEYS.forEach(k => {
@@ -2081,10 +2110,19 @@
                         if (!t) return;
                         flying.add(t.slice(0, 10));
                         if (!allDatesMax || t.slice(0, 10) > allDatesMax) allDatesMax = t.slice(0, 10);
+                        if (!pilotMaxDate[k] || t.slice(0, 10) > pilotMaxDate[k]) pilotMaxDate[k] = t.slice(0, 10);
                     });
                 });
                 pilotFlyingDates[k] = flying;
             });
+            // Flag pilots whose schedule ends more than 7 days before the pilot with the most data
+            const stalePilots = allDatesMax
+                ? PILOT_KEYS.filter(k => {
+                    if (k === 'kyle') return false; // kyle uses hard-off days, not flight range
+                    const diff = (new Date(allDatesMax) - new Date(pilotMaxDate[k] || '2000-01-01')) / 86400000;
+                    return diff > 7;
+                  })
+                : [];
 
             // Kyle: only hard off days count — on-call means potentially working, even with no flights yet scheduled
             function kyleAvail(dateStr) {
@@ -2113,19 +2151,26 @@
                 const isToday = dateStr === todayStr;
                 const isTomorrow = dateStr === tomorrowStr;
                 const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : fmtDateShort(date);
-                const countBadge = pilots.length >= 4
+                const isAllOff = pilots.length === 5;
+                const rowStyle = isAllOff
+                    ? 'border-left:2px solid rgba(251,191,36,0.45);'
+                    : '';
+                const countBadge = isAllOff
+                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-950/60 text-amber-400 border border-amber-700/60">✦ ALL OFF</span>`
+                    : pilots.length >= 4
                     ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">${pilots.length} of 5</span>`
                     : pilots.length === 3
                     ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/60 text-sky-400 border border-sky-800/50">${pilots.length} of 5</span>`
                     : '';
+                const dayLabelStyle = isAllOff ? 'color:#fbbf24;' : '';
                 const chips = pilots.map(({ key: k }) =>
                     `<span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black whitespace-nowrap" style="background:${PILOT_COLORS[k]}22;color:${PILOT_COLORS[k]};border:1px solid ${PILOT_COLORS[k]}44"><span class="w-1.5 h-1.5 rounded-full" style="background:${PILOT_COLORS[k]}"></span>${PILOT_NAMES[k].split(' ')[0]}</span>`
                 ).join('');
-                return `<div class="flex items-center gap-2 px-4 min-w-0" style="padding-top:10px;padding-bottom:10px">
+                return `<div class="flex items-center gap-2 px-4 min-w-0" style="padding-top:10px;padding-bottom:10px;${rowStyle}">
                     <div class="flex items-center gap-1.5 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:4px 0">${chips}</div>
                     <div class="flex items-center gap-1.5 shrink-0 ml-auto pl-1">
                         ${countBadge}
-                        <div class="text-[11px] font-black text-zinc-400 whitespace-nowrap">${dayLabel}</div>
+                        <div class="text-[11px] font-black whitespace-nowrap" style="${dayLabelStyle}">${dayLabel}</div>
                     </div>
                 </div>`;
             }).join('');
@@ -2138,6 +2183,10 @@
                         ${nextOffPreview}
                     </button>
                     <div class="off-days-body hidden border-t border-zinc-800/50 divide-y divide-zinc-800/30">
+                        ${stalePilots.length ? `<div class="px-4 py-2.5 flex items-center gap-2 border-b border-zinc-800/30 bg-zinc-900/40">
+                            <span style="color:#92400e;font-size:11px">⚠</span>
+                            <span style="font-size:10px;color:#78716c">${stalePilots.map(k => PILOT_NAMES[k].split(' ')[0]).join(', ')} ${stalePilots.length === 1 ? 'has' : 'have'} no upcoming schedule — off days may be incomplete</span>
+                        </div>` : ''}
                         ${offDayRows || '<div class="px-4 py-3 text-xs text-zinc-600">No common off days found in schedule data.</div>'}
                     </div>
                 </div>`;
@@ -3256,6 +3305,12 @@
             if (mobileMonth) mobileMonth.textContent = monthLabel;
 
             if (currentView === 'grid') {
+                // Background-fetch uncached pilots so "all crew off" detection works on first load
+                PILOT_KEYS.forEach(k => {
+                    if (!pilotsCache[k]) {
+                        fetch(`${API_BASE}/pilots/${k}`).then(r => r.json()).then(d => { pilotsCache[k] = d; }).catch(() => {});
+                    }
+                });
                 const firstDay = new Date(year, month, 1).getDay();
                 const dayOffset = firstDay; // 0=Sun, 1=Mon, … — getDay() is already Sunday-first
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -3282,16 +3337,35 @@
                     const isFlying = dayEvents.some(e => e.type === 'flight');
                     let away = dayEvents.find(e => e.type === 'away');
                     if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
-                    
+
+                    const allPilotsCached = PILOT_KEYS.every(k => pilotsCache[k] && typeof pilotsCache[k] === 'object');
+                    const isAllCrewOff = false; /* reserved — highlight lives in overlap view common days off
+                    allPilotsCached && !isHard && !isFlying && !away && PILOT_KEYS.every(k => {
+                        if (k === currentPilot) return true;
+                        return !(pilotsCache[k].segments || []).some(s => {
+                            if (s.type !== 'flight') return false;
+                            const dep = s.departure_time, depApt = s.departure_airport;
+                            if (!dep) return false;
+                            if (flightLocalDate(dep, depApt) === dateKey) return true;
+                            const arr = s.arrival_time, arrApt = s.arrival_airport;
+                            if (!arr) return false;
+                            const arrLocal = flightLocalDate(arr, arrApt);
+                            return arrLocal === dateKey && arrLocal !== flightLocalDate(dep, depApt);
+                        });
+                    }); */
+
                     let style = "border-zinc-800 bg-zinc-900/20";
                     let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
                     if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
+                    else if (isAllCrewOff) { style = "border-amber-400/60 bg-amber-950/30"; tag = "✦ ALL OFF"; }
+                    const glowStyle = isAllCrewOff ? 'box-shadow:0 0 0 1px rgba(251,191,36,0.45),0 0 18px rgba(251,191,36,0.18);' : '';
                     // Cell: fixed height with scrollable inner flight list
-                    let html = `<div class="border rounded-xl flex flex-col ${style} ${dayClasses.join(' ')}" style="height:170px" onclick="showDayDetail('${dateKey}')">`;
+                    let html = `<div class="border rounded-xl flex flex-col ${style} ${dayClasses.join(' ')}" style="height:170px;${glowStyle}" onclick="showDayDetail('${dateKey}')">`;
                     // Header row: day number + status tag
-                    html += `<div class="flex items-start justify-between px-2.5 pt-2 pb-1 shrink-0"><span class="text-base font-black font-mono leading-none day-number">${d}</span><span class="text-[7px] font-black px-1.5 py-[2px] rounded-full border border-current leading-none opacity-90">${tag}</span></div>`;
+                    const dayNumColor = isAllCrewOff ? 'color:#fbbf24;' : '';
+                    html += `<div class="flex items-start justify-between px-2.5 pt-2 pb-1 shrink-0"><span class="text-base font-black font-mono leading-none day-number" style="${dayNumColor}">${d}</span><span class="text-[7px] font-black px-1.5 py-[2px] rounded-full border border-current leading-none opacity-90">${tag}</span></div>`;
                     // Scrollable flight list
                     html += `<div class="overflow-y-auto flex-1 px-1.5 pb-1.5 space-y-1">`;
                     const cellFlights = dayEvents.filter(e => e.type === 'flight');
