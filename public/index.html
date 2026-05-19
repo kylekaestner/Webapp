@@ -356,15 +356,18 @@
 
             <div id="view-overlap" class="view-section overflow-y-auto">
                 <div class="max-w-2xl mx-auto pb-20">
-                    <div id="overlap-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm px-6 pt-6 pb-4 mb-2 border-b border-zinc-800/60 flex items-center justify-between gap-4">
-                        <div>
-                            <h2 class="text-lg font-black text-white uppercase tracking-tight">Location Overlap</h2>
-                            <p class="text-xs text-zinc-500 mt-0.5">Metro-aware · 50 mi radius · 6-hour window</p>
+                    <div id="overlap-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm border-b border-zinc-800/60 mb-2">
+                        <div class="px-6 pt-6 pb-4 flex items-center justify-between gap-4">
+                            <div>
+                                <h2 class="text-lg font-black text-white uppercase tracking-tight">Location Overlap</h2>
+                                <p class="text-xs text-zinc-500 mt-0.5">Metro-aware · 50 mi radius · 6-hour window</p>
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <button onclick="document.getElementById('overlap-help-modal').classList.remove('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 text-xs font-black transition-colors">?</button>
+                                <button onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">Refresh</button>
+                            </div>
                         </div>
-                        <div class="flex items-center gap-2 shrink-0">
-                            <button onclick="document.getElementById('overlap-help-modal').classList.remove('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 text-xs font-black transition-colors">?</button>
-                            <button onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">Refresh</button>
-                        </div>
+                        <div id="overlap-summary" class="hidden px-6 pb-4"></div>
                     </div>
                     <div id="overlap-content" class="space-y-3 px-6">
                         <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate overlaps</div>
@@ -1532,6 +1535,8 @@
 
         async function computeOverlap() {
             const container = document.getElementById('overlap-content');
+            const summaryElReset = document.getElementById('overlap-summary');
+            if (summaryElReset) { summaryElReset.innerHTML = ''; summaryElReset.classList.add('hidden'); }
             container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
 
             const now = new Date();
@@ -1796,9 +1801,10 @@
                 o.directStart < cutoff14
             ).slice(0, 4);
 
-            let summaryHtml = '';
+            const summaryEl = document.getElementById('overlap-summary');
             if (myUpcoming.length > 0) {
                 const summaryItems = myUpcoming.map(o => {
+                    const cardIdx = primary.indexOf(o);
                     const other = o.kA === currentPilot ? o.kB : o.kA;
                     const otherName = PILOT_NAMES[other].split(' ')[0];
                     const otherColor = PILOT_COLORS[other];
@@ -1810,7 +1816,7 @@
                         localDateStr(refTime) === tomorrowStr ? 'Tomorrow' : fmtDateShort(refTime);
                     const dur = fmtDur(o.directEnd - o.directStart);
                     const cls = o.classification;
-                    return `<div class="flex items-center gap-3 py-2.5 border-b border-zinc-800/50 last:border-0">
+                    return `<div class="flex items-center gap-3 py-2.5 border-b border-zinc-800/50 last:border-0 cursor-pointer hover:bg-zinc-800/30 -mx-4 px-4 rounded transition-colors" onclick="scrollToOverlapCard(${cardIdx})">
                         <span class="w-2 h-2 rounded-full shrink-0" style="background:${otherColor}"></span>
                         <div class="flex-1 min-w-0">
                             <span class="font-black text-xs" style="color:${otherColor}">${otherName}</span>
@@ -1821,15 +1827,20 @@
                             <div class="text-[11px] font-black text-zinc-300">${dayLabel}</div>
                             ${dur ? `<div class="text-[10px] text-zinc-500">${dur}</div>` : ''}
                         </div>
+                        <span class="text-zinc-700 text-xs ml-1">›</span>
                     </div>`;
                 }).join('');
-                summaryHtml = `<div class="mb-4 rounded-xl border border-zinc-700/60 bg-zinc-900/60 overflow-hidden">
+                summaryEl.innerHTML = `<div class="rounded-xl border border-zinc-700/60 bg-zinc-900/60 overflow-hidden">
                     <div class="px-4 py-2.5 border-b border-zinc-800 flex items-center gap-2">
                         <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
                         <span class="text-[11px] font-black uppercase tracking-widest text-zinc-400">Your Upcoming Crossings</span>
                     </div>
                     <div class="px-4">${summaryItems}</div>
                 </div>`;
+                summaryEl.classList.remove('hidden');
+            } else {
+                summaryEl.innerHTML = '';
+                summaryEl.classList.add('hidden');
             }
 
             const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1844,7 +1855,8 @@
                 const isPast     = refDay < todayStr;
                 const isNear     = !o.isDirect;
                 const isNow      = o.isDirect && o.directStart <= now && o.directEnd >= now;
-                const scrollId   = isScrollTarget ? ' id="overlap-scroll-target"' : '';
+                const scrollId   = ` id="overlap-card-${idx}"${isScrollTarget ? ' data-scroll-target="1"' : ''}`;
+
                 const cls        = o.classification;
                 const tier       = cls?.tier || 1;
 
@@ -2041,20 +2053,22 @@
                 </div>`
                 : '';
 
-            container.innerHTML = summaryHtml + noneMsg + primaryCards + secondaryHtml;
+            container.innerHTML = noneMsg + primaryCards + secondaryHtml;
 
             if (scrollTargetIdx >= 0) {
-                requestAnimationFrame(() => {
-                    const target = document.getElementById('overlap-scroll-target');
-                    const view   = document.getElementById('view-overlap');
-                    const header = document.getElementById('overlap-header');
-                    if (target && view) {
-                        const headerH = header ? header.getBoundingClientRect().height : 0;
-                        const viewRect = view.getBoundingClientRect();
-                        const targetRect = target.getBoundingClientRect();
-                        view.scrollTop += targetRect.top - viewRect.top - headerH - 8;
-                    }
-                });
+                requestAnimationFrame(() => scrollToOverlapCard(scrollTargetIdx));
+            }
+        }
+
+        function scrollToOverlapCard(idx) {
+            const target = document.getElementById(`overlap-card-${idx}`);
+            const view   = document.getElementById('view-overlap');
+            const header = document.getElementById('overlap-header');
+            if (target && view) {
+                const headerH = header ? header.getBoundingClientRect().height : 0;
+                const viewRect = view.getBoundingClientRect();
+                const targetRect = target.getBoundingClientRect();
+                view.scrollTop += targetRect.top - viewRect.top - headerH - 12;
             }
         }
 
