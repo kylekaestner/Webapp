@@ -957,7 +957,7 @@ app.post('/api/pilots/kyle/sync-schedaero', async (req, res) => {
 
 // Live flight tracking — position + accumulated trail
 const _liveCache = {};
-const LIVE_TTL = 15000; // 15s; client polls every 20s so cache is usually stale
+const LIVE_TTL = 5000; // 5s cache; client polls every 8s
 
 const _posTrail = {};  // hex → [[lat, lon], ...]
 const _trailSeeded = new Set(); // hexes whose OpenSky history has been fetched
@@ -1045,8 +1045,8 @@ app.get('/api/live-position', async (req, res) => {
             }
             const trail = _posTrail[hex];
             const last = trail[trail.length - 1];
-            // Add point only if aircraft has moved meaningfully (~0.3 mi)
-            if (!last || Math.abs(last[0] - data.lat) > 0.005 || Math.abs(last[1] - data.lon) > 0.005) {
+            // Add point only if aircraft has moved meaningfully (~0.1 mi)
+            if (!last || Math.abs(last[0] - data.lat) > 0.002 || Math.abs(last[1] - data.lon) > 0.002) {
                 trail.push([data.lat, data.lon]);
                 if (trail.length > 2000) trail.splice(0, trail.length - 2000);
             }
