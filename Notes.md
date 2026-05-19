@@ -39,3 +39,8 @@
 -Maybe for personal/DH manual add they can just put the flight number in and airport pair and it'll figure out the rest?
 -Overlap could have a small inset map of the airport/location
 ~~Find a way to keep the session cookie active. Make it easier to sync on mobile bc safari doesn't have DevTools~~
+~~Changing crew selection while on location overlap should automatically refresh.~~
+~~Look to optimize mobile. Help tooltip cut off my iphone dynamic island. Add help buttons to each page on mobile.~~
+~~Modal add flight tail and flight # fields overlapping~~
+~~I think a 6 hour window may be too long for location overlap. Near misses may need to be minimized a bit so they aren't too cluttering. Again we want to emphasize good and realistic chances to meet up.~~ 
+~~Maybe a new feature that shows common off days by users for planning things outside of flying.~~

@@ -146,6 +146,7 @@
         .active-route path { stroke-dasharray: 10, 5; stroke-dashoffset: 0; animation: dash-flow 0.5s linear infinite; }
         @keyframes active-leg-pulse { 0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.15); } 50% { box-shadow: 0 0 14px rgba(34,197,94,0.65); } }
         .active-leg { animation: active-leg-pulse 1.8s ease-in-out infinite; }
+        .map-hit { pointer-events: stroke !important; }
     </style>
 </head>
 <body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;">
@@ -259,6 +260,7 @@
             <div class="flex items-center gap-1">
                 <button onclick="changeMonth(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">‹</button>
                 <button onclick="changeMonth(1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">›</button>
+                <button onclick="openViewHelp()" class="w-8 h-8 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 font-black text-xs ml-0.5">?</button>
                 <button onclick="openAddFlight()" class="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-600 text-white font-black text-base ml-0.5">+</button>
             </div>
         </header>
@@ -397,7 +399,7 @@
     </div>
 
     <!-- Add Flight Modal -->
-    <div id="add-flight-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)closeAddFlight()">
+    <div id="add-flight-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeAddFlight()">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
             <!-- Modal header -->
@@ -461,16 +463,16 @@
                 </div>
                 <!-- Optional fields -->
                 <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Flight # <span id="add-flight-num-label" class="text-zinc-600 normal-case font-normal">(optional)</span></label>
+                    <div class="min-w-0">
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Flight # <span id="add-flight-num-label" class="text-zinc-600 normal-case font-normal">(opt)</span></label>
                         <div class="flex gap-1.5">
-                            <input type="text" id="add-flight-num" placeholder="UA 442" class="flex-1 px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
-                            <button id="btn-flight-lookup" onclick="lookupFlight()" class="hidden w-10 flex items-center justify-center rounded-xl border border-zinc-700 bg-zinc-800 hover:border-blue-500 hover:text-blue-400 text-zinc-400 transition text-base" title="Look up times">🔍</button>
+                            <input type="text" id="add-flight-num" placeholder="UA 442" class="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                            <button id="btn-flight-lookup" onclick="lookupFlight()" class="hidden w-10 shrink-0 flex items-center justify-center rounded-xl border border-zinc-700 bg-zinc-800 hover:border-blue-500 hover:text-blue-400 text-zinc-400 transition text-base" title="Look up times">🔍</button>
                         </div>
                         <div id="flight-lookup-status" class="hidden text-[10px] mt-1 font-bold"></div>
                     </div>
-                    <div>
-                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Tail # <span class="text-zinc-600 normal-case font-normal">(optional)</span></label>
+                    <div class="min-w-0">
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Tail # <span class="text-zinc-600 normal-case font-normal">(opt)</span></label>
                         <input type="text" id="add-tail-num" placeholder="N12345" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
                     </div>
                 </div>
@@ -495,7 +497,7 @@
     </div>
 
     <!-- Schedaero Sync Modal -->
-    <div id="schedaero-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)closeSchedaeroModal()">
+    <div id="schedaero-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeSchedaeroModal()">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
             <div class="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
@@ -564,7 +566,7 @@
 
     <!-- Drew ICS Sync Modal -->
     <!-- Overlap Help Modal -->
-    <div id="overlap-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div id="overlap-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
             <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
@@ -628,7 +630,7 @@
     </div>
 
     <!-- Grid/Calendar Help Modal -->
-    <div id="grid-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div id="grid-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
             <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
@@ -687,7 +689,7 @@
     </div>
 
     <!-- List Help Modal -->
-    <div id="list-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div id="list-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
             <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
@@ -726,7 +728,7 @@
     </div>
 
     <!-- Map Help Modal -->
-    <div id="map-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div id="map-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
             <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
@@ -772,7 +774,7 @@
         </div>
     </div>
 
-    <div id="drew-ics-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center p-4" onclick="if(event.target===this)closeDrewICSModal()">
+    <div id="drew-ics-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeDrewICSModal()">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
             <div class="p-6 space-y-4">
@@ -1499,7 +1501,7 @@
                     mpill.style.background = 'rgba(59,130,246,0.12)';
                 }
                 render();
-                if (view === 'overlap') computeOverlap();
+                if (currentView === 'overlap') computeOverlap();
             });
         }
 
@@ -1540,7 +1542,7 @@
             container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
 
             const now = new Date();
-            const bufferMs = 6 * 60 * 60 * 1000;
+            const bufferMs = 3 * 60 * 60 * 1000;
 
             await Promise.all(PILOT_KEYS.map(async key => {
                 if (!pilotsCache[key]) {
@@ -1787,9 +1789,10 @@
                 return `${day(start)} ${fmtH(start)} – ${day(end)} ${fmtH(end)}`;
             };
 
-            // Split overlaps by tier: primary (1+2) = real crossings; secondary (3) = coincidences
-            const primary   = unique.filter(o => (o.classification?.tier || 3) <= 2);
-            const secondary = unique.filter(o => (o.classification?.tier || 3) >= 3);
+            // Split overlaps by tier, filtered to only crossings involving the selected pilot
+            const involvesMe = o => o.kA === currentPilot || o.kB === currentPilot;
+            const primary   = unique.filter(o => (o.classification?.tier || 3) <= 2 && involvesMe(o));
+            const secondary = unique.filter(o => (o.classification?.tier || 3) >= 3 && involvesMe(o));
 
             // "Near me" summary: tier-1 overlaps involving currentPilot within 14 days
             const cutoff14 = new Date(now.getTime() + 14 * 86400000);
@@ -2040,8 +2043,8 @@
                 : '';
             const primaryCards  = primary.map((o, idx) => renderPrimaryCard(o, idx, idx === scrollTargetIdx)).join('');
             const secondaryRows = secondary.filter(o => {
-                const endTime = o.isDirect ? o.directEnd?.getTime() : Math.max(o.pA.end.getTime(), o.pB.end.getTime());
-                return endTime >= now.getTime() - 86400000;
+                if (!o.isDirect) return false;
+                return (o.directEnd?.getTime() ?? 0) >= now.getTime() - 86400000;
             });
             const secondaryHtml = secondaryRows.length > 0
                 ? `<div class="mt-4 rounded-xl border border-zinc-800/40 overflow-hidden">
@@ -2053,7 +2056,85 @@
                 </div>`
                 : '';
 
-            container.innerHTML = noneMsg + primaryCards + secondaryHtml;
+            // Common off days — days where 2+ pilots have no flights (free to plan anything)
+            const pilotFlyingDates = {};
+            const kyleHardOffDates = new Set();
+            let allDatesMax = null;
+            PILOT_KEYS.forEach(k => {
+                const flying = new Set();
+                (pilotsCache[k]?.segments || []).forEach(s => {
+                    if (k === 'kyle' && s.type === 'hard' && s.departure_time) {
+                        kyleHardOffDates.add(s.departure_time.slice(0, 10));
+                        return;
+                    }
+                    if (s.type !== 'flight') return;
+                    [s.departure_time, s.arrival_time].forEach(t => {
+                        if (!t) return;
+                        flying.add(t.slice(0, 10));
+                        if (!allDatesMax || t.slice(0, 10) > allDatesMax) allDatesMax = t.slice(0, 10);
+                    });
+                });
+                pilotFlyingDates[k] = flying;
+            });
+
+            // Kyle: only hard off days count — on-call means potentially working, even with no flights yet scheduled
+            function kyleAvail(dateStr) {
+                return kyleHardOffDates.has(dateStr) ? 'certain' : 'no';
+            }
+
+            const commonOffDays = [];
+            const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const endDate = allDatesMax ? new Date(allDatesMax + 'T12:00:00') : new Date(startDate.getTime() + 90 * 86400000);
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                const dateStr = localDateStr(d);
+                const offPilots = PILOT_KEYS.flatMap(k => {
+                    if (k === 'kyle') {
+                        const avail = kyleAvail(dateStr);
+                        return avail !== 'no' ? [{ key: k, certain: avail === 'certain' }] : [];
+                    }
+                    return !pilotFlyingDates[k].has(dateStr) ? [{ key: k, certain: true }] : [];
+                });
+                if (offPilots.length >= 2) commonOffDays.push({ date: new Date(d), dateStr, pilots: offPilots });
+            }
+            const nextOff = commonOffDays[0];
+            const nextOffPreview = nextOff
+                ? `<span class="text-zinc-600 text-[10px] font-normal normal-case ml-2">Next: ${nextOff.dateStr === todayStr ? 'Today' : nextOff.dateStr === tomorrowStr ? 'Tomorrow' : fmtDateShort(nextOff.date)} — ${nextOff.pilots.map(p => PILOT_NAMES[p.key].split(' ')[0]).join(', ')}</span>`
+                : `<span class="text-zinc-700 text-[10px] font-normal normal-case ml-2">None found</span>`;
+            const offDayRows = commonOffDays.map(({ date, dateStr, pilots }) => {
+                const isToday = dateStr === todayStr;
+                const isTomorrow = dateStr === tomorrowStr;
+                const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : fmtDateShort(date);
+                const dots = pilots.map(({ key: k }) =>
+                    `<span class="w-2 h-2 rounded-full shrink-0" style="background:${PILOT_COLORS[k]}"></span>`
+                ).join('');
+                const names = pilots.map(({ key: k }) =>
+                    `<span style="color:${PILOT_COLORS[k]}">${PILOT_NAMES[k].split(' ')[0]}</span>`
+                ).join('<span class="text-zinc-600"> · </span>');
+                const countBadge = pilots.length >= 4
+                    ? `<span class="ml-1.5 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">${pilots.length} of 5</span>`
+                    : pilots.length === 3
+                    ? `<span class="ml-1.5 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/60 text-sky-400 border border-sky-800/50">${pilots.length} of 5</span>`
+                    : '';
+                return `<div class="flex items-center gap-3 px-4 py-2">
+                    <div class="flex gap-1 shrink-0">${dots}</div>
+                    <div class="flex-1 min-w-0 text-xs font-bold">${names}${countBadge}</div>
+                    <div class="text-[11px] font-black text-zinc-400 shrink-0">${dayLabel}</div>
+                </div>`;
+            }).join('');
+            const commonOffHtml = `
+                <div class="mb-4 rounded-xl border border-zinc-800/50 overflow-hidden">
+                    <button onclick="const b=this.parentElement.querySelector('.off-days-body');const arr=this.querySelector('.off-arr');b.classList.toggle('hidden');arr.textContent=b.classList.contains('hidden')?'›':'‹';"
+                        class="w-full px-4 py-2.5 flex items-center gap-2 text-left">
+                        <span class="off-arr text-zinc-600 text-xs">›</span>
+                        <span class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Common Off Days</span>
+                        ${nextOffPreview}
+                    </button>
+                    <div class="off-days-body hidden border-t border-zinc-800/50 divide-y divide-zinc-800/30">
+                        ${offDayRows || '<div class="px-4 py-3 text-xs text-zinc-600">No common off days found in schedule data.</div>'}
+                    </div>
+                </div>`;
+
+            container.innerHTML = noneMsg + commonOffHtml + primaryCards + secondaryHtml;
 
             if (scrollTargetIdx >= 0) {
                 requestAnimationFrame(() => scrollToOverlapCard(scrollTargetIdx));
@@ -2234,9 +2315,9 @@
                     const lines = worldLines(arcU, { weight, opacity, color: pilotColor, smoothFactor: 1 });
                     lines.forEach(l => { l.addTo(map); mapLayers.future.push(l); });
                     const [line] = lines;
-                    const hit = L.polyline(arcU, { weight: 20, opacity: 0 }).addTo(map);
-                    hit.bindPopup(`<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${PILOT_NAMES[key].split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${dep} → ${arr}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`, { className: 'dark-popup' });
-                    mapLayers.future.push(hit);
+                    const monthHits = worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' });
+                    const monthPopup = `<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${PILOT_NAMES[key].split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${dep} → ${arr}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`;
+                    monthHits.forEach(h => { h.bindPopup(monthPopup, { className: 'dark-popup' }); h.addTo(map); mapLayers.future.push(h); });
 
                     if (hasActive) {
                         const al = legs.find(f => {
@@ -2391,7 +2472,7 @@
                 const arcU = unwrapLongitudes(arcCoords);
                 const routeLines = worldLines(arcU, { weight, opacity, color, smoothFactor: 1 });
                 const [line] = routeLines;
-                const hit  = L.polyline(arcU, { weight: 20, opacity: 0 });
+                const hitLines = worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' });
 
                 // Popup: list all legs chronologically
                 const sorted = legs.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
@@ -2402,21 +2483,24 @@
                     const _ld = flightUTCTime(f.departureTime, f.departureAirport);
                     const _la = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                     const isLegActive = _ld && _la && _ld <= now && now <= new Date(_la.getTime() + 20 * 60000);
+                    const depTz = tzAbbr(f.departureAirport, f.departureTime);
+                    const arrTz = tzAbbr(f.arrivalAirport, f.arrivalTime);
                     return `<div style="font-size:11px;color:${isLegActive ? '#22c55e' : '#94a3b8'};margin-top:3px">
-                        ${ds} &nbsp;${formatTimeISO(f.departureTime, f.departureAirport)} → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}${label ? ' &nbsp;· ' + label : ''}${isLegActive ? ' ▶' : ''}
+                        ${ds} &nbsp;${formatTimeISO(f.departureTime, f.departureAirport)}${depTz ? ' <span style="opacity:.55">' + depTz + '</span>' : ''} → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}${arrTz ? ' <span style="opacity:.55">' + arrTz + '</span>' : ''}${label ? ' &nbsp;· ' + label : ''}${isLegActive ? ' ▶' : ''}
                     </div>`;
                 }).join('');
                 const countLabel = count === 1 ? '1 flight' : `${count} flights`;
-                hit.bindPopup(`
+                const routePopup = `
                     <div style="font-weight:900;font-size:14px;margin-bottom:3px;color:#f8fafc">${dep} → ${arr}</div>
                     <div style="font-size:10px;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">${countLabel} this month</div>
                     ${legRows}
-                `, { className: 'dark-popup' });
+                `;
+                hitLines.forEach(h => h.bindPopup(routePopup, { className: 'dark-popup' }));
 
                 const showLine = (allPast && showPast) || (!allPast && showFuture) || hasActive;
-                if (allPast) { routeLines.forEach(l => mapLayers.past.push(l)); mapLayers.past.push(hit); }
-                else { routeLines.forEach(l => mapLayers.future.push(l)); mapLayers.future.push(hit); }
-                if (showLine) { routeLines.forEach(l => l.addTo(map)); hit.addTo(map); }
+                if (allPast) { routeLines.forEach(l => mapLayers.past.push(l)); hitLines.forEach(h => mapLayers.past.push(h)); }
+                else { routeLines.forEach(l => mapLayers.future.push(l)); hitLines.forEach(h => mapLayers.future.push(h)); }
+                if (showLine) { routeLines.forEach(l => l.addTo(map)); hitLines.forEach(h => h.addTo(map)); }
 
                 // Airplane icon for any active leg
                 if (hasActive) {
@@ -2946,18 +3030,19 @@
                 const dayLines = worldLines(arcU, dayLineOpts);
                 dayLines.forEach(l => l.addTo(map));
                 const [line] = dayLines;
-                const hit  = L.polyline(arcU, { weight: 20, opacity: 0 }).addTo(map);
+                const dayHits = worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' });
 
                 const blockMins = calcBlockMins(f);
-                hit.bindPopup(`
+                const dayPopup = `
                     <div style="font-weight:900;font-size:13px;color:${color};margin-bottom:3px">${PILOT_NAMES[f.pilotKey]}</div>
                     <div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${f.departureAirport} → ${f.arrivalAirport}</div>
-                    <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime, f.departureAirport)} → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}</div>
+                    <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime, f.departureAirport)}<span style="font-size:10px;opacity:.55;margin-left:3px">${tzAbbr(f.departureAirport, f.departureTime)}</span> → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}<span style="font-size:10px;opacity:.55;margin-left:3px">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span></div>
                     <div style="font-size:12px;color:#94a3b8">Block ${blockMins ? formatDurationMinutes(blockMins) : '—'}${f.tail ? ' · ' + f.tail : ''}</div>
                     ${isActive ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:6px">▶ In the air now</div>` : ''}
-                `, { className: 'dark-popup' });
+                `;
+                dayHits.forEach(h => { h.bindPopup(dayPopup, { className: 'dark-popup' }); h.addTo(map); });
                 dayLines.forEach(l => mapLayers.future.push(l));
-                mapLayers.future.push(hit);
+                dayHits.forEach(h => mapLayers.future.push(h));
 
                 // Live airplane icon — placed at interpolated position, then updated via ADS-B
                 if (isActive) {
