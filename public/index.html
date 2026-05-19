@@ -356,7 +356,7 @@
                     <div id="overlap-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm px-6 pt-6 pb-4 mb-2 border-b border-zinc-800/60 flex items-center justify-between gap-4">
                         <div>
                             <h2 class="text-lg font-black text-white uppercase tracking-tight">Location Overlap</h2>
-                            <p class="text-xs text-zinc-500 mt-0.5">Within 50 miles · 6-hour window</p>
+                            <p class="text-xs text-zinc-500 mt-0.5">Metro-aware · 50 mi radius · 6-hour window</p>
                         </div>
                         <button onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors shrink-0">Refresh</button>
                     </div>
@@ -957,7 +957,71 @@
             'MBL': [44.2725, -86.2557], 'KMBL': [44.2725, -86.2557],
             'RSW': [26.5362, -81.7552], 'KRSW': [26.5362, -81.7552],
             'APC': [38.2132, -122.2807], 'KAPC': [38.2132, -122.2807],
-            'PHX': [33.4373, -112.0078], 'KPHX': [33.4373, -112.0078]
+            'PHX': [33.4373, -112.0078], 'KPHX': [33.4373, -112.0078],
+            'TEB': [40.8501, -74.0608], 'KTEB': [40.8501, -74.0608],
+            'JFK': [40.6413, -73.7781], 'KJFK': [40.6413, -73.7781],
+            'EWR': [40.6895, -74.1745], 'KEWR': [40.6895, -74.1745],
+            'HPN': [41.0670, -73.7076], 'KHPN': [41.0670, -73.7076],
+            'BOS': [42.3656, -71.0096], 'KBOS': [42.3656, -71.0096],
+            'DCA': [38.8521, -77.0377], 'KDCA': [38.8521, -77.0377],
+            'IAD': [38.9531, -77.4565], 'KIAD': [38.9531, -77.4565],
+            'BWI': [39.1754, -76.6683], 'KBWI': [39.1754, -76.6683],
+            'ATL': [33.6407, -84.4277], 'KATL': [33.6407, -84.4277],
+            'DFW': [32.8998, -97.0403], 'KDFW': [32.8998, -97.0403],
+            'DAL': [32.8471, -96.8517], 'KDAL': [32.8471, -96.8517],
+            'IAH': [29.9902, -95.3368], 'KIAH': [29.9902, -95.3368],
+            'HOU': [29.6454, -95.2789], 'KHOU': [29.6454, -95.2789],
+            'DEN': [39.8561, -104.6737], 'KDEN': [39.8561, -104.6737],
+            'SEA': [47.4502, -122.3088], 'KSEA': [47.4502, -122.3088],
+            'LAX': [33.9425, -118.4081], 'KLAX': [33.9425, -118.4081],
+            'SFO': [37.6213, -122.3790], 'KSFO': [37.6213, -122.3790],
+            'OAK': [37.7213, -122.2208], 'KOAK': [37.7213, -122.2208],
+            'SJC': [37.3626, -121.9290], 'KSJC': [37.3626, -121.9290],
+            'MSP': [44.8848, -93.2223], 'KMSP': [44.8848, -93.2223],
+            'DTW': [42.2162, -83.3554], 'KDTW': [42.2162, -83.3554],
+            'CLT': [35.2140, -80.9431], 'KCLT': [35.2140, -80.9431],
+            'MIA': [25.7959, -80.2870], 'KMIA': [25.7959, -80.2870],
+            'FLL': [26.0726, -80.1527], 'KFLL': [26.0726, -80.1527],
+            'LAS': [36.0840, -115.1537], 'KLAS': [36.0840, -115.1537],
+            'MCO': [28.4312, -81.3081], 'KMCO': [28.4312, -81.3081],
+            'TPA': [27.9755, -82.5332], 'KTPA': [27.9755, -82.5332],
+            'BNA': [36.1245, -86.6782], 'KBNA': [36.1245, -86.6782],
+            'CVG': [39.0488, -84.6678], 'KCVG': [39.0488, -84.6678],
+            'CMH': [39.9980, -82.8919], 'KCMH': [39.9980, -82.8919],
+            'IND': [39.7173, -86.2944], 'KIND': [39.7173, -86.2944],
+            'MCI': [39.2976, -94.7139], 'KMCI': [39.2976, -94.7139],
+            'SLC': [40.7884, -111.9778], 'KSLC': [40.7884, -111.9778],
+            'PDX': [45.5898, -122.5951], 'KPDX': [45.5898, -122.5951]
+        };
+
+        // Airports in the same metro area — treated as co-located for overlap purposes
+        const METRO_GROUPS = {
+            'JFK': 'NYC', 'LGA': 'NYC', 'EWR': 'NYC', 'TEB': 'NYC', 'HPN': 'NYC', 'ISP': 'NYC',
+            'STL': 'STL_M', 'SUS': 'STL_M',
+            'ORD': 'CHI', 'MDW': 'CHI', 'PWK': 'CHI',
+            'LAX': 'LAX', 'BUR': 'LAX', 'SNA': 'LAX', 'LGB': 'LAX', 'ONT': 'LAX', 'VNY': 'LAX', 'SMO': 'LAX',
+            'SFO': 'SFB', 'OAK': 'SFB', 'SJC': 'SFB',
+            'DFW': 'DFW_M', 'DAL': 'DFW_M', 'ADS': 'DFW_M', 'FTW': 'DFW_M',
+            'PHX': 'PHX', 'SDL': 'PHX', 'DVT': 'PHX', 'FFZ': 'PHX', 'CHD': 'PHX',
+            'DCA': 'WAS', 'IAD': 'WAS', 'BWI': 'WAS',
+            'BOS': 'BOS', 'BED': 'BOS', 'MHT': 'BOS', 'PVD': 'BOS',
+            'MIA': 'MIA', 'FLL': 'MIA', 'OPF': 'MIA', 'BCT': 'MIA',
+            'IAH': 'HOU', 'HOU': 'HOU', 'EFD': 'HOU',
+            'SEA': 'SEA', 'BFI': 'SEA', 'RNT': 'SEA',
+            'ATL': 'ATL', 'PDK': 'ATL', 'FTY': 'ATL',
+            'DEN': 'DEN', 'APA': 'DEN',
+            'MSP': 'MSP', 'FCM': 'MSP',
+            'DTW': 'DTW', 'PTK': 'DTW',
+            'CVG': 'CVG',
+            'CLT': 'CLT',
+        };
+        const METRO_LABELS = {
+            'NYC': 'New York Area', 'STL_M': 'St. Louis Area', 'CHI': 'Chicago Area',
+            'LAX': 'LA Area', 'SFB': 'SF Bay Area', 'DFW_M': 'Dallas Area',
+            'PHX': 'Phoenix Area', 'WAS': 'DC Area', 'BOS': 'Boston Area',
+            'MIA': 'Miami Area', 'HOU': 'Houston Area', 'SEA': 'Seattle Area',
+            'ATL': 'Atlanta Area', 'DEN': 'Denver Area', 'MSP': 'Minneapolis Area',
+            'DTW': 'Detroit Area', 'CVG': 'Cincinnati Area', 'CLT': 'Charlotte Area',
         };
 
         const PILOT_HOMES = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX', drew: 'STL' };
@@ -1190,6 +1254,20 @@
                 // Sync mobile header
                 const mobileHeader = document.getElementById('pilot-header-mobile');
                 if (mobileHeader) mobileHeader.textContent = displayName.split(' ')[0].toUpperCase();
+                // Sync desktop sidebar pilot active states
+                ['kyle','adam','sam','logan','drew'].forEach(k => {
+                    const btn = document.getElementById(`pilot-${k}`);
+                    if (!btn) return;
+                    if (k === pilot) {
+                        btn.style.borderColor = '#3b82f6';
+                        btn.style.background = 'rgba(59,130,246,0.1)';
+                        btn.style.color = '#fff';
+                    } else {
+                        btn.style.borderColor = '';
+                        btn.style.background = '';
+                        btn.style.color = '';
+                    }
+                });
                 // Sync mobile pilot pill active states
                 document.querySelectorAll('.mpilot-btn').forEach(b => {
                     b.style.borderColor = '';
@@ -1231,9 +1309,8 @@
             container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
 
             const now = new Date();
-            const bufferMs = 6 * 60 * 60 * 1000; // 6-hour window
+            const bufferMs = 6 * 60 * 60 * 1000;
 
-            // Load all pilots
             await Promise.all(PILOT_KEYS.map(async key => {
                 if (!pilotsCache[key]) {
                     try { pilotsCache[key] = await (await fetch(`${API_BASE}/pilots/${key}`)).json(); }
@@ -1241,10 +1318,6 @@
                 }
             }));
 
-            // Build ground periods for each pilot:
-            // a "period" = { airport, start, end } representing time physically on the ground at that airport.
-            // Derived from consecutive flights: arrive at X at T1, depart X at T2 → period [T1, T2].
-            // For the first departure of a sequence, add a "pre-departure" window so nearby arrivals show up.
             function buildGroundPeriods(segments, homeBase, homeCity) {
                 const home = homeBase ? homeBase.toUpperCase() : null;
                 const homeC = homeCity ? homeCity.toUpperCase() : null;
@@ -1259,28 +1332,21 @@
                     const depT = new Date(f.departure_time);
                     const arrT = new Date(f.arrival_time);
 
-                    // Before this flight: pilot is at departure airport
                     const recentArr = flights.slice(0, i)
                         .filter(p => p.arrival_airport?.toUpperCase() === dep)
                         .sort((a, b) => new Date(b.arrival_time) - new Date(a.arrival_time))[0];
-                    // For home base: only use actual arrival if it's a same-trip layover (<24h gap),
-                    // otherwise fall back to 2h pre-departure to avoid inflating inter-trip gaps
                     const useRecentArr = recentArr && (dep !== home || (depT - new Date(recentArr.arrival_time)) < 24 * 3600000);
                     const groundStart = useRecentArr ? new Date(recentArr.arrival_time)
                         : new Date(depT.getTime() - 2 * 3600000);
                     const alreadyCovered = periods.some(p => p.airport === dep &&
                         p.start.getTime() <= groundStart.getTime() && p.end.getTime() >= depT.getTime());
-                    if (!alreadyCovered) periods.push({ airport: dep, start: groundStart, end: depT });
+                    // Tag with flight_number for same-flight detection
+                    if (!alreadyCovered) periods.push({ airport: dep, start: groundStart, end: depT, flightNum: f.flight_number || null });
 
-                    // After this flight: pilot is at arrival airport until next departure from there
-                    // Landing at airline base = pilot commutes home, not a stay at the airport
                     if (home && arr === home) return;
                     const nextFromArr = flights.slice(i + 1).find(n => n.departure_airport?.toUpperCase() === arr);
                     let groundEnd;
                     if (homeC && arr === homeC) {
-                        // Arrived at home city — may rest here for days, but check whether a base
-                        // departure implies the pilot already left home earlier than the recorded
-                        // home-city departure (e.g. TUL rest until Sun commute, but LGA trip starts Sat).
                         const nextFromBase = home ? flights.slice(i + 1).find(n =>
                             n.departure_airport?.toUpperCase() === home &&
                             (!nextFromArr || new Date(n.departure_time) < new Date(nextFromArr.departure_time))
@@ -1294,11 +1360,9 @@
                     } else if (nextFromArr) {
                         groundEnd = new Date(nextFromArr.departure_time);
                     } else {
-                        // No next flight from this airport — pilot is catching a commute home.
-                        // Cap at 8h: enough time to deplane, grab bags, and find a connection.
                         groundEnd = new Date(arrT.getTime() + 8 * 3600000);
                     }
-                    periods.push({ airport: arr, start: arrT, end: groundEnd });
+                    periods.push({ airport: arr, start: arrT, end: groundEnd, arrFlightNum: f.flight_number || null, isDH: !!f.is_dh });
                 });
                 return periods;
             }
@@ -1310,15 +1374,97 @@
             });
 
             const getCoords = code => AIRPORTS[code] || AIRPORTS['K' + code] || null;
+            const sameMetro = (a, b) => { const mA = METRO_GROUPS[a], mB = METRO_GROUPS[b]; return !!(mA && mA === mB); };
             const airportsNear = (a, b) => {
                 if (a === b) return true;
-                if (overlapRadiusMi <= 0) return false;
+                if (sameMetro(a, b)) return true;
+                // Haversine fallback for airports not in a metro group (50 mi)
                 const ca = getCoords(a), cb = getCoords(b);
                 if (!ca || !cb) return false;
-                return haversineMi(ca[0], ca[1], cb[0], cb[1]) <= overlapRadiusMi;
+                return haversineMi(ca[0], ca[1], cb[0], cb[1]) <= 50;
             };
 
-            // Find overlaps between every pair of pilots
+            // Minimum ground time to be considered a "real stay" vs just connecting
+            const LAYOVER_MS = 5 * 3600000;
+
+            // Classify the nature of an overlap.
+            // Returns { type, label, color, tier } where tier:
+            //   1 = meaningful — both pilots actually at the same place, worth highlighting
+            //   2 = possible — passing through the same airport, or chance encounter
+            //   3 = coincidence — different airports in same metro with one just transiting, or haversine-only
+            function classifyOverlap(kA, kB, pA, pB, isDirect, directStart, directEnd) {
+                const locA = pA.airport, locB = pB.airport;
+                const homeA = PILOT_HOME[kA], homeB = PILOT_HOME[kB];
+                const durA = pA.end - pA.start, durB = pB.end - pB.start;
+                const aHasTime = durA >= LAYOVER_MS, bHasTime = durB >= LAYOVER_MS;
+                const inSameMetro = sameMetro(locA, locB);
+
+                // Same-flight DH
+                if (isDirect && pA.arrFlightNum && pB.arrFlightNum && pA.arrFlightNum === pB.arrFlightNum) {
+                    return { type: 'SAME_FLIGHT', label: 'Same Flight', color: '#a78bfa', tier: 1 };
+                }
+
+                // Home visit: one pilot is on a layover in the other's home city
+                const aMetro = METRO_GROUPS[locA] || locA, bMetro = METRO_GROUPS[locB] || locB;
+                const homeAMetro = homeA ? (METRO_GROUPS[homeA] || homeA) : null;
+                const homeBMetro = homeB ? (METRO_GROUPS[homeB] || homeB) : null;
+                const aAtBHome = homeBMetro && aMetro === homeBMetro;
+                const bAtAHome = homeAMetro && bMetro === homeAMetro;
+                if (aAtBHome || bAtAHome) {
+                    const homePilot = aAtBHome ? kB : kA;
+                    const visitorPilot = aAtBHome ? kA : kB;
+                    const visitorHasTime = aAtBHome ? aHasTime : bHasTime;
+                    // Only meaningful if the visitor actually has time — not just connecting through
+                    return { type: 'HOME_VISIT', label: 'Home Turf', color: '#34d399', homePilot, visitorPilot, tier: visitorHasTime ? 1 : 3 };
+                }
+
+                // Different airports
+                if (locA !== locB) {
+                    if (inSameMetro) {
+                        // Same city, different airports — only meaningful if BOTH have real layover time
+                        // so they could actually leave the airport and meet in the city
+                        if (aHasTime && bHasTime) {
+                            return { type: 'METRO', label: 'City Meetup', color: '#fb923c', tier: 1, cityMeetup: true };
+                        }
+                        // One or both just connecting — geographic coincidence
+                        const transiter = !aHasTime ? PILOT_NAMES[kA].split(' ')[0] : PILOT_NAMES[kB].split(' ')[0];
+                        const transitApt = !aHasTime ? locA : locB;
+                        return { type: 'METRO', label: 'Same Metro', color: '#6b7280', tier: 3, transitNote: `${transiter} is just transiting ${transitApt}` };
+                    }
+                    // Haversine-only (airports in the same general area but no metro group) — coincidence
+                    return { type: 'NEARBY', label: 'Nearby', color: '#6b7280', tier: 3 };
+                }
+
+                // Same airport
+                if (isDirect) {
+                    const overlapMs = directEnd - directStart;
+                    if (!aHasTime || !bHasTime) {
+                        // One is just connecting — still at the same airport, can still meet
+                        const transiter = !aHasTime ? PILOT_NAMES[kA].split(' ')[0] : PILOT_NAMES[kB].split(' ')[0];
+                        return { type: 'PASSING_THROUGH', label: 'Passing Through', color: '#60a5fa', tier: 1, transitNote: `${transiter} is connecting` };
+                    }
+                    const spansNight = new Date(directStart).toDateString() !== new Date(directEnd).toDateString();
+                    if (spansNight || overlapMs >= 5 * 3600000) {
+                        return { type: 'LAYOVER', label: 'Layover', color: '#a78bfa', tier: 1 };
+                    }
+                }
+                return { type: 'MEETUP', label: 'Meetup', color: '#22d3ee', tier: 1 };
+            }
+
+            // Build location display label
+            function locationLabel(locA, locB) {
+                const mA = METRO_GROUPS[locA], mB = METRO_GROUPS[locB];
+                if (mA && mA === mB) return METRO_LABELS[mA] || `${locA} / ${locB}`;
+                if (locA === locB) return locA;
+                return `${locA} / ${locB}`;
+            }
+            // Individual airport codes subtitle when same metro but different airports
+            function locationSub(locA, locB) {
+                const mA = METRO_GROUPS[locA], mB = METRO_GROUPS[locB];
+                if (mA && mA === mB && locA !== locB) return `${locA} · ${locB}`;
+                return null;
+            }
+
             const overlaps = [];
             for (let i = 0; i < PILOT_KEYS.length; i++) {
                 for (let j = i + 1; j < PILOT_KEYS.length; j++) {
@@ -1326,52 +1472,43 @@
                     for (const pA of pilotPeriods[kA]) {
                         for (const pB of pilotPeriods[kB]) {
                             if (!airportsNear(pA.airport, pB.airport)) continue;
-                            // Skip if both pilots are at their own home — not interesting
                             const homeA = PILOT_HOME[kA], homeB = PILOT_HOME[kB];
                             if (homeA && homeB && airportsNear(pA.airport, homeA) && airportsNear(pB.airport, homeB)) continue;
                             const _ca = getCoords(pA.airport), _cb = getCoords(pB.airport);
                             const distMi = (pA.airport !== pB.airport && _ca && _cb)
                                 ? Math.round(haversineMi(_ca[0], _ca[1], _cb[0], _cb[1]))
                                 : 0;
-                            // Buffered check: do the windows overlap when each is expanded by buffer?
                             if (pA.start.getTime() - bufferMs > pB.end.getTime()) continue;
                             if (pB.start.getTime() - bufferMs > pA.end.getTime()) continue;
 
-                            // Direct overlap window (no buffer)
                             const directStart = new Date(Math.max(pA.start.getTime(), pB.start.getTime()));
                             const directEnd   = new Date(Math.min(pA.end.getTime(),   pB.end.getTime()));
                             const isDirect = directStart < directEnd;
-
-                            // Gap if no direct overlap
                             const gapMs = isDirect ? 0 : Math.max(
                                 pA.start.getTime() - pB.end.getTime(),
                                 pB.start.getTime() - pA.end.getTime()
                             );
-
-                            overlaps.push({
-                                airport: pA.airport,
-                                airportB: pB.airport,
-                                distMi,
-                                kA, kB,
-                                pA, pB,
-                                isDirect,
+                            const classification = classifyOverlap(kA, kB, pA, pB, isDirect, directStart, directEnd);
+                            const overlap = {
+                                airport: pA.airport, airportB: pB.airport, distMi,
+                                kA, kB, pA, pB, isDirect,
                                 directStart: isDirect ? directStart : null,
                                 directEnd:   isDirect ? directEnd   : null,
-                                gapMs,
+                                gapMs, classification,
                                 sortKey: isDirect ? directStart.getTime() : Math.max(pA.start.getTime(), pB.start.getTime())
-                            });
+                            };
+                            overlap.quality = qualityScore(overlap);
+                            overlaps.push(overlap);
                         }
                     }
                 }
             }
 
-            // Deduplicate (same airport + same pair + overlapping sort windows can produce dupes)
             const seen = new Set();
             const unique = overlaps.filter(o => {
                 const k = `${o.airport}|${o.airportB}|${o.kA}|${o.kB}|${o.pA.start.toISOString()}|${o.pB.start.toISOString()}`;
                 if (seen.has(k)) return false;
                 seen.add(k);
-                // Only show current or future overlaps
                 const endTime = o.isDirect ? o.directEnd?.getTime() : Math.max(o.pA.end.getTime(), o.pB.end.getTime());
                 return endTime >= now.getTime();
             });
@@ -1381,25 +1518,23 @@
                 return;
             }
 
-            // Sort chronologically
             unique.sort((a, b) => a.sortKey - b.sortKey);
 
             const _pad = n => String(n).padStart(2, '0');
             const localDateStr = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
             const todayStr = localDateStr(now);
+            const tomorrowStr = localDateStr(new Date(now.getTime() + 86400000));
 
-            // Helpers
-            const fmtTime = t => t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
             const fmtDateShort = t => t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
             const fmtDur = ms => {
                 if (ms <= 0) return '';
                 const h = Math.floor(ms / 3600000), m = Math.round((ms % 3600000) / 60000);
                 return h > 0 ? `${h}h ${m}m` : `${m}m`;
             };
+            const fmtH = t => t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
             const fmtTimeRange = (start, end) => {
                 if (!start || !end) return '';
                 const sDay = localDateStr(start), eDay = localDateStr(end);
-                const fmtH = t => t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                 if (sDay === eDay) {
                     const sAP = start.getHours() >= 12 ? 'PM' : 'AM';
                     const eAP = end.getHours() >= 12 ? 'PM' : 'AM';
@@ -1414,12 +1549,61 @@
                 return `${day(start)} ${fmtH(start)} – ${day(end)} ${fmtH(end)}`;
             };
 
-            // First non-past card index for auto-scroll
-            const tomorrowStr = localDateStr(new Date(now.getTime() + 86400000));
-            const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const scrollTargetIdx = unique.findIndex(o => o.sortKey >= todayMidnight.getTime());
+            // Split overlaps by tier: primary (1+2) = real crossings; secondary (3) = coincidences
+            const primary   = unique.filter(o => (o.classification?.tier || 3) <= 2);
+            const secondary = unique.filter(o => (o.classification?.tier || 3) >= 3);
 
-            container.innerHTML = unique.map((o, idx) => {
+            // "Near me" summary: tier-1 overlaps involving currentPilot within 14 days
+            const cutoff14 = new Date(now.getTime() + 14 * 86400000);
+            const myUpcoming = primary.filter(o =>
+                (o.kA === currentPilot || o.kB === currentPilot) &&
+                o.isDirect &&
+                (o.classification?.tier || 3) === 1 &&
+                o.directEnd > now &&
+                o.directStart < cutoff14
+            ).slice(0, 4);
+
+            let summaryHtml = '';
+            if (myUpcoming.length > 0) {
+                const summaryItems = myUpcoming.map(o => {
+                    const other = o.kA === currentPilot ? o.kB : o.kA;
+                    const otherName = PILOT_NAMES[other].split(' ')[0];
+                    const otherColor = PILOT_COLORS[other];
+                    const loc = locationLabel(o.airport, o.airportB);
+                    const locSubSum = locationSub(o.airport, o.airportB);
+                    const isNow = o.directStart <= now && o.directEnd >= now;
+                    const refTime = isNow ? now : o.directStart;
+                    const dayLabel = isNow ? 'Right now' : localDateStr(refTime) === todayStr ? 'Today' :
+                        localDateStr(refTime) === tomorrowStr ? 'Tomorrow' : fmtDateShort(refTime);
+                    const dur = fmtDur(o.directEnd - o.directStart);
+                    const cls = o.classification;
+                    return `<div class="flex items-center gap-3 py-2.5 border-b border-zinc-800/50 last:border-0">
+                        <span class="w-2 h-2 rounded-full shrink-0" style="background:${otherColor}"></span>
+                        <div class="flex-1 min-w-0">
+                            <span class="font-black text-xs" style="color:${otherColor}">${otherName}</span>
+                            <span class="text-xs text-zinc-400"> · ${loc}${locSubSum ? ` <span class="font-mono text-zinc-600">(${locSubSum})</span>` : ''}</span>
+                            ${cls?.label ? `<span class="text-[10px] font-bold ml-1.5 px-1.5 py-0.5 rounded-full" style="background:${cls.color}22;color:${cls.color}">${cls.label}</span>` : ''}
+                        </div>
+                        <div class="text-right shrink-0">
+                            <div class="text-[11px] font-black text-zinc-300">${dayLabel}</div>
+                            ${dur ? `<div class="text-[10px] text-zinc-500">${dur}</div>` : ''}
+                        </div>
+                    </div>`;
+                }).join('');
+                summaryHtml = `<div class="mb-4 rounded-xl border border-zinc-700/60 bg-zinc-900/60 overflow-hidden">
+                    <div class="px-4 py-2.5 border-b border-zinc-800 flex items-center gap-2">
+                        <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                        <span class="text-[11px] font-black uppercase tracking-widest text-zinc-400">Your Upcoming Crossings</span>
+                    </div>
+                    <div class="px-4">${summaryItems}</div>
+                </div>`;
+            }
+
+            const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const scrollTargetIdx = primary.findIndex(o => o.sortKey >= todayMidnight.getTime());
+
+            // Render a primary card (tiers 1 & 2)
+            function renderPrimaryCard(o, idx, isScrollTarget) {
                 const refTime    = o.directStart || new Date(o.sortKey);
                 const refDay     = localDateStr(refTime);
                 const isToday    = refDay === todayStr;
@@ -1427,89 +1611,178 @@
                 const isPast     = refDay < todayStr;
                 const isNear     = !o.isDirect;
                 const isNow      = o.isDirect && o.directStart <= now && o.directEnd >= now;
-                const scrollId   = idx === scrollTargetIdx ? ' id="overlap-scroll-target"' : '';
+                const scrollId   = isScrollTarget ? ' id="overlap-scroll-target"' : '';
+                const cls        = o.classification;
+                const tier       = cls?.tier || 1;
 
-                // Date label
                 let dateLabel;
                 if (isNow)           dateLabel = 'Right Now';
                 else if (isToday)    dateLabel = 'Today';
                 else if (isTomorrow) dateLabel = 'Tomorrow';
                 else                 dateLabel = fmtDateShort(refTime);
 
-                // Status badge color + pulse dot
                 let badgeCls, pulseDot = '';
-                if (isNow)                { badgeCls = 'text-green-400'; pulseDot = `<span class="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5" style="animation:here-pulse 2s ease-out infinite"></span>`; }
+                if (isNow)                  { badgeCls = 'text-green-400'; pulseDot = `<span class="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5" style="animation:here-pulse 2s ease-out infinite"></span>`; }
                 else if (isNear && !isPast) badgeCls = 'text-amber-400';
-                else if (isToday)         badgeCls = 'text-sky-400';
-                else if (isTomorrow)      badgeCls = 'text-blue-400';
-                else if (isPast)          badgeCls = 'text-zinc-600';
-                else                      badgeCls = 'text-zinc-400';
+                else if (isToday)           badgeCls = 'text-sky-400';
+                else if (isTomorrow)        badgeCls = 'text-blue-400';
+                else if (isPast)            badgeCls = 'text-zinc-600';
+                else                        badgeCls = 'text-zinc-400';
 
-                const nearTag  = isNear && !isPast ? ` <span class="text-zinc-500 font-normal normal-case">· Near Miss</span>` : '';
+                const typeBadge = cls
+                    ? `<span class="text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide" style="background:${cls.color}22;color:${cls.color}">${isNear && !isPast ? 'Near Miss' : cls.label}</span>`
+                    : '';
 
-                // Location
-                const locationLabel = o.airport === o.airportB ? o.airport : `${o.airport} / ${o.airportB}`;
-                const distTag = o.distMi > 0 ? `<span class="text-sm font-normal text-zinc-500 ml-1.5">${o.distMi} mi apart</span>` : '';
-
-                // Overlap type tag
-                let typeTag = '';
-                if (o.isDirect) {
-                    const overlapMs  = o.directEnd - o.directStart;
-                    const spansNight = localDateStr(o.directStart) !== localDateStr(o.directEnd);
-                    typeTag = (spansNight || overlapMs >= 5 * 3600000) ? 'Layover' : o.airport !== o.airportB ? 'Nearby' : 'Meetup';
+                // Contextual annotation (home visit, city meetup, transit note)
+                let annotation = '';
+                if (!isPast) {
+                    if (cls?.type === 'HOME_VISIT') {
+                        const homeName    = PILOT_NAMES[cls.homePilot]?.split(' ')[0];
+                        const visitorName = PILOT_NAMES[cls.visitorPilot]?.split(' ')[0];
+                        annotation = `<div class="px-4 pb-2 text-[11px] text-emerald-400/80">✈ ${visitorName} visiting ${homeName}'s home turf</div>`;
+                    } else if (cls?.cityMeetup) {
+                        const city = METRO_LABELS[METRO_GROUPS[o.airport]] || locationLabel(o.airport, o.airportB);
+                        annotation = `<div class="px-4 pb-2 text-[11px] text-orange-400/80">Both in ${city} — could meet outside the airport</div>`;
+                    } else if (cls?.transitNote && tier === 2) {
+                        annotation = `<div class="px-4 pb-2 text-[11px] text-blue-400/60">${cls.transitNote}</div>`;
+                    }
                 }
 
-                // Per-pilot window rows
+                const locLabel = locationLabel(o.airport, o.airportB);
+                const locSub   = locationSub(o.airport, o.airportB);
+                const distTag  = o.distMi > 0 ? `<span class="text-sm font-normal text-zinc-500 ml-1.5">${o.distMi} mi apart</span>` : '';
+
                 const pilotRows = [{ k: o.kA, p: o.pA }, { k: o.kB, p: o.pB }].map(({ k, p }) => {
                     const color = PILOT_COLORS[k];
                     const name  = PILOT_NAMES[k].split(' ')[0];
+                    const dur   = fmtDur(p.end - p.start);
                     return `<div class="flex items-center gap-2.5">
                         <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
                         <span class="text-xs font-black w-10 shrink-0" style="color:${color}">${name}</span>
-                        <span class="text-xs text-zinc-400 font-mono">${fmtTimeRange(p.start, p.end)}</span>
+                        <span class="text-xs text-zinc-400 font-mono flex-1">${fmtTimeRange(p.start, p.end)}</span>
+                        ${dur ? `<span class="text-[10px] text-zinc-600 shrink-0">${dur}</span>` : ''}
                     </div>`;
                 }).join('');
 
-                // Bottom stripe
+                // Duration bar — only for tier 1 direct overlaps
+                let durationBar = '';
+                if (o.isDirect && tier === 1) {
+                    const spanStart = Math.min(o.pA.start.getTime(), o.pB.start.getTime());
+                    const spanEnd   = Math.max(o.pA.end.getTime(),   o.pB.end.getTime());
+                    const spanMs    = spanEnd - spanStart;
+                    if (spanMs > 0) {
+                        const barLeft  = ((o.directStart.getTime() - spanStart) / spanMs * 100).toFixed(1);
+                        const barWidth = ((o.directEnd.getTime() - o.directStart.getTime()) / spanMs * 100).toFixed(1);
+                        const barColor = isNow ? '#22c55e' : isToday ? '#38bdf8' : cls?.color || '#818cf8';
+                        const dur      = fmtDur(o.directEnd - o.directStart);
+                        durationBar = `<div class="px-4 pb-3">
+                            <div class="relative h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                                <div class="absolute top-0 h-full rounded-full" style="left:${barLeft}%;width:${barWidth}%;background:${barColor};${isNow ? 'box-shadow:0 0 6px ' + barColor : ''}"></div>
+                            </div>
+                            <div class="flex justify-between mt-1">
+                                <span class="text-[10px] text-zinc-600">${fmtH(new Date(spanStart))}</span>
+                                <span class="text-[10px] font-bold" style="color:${barColor}">${dur} overlap</span>
+                                <span class="text-[10px] text-zinc-600">${fmtH(new Date(spanEnd))}</span>
+                            </div>
+                        </div>`;
+                    }
+                }
+
                 let stripe = '';
                 if (o.isDirect) {
                     const dur     = fmtDur(o.directEnd - o.directStart);
                     const timeStr = fmtTimeRange(o.directStart, o.directEnd);
-                    const sCls    = isNow    ? 'bg-green-950/60 border-green-800/40 text-green-400'
-                                  : isToday  ? 'bg-sky-950/50 border-sky-800/30 text-sky-400'
+                    const sCls    = isNow   ? 'bg-green-950/60 border-green-800/40 text-green-400'
+                                  : isToday ? 'bg-sky-950/50 border-sky-800/30 text-sky-400'
                                   : 'bg-zinc-900 border-zinc-800/60 text-zinc-300';
                     stripe = `<div class="px-4 py-2.5 border-t ${sCls} flex items-center justify-between gap-2">
                         <span class="text-[11px] font-black uppercase tracking-wide">${dur} together</span>
                         <span class="text-[11px] font-mono opacity-60">${timeStr}</span>
                     </div>`;
                 } else if (!isPast) {
-                    const nameA  = PILOT_NAMES[o.kA].split(' ')[0];
-                    const nameB  = PILOT_NAMES[o.kB].split(' ')[0];
-                    const gap    = fmtDur(o.gapMs);
+                    const nameA   = PILOT_NAMES[o.kA].split(' ')[0];
+                    const nameB   = PILOT_NAMES[o.kB].split(' ')[0];
+                    const gap     = fmtDur(o.gapMs);
                     const gapDesc = o.pA.end <= o.pB.start
                         ? `${nameA} leaves ${gap} before ${nameB} arrives`
                         : `${nameB} leaves ${gap} before ${nameA} arrives`;
                     stripe = `<div class="px-4 py-2.5 border-t border-amber-900/30 bg-amber-950/10 text-amber-500/80 text-[11px]">${gapDesc}</div>`;
                 }
 
-                // Card chrome
-                const border  = isNow ? 'border-green-700/50' : isToday ? 'border-sky-700/40' : isNear && !isPast ? 'border-amber-900/40' : 'border-zinc-800';
-                const bg      = isNow ? 'bg-green-950/20' : isToday ? 'bg-sky-950/15' : 'bg-zinc-900/40';
+                // Tier 2 cards are slightly muted — dashed border, no glows
+                const border  = tier === 2
+                    ? (isNow ? 'border-blue-800/40' : 'border-zinc-700/60 border-dashed')
+                    : (isNow ? 'border-green-700/50' : isToday ? 'border-sky-700/40' : isNear && !isPast ? 'border-amber-900/40' : 'border-zinc-800');
+                const bg      = tier === 2 ? 'bg-zinc-900/20' : (isNow ? 'bg-green-950/20' : isToday ? 'bg-sky-950/15' : 'bg-zinc-900/40');
                 const opacity = isPast ? 'opacity-40' : '';
 
                 return `<div${scrollId} class="border ${border} rounded-2xl overflow-hidden ${bg} ${opacity}">
                     <div class="px-4 pt-3.5 pb-3">
-                        <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5">${pulseDot}${dateLabel}${nearTag}${typeTag ? ` <span class="text-zinc-600 font-normal normal-case">· ${typeTag}</span>` : ''}</div>
-                        <div class="text-2xl font-black text-white leading-none">${locationLabel}${distTag}</div>
+                        <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5 flex items-center flex-wrap gap-1">${pulseDot}${dateLabel}${typeBadge}</div>
+                        <div class="text-2xl font-black ${tier === 2 ? 'text-zinc-300' : 'text-white'} leading-none">${locLabel}${distTag}</div>
+                        ${locSub ? `<div class="text-xs text-zinc-500 mt-1 font-mono tracking-widest">${locSub}</div>` : ''}
                     </div>
+                    ${annotation}
                     <div class="px-4 pb-3 pt-2.5 space-y-2 border-t border-zinc-800/50">
                         ${pilotRows}
                     </div>
+                    ${durationBar}
                     ${stripe}
                 </div>`;
-            }).join('');
+            }
 
-            // Scroll so the first current/upcoming card sits just below the sticky header
+            // Render a secondary (tier 3) coincidence as a compact dimmed row
+            function renderSecondaryRow(o) {
+                const refTime  = o.directStart || new Date(o.sortKey);
+                const isPast   = localDateStr(refTime) < todayStr;
+                const locLabel = locationLabel(o.airport, o.airportB);
+                const locSub   = locationSub(o.airport, o.airportB);
+                const cls      = o.classification;
+                const nameA    = PILOT_NAMES[o.kA].split(' ')[0];
+                const nameB    = PILOT_NAMES[o.kB].split(' ')[0];
+                const colorA   = PILOT_COLORS[o.kA];
+                const colorB   = PILOT_COLORS[o.kB];
+                const refDay   = localDateStr(refTime);
+                const dayLabel = refDay === todayStr ? 'Today' : refDay === tomorrowStr ? 'Tomorrow' : fmtDateShort(refTime);
+                const distStr  = o.distMi > 0 ? `${o.distMi} mi apart` : '';
+                const noteStr  = cls?.transitNote || distStr || cls?.label || '';
+
+                return `<div class="flex items-center gap-3 py-2.5 border-b border-zinc-800/30 last:border-0 ${isPast ? 'opacity-30' : 'opacity-60'}">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-1.5 mb-0.5">
+                            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${colorA}"></span>
+                            <span class="text-[11px] font-black" style="color:${colorA}">${nameA}</span>
+                            <span class="text-[10px] text-zinc-600">+</span>
+                            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${colorB}"></span>
+                            <span class="text-[11px] font-black" style="color:${colorB}">${nameB}</span>
+                            <span class="text-[10px] text-zinc-600 ml-1">·</span>
+                            <span class="text-[11px] text-zinc-500">${locLabel}${locSub ? ` <span class="font-mono">(${locSub})</span>` : ''}</span>
+                        </div>
+                        ${noteStr ? `<div class="text-[10px] text-zinc-600">${noteStr}</div>` : ''}
+                    </div>
+                    <div class="text-right shrink-0">
+                        <div class="text-[10px] text-zinc-600">${dayLabel}</div>
+                    </div>
+                </div>`;
+            }
+
+            const primaryCards  = primary.map((o, idx) => renderPrimaryCard(o, idx, idx === scrollTargetIdx)).join('');
+            const secondaryRows = secondary.filter(o => {
+                const endTime = o.isDirect ? o.directEnd?.getTime() : Math.max(o.pA.end.getTime(), o.pB.end.getTime());
+                return endTime >= now.getTime() - 86400000; // include today's past coincidences briefly
+            });
+            const secondaryHtml = secondaryRows.length > 0
+                ? `<div class="mt-4 rounded-xl border border-zinc-800/40 overflow-hidden">
+                    <div class="px-4 py-2 border-b border-zinc-800/40 flex items-center gap-2">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-zinc-600">Also Nearby</span>
+                        <span class="text-[10px] text-zinc-700">— geographic coincidences, not worth a meetup</span>
+                    </div>
+                    <div class="px-4">${secondaryRows.map(renderSecondaryRow).join('')}</div>
+                </div>`
+                : '';
+
+            container.innerHTML = summaryHtml + primaryCards + secondaryHtml;
+
             if (scrollTargetIdx >= 0) {
                 requestAnimationFrame(() => {
                     const target = document.getElementById('overlap-scroll-target');
@@ -1958,26 +2231,32 @@
                     const isAtHome = !recentEnough || !lastArrival || atBase || (home && locationCode && locationCode.toUpperCase() === home.toUpperCase());
                     const label = isAtHome ? 'Home' : locationCode;
                     const pilotName = pilotsCache[currentPilot]?.name?.split(' ')[0] || currentPilot;
-                    const pin = L.marker(locationCoords, {
-                        icon: L.divIcon({
-                            className: '',
-                            html: `<div class="here-dot"></div>`,
-                            iconAnchor: [8, 8]
-                        }),
-                        zIndexOffset: 2000
-                    }).bindPopup(
-                        `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${pilotName} is here</div>
-                         <div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Layover'}</div>`,
-                        { className: 'dark-popup' }
-                    ).addTo(map);
-                    const hereLabel = L.marker(locationCoords, {
-                        icon: L.divIcon({
-                            className: '',
-                            html: `<div style="color:#d8b4fe;font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,8px);white-space:nowrap">${label}</div>`,
-                            iconAnchor: [0, 0]
-                        })
-                    }).addTo(map);
-                    mapLayers.active.push(pin, hereLabel);
+                    WORLD_OFFSETS.forEach(w => {
+                        const wCoords = [locationCoords[0], locationCoords[1] + w * 360];
+                        const pin = L.marker(wCoords, {
+                            icon: L.divIcon({
+                                className: '',
+                                html: `<div class="here-dot"></div>`,
+                                iconAnchor: [8, 8]
+                            }),
+                            zIndexOffset: 2000
+                        });
+                        if (w === 0) pin.bindPopup(
+                            `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${pilotName} is here</div>
+                             <div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Layover'}</div>`,
+                            { className: 'dark-popup' }
+                        );
+                        pin.addTo(map);
+                        const hereLabel = L.marker(wCoords, {
+                            icon: L.divIcon({
+                                className: '',
+                                html: `<div style="color:#d8b4fe;font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,8px);white-space:nowrap">${label}</div>`,
+                                iconAnchor: [0, 0]
+                            }),
+                            interactive: false
+                        }).addTo(map);
+                        mapLayers.active.push(pin, hereLabel);
+                    });
                 }
             }
 

@@ -24,6 +24,7 @@
 ~~For Kyle, autofil last used schedaero sync creditionals.~~ 
 ~~Let's add detail to the mobile calendar grid.~~ 
 ~~Mobile Map menu on bottom is messed up with the legend. Make top rght filters smaller for Mobile.~~
+~~Overlap improvements: metro area groupings (TEB/LGA/EWR=NYC, SUS/STL=STL), type badges (Layover/Passing Through/Home Turf/Meetup/Nearby/Same Flight), duration bar, "Your Upcoming Crossings" summary panel, home visit annotation.~~
 -Look at people's apple calendars for flights added by airline apps. AKA southwest flights, etc. Would mostly be for personal, commuting, and DHs.
 ~~Drew ICS subscription sync — RosterBuster ICS URL stored, sync button visible when Drew selected.~~
 ~~Location meetup thinks Adam is staying at ORD longer than he is. Don't just leave the user at their last destination for a set amount of time. He would most likely add a commute to go home in there. ADam is home 27, 28th, until he starts his next trip in LGA the 29th. This is messing up location overlap. He should manually add a commute to get to LGA to make it more accurate, but those happen a day prior or day of.~~
