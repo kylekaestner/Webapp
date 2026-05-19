@@ -16,10 +16,8 @@
 ~~Make sync schedaero only appear when Kyle is reselected. Make the button pretty invisible to other users as it's only for Kyle.~~
 ~~Some of the times are incorrect on April for Kyle. May be time zone issues or the way the data was pulled.~~
 ~~Location overlap has a 67hr overlap for Adam and Sam. This isn't right. The more likely scenario is they ended their trip at their base LGA. If they ended their trip and are OFF the next day it's safe to assume they left LGA and commuted home. We just don't have the commute info unless the user adds is manually.~~
-
 ~~For location overlap perhaps take into account city area. For example, Kyle, flies corporate jets who will frequent smaller airports in large cities, but another user may be at the big airport. Can we make a way to filter a radius. Adam may be on a layover at LGA and Kyle is on a TEB layover in New Jersey, but that airport servers the create NYC Area.~~
 ~~Adsb lines smoothing. Sometimes appears jagged.~~
-
 ~~Today map has both the live line with Adsb and a green arc. So the flight is doubled on the map. Get rid of thick lines. Make another way to show it live.~~
 ~~When a live flight is active draw the arc is a predictive manner so it follows direction of travel.~~
 ~~Here now needs to be adjusted. Should be located at last airport, unless there’s a live flight, or off day.~~
@@ -27,6 +25,7 @@
 ~~Let's add detail to the mobile calendar grid.~~ 
 ~~Mobile Map menu on bottom is messed up with the legend. Make top rght filters smaller for Mobile.~~
 -Look at people's apple calendars for flights added by airline apps. AKA southwest flights, etc. Would mostly be for personal, commuting, and DHs.
+~~Drew ICS subscription sync — RosterBuster ICS URL stored, sync button visible when Drew selected.~~
 
 -Find a way to keep the session cookie active. Make it easier to sync on mobile bc safari doesn't have DevTools
 ~~Location meetup thinks Adam is staying at ORD longer than he is. Don't just leave the user at their last destination for a set amount of time. He would most likely add a commute to go home in there. ADam is home 27, 28th, until he starts his next trip in LGA the 29th. This is messing up location overlap. He should manually add a commute to get to LGA to make it more accurate, but those happen a day prior or day of.~~

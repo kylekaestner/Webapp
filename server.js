@@ -77,6 +77,66 @@ function parseICS(text) {
     return events;
 }
 
+// Parser for RosterBuster ICS subscription format (Drew)
+function parseRosterBusterICS(text) {
+    const events = [];
+    // Unfold RFC-5545 line continuations (CRLF + space/tab)
+    const unfolded = text.replace(/\r?\n[ \t]/g, '');
+    const blocks = unfolded.split(/BEGIN:VEVENT/gi).slice(1);
+
+    for (const b of blocks) {
+        const lines = b.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const getField = (prefix) => {
+            const ln = lines.find(l => l.toUpperCase().startsWith(prefix.toUpperCase() + ':'));
+            return ln ? ln.split(/:(.+)/)[1]?.replace(/\\,/g, ',').trim() || '' : '';
+        };
+
+        const summary  = getField('SUMMARY');
+        const dtstart  = getField('DTSTART');
+        const dtend    = getField('DTEND');
+        const location = getField('LOCATION');
+        const desc     = getField('DESCRIPTION');
+
+        // ✈️ STL - ORD  or  ➡️ (DH) ORD - FAR
+        const flightM = summary.match(/✈️\s*([A-Z]{3})\s*-\s*([A-Z]{3})/);
+        const dhM     = summary.match(/➡️\s*\(DH\)\s*([A-Z]{3})\s*-\s*([A-Z]{3})/);
+        const match   = flightM || dhM;
+        if (!match) continue;
+
+        const dep  = match[1].toUpperCase();
+        const arr  = match[2].toUpperCase();
+        const isDH = !!dhM;
+
+        const depTime = dtstart ? formatICSDatetime(dtstart) : null;
+        const arrTime = dtend   ? formatICSDatetime(dtend)   : null;
+        if (!depTime || !arrTime) continue;
+
+        // Flight number: last space-separated token after the closing paren in LOCATION
+        // e.g. "(2010Z-2148Z) G74536"  or  "(2125Z-2341Z) UA5618"
+        const flightNumM = location.match(/\)\s+([A-Z0-9]{3,7})\s*$/i);
+        const flightNumber = flightNumM ? flightNumM[1].toUpperCase() : '';
+
+        // Aircraft type: first token after local time parens in DESCRIPTION (skip for DH)
+        // e.g. "(1510L-1648L) CR7 cockpit ..."
+        const acM = !isDH && desc.match(/\(\d{4}L-\d{4}L\)\s+([A-Z0-9]{2,4})\b/i);
+        const tail = acM ? acM[1].toUpperCase() : '';
+
+        events.push({ type: 'flight', departureTime: depTime, arrivalTime: arrTime,
+            departureAirport: dep, arrivalAirport: arr, flightNumber, tail, trip: null, dh: isDH });
+    }
+
+    // Sort by departure time, then assign trip numbers
+    // A new trip starts whenever departure airport is STL (Drew's home base)
+    events.sort((a, b) => (a.departureTime || '').localeCompare(b.departureTime || ''));
+    let tripNum = 1;
+    for (let i = 0; i < events.length; i++) {
+        if (i > 0 && events[i].departureAirport === 'STL') tripNum++;
+        events[i].trip = String(tripNum);
+    }
+
+    return events;
+}
+
 function formatICSDatetime(s) {
     if (/^\d{8}T\d{6}Z$/.test(s)) {
         const y = s.substring(0, 4), m = s.substring(4, 6), d = s.substring(6, 8);
@@ -107,6 +167,8 @@ const IATA_TO_ICAO = {
     'AA': 'AAL', 'DL': 'DAL', 'UA': 'UAL', 'WN': 'SWA', 'B6': 'JBU',
     'AS': 'ASA', 'F9': 'FFT', 'NK': 'NKS', 'G4': 'AAY', 'SY': 'SCX',
     'HA': 'HAL', 'OO': 'SKW', 'YV': 'MES', 'OH': 'COM', 'CP': 'GWY',
+    'G7': 'GJS', 'YX': 'RPA', 'MQ': 'ENY', 'ZW': 'AWI', 'PT': 'PDT',
+    'C5': 'FFT', 'QX': 'QXE', 'KS': 'PGS', 'EM': 'EGF', 'XP': 'CXA',
 };
 
 function parseBlockToMinutes(raw) {
@@ -372,8 +434,10 @@ const pdfParse = require('pdf-parse');
 const tzlookup = require('tz-lookup');
 const fs = require('fs');
 
-// Build airport code → [lat, lon] from bundled airports.dat (OpenFlights format)
+// Build airport code → [lat, lon] and IATA↔ICAO maps from bundled airports.dat (OpenFlights format)
 const _aptCoords = {};
+const _iataToIcaoApt = {};
+const _icaoToIataApt = {};
 try {
     const lines = fs.readFileSync(path.join(__dirname, 'airports.dat'), 'utf8').split('\n');
     for (const line of lines) {
@@ -383,10 +447,27 @@ try {
         if (!isFinite(lat) || !isFinite(lon)) continue;
         if (iata && iata !== '\\N' && iata !== 'N/A') _aptCoords[iata.toUpperCase()] = [lat, lon];
         if (icao && icao !== '\\N' && icao !== 'N/A') _aptCoords[icao.toUpperCase()] = [lat, lon];
+        if (iata && iata !== '\\N' && icao && icao !== '\\N') {
+            _iataToIcaoApt[iata.toUpperCase()] = icao.toUpperCase();
+            _icaoToIataApt[icao.toUpperCase()] = iata.toUpperCase();
+        }
     }
     console.log(`Airport DB loaded: ${Object.keys(_aptCoords).length} codes`);
 } catch (e) {
     console.error('Could not load airports.dat:', e.message);
+}
+
+function iataToIcaoAirport(iata) {
+    if (!iata) return null;
+    const up = iata.toUpperCase();
+    return _iataToIcaoApt[up] || (up.length === 3 ? 'K' + up : up);
+}
+function icaoToIataAirport(icao) {
+    if (!icao) return null;
+    const up = icao.toUpperCase();
+    if (_icaoToIataApt[up]) return _icaoToIataApt[up];
+    if (up.length === 4 && up.startsWith('K')) return up.slice(1); // US heuristic
+    return up;
 }
 
 // Returns the UTC offset in minutes for an airport on a given YYYY-MM-DD date (handles DST)
@@ -506,7 +587,7 @@ const pilotParsers = {
     adam: 'csv',
     sam: 'csv',
     logan: 'csv_skywest',
-    drew: 'csv'
+    drew: 'ics_rosterbuster'
 };
 
 const pilotAirlineCodes = {
@@ -576,7 +657,9 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
         } else {
             const fileContent = req.file.buffer.toString('utf-8');
             if (filename.endsWith('.ics')) {
-                events = parseICS(fileContent);
+                events = parserType === 'ics_rosterbuster'
+                    ? parseRosterBusterICS(fileContent)
+                    : parseICS(fileContent);
             } else if (filename.endsWith('.csv')) {
                 if (parserType === 'csv_skywest') {
                     events = parseCSV_skywest(fileContent);
@@ -742,7 +825,7 @@ app.delete('/api/pilots/:pilotKey/segments', (req, res) => {
 app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
-    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, block_minutes } = req.body;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes } = req.body;
 
     if (!departure_time || !departure_airport || !arrival_airport) {
         return res.status(400).json({ error: 'departure_time, departure_airport, and arrival_airport are required' });
@@ -752,7 +835,7 @@ app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
-        const tripValue = is_personal ? 'PERSONAL' : null;
+        const tripValue = is_personal ? 'PERSONAL' : is_commute ? 'COMMUTE' : null;
         const blockMin = (block_minutes != null && block_minutes > 0) ? Math.round(block_minutes) : null;
 
         db.run(
@@ -773,7 +856,7 @@ app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
 app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
     const db = getDB();
     const { pilotKey, id } = req.params;
-    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, block_minutes } = req.body;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes } = req.body;
 
     if (!departure_time || !departure_airport || !arrival_airport) {
         return res.status(400).json({ error: 'departure_time, departure_airport, and arrival_airport are required' });
@@ -783,7 +866,7 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
-        const tripValue = is_personal ? 'PERSONAL' : null;
+        const tripValue = is_personal ? 'PERSONAL' : is_commute ? 'COMMUTE' : null;
         const blockMin = (block_minutes != null && block_minutes > 0) ? Math.round(block_minutes) : null;
 
         db.run(
@@ -854,6 +937,65 @@ app.get('/api/segments', (req, res) => {
             return res.status(500).json({ error: err.message });
         }
         res.json(rows);
+    });
+});
+
+// RosterBuster ICS sync — fetch subscription URL and import into Drew's schedule
+app.post('/api/pilots/drew/sync-ics', async (req, res) => {
+    const db = getDB();
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'url is required' });
+
+    // Persist the URL for future use
+    db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
+    db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`,
+        ['drew_ics_url', JSON.stringify({ url })]);
+
+    let icsText;
+    try {
+        const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        if (!resp.ok) return res.status(resp.status).json({ error: `ICS fetch returned ${resp.status}` });
+        icsText = await resp.text();
+    } catch (err) {
+        return res.status(500).json({ error: `Could not fetch ICS: ${err.message}` });
+    }
+
+    const events = parseRosterBusterICS(icsText);
+
+    db.get('SELECT id FROM pilots WHERE pilot_key = ?', ['drew'], (err, pilot) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
+
+        // Replace all non-manual Drew segments
+        db.run('DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)', [pilot.id], (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (events.length === 0) return res.json({ success: true, segmentsAdded: 0 });
+
+            const stmt = db.prepare(`
+                INSERT INTO segments
+                (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            let completed = 0;
+            const errors = [];
+            events.forEach(ev => {
+                stmt.run([
+                    pilot.id, ev.type,
+                    ev.departureTime || null, ev.arrivalTime || null,
+                    ev.departureAirport || null, ev.arrivalAirport || null,
+                    ev.tail || null, ev.trip || null,
+                    ev.flightNumber || null, ev.dh ? 1 : 0, null
+                ], function(err) {
+                    if (err) errors.push(err.message);
+                    completed++;
+                    if (completed === events.length) {
+                        stmt.finalize();
+                        if (errors.length > 0) return res.status(500).json({ error: 'Some segments failed', details: errors });
+                        res.json({ success: true, segmentsAdded: events.length });
+                    }
+                });
+            });
+        });
     });
 });
 
@@ -953,6 +1095,58 @@ app.post('/api/pilots/kyle/sync-schedaero', async (req, res) => {
             }
         );
     });
+});
+
+// Flight schedule lookup via OpenSky — free, no API key required
+const _flightLookupCache = {}; // `${callsign}:${date}:${depICAO}` → { ts, result }
+
+app.get('/api/flight-lookup', async (req, res) => {
+    const { flight, date, dep } = req.query;
+    if (!flight || !date) return res.status(400).json({ error: 'flight and date required' });
+
+    const fm = flight.replace(/\s+/g, '').match(/^([A-Z]{1,3})(\d+)$/i);
+    if (!fm) return res.status(400).json({ error: 'Invalid flight number (e.g. UA442)' });
+
+    const airlineICAO = IATA_TO_ICAO[fm[1].toUpperCase()] || fm[1].toUpperCase();
+    const callsign = (airlineICAO + fm[2]).toUpperCase();
+    const depICAO = dep ? iataToIcaoAirport(dep) : null;
+
+    const cacheKey = `${callsign}:${date}:${depICAO || ''}`;
+    const cached = _flightLookupCache[cacheKey];
+    if (cached && Date.now() - cached.ts < 3600000) return res.json(cached.result);
+
+    const dayStart = Math.floor(new Date(date + 'T00:00:00Z').getTime() / 1000);
+    const dayEnd = dayStart + 86400;
+
+    let flights = [];
+    const sources = depICAO
+        ? [`https://opensky-network.org/api/flights/departure?airport=${depICAO}&begin=${dayStart}&end=${dayEnd}`]
+        : [];
+
+    for (const url of sources) {
+        try {
+            const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+            if (resp.ok) { flights = (await resp.json()) || []; break; }
+        } catch (e) { /* try next */ }
+    }
+
+    const match = flights.find(f => (f.callsign || '').trim().toUpperCase() === callsign);
+    if (!match || !match.firstSeen) {
+        const result = { found: false };
+        _flightLookupCache[cacheKey] = { ts: Date.now(), result };
+        return res.json(result);
+    }
+
+    const result = {
+        found: true,
+        callsign,
+        depAirport: icaoToIataAirport(match.estDepartureAirport),
+        arrAirport: icaoToIataAirport(match.estArrivalAirport),
+        depUTC: new Date(match.firstSeen * 1000).toISOString(),
+        arrUTC: match.lastSeen ? new Date(match.lastSeen * 1000).toISOString() : null,
+    };
+    _flightLookupCache[cacheKey] = { ts: Date.now(), result };
+    res.json(result);
 });
 
 // Live flight tracking — position + accumulated trail

@@ -206,7 +206,7 @@
         <div class="mt-auto p-4 border-t border-zinc-800 bg-black/20 space-y-3">
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-zinc-600 uppercase px-2 block">Upload For</label>
-                <select id="upload-pilot-select" class="w-full p-2 rounded-lg border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 hover:border-blue-500 transition">
+                <select id="upload-pilot-select" onchange="updateUploadSyncButtons(this.value)" class="w-full p-2 rounded-lg border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 hover:border-blue-500 transition">
                     <option value="kyle">Kyle Kaestner</option>
                     <option value="adam">Adam Burke</option>
                     <option value="sam">Sam Byrne</option>
@@ -217,6 +217,7 @@
             <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
             <button onclick="triggerUpload('upload-pilot-select','file-input')" class="w-full py-3 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-xl transition text-[10px] font-black uppercase text-center">Upload Schedule</button>
             <button id="btn-sync-schedaero" onclick="openSchedaeroSync()" class="w-full py-3 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-xl transition text-[10px] font-black uppercase text-center">⟳ Sync Schedaero</button>
+            <button id="btn-sync-drew-ics" onclick="openDrewICSSync()" class="hidden w-full py-3 border border-zinc-800 hover:border-teal-500 text-zinc-600 hover:text-teal-400 rounded-xl transition text-[10px] font-black uppercase text-center">⟳ Sync Schedule</button>
         </div>
     </div>
 
@@ -279,6 +280,7 @@
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-amber-500/70"></span>Away/Layover</div>
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-sky-400" style="box-shadow:0 0 0 2px rgba(56,189,248,0.3)"></span>Today</div>
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md" style="background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.4)"></span>Personal</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md" style="background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.4)"></span>Commute</div>
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block px-1.5 text-pink-300 text-[8px] font-black rounded bg-pink-950/40 border border-pink-500/30">DH</span>Deadhead</div>
                     </div>
                 </div>
@@ -376,7 +378,7 @@
             <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
                 <span class="text-base leading-none">🤝</span><span class="text-[8px] font-black uppercase tracking-wide">Overlap</span>
             </button>
-            <button onclick="document.getElementById('mobile-upload-pilot-select').value=currentPilot||'kyle';document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
+            <button onclick="const p=currentPilot||'kyle';document.getElementById('mobile-upload-pilot-select').value=p;updateUploadSyncButtons(p);document.getElementById('mobile-upload-sheet').classList.remove('hidden')" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 transition-colors h-[50px]">
                 <span class="text-base leading-none">⬆️</span><span class="text-[8px] font-black uppercase tracking-wide">Upload</span>
             </button>
         </nav>
@@ -393,9 +395,10 @@
             </div>
             <div class="p-5 space-y-4">
                 <!-- Type selector -->
-                <div class="grid grid-cols-3 gap-1.5 p-1 bg-zinc-800 rounded-xl">
+                <div class="grid grid-cols-4 gap-1.5 p-1 bg-zinc-800 rounded-xl">
                     <button onclick="setAddFlightType('work')" id="ftype-work" class="py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all bg-blue-600 text-white">Work</button>
-                    <button onclick="setAddFlightType('dh')" id="ftype-dh" class="py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Deadhead</button>
+                    <button onclick="setAddFlightType('dh')" id="ftype-dh" class="py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">DH</button>
+                    <button onclick="setAddFlightType('commute')" id="ftype-commute" class="py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Commute</button>
                     <button onclick="setAddFlightType('personal')" id="ftype-personal" class="py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Personal</button>
                 </div>
                 <!-- Pilot + Date -->
@@ -433,7 +436,7 @@
                         <input type="time" id="add-dep-time" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
                     </div>
                     <div>
-                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Arrives <span class="text-zinc-600 normal-case font-normal">(next day auto-detected)</span></label>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Arrives <span id="add-arr-next-day-label" class="text-zinc-500 normal-case font-normal"></span></label>
                         <input type="time" id="add-arr-time" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
                     </div>
                 </div>
@@ -447,8 +450,12 @@
                 <!-- Optional fields -->
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Flight # <span class="text-zinc-600 normal-case font-normal">(optional)</span></label>
-                        <input type="text" id="add-flight-num" placeholder="UA 442" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Flight # <span id="add-flight-num-label" class="text-zinc-600 normal-case font-normal">(optional)</span></label>
+                        <div class="flex gap-1.5">
+                            <input type="text" id="add-flight-num" placeholder="UA 442" class="flex-1 px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                            <button id="btn-flight-lookup" onclick="lookupFlight()" class="hidden w-10 flex items-center justify-center rounded-xl border border-zinc-700 bg-zinc-800 hover:border-blue-500 hover:text-blue-400 text-zinc-400 transition text-base" title="Look up times">🔍</button>
+                        </div>
+                        <div id="flight-lookup-status" class="hidden text-[10px] mt-1 font-bold"></div>
                     </div>
                     <div>
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Tail # <span class="text-zinc-600 normal-case font-normal">(optional)</span></label>
@@ -532,6 +539,26 @@
         </div>
     </div>
 
+    <!-- Drew ICS Sync Modal -->
+    <div id="drew-ics-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" onclick="if(event.target===this)closeDrewICSModal()">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="p-6 space-y-4">
+                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Sync Drew's Schedule</h3>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block">RosterBuster ICS URL</label>
+                    <input id="drew-ics-url" type="text" placeholder="https://rb-calendars.s3…/calendar.ics"
+                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-teal-500 placeholder-zinc-600">
+                </div>
+                <p id="drew-ics-error" class="hidden text-xs text-red-400 font-bold"></p>
+                <div class="flex gap-3">
+                    <button onclick="syncDrewICS()" id="drew-ics-sync-btn" class="flex-1 py-3 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition">Sync</button>
+                    <button onclick="closeDrewICSModal()" class="flex-1 py-3 border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-xl font-black uppercase text-xs tracking-wide transition">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Mobile upload sheet -->
     <div id="mobile-upload-sheet" class="hidden fixed inset-0 z-50 flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
@@ -540,7 +567,7 @@
             <h3 class="text-sm font-black uppercase tracking-widest text-zinc-400 text-center">Upload Schedule</h3>
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-zinc-500 uppercase block">Upload For</label>
-                <select id="mobile-upload-pilot-select" class="w-full p-3 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100">
+                <select id="mobile-upload-pilot-select" onchange="updateUploadSyncButtons(this.value)" class="w-full p-3 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100">
                     <option value="kyle">Kyle Kaestner</option>
                     <option value="adam">Adam Burke</option>
                     <option value="sam">Sam Byrne</option>
@@ -551,6 +578,7 @@
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
             <button onclick="triggerUpload('mobile-upload-pilot-select','mobile-file-input')" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
             <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openSchedaeroSync()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
+            <button id="mobile-sync-drew-ics-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openDrewICSSync()" class="hidden w-full py-3 border border-teal-800 text-teal-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedule (Drew)</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
     </div>
@@ -1109,12 +1137,6 @@
         function loadPilot(pilot) {
             currentPilot = pilot;
 
-            // Sync Schedaero button only visible for Kyle
-            const isKyle = pilot === 'kyle';
-            const desktopBtn = document.getElementById('btn-sync-schedaero');
-            const mobileBtn = document.getElementById('mobile-sync-schedaero-btn');
-            if (desktopBtn) desktopBtn.classList.toggle('hidden', !isKyle);
-            if (mobileBtn) mobileBtn.classList.toggle('hidden', !isKyle);
 
             // Fetch from server
             fetchPilotData(pilot).then((data) => {
@@ -1518,6 +1540,23 @@
             return path;
         }
 
+        // Split a flat arc at antimeridian crossings (lon jump > 180°) so Leaflet
+        // renders it correctly. L.polyline natively accepts an array of arrays.
+        function splitAntimeridian(coords) {
+            if (!coords || coords.length < 2) return [coords || []];
+            const segs = [];
+            let seg = [coords[0]];
+            for (let i = 1; i < coords.length; i++) {
+                if (Math.abs(coords[i][1] - seg[seg.length - 1][1]) > 180) {
+                    segs.push(seg);
+                    seg = [coords[i]];
+                } else {
+                    seg.push(coords[i]);
+                }
+            }
+            segs.push(seg);
+            return segs;
+        }
 
         // ── All-Pilots Month Map ───────────────────────────────────────────
         function setMapMode(mode) {
@@ -1613,8 +1652,8 @@
                     const opacity = hasActive ? 1 : hasFuture ? 0.8 : 0.35;
 
                     const arcCoords = distanceProportionalArc(depC, arrC);
-                    const line = L.polyline(arcCoords, { weight, opacity, color: pilotColor, smoothFactor: 1 }).addTo(map);
-                    const hit = L.polyline(arcCoords, { weight: 20, opacity: 0 }).addTo(map);
+                    const line = L.polyline(splitAntimeridian(arcCoords), { weight, opacity, color: pilotColor, smoothFactor: 1 }).addTo(map);
+                    const hit = L.polyline(splitAntimeridian(arcCoords), { weight: 20, opacity: 0 }).addTo(map);
                     hit.bindPopup(`<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${PILOT_NAMES[key].split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${dep} → ${arr}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`, { className: 'dark-popup' });
                     mapLayers.future.push(line, hit);
 
@@ -1758,8 +1797,8 @@
                 const opacity = hasActive ? 1.0 : hasFuture ? 0.85 : 0.45;
 
                 const arcCoords = distanceProportionalArc(depCoords, arrCoords);
-                const line = L.polyline(arcCoords, { weight, opacity, color, smoothFactor: 1 });
-                const hit  = L.polyline(arcCoords, { weight: 20, opacity: 0 });
+                const line = L.polyline(splitAntimeridian(arcCoords), { weight, opacity, color, smoothFactor: 1 });
+                const hit  = L.polyline(splitAntimeridian(arcCoords), { weight: 20, opacity: 0 });
 
                 // Popup: list all legs chronologically
                 const sorted = legs.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
@@ -2137,10 +2176,11 @@
 
                     // Remaining: great-circle path from live position to destination
                     const remainPath = greatCircleArcCoords(livePoint, arrCoords);
+                    const remainSegs = splitAntimeridian(remainPath);
                     if (remainLine) {
-                        remainLine.setLatLngs(remainPath);
+                        remainLine.setLatLngs(remainSegs);
                     } else {
-                        remainLine = L.polyline(remainPath, { color, weight: 1.5, opacity: 0.7, smoothFactor: 0, dashArray: '8 10' });
+                        remainLine = L.polyline(remainSegs, { color, weight: 1.5, opacity: 0.7, smoothFactor: 0, dashArray: '8 10' });
                         remainLine.addTo(map);
                         activeLayersArr.push(remainLine);
                     }
@@ -2301,8 +2341,8 @@
                 const opacity = isActive ? 1 : 0.75;
                 const dayLineOpts = { weight, opacity, color, smoothFactor: 1 };
                 if (isActive) dayLineOpts.className = 'active-route';
-                const line = L.polyline(arcCoords, dayLineOpts).addTo(map);
-                const hit  = L.polyline(arcCoords, { weight: 20, opacity: 0 }).addTo(map);
+                const line = L.polyline(splitAntimeridian(arcCoords), dayLineOpts).addTo(map);
+                const hit  = L.polyline(splitAntimeridian(arcCoords), { weight: 20, opacity: 0 }).addTo(map);
 
                 const blockMins = calcBlockMins(f);
                 hit.bindPopup(`
@@ -2538,7 +2578,7 @@
                     if (isToday) dayClasses.push('day-today');
                     const dayEvents = segments.filter(s => {
                         if (!s.departureTime) return false;
-                        if (s.departureTime.startsWith(dateKey)) return true;
+                        if (flightLocalDate(s.departureTime, s.departureAirport) === dateKey) return true;
                         if (s.type !== 'flight' || !s.arrivalTime) return false;
                         const arrLocal = flightLocalDate(s.arrivalTime, s.arrivalAirport);
                         const depLocal = flightLocalDate(s.departureTime, s.departureAirport);
@@ -2570,8 +2610,10 @@
                         const depApt = f.departureAirport || '';
                         const arrApt = f.arrivalAirport || '';
                         const isPersonal = tripAttr === 'PERSONAL';
+                        const isCommute = tripAttr === 'COMMUTE';
                         const dhDot = f.dh ? `<span style="color:#f9a8d4;font-size:8px;font-weight:900;margin-left:3px">DH</span>` : '';
                         const personalDot = isPersonal ? `<span style="color:#c084fc;font-size:8px;font-weight:900;margin-left:3px">P</span>` : '';
+                        const commuteDot = isCommute ? `<span style="color:#fbbf24;font-size:8px;font-weight:900;margin-left:3px">C</span>` : '';
                         const depTimeFmt = depAttr ? formatTimeISO(depAttr, depApt) : '';
                         const arrTimeFmt = arrAttr ? formatTimeISO(arrAttr, arrApt) : '';
                         const depTzLbl = depApt ? tzAbbr(depApt, depAttr) : '';
@@ -2595,10 +2637,10 @@
                         const arrMs = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                         const isActiveLeg = depMs && arrMs && depMs <= nowMs && nowMs <= arrMs;
                         const cellBg = isActiveLeg
-                            ? (isPersonal ? 'background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)' : 'background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)')
-                            : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : 'background:rgba(0,0,0,0.4)');
+                            ? (isPersonal ? 'background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)' : isCommute ? 'background:rgba(120,53,15,0.2);border:2px solid rgba(34,197,94,0.85)' : 'background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)')
+                            : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : isCommute ? 'background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.25)' : 'background:rgba(0,0,0,0.4)');
                         html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}">`;
-                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}</div>`;
+                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
                         html += `</div>`;
@@ -2612,7 +2654,7 @@
                     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const dayEvents = segments.filter(s => {
                         if (!s.departureTime) return false;
-                        if (s.departureTime.startsWith(dateKey)) return true;
+                        if (flightLocalDate(s.departureTime, s.departureAirport) === dateKey) return true;
                         if (s.type !== 'flight' || !s.arrivalTime) return false;
                         const arrLocal = flightLocalDate(s.arrivalTime, s.arrivalAirport);
                         const depLocal = flightLocalDate(s.departureTime, s.departureAirport);
@@ -2655,10 +2697,12 @@
                             const tzSup = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:2px">${lbl}</span>` : '';
                             const blockMins = calcBlockMins(f);
                             const isPersonal = tripAttr === 'PERSONAL';
+                            const isCommute = tripAttr === 'COMMUTE';
                             const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-500/60 text-pink-300 bg-pink-950/40">DH</span>` : '';
                             const personalBadge = isPersonal ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-violet-500/60 text-violet-300 bg-violet-950/40">Personal</span>` : '';
+                            const commuteBadge = isCommute ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-amber-500/60 text-amber-300 bg-amber-950/40">Commute</span>` : '';
                             const flightNumAttr = f.flightNumber || '';
-                            const tripLabel = flightNumAttr ? `<span class="text-[10px] text-blue-400/70 ml-2">${flightNumAttr}</span>` : (tripAttr && !isPersonal ? `<span class="text-[10px] text-blue-400/70 ml-2">Trip ${tripAttr}</span>` : '');
+                            const tripLabel = flightNumAttr ? `<span class="text-[10px] text-blue-400/70 ml-2">${flightNumAttr}</span>` : (tripAttr && !isPersonal && !isCommute ? `<span class="text-[10px] text-blue-400/70 ml-2">Trip ${tripAttr}</span>` : '');
                             let layoverText = '';
                             if (!isPersonal && arrApt && arrAttr) {
                                 const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
@@ -2676,10 +2720,10 @@
                             const depMs2 = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                             const arrMs2 = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                             const isActiveLeg2 = depMs2 && arrMs2 && depMs2 <= nowMs2 && nowMs2 <= arrMs2;
-                            const rowBorder = isActiveLeg2 ? 'border-green-500/80 ring-1 ring-green-500/30' : (isPersonal ? 'border-violet-900/50' : 'border-blue-900/30');
-                            const rowBg = isPersonal ? 'bg-violet-950/20' : 'bg-black/30';
+                            const rowBorder = isActiveLeg2 ? 'border-green-500/80 ring-1 ring-green-500/30' : (isPersonal ? 'border-violet-900/50' : isCommute ? 'border-amber-900/50' : 'border-blue-900/30');
+                            const rowBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : 'bg-black/30';
                             const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
-                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div></div>`;
+                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}${commuteBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div></div>`;
                         }).join('');
                     }
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];
@@ -2962,7 +3006,7 @@
 
         function showDayDetail(dateKey) {
             const pilotBase = pilotsCache[currentPilot]?.base || null;
-            const dayEvents = segments.filter(s => s.departureTime && s.departureTime.startsWith(dateKey));
+            const dayEvents = segments.filter(s => s.departureTime && flightLocalDate(s.departureTime, s.departureAirport) === dateKey);
             const [yr, mo, dy] = dateKey.split('-');
             const dateObj = new Date(parseInt(yr), parseInt(mo) - 1, parseInt(dy));
             const dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -3002,8 +3046,10 @@
                 const tzTag = (lbl) => lbl ? ` <span class="text-[10px] font-semibold text-zinc-500">${lbl}</span>` : '';
                 const blockMins = calcBlockMins(f);
                 const isPersonal = f.trip === 'PERSONAL';
+                const isCommute = f.trip === 'COMMUTE';
                 const dhBadge = f.dh ? `<span class="ml-2 text-[9px] font-black text-pink-300">DH</span>` : '';
                 const personalBadge = isPersonal ? `<span class="ml-2 text-[9px] font-black text-violet-300">Personal</span>` : '';
+                const commuteBadge = isCommute ? `<span class="ml-2 text-[9px] font-black text-amber-300">Commute</span>` : '';
                 const flightNum = f.flightNumber ? `<span class="text-[10px] text-blue-400/70 ml-2">${f.flightNumber}</span>` : '';
                 let groundBadge = '';
                 if (!isPersonal && arr && f.arrivalTime) {
@@ -3015,15 +3061,15 @@
                         if (gm > 0 && !atHome) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Layover'} ${formatDurationMinutes(gm)}</div>`;
                     }
                 }
-                const cardBorder = isPersonal ? 'border-violet-500/30' : 'border-white/10';
-                const cardBg = isPersonal ? 'bg-violet-950/30' : 'bg-black/40';
+                const cardBorder = isPersonal ? 'border-violet-500/30' : isCommute ? 'border-amber-500/30' : 'border-white/10';
+                const cardBg = isPersonal ? 'bg-violet-950/30' : isCommute ? 'bg-amber-950/30' : 'bg-black/40';
                 const editActions = f.id ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${f.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
                     <button onclick="deleteManualFlight(${f.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
                 </div>` : '';
                 html += `<div class="${cardBg} border ${cardBorder} rounded-xl p-4 mb-3">
                     <div class="flex items-center justify-between mb-1">
-                        <div class="text-lg font-black text-white">${dep} <span class="text-blue-500/60">→</span> ${arr}${dhBadge}${personalBadge}</div>
+                        <div class="text-lg font-black text-white">${dep} <span class="text-blue-500/60">→</span> ${arr}${dhBadge}${personalBadge}${commuteBadge}</div>
                         ${flightNum}
                     </div>
                     <div class="flex items-center justify-between text-sm">
@@ -3046,14 +3092,69 @@
 
         function setAddFlightType(type) {
             _addFlightType = type;
-            const colors = { work: 'bg-blue-600 text-white', dh: 'bg-pink-700 text-white', personal: 'bg-violet-600 text-white' };
-            ['work', 'dh', 'personal'].forEach(t => {
+            const colors = { work: 'bg-blue-600 text-white', dh: 'bg-pink-700 text-white', commute: 'bg-amber-600 text-white', personal: 'bg-violet-600 text-white' };
+            ['work', 'dh', 'commute', 'personal'].forEach(t => {
                 const btn = document.getElementById(`ftype-${t}`);
                 btn.className = btn.className.replace(/bg-\S+ text-white/g, '').trim();
                 if (t === type) btn.className += ' ' + colors[t];
                 else btn.classList.add('text-zinc-500');
                 btn.classList.toggle('text-zinc-500', t !== type);
             });
+            const isLookupType = type === 'dh' || type === 'commute' || type === 'personal';
+            document.getElementById('btn-flight-lookup')?.classList.toggle('hidden', !isLookupType);
+            const lbl = document.getElementById('add-flight-num-label');
+            if (lbl) lbl.textContent = isLookupType ? '— enter to auto-fill times' : '(optional)';
+            document.getElementById('flight-lookup-status')?.classList.add('hidden');
+        }
+
+        function utcToAirportLocal(utcISO, airportCode) {
+            const d = new Date(utcISO);
+            const tz = airportTz(airportCode);
+            if (!tz) return { date: utcISO.slice(0, 10), time: utcISO.slice(11, 16) };
+            const date = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d);
+            const time = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(d).replace(/^24:/, '00:');
+            return { date, time };
+        }
+
+        async function lookupFlight() {
+            const flight = document.getElementById('add-flight-num').value.trim();
+            const date   = document.getElementById('add-date').value;
+            const dep    = document.getElementById('add-dep').value.trim().toUpperCase();
+            const btn    = document.getElementById('btn-flight-lookup');
+            const status = document.getElementById('flight-lookup-status');
+            if (!flight) { status.textContent = 'Enter a flight number first.'; status.className = 'text-[10px] mt-1 font-bold text-yellow-500'; status.classList.remove('hidden'); return; }
+            if (!date)   { status.textContent = 'Enter a date first.'; status.className = 'text-[10px] mt-1 font-bold text-yellow-500'; status.classList.remove('hidden'); return; }
+            status.textContent = 'Looking up…'; status.className = 'text-[10px] mt-1 font-bold text-zinc-400'; status.classList.remove('hidden');
+            btn.textContent = '⏳'; btn.disabled = true;
+            try {
+                const params = new URLSearchParams({ flight, date });
+                if (dep) params.set('dep', dep);
+                const r = await fetch(`${API_BASE}/flight-lookup?${params}`).then(r => r.json());
+                if (!r.found) {
+                    status.textContent = dep ? `Flight not found for ${date} from ${dep}.` : 'Not found — try adding the departure airport.';
+                    status.className = 'text-[10px] mt-1 font-bold text-red-400';
+                } else {
+                    if (r.depAirport) document.getElementById('add-dep').value = r.depAirport;
+                    if (r.arrAirport) document.getElementById('add-arr').value = r.arrAirport;
+                    if (r.depUTC) {
+                        const loc = utcToAirportLocal(r.depUTC, r.depAirport || dep);
+                        document.getElementById('add-date').value = loc.date;
+                        document.getElementById('add-dep-time').value = loc.time;
+                    }
+                    if (r.arrUTC) {
+                        const loc = utcToAirportLocal(r.arrUTC, r.arrAirport || dep);
+                        document.getElementById('add-arr-time').value = loc.time;
+                    }
+                    _blockUserEdited = false;
+                    autoComputeBlockTime();
+                    status.textContent = `Found: ${r.depAirport} → ${r.arrAirport}`;
+                    status.className = 'text-[10px] mt-1 font-bold text-green-400';
+                }
+            } catch (e) {
+                status.textContent = 'Lookup failed — check connection.';
+                status.className = 'text-[10px] mt-1 font-bold text-red-400';
+            }
+            btn.textContent = '🔍'; btn.disabled = false;
         }
 
         let _blockUserEdited = false;
@@ -3107,6 +3208,30 @@
             return isNaN(h) ? null : Math.round(h * 60);
         }
 
+        // Returns the arrival date string (YYYY-MM-DD), adding a day only when
+        // the arrival UTC time is at or before the departure UTC time.
+        // Uses timezone-aware comparison so transpacific flights (e.g. SIN→SFO)
+        // where arrival local-time < departure local-time don't get a false +1 day.
+        function inferArrDate(date, depTime, arrTime, dep, arr) {
+            const depTz = airportTz(dep);
+            const arrTz = airportTz(arr);
+            const _nextDay = () => {
+                const d = new Date(`${date}T12:00:00`);
+                d.setDate(d.getDate() + 1);
+                return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            };
+            if (depTz && arrTz) {
+                try {
+                    const depUTC = localTimeToUTC(`${date}T${depTime}`, depTz);
+                    const arrUTC = localTimeToUTC(`${date}T${arrTime}`, arrTz);
+                    return arrUTC <= depUTC ? _nextDay() : date;
+                } catch(e) { /* fall through */ }
+            }
+            const [dH, dM] = depTime.split(':').map(Number);
+            const [aH, aM] = arrTime.split(':').map(Number);
+            return (aH * 60 + aM <= dH * 60 + dM) ? _nextDay() : date;
+        }
+
         function autoComputeBlockTime() {
             if (_blockUserEdited) return;
             const dep = document.getElementById('add-dep').value.trim().toUpperCase();
@@ -3117,14 +3242,10 @@
             if (!dep || !arr || !depTime || !arrTime || !date) return;
             const depTz = airportTz(dep);
             const arrTz = airportTz(arr);
-            const [dH, dM] = depTime.split(':').map(Number);
-            const [aH, aM] = arrTime.split(':').map(Number);
-            let arrDate = date;
-            if (aH * 60 + aM <= dH * 60 + dM) {
-                const d = new Date(date + 'T12:00:00');
-                d.setDate(d.getDate() + 1);
-                arrDate = d.toISOString().slice(0, 10);
-            }
+            const arrDate = inferArrDate(date, depTime, arrTime, dep, arr);
+            const nextDay = arrDate !== date;
+            const arrLbl = document.getElementById('add-arr-next-day-label');
+            if (arrLbl) arrLbl.textContent = nextDay ? '(next day)' : '';
             const depISO = `${date}T${depTime}:00`;
             const arrISO = `${arrDate}T${arrTime}:00`;
             let blockMin;
@@ -3135,7 +3256,7 @@
             } else {
                 blockMin = Math.round((new Date(arrISO + 'Z') - new Date(depISO + 'Z')) / 60000);
             }
-            if (blockMin > 0 && blockMin < 24 * 60) {
+            if (blockMin > 0 && blockMin < 36 * 60) {
                 const h = Math.floor(blockMin / 60);
                 const mn = blockMin % 60;
                 document.getElementById('add-block-time').value = `${h}:${String(mn).padStart(2, '0')}`;
@@ -3147,12 +3268,13 @@
             _blockUserEdited = false;
             document.getElementById('add-flight-title').textContent = 'Add Flight';
             document.getElementById('add-flight-submit-btn').textContent = 'Add Flight';
-            const today = new Date();
-            document.getElementById('add-date').value = today.toISOString().slice(0, 10);
+            document.getElementById('add-date').value = _localToday();
             document.getElementById('add-pilot').value = currentPilot || 'kyle';
             ['add-dep','add-arr','add-dep-time','add-arr-time','add-flight-num','add-tail-num','add-block-time'].forEach(id => document.getElementById(id).value = '');
             document.getElementById('add-block-auto-label').textContent = '(auto-calculated)';
+            document.getElementById('add-arr-next-day-label').textContent = '';
             document.getElementById('add-flight-error').classList.add('hidden');
+            document.getElementById('flight-lookup-status')?.classList.add('hidden');
             setAddFlightType('work');
             document.getElementById('add-flight-modal').classList.remove('hidden');
         }
@@ -3189,7 +3311,7 @@
                 blockEl.value = '';
                 blockLbl.textContent = '(auto-calculated)';
             }
-            const type = seg.trip === 'PERSONAL' ? 'personal' : (seg.dh ? 'dh' : 'work');
+            const type = seg.trip === 'PERSONAL' ? 'personal' : seg.trip === 'COMMUTE' ? 'commute' : (seg.dh ? 'dh' : 'work');
             setAddFlightType(type);
             document.getElementById('add-flight-modal').classList.remove('hidden');
         }
@@ -3215,14 +3337,7 @@
             const depISO = `${date}T${depTime}:00`;
             let arrISO = null;
             if (arrTime) {
-                const [dH, dM] = depTime.split(':').map(Number);
-                const [aH, aM] = arrTime.split(':').map(Number);
-                let arrDate = date;
-                if (aH * 60 + aM <= dH * 60 + dM) {
-                    const d = new Date(date + 'T12:00:00');
-                    d.setDate(d.getDate() + 1);
-                    arrDate = d.toISOString().slice(0, 10);
-                }
+                const arrDate = inferArrDate(date, depTime, arrTime, dep, arr);
                 arrISO = `${arrDate}T${arrTime}:00`;
             }
             return {
@@ -3234,6 +3349,7 @@
                 tail: document.getElementById('add-tail-num').value.trim() || null,
                 is_dh: _addFlightType === 'dh',
                 is_personal: _addFlightType === 'personal',
+                is_commute: _addFlightType === 'commute',
                 block_minutes: parseBlockInput(document.getElementById('add-block-time').value)
             };
         }
@@ -3401,11 +3517,68 @@
         }
         // ─────────────────────────────────────────────────────────────────
 
+        function updateUploadSyncButtons(pilot) {
+            const isKyle = pilot === 'kyle';
+            const isDrew = pilot === 'drew';
+            document.getElementById('btn-sync-schedaero')?.classList.toggle('hidden', !isKyle);
+            document.getElementById('btn-sync-drew-ics')?.classList.toggle('hidden', !isDrew);
+            document.getElementById('mobile-sync-schedaero-btn')?.classList.toggle('hidden', !isKyle);
+            document.getElementById('mobile-sync-drew-ics-btn')?.classList.toggle('hidden', !isDrew);
+        }
+
+        // ── Drew ICS Sync ─────────────────────────────────────────────────
+        const DREW_ICS_URL = 'https://rb-calendars.s3-eu-west-1.amazonaws.com/prod/ical/private/478d5d7917787cb666cd968b1954179a73c492f5/RBTe9d96ef21c68df6011c27c6c5ecc5298bf44eb646c5d34d9.ics';
+
+        function openDrewICSSync() {
+            document.getElementById('drew-ics-error').classList.add('hidden');
+            document.getElementById('drew-ics-modal').classList.remove('hidden');
+            document.getElementById('drew-ics-url').value =
+                localStorage.getItem('drew_ics_url') || DREW_ICS_URL;
+        }
+
+        function closeDrewICSModal() {
+            document.getElementById('drew-ics-modal').classList.add('hidden');
+        }
+
+        async function syncDrewICS() {
+            const url  = document.getElementById('drew-ics-url').value.trim();
+            const errEl = document.getElementById('drew-ics-error');
+            const btn   = document.getElementById('drew-ics-sync-btn');
+            if (!url) { errEl.textContent = 'URL required'; errEl.classList.remove('hidden'); return; }
+            errEl.classList.add('hidden');
+            btn.textContent = 'Syncing…';
+            btn.disabled = true;
+            localStorage.setItem('drew_ics_url', url);
+            try {
+                const resp = await fetch(`${API_BASE}/pilots/drew/sync-ics`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    closeDrewICSModal();
+                    alert(`Synced ${result.segmentsAdded} segments for Drew.`);
+                    if (currentPilot === 'drew') loadPilot('drew');
+                } else {
+                    errEl.textContent = result.error || 'Sync failed';
+                    errEl.classList.remove('hidden');
+                }
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.classList.remove('hidden');
+            }
+            btn.textContent = 'Sync';
+            btn.disabled = false;
+        }
+        // ─────────────────────────────────────────────────────────────────
+
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', () => {
             // Set initial mobile nav active state
             const mbtn = document.getElementById('mbtn-grid');
             if (mbtn) mbtn.style.color = '#3b82f6';
+            updateUploadSyncButtons('kyle');
             loadPilot('kyle');
         });
     </script>
