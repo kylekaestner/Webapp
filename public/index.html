@@ -618,7 +618,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Common Off Days</p>
-                    <p>Collapsed section at the top showing upcoming days where 2+ crew are free — no flights scheduled at all. Great for planning something together. <strong class="text-zinc-300">Tap the header to expand.</strong> For Kyle, only confirmed Hard Day Offs count — on-call days are treated as potentially working.</p>
+                    <p>Collapsed section at the top showing upcoming days where 2+ crew are free. <strong class="text-zinc-300">Tap the header to expand.</strong> For Kyle, only confirmed Hard Day Offs count — on-call days are treated as potentially working. Days where all 5 pilots are free show a <strong class="text-zinc-300">gold left border and ✦ ALL OFF badge</strong> — those are rare. If a pilot's schedule data hasn't been loaded yet, a <strong class="text-zinc-300">⚠ warning</strong> appears at the top of the list noting who's missing, so you know the results may be incomplete.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -677,7 +677,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Navigation</p>
-                    <p>Use <strong class="text-zinc-300">Prev / Next</strong> to change months. The current day is highlighted. Tap any cell to open a detail sheet with full flight info for that day.</p>
+                    <p>Use <strong class="text-zinc-300">Prev / Next</strong> to change months. The current day is highlighted. Tap any cell to open a detail sheet with full flight info for that day — the header shows <strong class="text-zinc-300">▶ IN THE AIR</strong> in green if a flight is currently airborne, and each live flight card shows a green border and <strong class="text-zinc-300">▶ LIVE</strong> badge.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -752,7 +752,7 @@
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 uppercase tracking-wide shrink-0 mt-0.5">All Crew — Day</span>
-                            <span>Everyone's flights on a single day. <strong class="text-zinc-300">Tap any arc</strong> to see the pilot, route, block time, and departure/arrival times with timezone. Use the date arrows to step forward and back.</span>
+                            <span>Everyone's flights on a single day. <strong class="text-zinc-300">Tap any arc</strong> to see the pilot, route, block time, and times with timezone — plus status: <strong class="text-zinc-300">▶ In the air now</strong>, <strong class="text-zinc-300">◷ Departs in…</strong>, or <strong class="text-zinc-300">✓ Completed</strong>. Completed flights are shown at 25% opacity so upcoming and live legs stand out. Use the date arrows to step forward and back.</span>
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 uppercase tracking-wide shrink-0 mt-0.5">All Crew — Month</span>
@@ -768,7 +768,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Live ADS-B</p>
-                    <p>When a flight is airborne, the map polls ADS-B Exchange every 8 seconds. A <strong class="text-zinc-300">green animated arc</strong> shows the predicted remaining path. The colored trail behind the aircraft is the actual flown track from radar data.</p>
+                    <p>When a flight is airborne, the map polls ADS-B Exchange every 8 seconds. A <strong class="text-zinc-300">dashed arc</strong> shows the remaining path to destination; the solid colored trail behind is the actual GPS track. The route arc and its tap target stay aligned with the live position, so popups always work mid-flight.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -1255,7 +1255,10 @@
             'DTW': 'Detroit Area', 'CVG': 'Cincinnati Area', 'CLT': 'Charlotte Area',
         };
 
-        const PILOT_HOMES = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX', drew: 'STL' };
+        const PILOT_HOMES   = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX', drew: 'STL' };
+        const PILOT_CARRIER = { kyle: 'SJJ', adam: 'RPA', sam: 'RPA', logan: 'SKW', drew: 'GJS' };
+        const IATA_TO_CALLSIGN = { G7: 'GJS', OO: 'SKW', YX: 'RPA', '9E': 'FLG' };
+        const IATA_TO_CALLSIGN_ENTRIES = Object.entries(IATA_TO_CALLSIGN);
         // Airports that count as "home" — some pilots have two (e.g. Kyle: SUS + STL, same metro)
         const PILOT_HOME_AIRPORTS = { kyle: ['SUS','STL'], adam: ['TUL'], sam: ['STL'], logan: ['PHX'], drew: ['STL'] };
         function isHomeAirport(airport, pilotKey) {
@@ -1860,23 +1863,7 @@
             const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const scrollTargetIdx = primary.findIndex(o => o.sortKey >= todayMidnight.getTime());
 
-            // Mini tile map — CARTO dark tile centered on lat/lon with a dot marker
-            function miniMapHtml(lat, lon, dotColor, z = 10) {
-                const n = Math.pow(2, z);
-                const tileX = Math.floor((lon + 180) / 360 * n);
-                const latRad = lat * Math.PI / 180;
-                const tileY = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
-                const pxX = ((lon + 180) / 360 * n - tileX) * 256;
-                const pxY = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n - tileY) * 256;
-                const W = 80, H = 64;
-                const imgLeft = Math.round(W / 2 - pxX);
-                const imgTop  = Math.round(H / 2 - pxY);
-                const url = `https://a.basemaps.cartocdn.com/dark_nolabels/${z}/${tileX}/${tileY}.png`;
-                return `<div class="relative rounded-xl overflow-hidden shrink-0 border border-zinc-700/40 bg-zinc-900" style="width:${W}px;height:${H}px">
-                    <img src="${url}" loading="lazy" style="position:absolute;width:256px;height:256px;top:${imgTop}px;left:${imgLeft}px;pointer-events:none">
-                    <div class="absolute" style="left:50%;top:50%;transform:translate(-50%,-50%);width:9px;height:9px;border-radius:50%;background:${dotColor};border:2px solid #09090b;box-shadow:0 0 0 2px ${dotColor}55"></div>
-                </div>`;
-            }
+
 
             // Render a primary card (tiers 1 & 2)
             function renderPrimaryCard(o, idx, isScrollTarget) {
@@ -1993,21 +1980,11 @@
                 const bg      = tier === 2 ? 'bg-zinc-900/20' : (isNow ? 'bg-green-950/20' : isToday ? 'bg-sky-950/15' : 'bg-zinc-900/40');
                 const opacity = isPast ? 'opacity-40' : '';
 
-                const cA = getCoords(o.airport), cB = getCoords(o.airportB);
-                const mapLat = cA && cB ? (cA[0] + cB[0]) / 2 : cA?.[0];
-                const mapLon = cA && cB ? (cA[1] + cB[1]) / 2 : cA?.[1];
-                const mapHtml = (mapLat != null && mapLon != null)
-                    ? miniMapHtml(mapLat, mapLon, cls?.color || '#818cf8')
-                    : '';
-
                 return `<div${scrollId} class="border ${border} rounded-2xl overflow-hidden ${bg} ${opacity}">
-                    <div class="px-4 pt-3.5 pb-3 flex items-start gap-3">
-                        <div class="flex-1 min-w-0">
-                            <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5 flex items-center flex-wrap gap-1">${pulseDot}${dateLabel}${typeBadge}</div>
-                            <div class="text-2xl font-black ${tier === 2 ? 'text-zinc-300' : 'text-white'} leading-none">${locLabel}${distTag}</div>
-                            ${locSub ? `<div class="text-xs text-zinc-400 mt-1 font-mono tracking-wider">${locSub}</div>` : ''}
-                        </div>
-                        ${mapHtml}
+                    <div class="px-4 pt-3.5 pb-3">
+                        <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5 flex items-center flex-wrap gap-1">${pulseDot}${dateLabel}${typeBadge}</div>
+                        <div class="text-2xl font-black ${tier === 2 ? 'text-zinc-300' : 'text-white'} leading-none">${locLabel}${distTag}</div>
+                        ${locSub ? `<div class="text-xs text-zinc-400 mt-1 font-mono tracking-wider">${locSub}</div>` : ''}
                     </div>
                     ${annotation}
                     <div class="px-4 pb-3 pt-2.5 space-y-2 border-t border-zinc-800/50">
@@ -2402,7 +2379,7 @@
                             const dots = worldPlaneMarkers(arcCoords[idx], makePlaneIcon(bearing, pilotColor, null, true));
                             dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(al, key);
-                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, PILOT_NAMES[key]?.split(' ')[0], alArrUTC);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, PILOT_NAMES[key]?.split(' ')[0], alArrUTC, [], weight, monthHits);
                         }
                     }
 
@@ -2551,7 +2528,7 @@
                 const legRows = sorted.map(f => {
                     const dt = new Date(f.departureTime);
                     const ds = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                    const label = f.flightNumber ? f.flightNumber : f.trip ? `Trip ${f.trip}` : '';
+                    const label = deriveCallsign(f, currentPilot) || '';
                     const _ld = flightUTCTime(f.departureTime, f.departureAirport);
                     const _la = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                     const isLegActive = _ld && _la && _ld <= now && now <= new Date(_la.getTime() + 20 * 60000);
@@ -2593,14 +2570,17 @@
                         dots[2].bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                         dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(activeLeg, currentPilot);
-                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, PILOT_NAMES[currentPilot]?.split(' ')[0], arrTime, hereNowMarkers);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, PILOT_NAMES[currentPilot]?.split(' ')[0], arrTime, hereNowMarkers, weight, hitLines);
                     }
                 }
 
                 // Airport type tracking
                 [dep, arr].forEach(code => {
-                    const upper = code?.toUpperCase();
-                    if (!upper || !resolveAirport(upper)) return;
+                    let upper = code?.toUpperCase();
+                    if (!upper) return;
+                    let coords = resolveAirport(upper);
+                    if (!coords && upper.length === 4 && upper[0] === 'K') { upper = upper.slice(1); coords = resolveAirport(upper); }
+                    if (!coords) return;
                     if (!airportFlightTypes[upper]) airportFlightTypes[upper] = { past: false, future: false, active: false };
                     if (allPast) airportFlightTypes[upper].past = true;
                     else if (hasActive) airportFlightTypes[upper].active = true;
@@ -2617,7 +2597,7 @@
                 const { past, future, active } = airportFlightTypes[upper];
                 const visible = (past && showPast) || (future && showFuture) || active;
 
-                const isBase = upper === pilotBase || isHomeAirport(upper, currentPilot);
+                const isBase = upper === pilotBase || (pilotBase.length === 4 && pilotBase[0] === 'K' && upper === pilotBase.slice(1));
                 const isLayover = layoverAirports.has(upper);
                 const dotColor = isBase ? '#22c55e' : isLayover ? '#f59e0b' : '#f8fafc';
                 const radius = isBase ? 7 : isLayover ? 6 : 5;
@@ -2645,7 +2625,7 @@
                 return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
             });
             {
-                let locationCode, label, popupExtra;
+                let locationCode, label, popupExtra, isAtHome = false;
                 const pilotName = pilotsCache[currentPilot]?.name?.split(' ')[0] || currentPilot;
 
                 if (isAirborne) {
@@ -2671,7 +2651,7 @@
                     const recentEnough = lastFlight && (now - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
                     const atBase = lastArrival && pilotBase && lastArrival.toUpperCase() === pilotBase.toUpperCase();
                     const atHome = isHomeAirport(lastArrival, currentPilot);
-                    const isAtHome = !recentEnough || !lastArrival || atBase || atHome || (home && lastArrival && lastArrival.toUpperCase() === home?.toUpperCase());
+                    isAtHome = !recentEnough || !lastArrival || atBase || atHome || (home && lastArrival && lastArrival.toUpperCase() === home?.toUpperCase());
                     locationCode = (recentEnough && lastArrival && !atBase && !atHome) ? lastArrival : home;
                     label = isAtHome ? 'Home' : locationCode;
                     popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Layover'}</div>`;
@@ -2703,12 +2683,6 @@
                         // If airborne, register for removal when ADSB confirms real position
                         if (isAirborne) hereNowMarkers.push(pin, hereLabel);
                     });
-                    // When home, remove the static airport dot/label so here-now is the only marker
-                    if (isAtHome && airportVisibilityMap[locationCode]) {
-                        const { markers: aDots, labels: aLabels } = airportVisibilityMap[locationCode];
-                        [...aDots, ...aLabels].forEach(m => { try { map.removeLayer(m); } catch (_) {} });
-                        delete airportVisibilityMap[locationCode];
-                    }
                 }
             }
 
@@ -2800,16 +2774,24 @@
         }
 
         // ── Live flight tracking (OpenSky Network) ────────────────────────
+        // Returns the ICAO callsign string for live ADS-B tracking
         function deriveCallsign(seg, pilotKey) {
-            // Explicit flight number always wins — works for any carrier (RPA, SKW, SJJ, AAL, UAL, etc.)
-            const fn = (seg.flightNumber || seg.flight_number || '').replace(/\s/g, '');
-            if (fn) return fn.toUpperCase();
-            // No flight number: only Kyle's work flights can be derived from the tail number
+            const fn = (seg.flightNumber || seg.flight_number || '').replace(/\s/g, '').toUpperCase();
+            if (fn) return normalizeFlightNum(fn, PILOT_CARRIER[pilotKey] || '') || null;
             if (pilotKey === 'kyle') {
                 const digits = (seg.tail || '').replace(/\D/g, '');
                 return digits ? `SJJ${digits}` : null;
             }
             return null;
+        }
+
+        function normalizeFlightNum(fn, carrier) {
+            if (!fn) return '';
+            for (const [iata, icao] of IATA_TO_CALLSIGN_ENTRIES) {
+                if (fn.startsWith(iata) && /^\d+$/.test(fn.slice(iata.length))) return icao + fn.slice(iata.length);
+            }
+            if (carrier && /^\d+$/.test(fn)) return carrier + fn;
+            return fn;
         }
 
         function isPositionOnRoute(lat, lon, depCoords, arrCoords) {
@@ -2880,37 +2862,50 @@
 
         function smoothTrail(rawPoints) {
             if (!rawPoints || rawPoints.length < 2) return rawPoints || [];
-            // Step 1: 3-point moving average to kill high-frequency GPS noise before Chaikin
-            let pts = rawPoints.length > 3 ? rawPoints.map((p, i, arr) => {
-                if (i === 0 || i === arr.length - 1) return p;
-                return [
-                    (arr[i-1][0] + p[0] + arr[i+1][0]) / 3,
-                    (arr[i-1][1] + p[1] + arr[i+1][1]) / 3
-                ];
-            }) : rawPoints;
-            // Step 2: Chaikin corner-cutting — 4 passes for a visually smooth curve
-            for (let pass = 0; pass < 4; pass++) {
+
+            // Step 1: deduplicate — skip points closer than ~0.35 mi to avoid GPS chatter
+            let pts = [rawPoints[0]];
+            for (let i = 1; i < rawPoints.length; i++) {
+                const prev = pts[pts.length - 1];
+                const dlat = rawPoints[i][0] - prev[0];
+                const dlon = rawPoints[i][1] - prev[1];
+                if (Math.sqrt(dlat * dlat + dlon * dlon) > 0.005) pts.push(rawPoints[i]);
+            }
+            if (pts.length < 2) return rawPoints;
+
+            // Step 2: outlier rejection — drop points that spike far from the line between neighbors
+            if (pts.length >= 3) {
+                const clean = [pts[0]];
+                for (let i = 1; i < pts.length - 1; i++) {
+                    const prev = clean[clean.length - 1];
+                    const next = pts[i + 1];
+                    const midLat = (prev[0] + next[0]) / 2;
+                    const midLon = (prev[1] + next[1]) / 2;
+                    const d = Math.sqrt((pts[i][0] - midLat) ** 2 + (pts[i][1] - midLon) ** 2);
+                    if (d < 0.4) clean.push(pts[i]);
+                }
+                clean.push(pts[pts.length - 1]);
+                pts = clean;
+            }
+
+            // Step 3: weighted moving average, 2 passes — keeps endpoints anchored
+            for (let pass = 0; pass < 2; pass++) {
                 if (pts.length < 3) break;
                 const s = [pts[0]];
-                for (let i = 0; i < pts.length - 1; i++) {
-                    const [a, b] = pts[i], [c, d] = pts[i + 1];
-                    s.push([0.75*a + 0.25*c, 0.75*b + 0.25*d]);
-                    s.push([0.25*a + 0.75*c, 0.25*b + 0.75*d]);
+                for (let i = 1; i < pts.length - 1; i++) {
+                    s.push([
+                        0.25 * pts[i - 1][0] + 0.5 * pts[i][0] + 0.25 * pts[i + 1][0],
+                        0.25 * pts[i - 1][1] + 0.5 * pts[i][1] + 0.25 * pts[i + 1][1]
+                    ]);
                 }
                 s.push(pts[pts.length - 1]);
                 pts = s;
             }
-            // Step 3: great-circle interpolation between smoothed points
-            const out = [];
-            for (let i = 0; i < pts.length - 1; i++) {
-                const seg = greatCircleArcCoords(pts[i], pts[i + 1], 6);
-                if (i === 0) out.push(...seg);
-                else out.push(...seg.slice(1));
-            }
-            return out;
+
+            return pts;
         }
 
-        function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = []) {
+        function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null) {
             if (_livePollers[callsign]) return; // already polling
 
             const radarBtn = document.getElementById('btn-radar');
@@ -3008,7 +3003,7 @@
                         flownLines.forEach((l, i) => l.setLatLngs(flownPath.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
                     } else {
                         flownLines = WORLD_OFFSETS.map((w, i) => {
-                            const l = L.polyline(flownPath.map(([la, lo]) => [la, lo + w * 360]), { color, weight: 1.5, opacity: 0.5, smoothFactor: 0 });
+                            const l = L.polyline(flownPath.map(([la, lo]) => [la, lo + w * 360]), { color, weight: lineWeight, opacity: 0.5, smoothFactor: 1, interactive: false });
                             l.addTo(map);
                             activeLayersArr.push(l);
                             return l;
@@ -3022,11 +3017,18 @@
                         remainLines.forEach((l, i) => l.setLatLngs(remainSegs.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
                     } else {
                         remainLines = WORLD_OFFSETS.map((w, i) => {
-                            const l = L.polyline(remainSegs.map(([la, lo]) => [la, lo + w * 360]), { color, weight: 1.5, opacity: 0.7, smoothFactor: 0, dashArray: '8 10' });
+                            const l = L.polyline(remainSegs.map(([la, lo]) => [la, lo + w * 360]), { color, weight: lineWeight, opacity: 0.7, smoothFactor: 1, dashArray: '8 10', interactive: false });
                             l.addTo(map);
                             activeLayersArr.push(l);
                             return l;
                         });
+                    }
+
+                    // Keep hit polylines aligned with the live flown+remaining path so popups still fire
+                    if (hitLines && hitLines.length) {
+                        const fullPath = [...flownPath, ...remainPath.slice(1)];
+                        const fullU = unwrapLongitudes(fullPath);
+                        hitLines.forEach((h, i) => h.setLatLngs(fullU.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
                     }
 
                     const altFt = d.altFt ? Math.round(d.altFt) : null;
@@ -3171,6 +3173,7 @@
                 const depTime = flightUTCTime(f.departureTime, f.departureAirport) || new Date(f.departureTime);
                 const arrTime = flightUTCTime(f.arrivalTime || f.departureTime, f.arrivalAirport) || new Date(f.arrivalTime || f.departureTime);
                 const isActive = depTime <= now && now <= new Date(arrTime.getTime() + 20 * 60000);
+                const isPast   = !isActive && arrTime < now;
                 const color = PILOT_COLORS[f.pilotKey];
 
                 // Offset index within pair group
@@ -3180,9 +3183,8 @@
                 const arcCoords = offsetArc(depCoords, arrCoords, 60, offsetIdx, group.length);
                 bounds.push(arcCoords[0], arcCoords[Math.floor(arcCoords.length / 2)], arcCoords[arcCoords.length - 1]);
 
-                // Active: stay in pilot color but heavier + full opacity so it reads as "live"
-                const weight = isActive ? 4.5 : 2.5;
-                const opacity = isActive ? 1 : 0.75;
+                const weight  = isActive ? 4.5 : 2.5;
+                const opacity = isActive ? 1.0 : isPast ? 0.25 : 0.7;
                 const dayLineOpts = { weight, opacity, color, smoothFactor: 1 };
                 if (isActive) dayLineOpts.className = 'active-route';
                 const arcU = unwrapLongitudes(arcCoords);
@@ -3198,6 +3200,8 @@
                     <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime, f.departureAirport)}<span style="font-size:10px;opacity:.55;margin-left:3px">${tzAbbr(f.departureAirport, f.departureTime)}</span> → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}<span style="font-size:10px;opacity:.55;margin-left:3px">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span></div>
                     <div style="font-size:12px;color:#94a3b8">Block ${blockMins ? formatDurationMinutes(blockMins) : '—'}${f.tail ? ' · ' + f.tail : ''}</div>
                     ${isActive ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:6px">▶ In the air now</div>` : ''}
+                    ${isPast   ? `<div style="font-size:11px;color:#52525b;font-weight:700;margin-top:6px">✓ Completed</div>` : ''}
+                    ${!isActive && !isPast ? `<div style="font-size:11px;color:#60a5fa;font-weight:700;margin-top:6px">◷ Departs in ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>` : ''}
                 `;
                 dayHits.forEach(h => { h.bindPopup(dayPopup, { className: 'dark-popup' }); h.addTo(map); });
                 dayLines.forEach(l => mapLayers.future.push(l));
@@ -3214,7 +3218,7 @@
                     dots[2].bindTooltip(`✈ ${PILOT_NAMES[f.pilotKey]} — in the air`, { permanent: false, className: 'dark-popup' });
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
-                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, PILOT_NAMES[f.pilotKey]?.split(' ')[0], arrTime);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, PILOT_NAMES[f.pilotKey]?.split(' ')[0], arrTime, [], weight, dayHits);
                 }
             });
 
@@ -3371,7 +3375,8 @@
                     } catch (er) { layoverText = ''; }
 
                     const dhLabel = el.dataset.dh === 'true' ? `<div style="font-size:11px;color:#f9a8d4;font-weight:700;margin-bottom:4px">DH Flight</div>` : '';
-                    const html = `<div style="font-weight:800;margin-bottom:6px">${depApt} → ${arrApt} ${flightNum ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">${flightNum}</span>` : (trip ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">Trip ${trip}</span>` : '')}</div>` +
+                    const flightLabel = deriveCallsign({ flightNumber: flightNum, tail }, currentPilot) || '';
+                    const html = `<div style="font-weight:800;margin-bottom:6px">${depApt} → ${arrApt} ${flightLabel ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">${flightLabel}</span>` : ''}</div>` +
                         dhLabel +
                         `<div style="font-size:12px;color:#cbd5e1">Dep: ${formatTimeISO(dep, depApt)}<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${tzAbbr(depApt, dep)}</span> • Arr: ${formatTimeISO(arr, arrApt)}<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${tzAbbr(arrApt, arr)}</span></div>` +
                         `<div style="font-size:12px;color:#cbd5e1">Block: ${formatDurationMinutes(blockMins)}</div>` +
@@ -3506,13 +3511,14 @@
                         const depMs = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                         const arrMs = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                         const isActiveLeg = depMs && arrMs && depMs <= nowMs && nowMs <= arrMs;
-                        const fn = (flightNumAttr || '').replace(/\s/g, '').toUpperCase();
-                        const csig = fn || (currentPilot === 'kyle' && tailAttr ? 'SJJ' + tailAttr.replace(/\D/g, '') : '');
+                        const csig = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
                         const cellBg = isActiveLeg
                             ? (isPersonal ? 'background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)' : isCommute ? 'background:rgba(120,53,15,0.2);border:2px solid rgba(34,197,94,0.85)' : 'background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)')
                             : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : isCommute ? 'background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.25)' : 'background:rgba(0,0,0,0.4)');
                         html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}"${isActiveLeg && csig ? ` data-live-callsign="${csig}"` : ''}>`;
-                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}</div>`;
+                        const cellFlightLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
+                        const flLabelSpan = cellFlightLabel ? `<span style="font-size:9px;font-weight:700;color:#7dd3fc;margin-left:3px">${cellFlightLabel}</span>` : '';
+                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}${flLabelSpan}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
                         if (isActiveLeg && csig) html += `<div id="live-${csig}" style="font-size:9px;color:#4ade80;font-weight:700;margin-top:2px;display:none"></div>`;
@@ -3575,7 +3581,8 @@
                             const personalBadge = isPersonal ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-violet-500/60 text-violet-300 bg-violet-950/40">Personal</span>` : '';
                             const commuteBadge = isCommute ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-amber-500/60 text-amber-300 bg-amber-950/40">Commute</span>` : '';
                             const flightNumAttr = f.flightNumber || '';
-                            const tripLabel = flightNumAttr ? `<span class="text-[10px] text-blue-400/70 ml-2">${flightNumAttr}</span>` : (tripAttr && !isPersonal && !isCommute ? `<span class="text-[10px] text-blue-400/70 ml-2">Trip ${tripAttr}</span>` : '');
+                            const _flLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
+                            const tripLabel = _flLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_flLabel}</span>` : '';
                             let layoverText = '';
                             if (!isPersonal && arrApt && arrAttr) {
                                 const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
@@ -3593,8 +3600,7 @@
                             const depMs2 = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                             const arrMs2 = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                             const isActiveLeg2 = depMs2 && arrMs2 && depMs2 <= nowMs2 && nowMs2 <= arrMs2;
-                            const fn2 = (flightNumAttr || '').replace(/\s/g, '').toUpperCase();
-                            const csig2 = fn2 || (currentPilot === 'kyle' && tailAttr ? 'SJJ' + tailAttr.replace(/\D/g, '') : '');
+                            const csig2 = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
                             const rowBorder = isActiveLeg2 ? 'border-green-500/80 ring-1 ring-green-500/30' : (isPersonal ? 'border-violet-900/50' : isCommute ? 'border-amber-900/50' : 'border-blue-900/30');
                             const rowBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : 'bg-black/30';
                             const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
@@ -3894,10 +3900,17 @@
             if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
             const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
 
+            const nowMs = Date.now();
+            const flightMs = flights.map(f => ({
+                dMs: f.departureTime ? flightUTCTime(f.departureTime, f.departureAirport)?.getTime() : null,
+                aMs: f.arrivalTime   ? flightUTCTime(f.arrivalTime,   f.arrivalAirport)?.getTime()   : null,
+            }));
+            const anyLive = flightMs.some(({dMs, aMs}) => dMs && aMs && dMs <= nowMs && nowMs <= aMs);
             let label = currentPilot === 'kyle' ? 'ON CALL' : 'DAY OFF';
             let labelColor = 'text-zinc-400';
             if (isHard) { label = 'HARD OFF'; labelColor = 'text-red-400'; }
             else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
+            else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
             else if (flights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
 
             let html = `<div class="flex items-start justify-between mb-4">
@@ -3914,7 +3927,8 @@
                 html += `<div class="text-center py-8"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>`;
             }
 
-            flights.forEach(f => {
+            flights.forEach((f, fi) => {
+                const { dMs, aMs } = flightMs[fi];
                 const dep = f.departureAirport || '';
                 const arr = f.arrivalAirport || '';
                 const depTime = formatTimeISO(f.departureTime || '', f.departureAirport);
@@ -3928,7 +3942,8 @@
                 const dhBadge = f.dh ? `<span class="ml-2 text-[9px] font-black text-pink-300">DH</span>` : '';
                 const personalBadge = isPersonal ? `<span class="ml-2 text-[9px] font-black text-violet-300">Personal</span>` : '';
                 const commuteBadge = isCommute ? `<span class="ml-2 text-[9px] font-black text-amber-300">Commute</span>` : '';
-                const flightNum = f.flightNumber ? `<span class="text-[10px] text-blue-400/70 ml-2">${f.flightNumber}</span>` : '';
+                const _dayFlLabel = deriveCallsign(f, currentPilot) || '';
+                const flightNum = _dayFlLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_dayFlLabel}</span>` : '';
                 let groundBadge = '';
                 if (!isPersonal && arr && f.arrivalTime) {
                     const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arr && s.departureTime > f.arrivalTime)
@@ -3939,8 +3954,10 @@
                         if (gm > 0 && !atHome) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Layover'} ${formatDurationMinutes(gm)}</div>`;
                     }
                 }
-                const cardBorder = isPersonal ? 'border-violet-500/30' : isCommute ? 'border-amber-500/30' : 'border-white/10';
+                const isActiveLeg = dMs && aMs && dMs <= nowMs && nowMs <= aMs;
+                const cardBorder = isActiveLeg ? 'border-emerald-500/80' : isPersonal ? 'border-violet-500/30' : isCommute ? 'border-amber-500/30' : 'border-white/10';
                 const cardBg = isPersonal ? 'bg-violet-950/30' : isCommute ? 'bg-amber-950/30' : 'bg-black/40';
+                const liveBadge = isActiveLeg ? `<span class="text-[9px] font-black text-emerald-400 tracking-widest">▶ LIVE</span>` : '';
                 const editActions = f.id ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${f.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
                     <button onclick="deleteManualFlight(${f.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
@@ -3948,7 +3965,7 @@
                 html += `<div class="${cardBg} border ${cardBorder} rounded-xl p-4 mb-3">
                     <div class="flex items-center justify-between mb-1">
                         <div class="text-lg font-black text-white">${dep} <span class="text-blue-500/60">→</span> ${arr}${dhBadge}${personalBadge}${commuteBadge}</div>
-                        ${flightNum}
+                        <div class="flex items-center gap-2">${liveBadge}${flightNum}</div>
                     </div>
                     <div class="flex items-center justify-between text-sm">
                         <div class="font-bold text-zinc-200">${depTime}${tzTag(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzTag(arrTz)}</div>

@@ -1264,8 +1264,8 @@ app.get('/api/live-position', async (req, res) => {
             }
             const trail = _posTrail[hex];
             const last = trail[trail.length - 1];
-            // Add point only if aircraft has moved meaningfully (~0.1 mi)
-            if (!last || Math.abs(last[0] - data.lat) > 0.002 || Math.abs(last[1] - data.lon) > 0.002) {
+            // Add point only if aircraft has moved meaningfully (~0.35 mi)
+            if (!last || Math.abs(last[0] - data.lat) > 0.005 || Math.abs(last[1] - data.lon) > 0.005) {
                 trail.push([data.lat, data.lon]);
                 if (trail.length > 2000) trail.splice(0, trail.length - 2000);
             }

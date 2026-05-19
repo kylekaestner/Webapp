@@ -44,3 +44,6 @@
 ~~Modal add flight tail and flight # fields overlapping~~
 ~~I think a 6 hour window may be too long for location overlap. Near misses may need to be minimized a bit so they aren't too cluttering. Again we want to emphasize good and realistic chances to meet up.~~ 
 ~~Maybe a new feature that shows common off days by users for planning things outside of flying.~~
+Rework ADS-B trail. Home and Base are green. Current location flashaing pulse.
+Make all airport codes 3 letter. (Kyle)
+Sam is missing flight #s on list and calendar tooltips. Make them all consisent for all users. Kyle's might be different. 
