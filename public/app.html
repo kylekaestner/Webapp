@@ -501,7 +501,7 @@
                     <div class="col-span-7 mt-3 flex flex-wrap gap-x-5 gap-y-1.5 px-1 pb-2 border-t border-zinc-800/60 pt-3">
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-blue-500/60"></span>Flying</div>
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-red-500/70"></span>Hard Off</div>
-                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-amber-500/70"></span>Away/Layover</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-amber-500/70"></span>Away/Overnight</div>
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-sky-400" style="box-shadow:0 0 0 2px rgba(56,189,248,0.3)"></span>Today</div>
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md" style="background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.4)"></span>Personal</div>
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md" style="background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.4)"></span>Commute</div>
@@ -525,7 +525,7 @@
                             <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-blue-500"></span><span class="text-zinc-500">Upcoming</span></div>
                             <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-zinc-500"></span><span class="text-zinc-500">Past</span></div>
                             <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-green-500"></span><span class="text-zinc-500">In Air</span></div>
-                            <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 border border-white/60"></span><span class="text-zinc-500">Layover</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 border border-white/60"></span><span class="text-zinc-500">Overnight</span></div>
                             <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-green-400 border border-white/60"></span><span class="text-zinc-500">Base</span></div>
                             <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 border border-white/60" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-500">Here Now</span></div>
                         </div>
@@ -557,21 +557,33 @@
                     </div>
                 </div>
                 <!-- Mobile mode bar — sits below map tiles, above fixed bottom nav -->
-                <div class="md:hidden flex shrink-0 border-t border-zinc-800/70 bg-zinc-950/98 backdrop-blur-sm">
-                    <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill map-mode-active flex-1 flex flex-col items-center justify-center gap-1" style="padding:8px 4px">
-                        <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
-                        <span>My Routes</span>
-                    </button>
-                    <div class="flex-1 flex flex-col bg-zinc-900/60 border-l border-zinc-800">
-                        <div class="flex items-center justify-center gap-1.5 pt-1.5 pb-0.5 border-b border-zinc-800/70">
-                            <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
-                            <span class="text-[8px] font-black uppercase tracking-widest text-zinc-400">All Crew</span>
+                <div class="md:hidden flex flex-col shrink-0 border-t border-zinc-800/70 bg-zinc-950/98 backdrop-blur-sm">
+                    <div class="flex">
+                        <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill map-mode-active flex-1 flex flex-col items-center justify-center gap-1" style="padding:8px 4px">
+                            <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                            <span>My Routes</span>
+                        </button>
+                        <div class="flex-1 flex flex-col bg-zinc-900/60 border-l border-zinc-800">
+                            <div class="flex items-center justify-center gap-1.5 pt-1.5 pb-0.5 border-b border-zinc-800/70">
+                                <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+                                <span class="text-[8px] font-black uppercase tracking-widest text-zinc-400">All Crew</span>
+                            </div>
+                            <div class="flex flex-1">
+                                <button onclick="setMapMode('day')" id="mapmode-bar-day" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Day</button>
+                                <div class="w-px bg-zinc-800/60 self-stretch my-1.5"></div>
+                                <button onclick="setMapMode('month')" id="mapmode-bar-month" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Month</button>
+                            </div>
                         </div>
-                        <div class="flex flex-1">
-                            <button onclick="setMapMode('day')" id="mapmode-bar-day" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Day</button>
-                            <div class="w-px bg-zinc-800/60 self-stretch my-1.5"></div>
-                            <button onclick="setMapMode('month')" id="mapmode-bar-month" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Month</button>
-                        </div>
+                    </div>
+                    <!-- Date nav row — only visible in day mode -->
+                    <div id="mobile-day-nav-bar" class="hidden items-center justify-between border-t border-zinc-800/60 px-2 py-1">
+                        <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-3 py-1.5">&#8592;</button>
+                        <label class="relative flex-1 flex items-center justify-center cursor-pointer">
+                            <span id="mobile-day-nav-label" class="text-[11px] font-black text-zinc-200 select-none"></span>
+                            <!-- Full-size transparent input so native date picker opens directly on tap (more reliable than showPicker() on iOS) -->
+                            <input type="date" id="mobile-day-nav-picker" onchange="pickDayNav(this.value)" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer">
+                        </label>
+                        <button onclick="stepDayNav(1)" class="map-ctrl-pill px-3 py-1.5">&#8594;</button>
                     </div>
                 </div>
             </div>
@@ -799,7 +811,7 @@
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Overlap Types</p>
                     <div class="space-y-2.5">
                         <div class="flex items-start gap-3">
-                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-violet-950/60 text-violet-400 uppercase tracking-wide shrink-0 mt-0.5">Layover</span>
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-violet-950/60 text-violet-400 uppercase tracking-wide shrink-0 mt-0.5">Overnight</span>
                             <span>Both pilots at the same airport for 5+ hours or overnight — plenty of time to meet up.</span>
                         </div>
                         <div class="flex items-start gap-3">
@@ -857,7 +869,7 @@
                 <button onclick="document.getElementById('grid-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
             </div>
             <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
-                <p>The calendar shows a full month of scheduled flights, days off, and layovers in a color-coded grid. Tap any day to see the full detail sheet.</p>
+                <p>The calendar shows a full month of scheduled flights, days off, and overnights in a color-coded grid. Tap any day to see the full detail sheet.</p>
 
                 <div class="space-y-3">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Color Coding</p>
@@ -916,14 +928,14 @@
                 <button onclick="document.getElementById('list-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
             </div>
             <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
-                <p>The list view shows every flight and event in chronological order — one row per leg. It's the best way to see exact block times, layover durations, and flight details at a glance.</p>
+                <p>The list view shows every flight and event in chronological order — one row per leg. It's the best way to see exact block times, overnight durations, and flight details at a glance.</p>
 
                 <div class="space-y-3">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Reading Each Row</p>
                     <div class="space-y-2">
                         <p><strong class="text-zinc-300">Airport pair</strong> — departure → arrival with local times shown</p>
                         <p><strong class="text-zinc-300">Block time</strong> — actual block-to-block flight duration in hours and minutes</p>
-                        <p><strong class="text-zinc-300">Layover badge</strong> — shown between legs when ground time exceeds a few hours, includes duration</p>
+                        <p><strong class="text-zinc-300">Overnight badge</strong> — shown between legs when ground time exceeds a few hours, includes duration</p>
                         <p><strong class="text-zinc-300">Flight number / tail</strong> — shown when available from the schedule file</p>
                     </div>
                 </div>
@@ -939,8 +951,8 @@
                 </div>
 
                 <div class="space-y-1.5">
-                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Layover vs. Home</p>
-                    <p>Layover durations are shown when the pilot overnights away from home base. If the gap is more than 30 hours and the destination is home, no layover tag is shown — the pilot is assumed to have commuted home.</p>
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Overnight vs. Home</p>
+                    <p>Overnight durations are shown when the pilot overnights away from home base. If the gap is more than 30 hours and the destination is home, no overnight tag is shown — the pilot is assumed to have commuted home.</p>
                 </div>
             </div>
         </div>
@@ -977,7 +989,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Here Now</p>
-                    <p>The <strong class="text-zinc-300">purple pulsing dot</strong> shows where a pilot currently is. <strong class="text-zinc-300">Tap it</strong> to see whether they're home or on a layover, and which airport.</p>
+                    <p>The <strong class="text-zinc-300">purple pulsing dot</strong> shows where a pilot currently is. <strong class="text-zinc-300">Tap it</strong> to see whether they're home or on an overnight, and which airport.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -2501,7 +2513,7 @@
                     }
                     const spansNight = new Date(directStart).toDateString() !== new Date(directEnd).toDateString();
                     if (spansNight || overlapMs >= 5 * 3600000) {
-                        return { type: 'LAYOVER', label: 'Layover', color: '#a78bfa', tier: 1 };
+                        return { type: 'LAYOVER', label: 'Overnight', color: '#a78bfa', tier: 1 };
                     }
                 }
                 return { type: 'MEETUP', label: 'Meetup', color: '#22d3ee', tier: 1 };
@@ -3075,14 +3087,17 @@
             mapDayMode  = (mode === 'day');
             mapAllMode  = (mode === 'month');
 
-            // Day nav
+            // Day nav (desktop overlay + mobile bar)
             const dayNav = document.getElementById('day-nav');
+            const mobileDayBar = document.getElementById('mobile-day-nav-bar');
             if (mapDayMode) {
                 mapDayDate = mapDayDate || _localToday();
                 if (dayNav) dayNav.classList.replace('hidden', 'flex');
+                if (mobileDayBar) mobileDayBar.classList.replace('hidden', 'flex');
                 updateDayNavLabel();
             } else {
                 if (dayNav) dayNav.classList.replace('flex', 'hidden');
+                if (mobileDayBar) mobileDayBar.classList.replace('flex', 'hidden');
             }
 
             // Hide filter buttons in all-crew modes — they only apply to My Routes
@@ -3467,7 +3482,7 @@
                     isAtHome = !recentEnough || !lastArrival || atBase || atHome || (home && lastArrival && lastArrival.toUpperCase() === home?.toUpperCase());
                     locationCode = (recentEnough && lastArrival && !atBase && !atHome) ? lastArrival : home;
                     label = isAtHome ? 'Home' : locationCode;
-                    popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Layover'}</div>`;
+                    popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Overnight'}</div>`;
                 }
 
                 const locationCoords = locationCode ? resolveAirport(locationCode) : null;
@@ -3526,10 +3541,14 @@
 
         function updateDayNavLabel() {
             const d = new Date(mapDayDate + 'T00:00:00');
-            document.getElementById('day-nav-label').textContent =
-                d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            document.getElementById('day-nav-label').textContent = label;
+            const mobileLabel = document.getElementById('mobile-day-nav-label');
+            if (mobileLabel) mobileLabel.textContent = label;
             const picker = document.getElementById('day-nav-picker');
             if (picker) picker.value = mapDayDate;
+            const mobilePicker = document.getElementById('mobile-day-nav-picker');
+            if (mobilePicker) mobilePicker.value = mapDayDate;
         }
 
         function openDayPicker() {
@@ -4199,7 +4218,7 @@
                                 const atHome = pilotBase && arrApt === pilotBase;
                                 if (groundMins > 0) {
                                     if (!atHome) {
-                                        const label = groundMins < 240 ? 'Turn' : 'Layover';
+                                        const label = groundMins < 240 ? 'Turn' : 'Overnight';
                                         layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
                                     } else if (flightLocalDate(arrDate.toISOString(), arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
                                         layoverText = `Turn ${formatDurationMinutes(groundMins)}`;
@@ -4344,7 +4363,7 @@
                                 const atHome = pilotBase && arrApt.toUpperCase() === pilotBase.toUpperCase();
                                 if (groundMins > 0) {
                                     if (!atHome) {
-                                        const lbl = groundMins < 240 ? 'Turn' : 'Layover';
+                                        const lbl = groundMins < 240 ? 'Turn' : 'Overnight';
                                         groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
                                     } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
                                         groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">Turn ${formatDurationMinutes(groundMins)}</div>`;
@@ -4437,7 +4456,7 @@
                                     const atHome = pilotBase && arrApt === pilotBase;
                                     if (groundMins > 0) {
                                         if (!atHome) {
-                                            const label = groundMins < 240 ? 'Turn' : 'Layover';
+                                            const label = groundMins < 240 ? 'Turn' : 'Overnight';
                                             layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
                                         } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
                                             layoverText = `Turn ${formatDurationMinutes(groundMins)}`;
@@ -4809,7 +4828,7 @@
                         const gm = (new Date(nextLeg.departureTime) - new Date(f.arrivalTime)) / 60000;
                         const atHome = pilotBase && arr === pilotBase;
                         if (gm > 0) {
-                            if (!atHome) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Layover'} ${formatDurationMinutes(gm)}</div>`;
+                            if (!atHome) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Overnight'} ${formatDurationMinutes(gm)}</div>`;
                             else if (flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">Turn ${formatDurationMinutes(gm)}</div>`;
                         }
                     }
