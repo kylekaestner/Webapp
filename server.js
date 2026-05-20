@@ -1420,6 +1420,26 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'landing.html'));
 });
 
+// Dynamic manifest — embeds ?u=TOKEN into start_url so iOS PWA shortcut preserves auth
+app.get('/manifest.json', (req, res) => {
+    const token = req.query.u;
+    const manifest = {
+        name: 'CrewSync', short_name: 'CrewSync',
+        description: 'Flight crew scheduling and tracking',
+        start_url: token ? `/app?u=${encodeURIComponent(token)}` : '/app',
+        display: 'standalone',
+        background_color: '#09090b', theme_color: '#09090b',
+        orientation: 'portrait-primary',
+        icons: [
+            { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+            { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+        ]
+    };
+    res.setHeader('Content-Type', 'application/manifest+json');
+    res.json(manifest);
+});
+
 // Main app
 app.get('/app', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'app.html'));
