@@ -38,6 +38,8 @@
         @media (max-width: 767px) {
             #view-map.view-active { display: flex !important; flex-direction: column; padding-bottom: calc(50px + env(safe-area-inset-bottom)); }
             #map { flex: 1 1 0 !important; height: auto !important; min-height: 0; }
+            /* Legend must clear fixed bottom nav (50px + safe-area) + mode bar (~48px) */
+            #map-legend { bottom: calc(50px + env(safe-area-inset-bottom) + 52px) !important; }
         }
 
         /* Desktop: calendar grid — fixed-height cells, internal scroll per day */
