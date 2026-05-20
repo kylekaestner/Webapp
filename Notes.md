@@ -69,4 +69,4 @@ Based on the person logged in, make their name/schedule first on the list. Look 
 ~~Same with uploading schedules Only show the pertinent way of uploading/syncing schedule and only you.~~
 
 Day of map - scroll through days and select a day specifically. 
-
+Map click on mobile

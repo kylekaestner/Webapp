@@ -812,11 +812,11 @@
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-orange-950/60 text-orange-400 uppercase tracking-wide shrink-0 mt-0.5">City Meetup</span>
-                            <span>Different airports in the same metro, but both have real layover time — could meet in the city.</span>
+                            <span>Different airports in the same metro, but both have real overnight time — could meet in the city.</span>
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 uppercase tracking-wide shrink-0 mt-0.5">Home Turf</span>
-                            <span>One pilot is on a layover in another crew member's home city.</span>
+                            <span>One pilot is overnighting in another crew member's home city.</span>
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-950/60 text-amber-400 uppercase tracking-wide shrink-0 mt-0.5">Near Miss</span>
@@ -3274,14 +3274,18 @@
             const allFlights = segments.filter(s => s.type === 'flight');
             const flights = allFlights.filter(s => s.departureTime && s.departureTime.startsWith(monthPrefix));
 
-            // Determine airport roles: layover (overnight stay) vs turn (same-day)
+            // Determine airport roles: overnight (slept there) vs turn (same-day)
+            // Only consider arrivals within this month so prior-month arrivals don't
+            // bleed into the current view (e.g. May EWR arrival matching a June departure).
+            // nextDep searches allFlights so end-of-month overnights still resolve correctly.
             const layoverAirports = new Set();
             const turnAirports = new Set();
             allFlights.forEach(f => {
                 if (!f.arrivalAirport || !f.arrivalTime) return;
+                if (!f.arrivalTime.startsWith(monthPrefix)) return;
                 const upper = f.arrivalAirport.toUpperCase();
                 if (upper === pilotBase || isHomeAirport(upper, currentPilot)) return;
-                const nextDep = flights.filter(s => s.departureAirport === f.arrivalAirport && s.departureTime > f.arrivalTime)
+                const nextDep = allFlights.filter(s => s.departureAirport === f.arrivalAirport && s.departureTime > f.arrivalTime)
                     .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                 if (!nextDep) return;
                 const arrMid = new Date(f.arrivalTime); arrMid.setHours(0,0,0,0);
