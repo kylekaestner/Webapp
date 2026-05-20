@@ -1275,16 +1275,18 @@ app.get('/api/health', (req, res) => {
 // ── Page routes ────────────────────────────────────────────────────────
 const ROSTER_LOGIN_PAGE = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>CrewSync · Roster</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#09090b;color:#e4e4e7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.card{background:#18181b;border:1px solid #27272a;border-radius:16px;padding:32px 28px;width:100%;max-width:340px}h2{margin:0 0 24px;font-size:18px;font-weight:700;text-align:center}input{width:100%;padding:10px 14px;background:#09090b;border:1px solid #3f3f46;border-radius:8px;color:#e4e4e7;font-size:15px;outline:none;margin-bottom:12px}input:focus{border-color:#6366f1}button{width:100%;padding:11px;background:#6366f1;border:none;border-radius:8px;color:#fff;font-size:15px;font-weight:600;cursor:pointer}button:hover{background:#4f46e5}.err{color:#f87171;font-size:13px;text-align:center;margin-bottom:10px;display:none}</style></head><body><div class="card"><h2>CrewSync</h2><form method="POST" action="/crew-roster/login"><p class="err" id="e">Incorrect password</p><input type="password" name="password" placeholder="Password" autofocus><button type="submit">Sign In</button></form></div><script>if(location.search.includes('err'))document.getElementById('e').style.display='block'</script></body></html>`;
 
+const ROSTER_PW = process.env.ROSTER_PASSWORD || 'crewsync2026';
+
 function rosterAuth(req, res, next) {
     const cookie = req.headers.cookie || '';
     const match = cookie.match(/roster_auth=([^;]+)/);
-    if (match && match[1] === process.env.ROSTER_PASSWORD) return next();
+    if (match && match[1] === ROSTER_PW) return next();
     res.send(ROSTER_LOGIN_PAGE);
 }
 
 app.post('/crew-roster/login', express.urlencoded({ extended: false }), (req, res) => {
-    if (req.body.password === process.env.ROSTER_PASSWORD) {
-        res.setHeader('Set-Cookie', `roster_auth=${process.env.ROSTER_PASSWORD}; Path=/crew-roster; HttpOnly; Max-Age=2592000`);
+    if (req.body.password === ROSTER_PW) {
+        res.setHeader('Set-Cookie', `roster_auth=${ROSTER_PW}; Path=/crew-roster; HttpOnly; Max-Age=2592000`);
         return res.redirect('/crew-roster');
     }
     res.redirect('/crew-roster?err=1');
