@@ -548,9 +548,10 @@
                             </div>
                         </div>
                         <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill hidden">⛈ Radar</button>
-                        <div id="day-nav" class="hidden items-center gap-1">
+                        <div id="day-nav" class="hidden items-center gap-1 relative">
                             <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
-                            <span id="day-nav-label" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center select-none"></span>
+                            <span id="day-nav-label" onclick="openDayPicker()" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center cursor-pointer hover:text-white transition-colors select-none" title="Pick a date"></span>
+                            <input type="date" id="day-nav-picker" onchange="pickDayNav(this.value)" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0;width:1px;height:1px;pointer-events:none">
                             <button onclick="stepDayNav(1)" class="map-ctrl-pill px-2">&#8594;</button>
                         </div>
                     </div>
@@ -3523,6 +3524,21 @@
             const d = new Date(mapDayDate + 'T00:00:00');
             document.getElementById('day-nav-label').textContent =
                 d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const picker = document.getElementById('day-nav-picker');
+            if (picker) picker.value = mapDayDate;
+        }
+
+        function openDayPicker() {
+            const inp = document.getElementById('day-nav-picker');
+            inp.value = mapDayDate;
+            try { inp.showPicker(); } catch(e) { inp.click(); }
+        }
+
+        function pickDayNav(val) {
+            if (!val) return;
+            mapDayDate = val;
+            updateDayNavLabel();
+            renderMap();
         }
 
         function stepDayNav(delta) {

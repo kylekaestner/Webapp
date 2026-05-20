@@ -68,5 +68,5 @@ Based on the person logged in, make their name/schedule first on the list. Look 
 ~~You can only manually add, edit, or delete flights for yourself.~~
 ~~Same with uploading schedules Only show the pertinent way of uploading/syncing schedule and only you.~~
 
-Cannot use links at all. Just turns to home page. Only new members I create on prod site links work.
+Day of map - scroll through days and select a day specifically. 
 
