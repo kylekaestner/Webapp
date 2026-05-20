@@ -605,6 +605,24 @@ function getParserForPilot(pilotKey, pilotRow) {
     return pilotParsers[pilotKey] || (pilotRow?.parser_type) || 'csv';
 }
 
+function autoDetectParser(filename, fileContent) {
+    if (filename.endsWith('.ics')) {
+        const rbEvents  = parseRosterBusterICS(fileContent);
+        const stdEvents = parseICS(fileContent);
+        if (rbEvents.length > 0 && rbEvents.length >= stdEvents.length)
+            return { parser: 'ics_rosterbuster', events: rbEvents };
+        return { parser: 'ics', events: stdEvents };
+    }
+    if (filename.endsWith('.csv')) {
+        let swEvents = [], csvEvents = [];
+        try { swEvents  = parseCSV_skywest(fileContent); } catch (_) {}
+        try { csvEvents = parseCSV(fileContent, '');     } catch (_) {}
+        if (swEvents.length > csvEvents.length) return { parser: 'csv_skywest', events: swEvents };
+        if (csvEvents.length > 0)               return { parser: 'csv',         events: csvEvents };
+    }
+    return { parser: null, events: [] };
+}
+
 // ===== API Routes =====
 
 // GET all pilots
@@ -658,15 +676,28 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
 
         // Detect file type and parse using pilot's stored parser_type + airline_code
         const filename = req.file.originalname.toLowerCase();
-        const parserType = getParserForPilot(pilotKey, pilot);
+        let parserType = getParserForPilot(pilotKey, pilot);
         const airlineCode = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
 
         try {
             if (filename.endsWith('.pdf')) {
                 events = await parseNetlinePDF(req.file.buffer);
+                if (parserType === 'other') {
+                    parserType = 'pdf_netline';
+                    db.run('UPDATE pilots SET parser_type = ? WHERE pilot_key = ?', [parserType, pilotKey]);
+                }
             } else {
                 const fileContent = req.file.buffer.toString('utf-8');
-                if (filename.endsWith('.ics')) {
+                if (parserType === 'other') {
+                    const detected = autoDetectParser(filename, fileContent);
+                    if (!detected.parser) {
+                        db.run('UPDATE pilots SET parser_type = ? WHERE pilot_key = ?', ['pending', pilotKey]);
+                        return res.status(422).json({ error: 'Unrecognized schedule format. Your account was created — contact your admin to get your format supported.', pending: true });
+                    }
+                    events = detected.events;
+                    parserType = detected.parser;
+                    db.run('UPDATE pilots SET parser_type = ? WHERE pilot_key = ?', [parserType, pilotKey]);
+                } else if (filename.endsWith('.ics')) {
                     events = parserType === 'ics_rosterbuster'
                         ? parseRosterBusterICS(fileContent)
                         : parseICS(fileContent);

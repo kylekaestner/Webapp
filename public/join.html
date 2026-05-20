@@ -162,7 +162,9 @@
                         <button type="button" onclick="selectParser('ics_rosterbuster')" data-parser="ics_rosterbuster" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">GoJet</button>
                         <button type="button" onclick="selectParser('schedaero')" data-parser="schedaero" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SpiritJets</button>
                         <button type="button" onclick="selectParser('csv_skywest')" data-parser="csv_skywest" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SkyWest</button>
+                        <button type="button" onclick="selectParser('other')" data-parser="other" class="parser-pill" style="grid-column:1/-1;padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Other Airline / Operation</button>
                     </div>
+                    <p id="parser-other-note" style="display:none;margin-top:8px;font-size:11px;color:#52525b;line-height:1.5;">Upload your schedule in the next step — we'll identify your format automatically and set up your account.</p>
                     <input type="hidden" id="parserType" value="csv">
                 </div>
                 <!-- Airline code: only shown for CSV parsers -->
@@ -254,12 +256,19 @@
                 btn.style.background   = active ? 'rgba(59,130,246,0.1)' : '#111113';
                 btn.style.color        = active ? '#93c5fd' : '#52525b';
             });
+            const otherNote = document.getElementById('parser-other-note');
+            const codeRow   = document.getElementById('airline-code-row');
+            if (type === 'other') {
+                otherNote.style.display = 'block';
+                codeRow.style.display   = 'none';
+                return;
+            }
+            otherNote.style.display = 'none';
             const info = PARSER_AIRLINES[type];
             if (info) {
-                document.getElementById('role').value = info.airline;
+                document.getElementById('role').value        = info.airline;
                 document.getElementById('airlineCode').value = info.code;
             }
-            const codeRow = document.getElementById('airline-code-row');
             codeRow.style.display = (info && info.code) ? 'block' : 'none';
         }
 
