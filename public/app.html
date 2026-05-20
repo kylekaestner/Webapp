@@ -38,8 +38,6 @@
         @media (max-width: 767px) {
             #view-map.view-active { display: flex !important; flex-direction: column; padding-bottom: calc(50px + env(safe-area-inset-bottom)); }
             #map { flex: 1 1 0 !important; height: auto !important; min-height: 0; }
-            /* Legend must clear fixed bottom nav (50px + safe-area) + mode bar (~48px) */
-            #map-legend { bottom: calc(50px + env(safe-area-inset-bottom) + 52px) !important; }
         }
 
         /* Desktop: calendar grid — fixed-height cells, internal scroll per day */
@@ -103,8 +101,8 @@
             .flight-row { padding-left: 8px !important; padding-right: 8px !important; }
             .flight-row .flex { flex-wrap: wrap !important; gap: 4px !important; }
             .flight-row .text-right { text-align: left !important; width: 100%; }
-            /* Map: push legend above the mobile mode bar (~50px) */
-            #map-legend { bottom: 58px !important; padding: 4px 6px !important; font-size: 7px !important; gap: 2px !important; }
+            /* Map legend: compact size on mobile (positioning handled by bottom-4 relative to #map tile area) */
+            #map-legend { padding: 4px 6px !important; font-size: 7px !important; gap: 2px !important; }
             #map-legend .space-y-1 > div { gap: 4px !important; }
             #map-legend span[class*="w-4"] { width: 10px !important; }
             #map-legend span[class*="w-2"] { width: 6px !important; height: 6px !important; }
@@ -517,8 +515,47 @@
             </div>
 
             <div id="view-map" class="view-section relative">
-                <div id="map"></div>
-                <!-- Mobile mode bar — sits below map tiles, above bottom nav -->
+                <!-- #map is the Leaflet container. Leaflet sets position:relative on it,
+                     so children with position:absolute are anchored to the map tiles area
+                     only — not the mode bar below it. -->
+                <div id="map">
+                    <!-- Legend inside #map so bottom-4 is relative to tile area, not the whole view -->
+                    <div id="map-legend" class="absolute bottom-4 left-3 z-[1000] bg-zinc-950/85 border border-zinc-800/70 rounded-lg px-2.5 py-2 text-[9px] font-black uppercase tracking-wide space-y-1 backdrop-blur-sm pointer-events-none">
+                        <div id="legend-single" class="space-y-1">
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-blue-500"></span><span class="text-zinc-500">Upcoming</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-zinc-500"></span><span class="text-zinc-500">Past</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-green-500"></span><span class="text-zinc-500">In Air</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 border border-white/60"></span><span class="text-zinc-500">Layover</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-green-400 border border-white/60"></span><span class="text-zinc-500">Base</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 border border-white/60" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-500">Here Now</span></div>
+                        </div>
+                        <div id="legend-day" class="hidden space-y-1 pointer-events-auto">
+                            <button onclick="togglePilotLegend('kyle')"  id="legend-pilot-kyle"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-blue-500 shrink-0"></span><span class="text-zinc-500">Kyle</span></button>
+                            <button onclick="togglePilotLegend('adam')"  id="legend-pilot-adam"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-teal-400 shrink-0"></span><span class="text-zinc-500">Adam</span></button>
+                            <button onclick="togglePilotLegend('sam')"   id="legend-pilot-sam"   class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-orange-500 shrink-0"></span><span class="text-zinc-500">Sam</span></button>
+                            <button onclick="togglePilotLegend('logan')" id="legend-pilot-logan" class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-indigo-400 shrink-0"></span><span class="text-zinc-500">Logan</span></button>
+                            <button onclick="togglePilotLegend('drew')"  id="legend-pilot-drew"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-rose-400 shrink-0"></span><span class="text-zinc-500">Drew</span></button>
+                            <div class="flex items-center gap-1.5 pt-1 mt-0.5 border-t border-zinc-800/60"><span class="inline-block w-4 shrink-0" style="height:2.5px;background:repeating-linear-gradient(90deg,#94a3b8 0,#94a3b8 5px,transparent 5px,transparent 8px)"></span><span class="text-zinc-500">Airborne</span></div>
+                        </div>
+                    </div>
+                    <!-- Controls — compact pills, top-right, also inside #map -->
+                    <div class="map-controls flex flex-col gap-1 items-end">
+                        <div id="map-pilot-controls">
+                            <div class="text-right text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 pr-0.5">Filters</div>
+                            <div class="flex gap-1">
+                                <button onclick="toggleMapFilter('past')" id="btn-past" class="map-ctrl-pill map-ctrl-on">Flown</button>
+                                <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Upcoming</button>
+                            </div>
+                        </div>
+                        <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill hidden">⛈ Radar</button>
+                        <div id="day-nav" class="hidden items-center gap-1">
+                            <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
+                            <span id="day-nav-label" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center select-none"></span>
+                            <button onclick="stepDayNav(1)" class="map-ctrl-pill px-2">&#8594;</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Mobile mode bar — sits below map tiles, above fixed bottom nav -->
                 <div class="md:hidden flex shrink-0 border-t border-zinc-800/70 bg-zinc-950/98 backdrop-blur-sm">
                     <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill map-mode-active flex-1 flex flex-col items-center justify-center gap-1" style="padding:8px 4px">
                         <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
@@ -534,43 +571,6 @@
                             <div class="w-px bg-zinc-800/60 self-stretch my-1.5"></div>
                             <button onclick="setMapMode('month')" id="mapmode-bar-month" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Month</button>
                         </div>
-                    </div>
-                </div>
-                <!-- Map legend (bottom-left) — switches content based on mode -->
-                <!-- Legend — compact, bottom-left -->
-                <div id="map-legend" class="absolute bottom-[56px] md:bottom-4 left-3 z-[1000] bg-zinc-950/85 border border-zinc-800/70 rounded-lg px-2.5 py-2 text-[9px] font-black uppercase tracking-wide space-y-1 backdrop-blur-sm pointer-events-none">
-                    <div id="legend-single" class="space-y-1">
-                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-blue-500"></span><span class="text-zinc-500">Upcoming</span></div>
-                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-zinc-500"></span><span class="text-zinc-500">Past</span></div>
-                        <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-green-500"></span><span class="text-zinc-500">In Air</span></div>
-                        <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 border border-white/60"></span><span class="text-zinc-500">Layover</span></div>
-                        <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-green-400 border border-white/60"></span><span class="text-zinc-500">Base</span></div>
-                        <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 border border-white/60" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-500">Here Now</span></div>
-                    </div>
-                    <div id="legend-day" class="hidden space-y-1 pointer-events-auto">
-                        <button onclick="togglePilotLegend('kyle')"  id="legend-pilot-kyle"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-blue-500 shrink-0"></span><span class="text-zinc-500">Kyle</span></button>
-                        <button onclick="togglePilotLegend('adam')"  id="legend-pilot-adam"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-teal-400 shrink-0"></span><span class="text-zinc-500">Adam</span></button>
-                        <button onclick="togglePilotLegend('sam')"   id="legend-pilot-sam"   class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-orange-500 shrink-0"></span><span class="text-zinc-500">Sam</span></button>
-                        <button onclick="togglePilotLegend('logan')" id="legend-pilot-logan" class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-indigo-400 shrink-0"></span><span class="text-zinc-500">Logan</span></button>
-                        <button onclick="togglePilotLegend('drew')"  id="legend-pilot-drew"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-rose-400 shrink-0"></span><span class="text-zinc-500">Drew</span></button>
-                        <div class="flex items-center gap-1.5 pt-1 mt-0.5 border-t border-zinc-800/60"><span class="inline-block w-4 shrink-0" style="height:2.5px;background:repeating-linear-gradient(90deg,#94a3b8 0,#94a3b8 5px,transparent 5px,transparent 8px)"></span><span class="text-zinc-500">Airborne</span></div>
-                    </div>
-                </div>
-
-                <!-- Controls — compact pills, top-right -->
-                <div class="map-controls flex flex-col gap-1 items-end">
-                    <div id="map-pilot-controls">
-                        <div class="text-right text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 pr-0.5">Filters</div>
-                        <div class="flex gap-1">
-                            <button onclick="toggleMapFilter('past')" id="btn-past" class="map-ctrl-pill map-ctrl-on">Flown</button>
-                            <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Upcoming</button>
-                        </div>
-                    </div>
-                    <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill hidden">⛈ Radar</button>
-                    <div id="day-nav" class="hidden items-center gap-1">
-                        <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
-                        <span id="day-nav-label" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center select-none"></span>
-                        <button onclick="stepDayNav(1)" class="map-ctrl-pill px-2">&#8594;</button>
                     </div>
                 </div>
             </div>
@@ -2009,59 +2009,8 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
-        const AIRPORTS = {
-            'LGA': [40.7769, -73.8740], 'KLGA': [40.7769, -73.8740],
-            'TUL': [36.1984, -95.8881], 'KTUL': [36.1984, -95.8881],
-            'XNA': [36.2818, -94.3068], 'KXNA': [36.2818, -94.3068],
-            'ORD': [41.9742, -87.9073], 'KORD': [41.9742, -87.9073],
-            'PIT': [40.4915, -80.2329], 'KPIT': [40.4915, -80.2329],
-            'PWM': [43.6462, -70.3088], 'KPWM': [43.6462, -70.3088],
-            'OKC': [35.3931, -97.6007], 'KOKC': [35.3931, -97.6007],
-            'STL': [38.7477, -90.3597], 'KSTL': [38.7477, -90.3597],
-            'MDW': [41.7868, -87.7522], 'KMDW': [41.7868, -87.7522],
-            'SUS': [38.6519, -90.6506], 'KSUS': [38.6519, -90.6506],
-            'CNY': [38.7600, -109.7541], 'KCNY': [38.7600, -109.7541],
-            'SJU': [18.4394, -66.0018], 'TJSJ': [18.4394, -66.0018],
-            'SRQ': [27.3954, -82.5540], 'KSRQ': [27.3954, -82.5540],
-            'MBL': [44.2725, -86.2557], 'KMBL': [44.2725, -86.2557],
-            'RSW': [26.5362, -81.7552], 'KRSW': [26.5362, -81.7552],
-            'APC': [38.2132, -122.2807], 'KAPC': [38.2132, -122.2807],
-            'PHX': [33.4373, -112.0078], 'KPHX': [33.4373, -112.0078],
-            'TEB': [40.8501, -74.0608], 'KTEB': [40.8501, -74.0608],
-            'JFK': [40.6413, -73.7781], 'KJFK': [40.6413, -73.7781],
-            'EWR': [40.6895, -74.1745], 'KEWR': [40.6895, -74.1745],
-            'HPN': [41.0670, -73.7076], 'KHPN': [41.0670, -73.7076],
-            'BOS': [42.3656, -71.0096], 'KBOS': [42.3656, -71.0096],
-            'DCA': [38.8521, -77.0377], 'KDCA': [38.8521, -77.0377],
-            'IAD': [38.9531, -77.4565], 'KIAD': [38.9531, -77.4565],
-            'BWI': [39.1754, -76.6683], 'KBWI': [39.1754, -76.6683],
-            'ATL': [33.6407, -84.4277], 'KATL': [33.6407, -84.4277],
-            'DFW': [32.8998, -97.0403], 'KDFW': [32.8998, -97.0403],
-            'DAL': [32.8471, -96.8517], 'KDAL': [32.8471, -96.8517],
-            'IAH': [29.9902, -95.3368], 'KIAH': [29.9902, -95.3368],
-            'HOU': [29.6454, -95.2789], 'KHOU': [29.6454, -95.2789],
-            'DEN': [39.8561, -104.6737], 'KDEN': [39.8561, -104.6737],
-            'SEA': [47.4502, -122.3088], 'KSEA': [47.4502, -122.3088],
-            'LAX': [33.9425, -118.4081], 'KLAX': [33.9425, -118.4081],
-            'SFO': [37.6213, -122.3790], 'KSFO': [37.6213, -122.3790],
-            'OAK': [37.7213, -122.2208], 'KOAK': [37.7213, -122.2208],
-            'SJC': [37.3626, -121.9290], 'KSJC': [37.3626, -121.9290],
-            'MSP': [44.8848, -93.2223], 'KMSP': [44.8848, -93.2223],
-            'DTW': [42.2162, -83.3554], 'KDTW': [42.2162, -83.3554],
-            'CLT': [35.2140, -80.9431], 'KCLT': [35.2140, -80.9431],
-            'MIA': [25.7959, -80.2870], 'KMIA': [25.7959, -80.2870],
-            'FLL': [26.0726, -80.1527], 'KFLL': [26.0726, -80.1527],
-            'LAS': [36.0840, -115.1537], 'KLAS': [36.0840, -115.1537],
-            'MCO': [28.4312, -81.3081], 'KMCO': [28.4312, -81.3081],
-            'TPA': [27.9755, -82.5332], 'KTPA': [27.9755, -82.5332],
-            'BNA': [36.1245, -86.6782], 'KBNA': [36.1245, -86.6782],
-            'CVG': [39.0488, -84.6678], 'KCVG': [39.0488, -84.6678],
-            'CMH': [39.9980, -82.8919], 'KCMH': [39.9980, -82.8919],
-            'IND': [39.7173, -86.2944], 'KIND': [39.7173, -86.2944],
-            'MCI': [39.2976, -94.7139], 'KMCI': [39.2976, -94.7139],
-            'SLC': [40.7884, -111.9778], 'KSLC': [40.7884, -111.9778],
-            'PDX': [45.5898, -122.5951], 'KPDX': [45.5898, -122.5951]
-        };
+        const AIRPORTS = {};  // populated from airports.json on load
+        let airportDbReady = false;
 
         // Airports in the same metro area — treated as co-located for overlap purposes
         const METRO_GROUPS = {
@@ -2105,72 +2054,43 @@
             return homes.some(h => h && h.toUpperCase() === airport.toUpperCase());
         }
 
-        // Authoritative airport DB (populated from OpenFlights or OurAirports)
-        const AIRPORT_DB = { byIata: {}, byIcao: {} };
-
-        // Try fetching the OpenFlights airports.dat and populate AIRPORT_DB.
         function loadAirportDB() {
-            const url = 'https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat';
-            fetch(url).then(r => {
-                if (!r.ok) throw new Error('Failed to fetch airports.dat');
-                return r.text();
-            }).then(txt => {
-                const lines = txt.split(/\r?\n/);
-                lines.forEach(line => {
-                    if (!line) return;
-                    // fields are CSV with quoted strings — split on "," conservatively
-                    const parts = line.split(',');
-                    // parts: 0:id 1:name 2:city 3:country 4:iata 5:icao 6:lat 7:lon ...
-                    if (parts.length < 8) return;
-                    const iata = parts[4] ? parts[4].replace(/^"|"$/g, '').trim() : '';
-                    const icao = parts[5] ? parts[5].replace(/^"|"$/g, '').trim() : '';
-                    const lat = parseFloat(parts[6] ? parts[6].replace(/^"|"$/g, '') : NaN);
-                    const lon = parseFloat(parts[7] ? parts[7].replace(/^"|"$/g, '') : NaN);
-                    if (!isFinite(lat) || !isFinite(lon)) return;
-                    if (iata && iata !== '\\N') AIRPORT_DB.byIata[iata.toUpperCase()] = [lat, lon];
-                    if (icao && icao !== '\\N') AIRPORT_DB.byIcao[icao.toUpperCase()] = [lat, lon];
-                });
-                // Merge into AIRPORTS for coordinate lookup
-                Object.keys(AIRPORT_DB.byIata).forEach(k => { if (!AIRPORTS[k]) AIRPORTS[k] = AIRPORT_DB.byIata[k]; });
-                Object.keys(AIRPORT_DB.byIcao).forEach(k => { if (!AIRPORTS[k]) AIRPORTS[k] = AIRPORT_DB.byIcao[k]; });
-                // Auto-populate timezone cache from coordinates for every airport in the DB
+            fetch('/airports.json').then(r => {
+                if (!r.ok) throw new Error('Failed to load airports.json');
+                return r.json();
+            }).then(data => {
+                Object.assign(AIRPORTS, data);
                 if (typeof tzlookup === 'function') {
-                    const allEntries = [...Object.entries(AIRPORT_DB.byIata), ...Object.entries(AIRPORT_DB.byIcao)];
-                    allEntries.forEach(([code, [lat, lon]]) => {
+                    Object.entries(data).forEach(([code, [lat, lon]]) => {
                         if (!_tzCache[code]) {
                             try { _tzCache[code] = tzlookup(lat, lon); } catch (e) { /* ignore */ }
                         }
                     });
-                    // Re-render so Kyle's times update with correct airport timezones
                     if (typeof render === 'function') render();
-                    if (typeof renderMap === 'function' && currentView === 'map') renderMap();
                 }
-                console.log('Loaded airport DB entries:', Object.keys(AIRPORT_DB.byIata).length, Object.keys(AIRPORT_DB.byIcao).length);
-            }).catch(err => console.warn('Airport DB load failed', err));
+                airportDbReady = true;
+                if (currentView === 'map') renderMap();
+            }).catch(err => {
+                console.warn('Airport DB load failed:', err);
+                airportDbReady = true;  // fail open — map renders with whatever resolved
+                if (currentView === 'map') renderMap();
+            });
         }
 
-        // Kick off loading but don't block rendering. Local AIRPORTS remains a fallback.
         loadAirportDB();
 
         function resolveAirport(code) {
             if (!code) return null;
             const upper = code.toUpperCase();
-            // direct match in explicit table
             if (AIRPORTS[upper]) return AIRPORTS[upper];
-            // check authoritative DB (prefer ICAO then IATA)
-            if (AIRPORT_DB.byIcao[upper]) return AIRPORT_DB.byIcao[upper];
-            if (AIRPORT_DB.byIata[upper]) return AIRPORT_DB.byIata[upper];
             // tolerate 4-letter ICAO where the last 3 are IATA
             if (upper.length === 4) {
                 const last3 = upper.slice(-3);
                 if (AIRPORTS[last3]) return AIRPORTS[last3];
-                if (AIRPORT_DB.byIata[last3]) return AIRPORT_DB.byIata[last3];
             }
-            // accept 3-letter IATA by trying common K-prefixes (US)
+            // accept 3-letter IATA by trying K-prefix ICAO
             if (upper.length === 3) {
-                const kpref = 'K' + upper;
-                if (AIRPORTS[kpref]) return AIRPORTS[kpref];
-                if (AIRPORT_DB.byIcao[kpref]) return AIRPORT_DB.byIcao[kpref];
+                if (AIRPORTS['K' + upper]) return AIRPORTS['K' + upper];
             }
             // final attempt: strip any leading non-alphanum and retry
             const stripped = upper.replace(/[^A-Z0-9]/g, '');
@@ -3331,7 +3251,7 @@
         }
 
         function renderMap() {
-            if (!map) return;
+            if (!map || !airportDbReady) return;
             stopLivePollers();
             mapRenderGen++;
             if (mapDayMode) { renderDayMap(); return; }
@@ -4031,7 +3951,7 @@
             PILOT_KEYS.forEach(pilotKey => {
                 const segs = allPilotSegments[pilotKey];
                 if (!segs) return;
-                segs.filter(s => s.type === 'flight' && s.departureTime && s.departureTime.startsWith(mapDayDate))
+                segs.filter(s => s.type === 'flight' && s.departureTime && flightLocalDate(s.departureTime, s.departureAirport) === mapDayDate)
                     .forEach(f => allDayFlights.push({ ...f, pilotKey }));
             });
 
@@ -4930,6 +4850,16 @@ let _blockUserEdited = false;
             if (!m) return approx;
             const offsetMin = (m[1] === '+' ? 1 : -1) * (parseInt(m[2]) * 60 + parseInt(m[3]));
             return new Date(approx.getTime() - offsetMin * 60000);
+        }
+
+        // Returns the local calendar date (YYYY-MM-DD) of a departure at its airport.
+        function flightLocalDate(isoStr, airportCode) {
+            if (!isoStr) return '';
+            const tz = airportTz(airportCode);
+            if (tz) {
+                try { return new Date(isoStr).toLocaleDateString('en-CA', { timeZone: tz }); } catch (e) {}
+            }
+            return isoStr.substring(0, 10);
         }
 
         // Returns a proper UTC Date for a flight time, accounting for airport timezone.
