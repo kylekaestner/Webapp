@@ -2653,12 +2653,15 @@
                 return endTime >= now.getTime();
             });
 
-            if (unique.length === 0) {
-                container.innerHTML = `<div class="text-center py-12 text-zinc-500 text-sm">No location overlaps found for any crew members.</div>`;
+            // Regular pilots only see overlaps involving themselves
+            const filtered = myPilot ? unique.filter(o => o.kA === myPilot || o.kB === myPilot) : unique;
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="text-center py-12 text-zinc-500 text-sm">No location overlaps found${myPilot ? ' for you' : ' for any crew members'}.</div>`;
                 return;
             }
 
-            unique.sort((a, b) => a.sortKey - b.sortKey);
+            filtered.sort((a, b) => a.sortKey - b.sortKey);
 
             const _pad = n => String(n).padStart(2, '0');
             const localDateStr = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
@@ -2689,10 +2692,11 @@
                 return `${day(start)} ${fmtH(start)} – ${day(end)} ${fmtH(end)}`;
             };
 
-            // Split overlaps by tier, filtered to only crossings involving the selected pilot
+            // Split overlaps by tier; for admin also filter to selected pilot's view
             const involvesMe = o => o.kA === currentPilot || o.kB === currentPilot;
-            const primary   = unique.filter(o => (o.classification?.tier || 3) <= 2 && involvesMe(o));
-            const secondary = unique.filter(o => (o.classification?.tier || 3) >= 3 && involvesMe(o));
+            const viewFilter = myPilot ? (o => true) : involvesMe;
+            const primary   = filtered.filter(o => (o.classification?.tier || 3) <= 2 && viewFilter(o));
+            const secondary = filtered.filter(o => (o.classification?.tier || 3) >= 3 && viewFilter(o));
 
 
             const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
