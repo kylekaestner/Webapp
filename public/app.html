@@ -611,9 +611,9 @@
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="12" r="6.5"/><circle cx="15" cy="12" r="6.5"/></svg>
                 <span class="text-[8px] font-black uppercase tracking-wide leading-none">Overlap</span>
             </button>
-            <button id="btn-upload-nav" onclick="openUploadSheet()" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Upload</span>
+            <button id="btn-upload-nav" onclick="openMobileUpload()" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
+                <svg id="mbtn-upload-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span id="mbtn-upload-label" class="text-[8px] font-black uppercase tracking-wide leading-none">Upload</span>
             </button>
         </nav>
     </div>
@@ -1017,10 +1017,10 @@
     <!-- Mobile upload sheet -->
     <div id="mobile-upload-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-        <div class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl p-6 space-y-4">
+        <div class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl p-6 space-y-4" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
             <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto mb-2"></div>
-            <h3 class="text-sm font-black uppercase tracking-widest text-zinc-400 text-center">Upload Schedule</h3>
-            <div class="space-y-2">
+            <h3 id="mobile-upload-sheet-title" class="text-sm font-black uppercase tracking-widest text-zinc-400 text-center">Upload Schedule</h3>
+            <div id="mobile-upload-pilot-row" class="space-y-2">
                 <label class="text-[10px] font-black text-zinc-500 uppercase block">Upload For</label>
                 <select id="mobile-upload-pilot-select" onchange="updateUploadSyncButtons(this.value)" class="w-full p-3 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100">
                     <option value="kyle">Kyle Kaestner</option>
@@ -1032,7 +1032,7 @@
             </div>
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
             <button id="mobile-upload-file-btn" onclick="triggerUpload('mobile-upload-pilot-select','mobile-file-input')" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
-            <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');quickSyncSchedaero()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
+            <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');quickSyncSchedaero()" class="hidden w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
             <button id="mobile-sync-drew-ics-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openDrewICSSync()" class="hidden w-full py-3 border border-teal-800 text-teal-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedule (Drew)</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
@@ -1097,9 +1097,10 @@
 </div>
 
 <!-- Edit / Add User Modal -->
-<div id="edit-user-modal" class="hidden fixed inset-0 z-[1003] flex items-center justify-center" onclick="if(event.target===this)closeEditUserModal()">
+<div id="edit-user-modal" class="hidden fixed inset-0 z-[1003] flex items-end md:items-center md:justify-center" onclick="if(event.target===this)closeEditUserModal()">
     <div class="absolute inset-0 bg-black/70"></div>
-    <div class="relative w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-6 space-y-4 mx-4" onclick="event.stopPropagation()">
+    <div class="relative w-full md:max-w-sm bg-zinc-900 border-t md:border border-zinc-700 rounded-t-2xl md:rounded-2xl md:mx-4 space-y-4 overflow-y-auto" style="max-height:90vh;padding:1.5rem;padding-bottom:max(1.5rem,env(safe-area-inset-bottom))" onclick="event.stopPropagation()">
+    <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto -mt-1 mb-0 md:hidden"></div>
         <h3 id="edit-user-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Add User</h3>
         <input type="hidden" id="edit-user-key">
         <div class="grid grid-cols-2 gap-3">
@@ -1664,12 +1665,18 @@
 
             isDemo = window.location.pathname === '/demo';
 
-            if (urlToken) {
+            // iOS PWA strips query params from the home screen shortcut URL.
+            // Fall back to a token saved in localStorage on the pilot's last real visit.
+            const token = urlToken || (!isDemo && localStorage.getItem('crewsync_token')) || null;
+
+            if (token) {
                 try {
-                    const resp = await fetch(`/api/pilots/by-token/${encodeURIComponent(urlToken)}`);
+                    const resp = await fetch(`/api/pilots/by-token/${encodeURIComponent(token)}`);
                     if (resp.ok) {
                         const data = await resp.json();
-                        myToken = urlToken;
+                        myToken = token;
+                        // Persist so home-screen PWA launches work without the ?u= param
+                        localStorage.setItem('crewsync_token', token);
                         if (data.pilotKey === 'admin') {
                             // Admin token → full access, no crew identity
                             myPilot = null;
@@ -1705,12 +1712,14 @@
                             }
                         }
                     } else {
+                        // Token invalid — clear stored token so we don't loop
+                        localStorage.removeItem('crewsync_token');
                         window.location.replace('/');
                         return;
                     }
                 } catch { /* network error — let them in, token was at least present */ }
             } else if (!isDemo) {
-                // No token, not demo — redirect to landing
+                // No token anywhere — redirect to landing
                 window.location.replace('/');
                 return;
             }
@@ -1825,6 +1834,15 @@
             const adminSection = document.getElementById('admin-manage-section');
             if (adminSection) adminSection.classList.toggle('hidden', !!myPilot || !myToken);
 
+            // Upload nav label: sync pilots get "Sync", others get "Upload"
+            const isSyncPilot = myPilot === 'kyle' || myPilot === 'drew';
+            const uploadLabel = document.getElementById('mbtn-upload-label');
+            if (uploadLabel) uploadLabel.textContent = isSyncPilot ? 'Sync' : 'Upload';
+
+            // Desktop sidebar: hide pilot selector row for identified pilots
+            const uploadForRow = document.getElementById('upload-for-row');
+            if (uploadForRow) uploadForRow.classList.toggle('hidden', !!myPilot);
+
             _buildCrewVisibilityUI();
         }
 
@@ -1882,7 +1900,8 @@
         }
 
         function signOut() {
-            window.location.href = '/app';
+            localStorage.removeItem('crewsync_token');
+            window.location.href = '/';
         }
 
         // Sidebar widget: shows signed-in pilot's next upcoming flight
@@ -1940,12 +1959,21 @@
         }
 
         // Open the upload sheet, restricting pilot select to myPilot when identified
+        function openMobileUpload() {
+            if (myPilot === 'kyle') return quickSyncSchedaero();
+            if (myPilot === 'drew') return openDrewICSSync();
+            openUploadSheet();
+        }
+
         function openUploadSheet() {
             const p = myPilot || currentPilot || 'kyle';
+            // Hide pilot selector for identified pilots — they only upload for themselves
+            const pilotRow = document.getElementById('mobile-upload-pilot-row');
+            if (pilotRow) pilotRow.classList.toggle('hidden', !!myPilot);
             const mobileSelect = document.getElementById('mobile-upload-pilot-select');
             if (mobileSelect) {
                 mobileSelect.value = p;
-                mobileSelect.disabled = !!myPilot; // identified pilots can only upload for themselves
+                mobileSelect.disabled = !!myPilot;
             }
             updateUploadSyncButtons(p);
             document.getElementById('mobile-upload-sheet').classList.remove('hidden');
