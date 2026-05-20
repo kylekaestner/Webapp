@@ -36,7 +36,7 @@
         .view-section { display: none; height: 100%; }
         .view-active { display: block; }
         @media (max-width: 767px) {
-            #view-map.view-active { display: flex !important; flex-direction: column; }
+            #view-map.view-active { display: flex !important; flex-direction: column; padding-bottom: calc(50px + env(safe-area-inset-bottom)); }
             #map { flex: 1 1 0 !important; height: auto !important; min-height: 0; }
         }
 

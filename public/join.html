@@ -160,7 +160,7 @@
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px" id="parser-pills">
                         <button type="button" onclick="selectParser('csv')" data-parser="csv" class="parser-pill pill-active" style="padding:10px 8px;border-radius:10px;border:1.5px solid #3b82f6;background:rgba(59,130,246,0.1);color:#93c5fd;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Republic</button>
                         <button type="button" onclick="selectParser('ics_rosterbuster')" data-parser="ics_rosterbuster" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">GoJet</button>
-                        <button type="button" onclick="selectParser('ics')" data-parser="ics" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SpiritJets</button>
+                        <button type="button" onclick="selectParser('schedaero')" data-parser="schedaero" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SpiritJets</button>
                         <button type="button" onclick="selectParser('csv_skywest')" data-parser="csv_skywest" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SkyWest</button>
                     </div>
                     <input type="hidden" id="parserType" value="csv">
@@ -239,6 +239,13 @@
     </div>
 
     <script>
+        const PARSER_AIRLINES = {
+            'csv':              { airline: 'Republic Airways', code: 'RPA' },
+            'ics_rosterbuster': { airline: 'GoJet Airlines',   code: 'GJS' },
+            'schedaero':        { airline: 'SpiritJets',        code: 'SJJ' },
+            'csv_skywest':      { airline: 'SkyWest Airlines', code: 'SKW' },
+        };
+
         function selectParser(type) {
             document.getElementById('parserType').value = type;
             document.querySelectorAll('.parser-pill').forEach(btn => {
@@ -247,9 +254,13 @@
                 btn.style.background   = active ? 'rgba(59,130,246,0.1)' : '#111113';
                 btn.style.color        = active ? '#93c5fd' : '#52525b';
             });
-            // Show airline code only for CSV types
-            const showCode = type === 'csv' || type === 'csv_skywest';
-            document.getElementById('airline-code-row').style.display = showCode ? 'block' : 'none';
+            const info = PARSER_AIRLINES[type];
+            if (info) {
+                document.getElementById('role').value = info.airline;
+                document.getElementById('airlineCode').value = info.code;
+            }
+            const codeRow = document.getElementById('airline-code-row');
+            codeRow.style.display = (info && info.code) ? 'block' : 'none';
         }
 
         function goStep(n) {
@@ -328,6 +339,9 @@
                 btn.textContent = 'Create Account →';
             }
         }
+
+        // Pre-fill on load for the default selected parser
+        selectParser(document.getElementById('parserType').value);
 
         async function copyLink() {
             const link = document.getElementById('your-link').textContent;

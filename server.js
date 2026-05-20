@@ -585,7 +585,7 @@ async function parseNetlinePDF(buffer) {
 
 // Pilot parser configuration
 const pilotParsers = {
-    kyle: 'ics',
+    kyle: 'schedaero',
     adam: 'csv',
     sam: 'csv',
     logan: 'csv_skywest',
@@ -593,6 +593,7 @@ const pilotParsers = {
 };
 
 const pilotAirlineCodes = {
+    kyle: 'SJJ',
     adam: 'RPA',
     sam: 'RPA',
     logan: 'SKW',
