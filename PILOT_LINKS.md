@@ -12,9 +12,6 @@ The link signs you in automatically — keep it private.
 | Sam | http://167.71.107.245:3000/app?u=4EJulZr80BXJ |
 | Logan | http://167.71.107.245:3000/app?u=zYPrpCcaC9eG |
 | Drew | http://167.71.107.245:3000/app?u=M-wk3EVSNR9i |
-| Brett Jones | http://167.71.107.245:3000/app?u=e7f07f5s2K-L |
-| Brett Jones | http://167.71.107.245:3000/app?u=E5xHqwVflkVA |
-| **Admin** | http://167.71.107.245:3000/app?u=AETWD3ZrklyE |
 
 ## Local (Kyle's machine only)
 
@@ -25,9 +22,6 @@ The link signs you in automatically — keep it private.
 | Sam | http://localhost:3000/app?u=4EJulZr80BXJ |
 | Logan | http://localhost:3000/app?u=zYPrpCcaC9eG |
 | Drew | http://localhost:3000/app?u=M-wk3EVSNR9i |
-| Brett Jones | http://localhost:3000/app?u=e7f07f5s2K-L |
-| Brett Jones | http://localhost:3000/app?u=E5xHqwVflkVA |
-| **Admin** | http://localhost:3000/app?u=AETWD3ZrklyE |
 
 ## How to add to iPhone home screen
 
@@ -40,6 +34,5 @@ The app will open full-screen and sign you in automatically every time.
 
 ## Notes
 
-- Admin token is printed in server logs every time the server starts.
-- New pilots added via /join are automatically appended to this file.
+- All pilot links are always available at `/crew-roster` on the server.
 - If you sign out, open your personal link again to sign back in.

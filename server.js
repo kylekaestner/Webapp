@@ -1273,16 +1273,41 @@ app.get('/api/health', (req, res) => {
 
 // ── Page routes ────────────────────────────────────────────────────────
 // Admin user list — token-protected HTML page
-app.get('/crew-roster', (req, res) => res.redirect('/admin/users'));
+app.get('/crew-roster', (req, res) => {
+    const db = getDB();
+    db.all(`SELECT pilot_key, name, base, home_airport, role, token FROM pilots ORDER BY pilot_key='admin' DESC, name`, (err, rows) => {
+        if (err) return res.status(500).send(err.message);
+        const origin = req.headers.host ? `${req.protocol}://${req.headers.host}` : '';
+        const cards = rows.map(r => {
+            const link = `${origin}/app?u=${r.token}`;
+            const initials = r.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+            const sub = [r.pilot_key, r.base && `base ${r.base}`, r.home_airport && r.home_airport !== r.base && `home ${r.home_airport}`, r.role].filter(Boolean).join(' · ');
+            return `<div style="background:#18181b;border:1px solid #27272a;border-radius:12px;padding:16px 20px;display:flex;flex-direction:column;gap:8px">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="width:40px;height:40px;border-radius:50%;background:#312e81;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">${initials}</div>
+    <div><div style="font-weight:600;font-size:15px">${r.name}</div><div style="font-size:12px;color:#71717a">${sub}</div></div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;background:#09090b;border:1px solid #27272a;border-radius:8px;padding:8px 12px">
+    <span style="flex:1;font-size:12px;color:#a1a1aa;word-break:break-all">${link}</span>
+    <button onclick="navigator.clipboard.writeText('${link}');this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)" style="background:#27272a;border:none;color:#e4e4e7;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;white-space:nowrap">Copy</button>
+    <a href="${link}" target="_blank" style="background:#27272a;color:#e4e4e7;border-radius:6px;padding:4px 10px;font-size:12px;text-decoration:none;white-space:nowrap">Open</a>
+  </div>
+</div>`;
+        }).join('');
+        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>CrewSync · Roster</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:24px 16px;background:#09090b;color:#e4e4e7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:640px;margin:0 auto}</style></head><body>
+<h2 style="margin:0 0 20px;font-size:20px;font-weight:700">CrewSync · Pilot Links</h2>
+<div style="display:flex;flex-direction:column;gap:12px">${cards}</div>
+</body></html>`);
+    });
+});
 
 app.get('/admin/users', (req, res) => {
     const db = getDB();
     const { token } = req.query;
+    if (!token) return res.status(401).send('Token required');
 
     db.get(`SELECT token FROM pilots WHERE pilot_key='admin'`, (err, admin) => {
-        if (err || !admin) return res.status(500).send('DB error');
-        if (token && admin.token !== token) return res.status(403).send('Invalid token');
-        if (!token && !admin) return res.status(401).send('Token required');
+        if (err || !admin || admin.token !== token) return res.status(403).send('Invalid token');
 
         db.all(`SELECT pilot_key, name, base, home_airport, role, token FROM pilots WHERE pilot_key != 'admin' ORDER BY name`, (err, rows) => {
             if (err) return res.status(500).send(err.message);

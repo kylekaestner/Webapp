@@ -2,20 +2,20 @@
 
 A private pilot scheduling and crew coordination web app. Tracks flight schedules for a group of pilots, shows live ADS-B positions, calculates location overlaps, and works as an installable mobile webapp.
 
-**Production:** `http://167.71.107.245:3000`
+**Production:** `http://167.71.107.245:3000`  
 **Pilot bookmarks:** see `PILOT_LINKS.md`
 
 ---
 
 ## Crew
 
-| Key | Name | Airline | Parser | Base |
-|-----|------|---------|--------|------|
-| kyle | Kyle Kaestner | Corporate/135 | ICS (Schedaero) | KSUS |
-| adam | Adam Burke | Republic Airways | CSV | LGA |
-| sam | Sam Byrne | Republic Airways | CSV | LGA |
-| logan | Logan Hine | SkyWest | CSV (SkyWest variant) | SFO |
-| drew | Drew Sinelli | GoJet | PDF/Netline ICS | STL |
+| Key | Name | Airline | Parser | Base | Home |
+|-----|------|---------|--------|------|------|
+| kyle | Kyle Kaestner | Corporate/135 | ICS (Schedaero) | KSUS | KSUS |
+| adam | Adam Burke | Republic Airways | CSV | LGA | LGA |
+| sam | Sam Byrne | Republic Airways | CSV | LGA | LGA |
+| logan | Logan Hine | SkyWest | CSV (SkyWest variant) | SFO | SFO |
+| drew | Drew Sinelli | GoJet | ICS (RosterBuster) | STL | STL |
 
 ---
 
@@ -26,7 +26,9 @@ A private pilot scheduling and crew coordination web app. Tracks flight schedule
 ├── db.js              # SQLite init and schema
 ├── dispatch.db        # SQLite database (auto-created)
 ├── public/
-│   └── index.html     # Full frontend (single file)
+│   ├── app.html       # Main app (calendar, map, list, overlap)
+│   ├── join.html      # New pilot onboarding form
+│   └── index.html     # Landing page
 ├── PILOT_LINKS.md     # Personalized bookmarks for each pilot
 └── README.md
 ```
@@ -64,23 +66,21 @@ Server starts on port 3000. Database auto-initializes on first run.
 ### Manual Flights
 Add flights manually for any pilot in four categories:
 - **Work** — revenue flight
-- **Deadhead (DH)** — deadhead with airline lookup
+- **Deadhead (DH)** — deadhead leg
 - **Commute** — commute leg (amber color)
 - **Personal** — personal travel (violet color)
-
-Flight number lookup auto-fills times via OpenSky for DH, commute, and personal flights.
 
 ### Live ADS-B
 - Polls ADS-B Exchange every 8 seconds for airborne aircraft
 - Smooth Chaikin-algorithm trail rendering
-- Trail seeded from OpenSky flight history on server start
+- Trail seeded from flight history on server start
 - Green animated arc shows predicted path for active flights
 
 ### Mobile
 - Installable as a home screen webapp (iOS Safari)
-- Auto-selects pilot based on `?pilot=` URL parameter or last-used
+- Pilot identity resolved from personalized link
 - Bottom nav bar: Calendar, List, Map, Overlap, Upload
-- Upload sheet includes one-tap Schedaero sync (Kyle) and Drew ICS sync
+- One-tap sync for Kyle (Schedaero) and Drew (RosterBuster ICS)
 
 ---
 
@@ -90,7 +90,7 @@ Flight number lookup auto-fills times via OpenSky for DH, commute, and personal 
 `.ics` export from Schedaero. Parses `VEVENT` blocks with `SUMMARY` containing airport pairs and `DESCRIPTION` with tail/trip info.
 
 ### Adam & Sam — CSV (Republic/standard)
-Required columns: `DATE, DEP, ARR, DEPTIME, ARRTIME`
+Required columns: `DATE, DEP, ARR, DEPTIME, ARRTIME`  
 Optional: `TAIL, DH, FCVTAIL, EQP, FLIGHT, BLOCK, CREW`
 
 Times are local to the departure airport. Block time pulled from `BLOCK` column.
@@ -98,8 +98,8 @@ Times are local to the departure airport. Block time pulled from `BLOCK` column.
 ### Logan — CSV (SkyWest variant)
 Flexible header matching — accepts `FLIGHTDATE|DATE`, `DEPARTURE|DEP|ORIG`, `DESTINATION|ARR|DEST`, `DEP_TIME|DEPTIME`, `ARR_TIME|ARRTIME`, `AIRCRAFT|TAIL`, `DH|DUTY`.
 
-### Drew — PDF/Netline ICS
-ICS subscription URL from RosterBuster stored on server, fetched on each sync.
+### Drew — ICS (RosterBuster)
+ICS subscription URL stored on server, fetched on each sync.
 
 ---
 
@@ -108,18 +108,19 @@ ICS subscription URL from RosterBuster stored on server, fetched on each sync.
 ```
 GET  /api/pilots                              All pilots
 GET  /api/pilots/:key                         Pilot + segments
+PUT  /api/pilots/:key                         Update pilot profile
+DEL  /api/pilots/:key                         Delete pilot
 POST /api/pilots/:key/upload                  Upload schedule file
 POST /api/pilots/:key/add-segment             Add manual flight
 PUT  /api/pilots/:key/segments/:id            Edit manual flight
 DEL  /api/pilots/:key/segments/:id            Delete manual flight
 DEL  /api/pilots/:key/segments                Clear all segments
 
-POST /api/pilots/kyle/sync-schedaero          Sync one month (body: cookie, schedaeroUrl, apiToken, month, year)
-POST /api/pilots/kyle/quick-sync-schedaero    Sync using saved server credentials (no body needed)
+POST /api/pilots/kyle/sync-schedaero          Sync one month
+POST /api/pilots/kyle/quick-sync-schedaero    Sync using saved credentials
 POST /api/pilots/drew/sync-ics                Sync Drew's ICS URL
 
 GET  /api/live/:hex                           ADS-B position for aircraft hex code
-GET  /api/flight-lookup                       Look up flight times via OpenSky (?flight=UA442&date=2026-05-18)
 
 GET  /api/settings/:key                       Read a settings value
 POST /api/settings/:key                       Write a settings value
@@ -136,7 +137,11 @@ GET  /api/health                              Health check
 | id | INTEGER PK | |
 | pilot_key | TEXT UNIQUE | kyle, adam, sam, logan, drew |
 | name | TEXT | |
-| base | TEXT | Home airport ICAO |
+| base | TEXT | Crew base (airline city) |
+| home_airport | TEXT | Where the pilot lives |
+| role | TEXT | e.g. Captain, FO |
+| parser_type | TEXT | csv, ics, skywest |
+| airline_code | TEXT | |
 
 ### segments
 | Column | Type | Notes |
@@ -149,7 +154,7 @@ GET  /api/health                              Health check
 | departure_airport | TEXT | IATA code |
 | arrival_airport | TEXT | IATA code |
 | tail | TEXT | Aircraft tail number |
-| trip | TEXT | Trip number, or PERSONAL/COMMUTE for manual |
+| trip | TEXT | Trip number |
 | flight_number | TEXT | |
 | is_dh | BOOLEAN | Deadhead flag |
 | is_manual | BOOLEAN | Manually added |
