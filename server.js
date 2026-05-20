@@ -90,8 +90,11 @@ function parseRosterBusterICS(text) {
     for (const b of blocks) {
         const lines = b.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         const getField = (prefix) => {
-            const ln = lines.find(l => l.toUpperCase().startsWith(prefix.toUpperCase() + ':'));
-            return ln ? ln.split(/:(.+)/)[1]?.replace(/\\,/g, ',').trim() || '' : '';
+            const up = prefix.toUpperCase();
+            const ln = lines.find(l => { const u = l.toUpperCase(); return u.startsWith(up + ':') || u.startsWith(up + ';'); });
+            if (!ln) return '';
+            const colonIdx = ln.indexOf(':');
+            return colonIdx >= 0 ? ln.slice(colonIdx + 1).replace(/\\,/g, ',').trim() : '';
         };
 
         const summary  = getField('SUMMARY');
@@ -142,6 +145,12 @@ function parseRosterBusterICS(text) {
 
 function formatICSDatetime(s) {
     if (/^\d{8}T\d{6}Z$/.test(s)) {
+        const y = s.substring(0, 4), m = s.substring(4, 6), d = s.substring(6, 8);
+        const hh = s.substring(9, 11), mm = s.substring(11, 13), ss = s.substring(13, 15);
+        return `${y}-${m}-${d}T${hh}:${mm}:${ss}Z`;
+    }
+    if (/^\d{8}T\d{6}$/.test(s)) {
+        // Local time without Z — store as-is in UTC (times in ICS are already UTC for GoJet)
         const y = s.substring(0, 4), m = s.substring(4, 6), d = s.substring(6, 8);
         const hh = s.substring(9, 11), mm = s.substring(11, 13), ss = s.substring(13, 15);
         return `${y}-${m}-${d}T${hh}:${mm}:${ss}Z`;
