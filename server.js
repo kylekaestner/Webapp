@@ -131,12 +131,17 @@ function parseRosterBusterICS(text) {
             departureAirport: dep, arrivalAirport: arr, flightNumber, tail, trip: null, dh: isDH });
     }
 
-    // Sort by departure time, then assign trip numbers
-    // A new trip starts whenever departure airport is STL (Drew's home base)
+    // Sort by departure time, then assign trip numbers.
+    // A new trip starts when departing the home base on a different day — same-day
+    // returns (turns) don't end the trip.
     events.sort((a, b) => (a.departureTime || '').localeCompare(b.departureTime || ''));
     let tripNum = 1;
     for (let i = 0; i < events.length; i++) {
-        if (i > 0 && events[i].departureAirport === 'STL') tripNum++;
+        if (i > 0 && events[i].departureAirport === 'STL') {
+            const prevDay = (events[i - 1].departureTime || '').substring(0, 10);
+            const thisDay = (events[i].departureTime || '').substring(0, 10);
+            if (thisDay !== prevDay) tripNum++;
+        }
         events[i].trip = String(tripNum);
     }
 
@@ -1336,17 +1341,32 @@ app.post('/crew-roster/login', express.urlencoded({ extended: false }), (req, re
 // Admin user list — password-protected HTML page
 app.get('/crew-roster', rosterAuth, (req, res) => {
     const db = getDB();
-    db.all(`SELECT pilot_key, name, base, home_airport, role, token FROM pilots ORDER BY pilot_key='admin' DESC, name`, (err, rows) => {
+    db.all(`SELECT pilot_key, name, base, home_airport, role, token, last_active FROM pilots ORDER BY pilot_key='admin' DESC, name`, (err, rows) => {
         if (err) return res.status(500).send(err.message);
         const origin = req.headers.host ? `${req.protocol}://${req.headers.host}` : '';
+        const fmtActive = (iso) => {
+            if (!iso) return 'Never';
+            const diff = Date.now() - new Date(iso).getTime();
+            const mins = Math.floor(diff / 60000);
+            if (mins < 2)   return 'Just now';
+            if (mins < 60)  return `${mins}m ago`;
+            const hrs = Math.floor(mins / 60);
+            if (hrs < 24)   return `${hrs}h ago`;
+            const days = Math.floor(hrs / 24);
+            if (days < 7)   return `${days}d ago`;
+            return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        };
         const cards = rows.map(r => {
             const link = `${origin}/app?u=${r.token}`;
             const initials = r.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
             const sub = [r.pilot_key, r.base && `base ${r.base}`, r.home_airport && r.home_airport !== r.base && `home ${r.home_airport}`, r.role].filter(Boolean).join(' · ');
+            const activeStr = fmtActive(r.last_active);
+            const activeColor = !r.last_active ? '#52525b' : (Date.now() - new Date(r.last_active).getTime()) < 86400000 ? '#22c55e' : '#71717a';
             return `<div style="background:#18181b;border:1px solid #27272a;border-radius:12px;padding:16px 20px;display:flex;flex-direction:column;gap:8px">
   <div style="display:flex;align-items:center;gap:12px">
     <div style="width:40px;height:40px;border-radius:50%;background:#312e81;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">${initials}</div>
-    <div><div style="font-weight:600;font-size:15px">${r.name}</div><div style="font-size:12px;color:#71717a">${sub}</div></div>
+    <div style="flex:1"><div style="font-weight:600;font-size:15px">${r.name}</div><div style="font-size:12px;color:#71717a">${sub}</div></div>
+    <div style="font-size:11px;color:${activeColor};white-space:nowrap">${activeStr}</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;background:#09090b;border:1px solid #27272a;border-radius:8px;padding:8px 12px">
     <span style="flex:1;font-size:12px;color:#a1a1aa;word-break:break-all">${link}</span>
@@ -1505,9 +1525,11 @@ app.get('/api/demo/pilots/:pilotKey', (req, res) => {
 // Resolve a token → pilot info (used on app load)
 app.get('/api/pilots/by-token/:token', (req, res) => {
     const db = getDB();
-    db.get(`SELECT pilot_key, name, base FROM pilots WHERE token=?`, [req.params.token], (err, row) => {
+    const token = req.params.token;
+    db.get(`SELECT pilot_key, name, base FROM pilots WHERE token=?`, [token], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!row) return res.status(404).json({ error: 'Invalid token' });
+        db.run(`UPDATE pilots SET last_active=? WHERE token=?`, [new Date().toISOString(), token]);
         res.json({ pilotKey: row.pilot_key, name: row.name, base: row.base });
     });
 });

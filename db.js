@@ -69,6 +69,7 @@ function initDB() {
         db.run(`ALTER TABLE pilots ADD COLUMN parser_type TEXT DEFAULT 'csv'`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN airline_code TEXT DEFAULT ''`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN home_airport TEXT DEFAULT ''`, () => {});
+        db.run(`ALTER TABLE pilots ADD COLUMN last_active TEXT`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN token TEXT`, () => {
             // Backfill tokens for any pilot that doesn't have one
             db.all(`SELECT id, pilot_key FROM pilots WHERE token IS NULL`, (err, rows) => {

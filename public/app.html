@@ -4177,9 +4177,13 @@
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - arrDate) / 60000;
                                 const atHome = pilotBase && arrApt === pilotBase;
-                                if (groundMins > 0 && !atHome) {
-                                    const label = groundMins < 240 ? 'Turn' : 'Layover';
-                                    layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
+                                if (groundMins > 0) {
+                                    if (!atHome) {
+                                        const label = groundMins < 240 ? 'Turn' : 'Layover';
+                                        layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
+                                    } else if (flightLocalDate(arrDate.toISOString(), arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
+                                        layoverText = `Turn ${formatDurationMinutes(groundMins)}`;
+                                    }
                                 }
                             }
                         }
@@ -4318,9 +4322,13 @@
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
                                 const atHome = pilotBase && arrApt.toUpperCase() === pilotBase.toUpperCase();
-                                if (groundMins > 0 && !atHome) {
-                                    const lbl = groundMins < 240 ? 'Turn' : 'Layover';
-                                    groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
+                                if (groundMins > 0) {
+                                    if (!atHome) {
+                                        const lbl = groundMins < 240 ? 'Turn' : 'Layover';
+                                        groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
+                                    } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
+                                        groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">Turn ${formatDurationMinutes(groundMins)}</div>`;
+                                    }
                                 }
                             }
                         }
@@ -4407,9 +4415,13 @@
                                 if (nextLeg) {
                                     const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
                                     const atHome = pilotBase && arrApt === pilotBase;
-                                    if (groundMins > 0 && !atHome) {
-                                        const label = groundMins < 240 ? 'Turn' : 'Layover';
-                                        layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
+                                    if (groundMins > 0) {
+                                        if (!atHome) {
+                                            const label = groundMins < 240 ? 'Turn' : 'Layover';
+                                            layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
+                                        } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
+                                            layoverText = `Turn ${formatDurationMinutes(groundMins)}`;
+                                        }
                                     }
                                 }
                             }
@@ -4776,7 +4788,10 @@
                     if (nextLeg) {
                         const gm = (new Date(nextLeg.departureTime) - new Date(f.arrivalTime)) / 60000;
                         const atHome = pilotBase && arr === pilotBase;
-                        if (gm > 0 && !atHome) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Layover'} ${formatDurationMinutes(gm)}</div>`;
+                        if (gm > 0) {
+                            if (!atHome) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Layover'} ${formatDurationMinutes(gm)}</div>`;
+                            else if (flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">Turn ${formatDurationMinutes(gm)}</div>`;
+                        }
                     }
                 }
                 const isActiveLeg = dMs && aMs && dMs <= nowMs && nowMs <= aMs;
