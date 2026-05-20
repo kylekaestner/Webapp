@@ -286,6 +286,7 @@
             const firstName   = document.getElementById('firstName').value.trim();
             const lastName    = document.getElementById('lastName').value.trim();
             const base        = document.getElementById('homeBase').value.trim().toUpperCase();
+            const homeAirport = document.getElementById('homeAirport').value.trim().toUpperCase();
             const role        = document.getElementById('role').value.trim();
             const parserType  = document.getElementById('parserType').value;
             const airlineCode = document.getElementById('airlineCode').value.trim().toUpperCase();
@@ -294,7 +295,7 @@
                 const resp = await fetch('/api/join', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ firstName, lastName, base, role, parserType, airlineCode })
+                    body: JSON.stringify({ firstName, lastName, base, homeAirport, role, parserType, airlineCode })
                 });
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || 'Failed to create account');

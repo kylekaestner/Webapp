@@ -1272,6 +1272,101 @@ app.get('/api/health', (req, res) => {
 });
 
 // ── Page routes ────────────────────────────────────────────────────────
+// Admin user list — token-protected HTML page
+app.get('/admin/users', (req, res) => {
+    const db = getDB();
+    const { token } = req.query;
+    if (!token) return res.status(401).send('Token required');
+
+    db.get(`SELECT token FROM pilots WHERE pilot_key='admin'`, (err, admin) => {
+        if (err || !admin || admin.token !== token) return res.status(403).send('Invalid token');
+
+        db.all(`SELECT pilot_key, name, base, home_airport, role, token FROM pilots WHERE pilot_key != 'admin' ORDER BY name`, (err, rows) => {
+            if (err) return res.status(500).send(err.message);
+
+            const host = req.headers.host || `localhost:${PORT}`;
+            const proto = req.headers['x-forwarded-proto'] || 'http';
+            const origin = `${proto}://${host}`;
+            const adminLink = `${origin}/admin/users?token=${token}`;
+
+            const cards = rows.map(u => {
+                const link = `${origin}/app?u=${u.token}`;
+                const initials = (u.name || '').split(' ').map(w => w[0]).join('').slice(0, 2);
+                const sub = [u.base, u.home_airport && u.home_airport !== u.base ? `home ${u.home_airport}` : null, u.role].filter(Boolean).join(' · ');
+                return `<div class="card">
+  <div class="card-header">
+    <div class="avatar">${initials}</div>
+    <div>
+      <div class="name">${u.name}</div>
+      <div class="sub">${sub || u.pilot_key}</div>
+    </div>
+  </div>
+  <div class="link-row">
+    <div class="link-box" id="link-${u.pilot_key}">${link}</div>
+    <button class="btn-copy" onclick="copy('${u.pilot_key}','${link}',this)">Copy</button>
+    <a class="btn-open" href="${link}" target="_blank">Open</a>
+  </div>
+</div>`;
+            }).join('');
+
+            res.send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CrewSync · Users</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#09090b;color:#e4e4e7;min-height:100vh;padding:2rem 1rem}
+.wrap{max-width:640px;margin:0 auto}
+.header{display:flex;align-items:center;gap:12px;margin-bottom:2rem}
+.logo{font-size:1.1rem;font-weight:900;color:#3b82f6;text-transform:uppercase;letter-spacing:.05em;font-style:italic}
+.header-sub{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#52525b;margin-top:2px}
+.cards{display:flex;flex-direction:column;gap:12px}
+.card{background:#111113;border:1px solid #27272a;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.card-header{display:flex;align-items:center;gap:12px}
+.avatar{width:40px;height:40px;border-radius:10px;background:#1e3a5f;color:#60a5fa;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:900;flex-shrink:0}
+.name{font-size:.95rem;font-weight:800;color:#fff}
+.sub{font-size:.7rem;color:#52525b;font-weight:600;margin-top:2px}
+.link-row{display:flex;gap:8px;align-items:center}
+.link-box{flex:1;background:#09090b;border:1px solid #1c1c1f;border-radius:8px;padding:8px 10px;font-family:ui-monospace,'SF Mono',monospace;font-size:.7rem;color:#71717a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.btn-copy,.btn-open{flex-shrink:0;padding:7px 14px;border-radius:8px;font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;border:none;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;transition:background .15s}
+.btn-copy{background:#1d4ed8;color:#fff}.btn-copy:hover{background:#2563eb}
+.btn-open{background:#18181b;color:#a1a1aa;border:1px solid #27272a}.btn-open:hover{color:#fff;border-color:#3f3f46}
+.my-link{margin-top:2.5rem;padding:14px 16px;background:#111113;border:1px solid #27272a;border-radius:12px}
+.my-link-label{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#3f3f46;margin-bottom:6px}
+.my-link-box{display:flex;gap:8px;align-items:center}
+.my-link-url{flex:1;font-family:ui-monospace,monospace;font-size:.65rem;color:#3f3f46;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head><body>
+<div class="wrap">
+  <div class="header">
+    <div>
+      <div class="logo">CrewSync</div>
+      <div class="header-sub">User Links</div>
+    </div>
+  </div>
+  <div class="cards">${cards}</div>
+  <div class="my-link">
+    <div class="my-link-label">This page (bookmark it)</div>
+    <div class="my-link-box">
+      <div class="my-link-url">${adminLink}</div>
+      <button class="btn-copy" onclick="navigator.clipboard.writeText('${adminLink}').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})">Copy</button>
+    </div>
+  </div>
+</div>
+<script>
+function copy(key, link, btn) {
+  navigator.clipboard.writeText(link).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
+  });
+}
+</script>
+</body></html>`);
+        });
+    });
+});
+
 // Landing page at root (unauthenticated entry point)
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'landing.html'));
@@ -1397,12 +1492,20 @@ app.post('/api/settings/:key', (req, res) => {
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    // Print admin link so it's always findable in server logs
+    // Print all pilot links on startup so tokens are always recoverable from logs
     const db = getDB();
-    db.get(`SELECT token FROM pilots WHERE pilot_key='admin'`, (err, row) => {
-        if (row && row.token) {
-            console.log(`  Admin: http://localhost:${PORT}/app?u=${row.token}`);
-        }
+    db.all(`SELECT pilot_key, name, token FROM pilots ORDER BY pilot_key='admin' DESC, name`, (err, rows) => {
+        if (err || !rows) return;
+        console.log('  ── Login links ──────────────────────────────');
+        rows.forEach(r => {
+            if (!r.token) return;
+            const label = r.pilot_key === 'admin' ? 'Admin' : r.name;
+            console.log(`  ${label.padEnd(20)} http://localhost:${PORT}/app?u=${r.token}`);
+        });
+        const adminRow = rows.find(r => r.pilot_key === 'admin');
+        if (adminRow && adminRow.token)
+            console.log(`  Users page: http://localhost:${PORT}/admin/users?token=${adminRow.token}`);
+        console.log('  ─────────────────────────────────────────────');
     });
 });
 

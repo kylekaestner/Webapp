@@ -1114,13 +1114,17 @@
         </div>
         <div class="grid grid-cols-2 gap-3">
             <div>
-                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Base</label>
-                <input id="edit-user-base" type="text" placeholder="KSUS" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
+                <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
             <div>
-                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline Code</label>
-                <input id="edit-user-airline" type="text" placeholder="SWA" maxlength="3" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
+                <input id="edit-user-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
+        </div>
+        <div>
+            <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline Code <span class="normal-case font-normal text-zinc-600">(ICAO, e.g. RPA)</span></label>
+            <input id="edit-user-airline" type="text" placeholder="RPA" maxlength="3" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
         </div>
         <div>
             <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Role / Description</label>
@@ -1158,7 +1162,44 @@
 </div>
 
     <script>
-        // Server-side data store — swapped to demo endpoints on /demo route
+        /*
+         * ╔══════════════════════════════════════════════════════════════════╗
+         * ║  CrewSync  app.html  --  architecture overview                  ║
+         * ╠══════════════════════════════════════════════════════════════════╣
+         * ║  IDENTITY  (stateless, resolved fresh on every page load)       ║
+         * ║  URL ?u=TOKEN -> GET /api/pilots/by-token/:token                ║
+         * ║    pilotKey === 'admin' -> myPilot = null  (full access)        ║
+         * ║    any other key        -> myPilot = 'kyle' etc.                ║
+         * ║  No token, not /demo    -> redirect to landing page (/)         ║
+         * ║                                                                  ║
+         * ║  KEY GLOBALS                                                     ║
+         * ║  myPilot      -- who you ARE (null = admin/no identity)         ║
+         * ║  currentPilot -- whose schedule is on screen right now          ║
+         * ║  PILOT_KEYS   -- mutable array; extra pilots pushed at runtime  ║
+         * ║  VALID_PILOTS -- alias for PILOT_KEYS (same object reference)   ║
+         * ║  pilotsCache  -- { key: apiResponse } filled lazily on demand   ║
+         * ║                                                                  ║
+         * ║  DATA FLOW                                                       ║
+         * ║  loadPilot(key) -> fetchPilotData -> GET /api/pilots/:key       ║
+         * ║    API returns snake_case DB fields (departure_time, etc.)       ║
+         * ║    loadPilot maps them to camelCase for the segments array       ║
+         * ║    inferAwayLayovers() inserts synthetic 'away' events           ║
+         * ║    render() dispatches to grid / list / map / overlap view       ║
+         * ║                                                                  ║
+         * ║  SCHEDULE SOURCES  (stored in pilots.parser_type in DB)         ║
+         * ║  kyle  -- Schedaero ICS sync  (sync button only, no upload)     ║
+         * ║  drew  -- RosterBuster ICS    (sync button only, no upload)     ║
+         * ║  others -- CSV or ICS file upload                               ║
+         * ║                                                                  ║
+         * ║  DEMO MODE  (/demo route)                                       ║
+         * ║  isDemo = true; fetches hit /api/demo/pilots/:key               ║
+         * ║  canEdit() always false; no ?u= token required                  ║
+         * ╚══════════════════════════════════════════════════════════════════╝
+         */
+
+        // pilotsCache persists fetched API responses for the session lifetime.
+        // computeOverlap(), renderAllPilotsMap(), and renderDayMap() all read from it
+        // to avoid redundant fetches when switching views.
         const pilotsCache = {};
         const _isDemo = window.location.pathname === '/demo';
         const API_BASE = _isDemo ? '/api/demo' : '/api';
@@ -1565,28 +1606,37 @@
     DESCRIPTION:Tail: N431JD\nTrip: 42189707
     END:VEVENT
     END:VCALENDAR`;
-        // App state
-        let segments = [];
-        let viewDate = new Date(2026, 4, 1);
-        let currentPilot = 'kyle';
-        let currentView = 'grid';
+        // ── App state ─────────────────────────────────────────────────────
+        let segments = [];          // currently loaded pilot's segments (camelCase)
+        let viewDate = new Date(2026, 4, 1); // month shown in grid/list/map
+        let currentPilot = 'kyle'; // whose schedule is displayed
+        let currentView = 'grid';  // 'grid' | 'list' | 'map' | 'overlap'
         let map, mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
-        const _livePollers = {}; // callsign → intervalId; cleared on every map render
-        const _calListPollers = {}; // callsign → intervalId for calendar/list live data badges
+        const _livePollers = {};    // callsign -> intervalId; cleared on every map render
+        const _calListPollers = {}; // callsign -> intervalId for calendar/list live badges
         let radarLayer = null, radarOn = false;
         let showPast = true, showFuture = true;
         let airportVisibilityMap = {}, airportFlightTypes = {};
+        // mapDayMode: show all pilots on a single chosen day
+        // mapAllMode: show all pilots for the current month
         let mapDayMode = false;
         let mapAllMode = false;
-        let mapRenderGen = 0;
+        let mapRenderGen = 0; // incremented before every async render; stale renders check this
         const _localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
         let mapDayDate = _localToday();
+
+        // PILOT_KEYS is the authoritative ordered list of pilot keys for the session.
+        // _syncPilotRoster() pushes additional pilots (e.g. Brett) after startup.
+        // VALID_PILOTS is the same array reference -- always treat them as identical.
         const PILOT_KEYS   = _isDemo ? ['alex','morgan','casey','jordan'] : ['kyle','adam','sam','logan','drew'];
         const VALID_PILOTS = PILOT_KEYS;
+
+        // PILOT_COLORS / PILOT_NAMES / PILOT_ROLES / PILOT_HOME are plain objects
+        // so _syncPilotRoster() can add new entries for dynamically joined pilots.
         const PILOT_COLORS = _isDemo
             ? { alex: '#3b82f6', morgan: '#2dd4bf', casey: '#f97316', jordan: '#818cf8' }
             : { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185' };
-        const hiddenPilots = new Set();
+        const hiddenPilots = new Set(); // pilot keys toggled off in the map legend
         const PILOT_NAMES = _isDemo
             ? { alex: 'Alex Rivera', morgan: 'Morgan Tate', casey: 'Casey Walsh', jordan: 'Jordan Ellis' }
             : { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine', drew: 'Drew Sinelli' };
@@ -1598,8 +1648,13 @@
             : { kyle: 'STL', drew: 'STL', sam: 'STL', adam: 'TUL', logan: 'PHX' };
 
         // ── Identity system ───────────────────────────────────────────────
+        // Execution order at startup:
+        //   initIdentity() -> _syncPilotRoster() -> loadPilot(defaultPilot)
+        // initIdentity() sets myPilot / myToken / isDemo, registers the signed-in
+        // pilot into PILOT_KEYS if they joined after the hardcoded list was written,
+        // and applies all identity-driven UI (avatar, upload locks, add-flight gate).
         let myPilot = null; // who you ARE, resolved from ?u=TOKEN on every load
-        let myToken = null; // token from URL — kept for personal link display
+        let myToken = null; // token from URL -- kept for personal link copy
         let isDemo  = false; // read-only demo mode (/demo route)
 
         async function initIdentity() {
@@ -1626,7 +1681,7 @@
                             const firstName = (data.name || myPilot).split(' ')[0];
                             PILOT_KEYS.push(myPilot);
                             PILOT_NAMES[myPilot] = data.name || myPilot;
-                            PILOT_HOME[myPilot]  = data.base || '';
+                            PILOT_HOME[myPilot]  = data.home_airport || data.base || '';
                             PILOT_ROLES[myPilot] = data.base || '';
                             PILOT_COLORS[myPilot] = '#6366f1';
                             // Add pill buttons to DOM
@@ -1857,7 +1912,9 @@
             </div>`;
         }
 
-        // Returns true if current user is allowed to add/edit/delete for currentPilot
+        // canEdit: gates all add/edit/delete/upload UI.
+        // Admin (myPilot=null) can edit anyone. Signed-in pilots can only edit
+        // their own schedule. Demo always returns false.
         function canEdit() {
             if (isDemo) return false;
             return !myPilot || myPilot === currentPilot;
@@ -2158,6 +2215,9 @@
             });
         }
 
+        // Synthesizes 'away' day markers between consecutive flights when the pilot
+        // overnights away from their home base. Injected into segments[] so the
+        // calendar grid can color those days correctly without storing them in the DB.
         function inferAwayLayovers(segList, base) {
             const sorted = sortSegmentsByTime(segList);
             const awayEvents = [];
@@ -2197,6 +2257,10 @@
             return sortSegmentsByTime([...sorted, ...awayEvents]);
         }
 
+        // loadPilot is the main entry point for switching whose schedule is displayed.
+        // It fetches from the server, converts snake_case -> camelCase, injects away
+        // events, updates all headers/pills/active states, then calls render().
+        // Also the target for pull-to-refresh.
         function loadPilot(pilot) {
             haptic('tap');
             currentPilot = pilot;
@@ -2239,7 +2303,7 @@
                 // Sync dynamic pilot metadata from DB (role, name) — handles newly joined pilots
                 if (data.name)  PILOT_NAMES[pilot] = data.name;
                 if (data.role)  PILOT_ROLES[pilot] = data.role;
-                if (data.base)  PILOT_HOME[pilot]  = data.base;
+                PILOT_HOME[pilot] = data.home_airport || data.base || PILOT_HOME[pilot] || '';
 
                 const pilotBase = data.base || null;
                 console.log(`Loading pilot ${pilot}, base: ${pilotBase}, segments: ${segmentData.length}`);
@@ -2337,6 +2401,13 @@
             render();
         }
 
+        // computeOverlap -- 3-step pipeline:
+        //   1. buildGroundPeriods(): walk each pilot's flights and emit { airport, start, end }
+        //      periods for every ground window (gate arrival -> next departure).
+        //   2. Cross every pair of pilots' periods; airportsNear() checks metro groups first,
+        //      then haversine fallback (50 mi). classifyOverlap() assigns tier + label.
+        //   3. Render: tier 1-2 -> primary cards; tier 3 -> compact "Also Nearby" rows.
+        //      involvesMyPilot filters cards shown in "Your Crossings" vs "Other Crew".
         async function computeOverlap() {
             const container = document.getElementById('overlap-content');
             container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
@@ -3038,7 +3109,13 @@
             });
         }
 
-        // ── All-Pilots Month Map ───────────────────────────────────────────
+        // ── Map modes ─────────────────────────────────────────────────────
+        // 'mine'  (default) -- single pilot, current month, arc per unique route
+        // 'month' (mapAllMode) -- all pilots overlaid for the current month
+        // 'day'   (mapDayMode) -- all pilots on a specific day (offset arcs per pair)
+        // setMapMode() sets the booleans, updates nav button states, calls renderMap().
+        // renderMap() dispatches to renderDayMap() / renderAllPilotsMap() / inline.
+        // mapRenderGen guards against stale async renders when the user switches fast.
         function setMapMode(mode) {
             mapDayMode  = (mode === 'day');
             mapAllMode  = (mode === 'month');
@@ -3551,7 +3628,10 @@
         }
 
         // ── Live flight tracking (OpenSky Network) ────────────────────────
-        // Returns the ICAO callsign string for live ADS-B tracking
+        // deriveCallsign: converts a stored flight number to the ICAO callsign
+        // used by OpenSky (e.g. 'RPA1234' -> 'RPA1234', 'SKW567' -> 'SKW567').
+        // PILOT_CARRIER maps pilot keys to their operator ICAO (kyle='SJJ', etc.).
+        // Returns null if no flight number -- single-aircraft ops have no callsign.
         function deriveCallsign(seg, pilotKey) {
             const fn = (seg.flightNumber || seg.flight_number || '').replace(/\s/g, '').toUpperCase();
             if (fn) return normalizeFlightNum(fn, PILOT_CARRIER[pilotKey] || '') || null;
@@ -4174,6 +4254,12 @@
             });
         }
 
+        // render() rebuilds the active view from the current segments[] array.
+        // It does NOT fetch -- call loadPilot() to refresh data from the server.
+        // Routes: 'grid' -> month calendar cells | 'list' -> day rows |
+        //         'map'  -> calls renderMap()     | 'overlap' -> handled separately
+        // After every render, attachTooltips() and startCalListLivePolling() run
+        // to wire up hover details and ADS-B live badges on active flights.
         function render() {
             const gridContainer = document.getElementById('calendar-grid-content');
             const listContainer = document.getElementById('calendar-list-content');
@@ -4401,7 +4487,15 @@
             if (currentView === 'grid' || currentView === 'list') startCalListLivePolling();
         }
 
-        // --- Parsers (client-side) ---
+        // ── Client-side parsers ──────────────────────────────────────────────
+        // These run in the browser before uploading so the server receives a
+        // normalized JSON array. The server's /api/pilots/:key/upload route
+        // picks the right parser based on pilots.parser_type in the DB:
+        //   'ics'            -> parseICS()        (Schedaero .ics)
+        //   'ics_rosterbuster'-> parseICS()       (RosterBuster .ics -- same format)
+        //   'csv'            -> parseCSV()        (generic scheduling CSV)
+        //   'csv_skywest'    -> parseSkyWestCSV() (SkyWest-specific CSV layout)
+        // After parsing, uploadPilotSchedule() POSTs the events[] to the server.
         function parseICS(text) {
             const events = [];
             const blocks = text.split(/BEGIN:VEVENT/gi).slice(1);
@@ -5346,7 +5440,7 @@ let _blockUserEdited = false;
                             <div class="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black shrink-0" style="background:${color}22;color:${color}">${initials}</div>
                             <div>
                                 <div class="text-sm font-black text-white">${u.name}</div>
-                                <div class="text-[10px] text-zinc-500 font-bold">${u.pilot_key} · ${u.base || '—'} · ${u.parser_type || 'csv'}</div>
+                                <div class="text-[10px] text-zinc-500 font-bold">${u.pilot_key} · base ${u.base || '—'}${u.home_airport && u.home_airport !== u.base ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'csv'}</div>
                             </div>
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">
@@ -5377,12 +5471,13 @@ let _blockUserEdited = false;
                     document.getElementById('edit-user-first').value = nameParts[0] || '';
                     document.getElementById('edit-user-last').value = nameParts.slice(1).join(' ') || '';
                     document.getElementById('edit-user-base').value = u.base || '';
+                    document.getElementById('edit-user-home').value = u.home_airport || '';
                     document.getElementById('edit-user-airline').value = u.airline_code || '';
                     document.getElementById('edit-user-role').value = u.role || '';
                     document.getElementById('edit-user-parser').value = u.parser_type || 'csv';
                 }
             } else {
-                ['edit-user-first','edit-user-last','edit-user-base','edit-user-airline','edit-user-role'].forEach(id => document.getElementById(id).value = '');
+                ['edit-user-first','edit-user-last','edit-user-base','edit-user-home','edit-user-airline','edit-user-role'].forEach(id => document.getElementById(id).value = '');
                 document.getElementById('edit-user-parser').value = 'csv';
             }
             document.getElementById('edit-user-modal').classList.remove('hidden');
@@ -5396,10 +5491,11 @@ let _blockUserEdited = false;
             const pilotKey = document.getElementById('edit-user-key').value;
             const firstName = document.getElementById('edit-user-first').value.trim();
             const lastName  = document.getElementById('edit-user-last').value.trim();
-            const base      = document.getElementById('edit-user-base').value.trim();
-            const airline   = document.getElementById('edit-user-airline').value.trim();
-            const role      = document.getElementById('edit-user-role').value.trim();
-            const parser    = document.getElementById('edit-user-parser').value;
+            const base        = document.getElementById('edit-user-base').value.trim();
+            const homeAirport = document.getElementById('edit-user-home').value.trim();
+            const airline     = document.getElementById('edit-user-airline').value.trim();
+            const role        = document.getElementById('edit-user-role').value.trim();
+            const parser      = document.getElementById('edit-user-parser').value;
             const errEl     = document.getElementById('edit-user-error');
             const saveBtn   = document.getElementById('edit-user-save-btn');
 
@@ -5415,14 +5511,14 @@ let _blockUserEdited = false;
                     const r = await fetch(`${API_BASE}/pilots/${pilotKey}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name: `${firstName} ${lastName}`.trim(), base, role, parserType: parser, airlineCode: airline })
+                        body: JSON.stringify({ name: `${firstName} ${lastName}`.trim(), base, homeAirport, role, parserType: parser, airlineCode: airline })
                     });
                     ok = r.ok;
                 } else {
                     const r = await fetch(`${API_BASE}/join`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ firstName, lastName, base, role, parserType: parser, airlineCode: airline })
+                        body: JSON.stringify({ firstName, lastName, base, homeAirport, role, parserType: parser, airlineCode: airline })
                     });
                     ok = r.ok;
                 }
@@ -5446,7 +5542,8 @@ let _blockUserEdited = false;
         }
 
         async function confirmRegenerateToken(pilotKey, name) {
-            if (!confirm(`Generate a new login link for ${name}? Their old link will stop working.`)) return;
+            const ok = await showConfirm(`New link for ${name}?`, 'Their old link will stop working immediately.', { label: 'Regenerate', danger: false });
+            if (!ok) return;
             try {
                 const r = await fetch(`${API_BASE}/pilots/${pilotKey}/regenerate-token`, { method: 'POST' });
                 if (!r.ok) { showToast('Failed to regenerate link', 'error'); return; }
@@ -5477,7 +5574,12 @@ let _blockUserEdited = false;
             loadPilot(defaultPilot);
         });
 
-        // Fetch all pilots from DB and register any not in the hardcoded list (e.g. Brett)
+        // _syncPilotRoster -- called once at startup (non-demo only).
+        // Fetches /api/pilots and pushes any pilot not in PILOT_KEYS into:
+        //   PILOT_KEYS, PILOT_NAMES, PILOT_ROLES, PILOT_HOME, PILOT_COLORS
+        // Also creates DOM pill buttons for them, then calls _rebuildPilotDropdowns()
+        // so add-flight and upload selects include the full current roster.
+        // This is how newly joined pilots (e.g. Brett) appear without code changes.
         async function _syncPilotRoster() {
             try {
                 const pilots = await fetch('/api/pilots').then(r => r.json());
@@ -5488,7 +5590,7 @@ let _blockUserEdited = false;
                     if (!PILOT_KEYS.includes(key)) {
                         PILOT_KEYS.push(key);
                         PILOT_NAMES[key]  = p.name || key;
-                        PILOT_HOME[key]   = p.base || '';
+                        PILOT_HOME[key]   = p.home_airport || p.base || '';
                         PILOT_ROLES[key]  = p.role || p.base || '';
                         PILOT_COLORS[key] = _assignColor(key);
                         // Add pill buttons to DOM
@@ -5530,7 +5632,10 @@ let _blockUserEdited = false;
             return palette[Math.abs(hash) % palette.length];
         }
 
-        // Rebuild the add-flight pilot select and upload selects from current PILOT_KEYS
+        // _rebuildPilotDropdowns -- called after _syncPilotRoster() to keep the
+        // add-flight modal and upload selects in sync with PILOT_KEYS.
+        // Admin sees all pilots in add-flight; signed-in pilots see only themselves.
+        // Upload select is hidden entirely for signed-in pilots (they use sync button).
         function _rebuildPilotDropdowns() {
             // Add flight modal — admin sees all pilots, signed-in user sees only themselves
             const addPilotRow  = document.getElementById('add-pilot-row');
