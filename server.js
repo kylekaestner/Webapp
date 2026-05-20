@@ -1309,7 +1309,7 @@ app.get('/crew-roster', rosterAuth, (req, res) => {
   </div>
   <div style="display:flex;gap:8px;align-items:center;background:#09090b;border:1px solid #27272a;border-radius:8px;padding:8px 12px">
     <span style="flex:1;font-size:12px;color:#a1a1aa;word-break:break-all">${link}</span>
-    <button onclick="navigator.clipboard.writeText('${link}');this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)" style="background:#27272a;border:none;color:#e4e4e7;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;white-space:nowrap">Copy</button>
+    <button onclick="copyText('${link}',this)" style="background:#27272a;border:none;color:#e4e4e7;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;white-space:nowrap">Copy</button>
     <a href="${link}" target="_blank" style="background:#27272a;color:#e4e4e7;border-radius:6px;padding:4px 10px;font-size:12px;text-decoration:none;white-space:nowrap">Open</a>
   </div>
 </div>`;
@@ -1317,6 +1317,7 @@ app.get('/crew-roster', rosterAuth, (req, res) => {
         res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>CrewSync · Roster</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:24px 16px;background:#09090b;color:#e4e4e7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:640px;margin:0 auto}</style></head><body>
 <h2 style="margin:0 0 20px;font-size:20px;font-weight:700">CrewSync · Pilot Links</h2>
 <div style="display:flex;flex-direction:column;gap:12px">${cards}</div>
+<script>function copyText(t,btn){if(navigator.clipboard&&location.protocol==='https:'){navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='Copy',1500)});}else{var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');btn.textContent='✓';setTimeout(()=>btn.textContent='Copy',1500);}catch(e){}document.body.removeChild(ta);}}</script>
 </body></html>`);
     });
 });
@@ -1398,17 +1399,13 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#09090b;color:#e4
     <div class="my-link-label">This page (bookmark it)</div>
     <div class="my-link-box">
       <div class="my-link-url">${adminLink}</div>
-      <button class="btn-copy" onclick="navigator.clipboard.writeText('${adminLink}').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})">Copy</button>
+      <button class="btn-copy" onclick="copyText('${adminLink}',this)">Copy</button>
     </div>
   </div>
 </div>
 <script>
-function copy(key, link, btn) {
-  navigator.clipboard.writeText(link).then(() => {
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 2000);
-  });
-}
+function copyText(t,btn){if(navigator.clipboard&&location.protocol==='https:'){navigator.clipboard.writeText(t).then(()=>{btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy',2000)});}else{var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy',2000);}catch(e){}document.body.removeChild(ta);}}
+function copy(key,link,btn){copyText(link,btn);}
 </script>
 </body></html>`);
         });
