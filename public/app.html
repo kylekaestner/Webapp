@@ -578,14 +578,14 @@
                         </div>
                     </div>
                     <!-- Date nav row — only visible in day mode -->
-                    <div id="mobile-day-nav-bar" class="hidden items-center justify-between border-t border-zinc-800/60 px-2 py-1">
-                        <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-3 py-1.5">&#8592;</button>
+                    <div id="mobile-day-nav-bar" class="hidden items-center justify-between border-t border-zinc-800/60 px-2 py-1.5">
+                        <button onclick="stepDayNav(-1)" class="map-ctrl-pill" style="padding:8px 18px !important;font-size:14px !important">&#8592;</button>
                         <label class="relative flex-1 flex items-center justify-center cursor-pointer">
                             <span id="mobile-day-nav-label" class="text-[11px] font-black text-zinc-200 select-none"></span>
                             <!-- Full-size transparent input so native date picker opens directly on tap (more reliable than showPicker() on iOS) -->
                             <input type="date" id="mobile-day-nav-picker" onchange="pickDayNav(this.value)" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer">
                         </label>
-                        <button onclick="stepDayNav(1)" class="map-ctrl-pill px-3 py-1.5">&#8594;</button>
+                        <button onclick="stepDayNav(1)" class="map-ctrl-pill" style="padding:8px 18px !important;font-size:14px !important">&#8594;</button>
                     </div>
                 </div>
             </div>
