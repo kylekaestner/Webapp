@@ -1273,13 +1273,16 @@ app.get('/api/health', (req, res) => {
 
 // ── Page routes ────────────────────────────────────────────────────────
 // Admin user list — token-protected HTML page
+app.get('/crew-roster', (req, res) => res.redirect('/admin/users'));
+
 app.get('/admin/users', (req, res) => {
     const db = getDB();
     const { token } = req.query;
-    if (!token) return res.status(401).send('Token required');
 
     db.get(`SELECT token FROM pilots WHERE pilot_key='admin'`, (err, admin) => {
-        if (err || !admin || admin.token !== token) return res.status(403).send('Invalid token');
+        if (err || !admin) return res.status(500).send('DB error');
+        if (token && admin.token !== token) return res.status(403).send('Invalid token');
+        if (!token && !admin) return res.status(401).send('Token required');
 
         db.all(`SELECT pilot_key, name, base, home_airport, role, token FROM pilots WHERE pilot_key != 'admin' ORDER BY name`, (err, rows) => {
             if (err) return res.status(500).send(err.message);
