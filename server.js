@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -1274,6 +1275,14 @@ app.get('/api/health', (req, res) => {
 // ── Page routes ────────────────────────────────────────────────────────
 // Admin user list — token-protected HTML page
 app.get('/crew-roster', (req, res) => {
+    const auth = req.headers.authorization;
+    if (auth) {
+        const b64 = auth.replace('Basic ', '');
+        const pw = Buffer.from(b64, 'base64').toString().split(':')[1];
+        if (pw !== process.env.ROSTER_PASSWORD) return res.status(401).set('WWW-Authenticate', 'Basic realm="CrewSync"').send('Unauthorized');
+    } else {
+        return res.status(401).set('WWW-Authenticate', 'Basic realm="CrewSync"').send('Unauthorized');
+    }
     const db = getDB();
     db.all(`SELECT pilot_key, name, base, home_airport, role, token FROM pilots ORDER BY pilot_key='admin' DESC, name`, (err, rows) => {
         if (err) return res.status(500).send(err.message);
