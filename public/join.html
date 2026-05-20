@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#09090b">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <title>Join CrewSync</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body { background: #09090b; margin: 0; }
+
+        @keyframes fade-up {
+            from { opacity: 0; transform: translateY(14px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .fade-up { animation: fade-up 0.3s ease forwards; }
+        .step { display: none; }
+        .step.active { display: flex; flex-direction: column; }
+
+        .field-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #52525b;
+            margin-bottom: 6px;
+        }
+
+        .field-input {
+            display: block;
+            width: 100%;
+            background: #111113;
+            border: 1.5px solid #27272a;
+            color: #f4f4f5;
+            border-radius: 10px;
+            padding: 11px 13px;
+            font-size: 15px;
+            font-weight: 400;
+            line-height: 1.5;
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            -webkit-appearance: none;
+            appearance: none;
+            font-family: inherit;
+        }
+        .field-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+        }
+        .field-input::placeholder { color: #3f3f46; }
+        .field-input[type="file"] {
+            padding: 9px 13px;
+            cursor: pointer;
+            color: #71717a;
+            font-size: 13px;
+        }
+        .field-input[type="file"]::-webkit-file-upload-button { display: none; }
+
+        .btn-primary {
+            display: block;
+            width: 100%;
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            padding: 14px 20px;
+            font-family: inherit;
+            font-weight: 800;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-align: center;
+            text-decoration: none;
+        }
+        .btn-primary:hover { background: #3b82f6; }
+        .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .btn-ghost {
+            display: block;
+            width: 100%;
+            background: transparent;
+            color: #52525b;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 20px;
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            cursor: pointer;
+            transition: color 0.15s;
+        }
+        .btn-ghost:hover { color: #a1a1aa; }
+
+        .link-box {
+            flex: 1;
+            background: #111113;
+            border: 1.5px solid #27272a;
+            border-radius: 10px;
+            padding: 11px 13px;
+            font-family: ui-monospace, 'SF Mono', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #a1a1aa;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body class="text-zinc-100 font-sans flex flex-col items-center justify-center px-5" style="min-height:100dvh;">
+
+    <div class="w-full max-w-sm py-12">
+
+        <!-- Logo -->
+        <div class="flex items-center gap-2.5 mb-10">
+            <img src="/icon-192.png" alt="" class="w-8 h-8 rounded-xl">
+            <a href="/" class="text-blue-500 font-black italic text-xl tracking-tighter uppercase hover:text-blue-400 transition-colors">CrewSync</a>
+        </div>
+
+        <!-- Step 1 — Profile -->
+        <div class="step active fade-up" id="step-1">
+            <h1 class="text-2xl font-black text-white uppercase tracking-tight leading-none mb-1">Join the crew.</h1>
+            <p class="text-zinc-500 text-sm mb-7">Create your pilot profile to get started.</p>
+
+            <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="field-label">First Name</label>
+                        <input class="field-input" type="text" id="firstName" placeholder="First" autocomplete="given-name">
+                    </div>
+                    <div>
+                        <label class="field-label">Last Name</label>
+                        <input class="field-input" type="text" id="lastName" placeholder="Last" autocomplete="family-name">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="field-label">Crew Base <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">(airline city)</span></label>
+                        <input class="field-input" type="text" id="homeBase" placeholder="TUL" maxlength="4" style="text-transform:uppercase;letter-spacing:0.15em;font-weight:600;">
+                    </div>
+                    <div>
+                        <label class="field-label">Home Airport <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">(where you live)</span></label>
+                        <input class="field-input" type="text" id="homeAirport" placeholder="STL" maxlength="4" style="text-transform:uppercase;letter-spacing:0.15em;font-weight:600;">
+                    </div>
+                </div>
+                <div>
+                    <label class="field-label">Airline or Operation</label>
+                    <input class="field-input" type="text" id="role" placeholder="Republic Airways, Part 91 Corporate…">
+                </div>
+                <div>
+                    <label class="field-label">Schedule Source <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">— how do you get your schedule?</span></label>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px" id="parser-pills">
+                        <button type="button" onclick="selectParser('csv')" data-parser="csv" class="parser-pill pill-active" style="padding:10px 8px;border-radius:10px;border:1.5px solid #3b82f6;background:rgba(59,130,246,0.1);color:#93c5fd;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Scheduling CSV</button>
+                        <button type="button" onclick="selectParser('ics_rosterbuster')" data-parser="ics_rosterbuster" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">RosterBuster</button>
+                        <button type="button" onclick="selectParser('ics')" data-parser="ics" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Schedaero / ICS</button>
+                        <button type="button" onclick="selectParser('csv_skywest')" data-parser="csv_skywest" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SkyWest CSV</button>
+                    </div>
+                    <input type="hidden" id="parserType" value="csv">
+                </div>
+                <!-- Airline code: only shown for CSV parsers -->
+                <div id="airline-code-row" style="display:block">
+                    <label class="field-label">Airline Code <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">(optional — e.g. RPA, SKW, AA)</span></label>
+                    <input class="field-input" type="text" id="airlineCode" placeholder="RPA" maxlength="5" style="text-transform:uppercase;letter-spacing:0.15em;font-weight:600;" autocomplete="off">
+                </div>
+            </div>
+
+            <div class="mt-7 space-y-2">
+                <button class="btn-primary" onclick="goStep2()">Continue →</button>
+                <button class="btn-ghost" onclick="window.location='/'">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Step 2 — Schedule -->
+        <div class="step" id="step-2">
+            <h1 class="text-2xl font-black text-white uppercase tracking-tight leading-none mb-1">Your schedule.</h1>
+            <p class="text-zinc-500 text-sm mb-7">Upload a schedule file or paste an ICS link. You can skip this and do it later.</p>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="field-label">Schedule File <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">(CSV, PDF, or ICS)</span></label>
+                    <input class="field-input" type="file" id="scheduleFile" accept=".csv,.pdf,.ics">
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <div class="flex-1 h-px bg-zinc-800"></div>
+                    <span class="text-[11px] text-zinc-700 font-bold uppercase tracking-widest">or</span>
+                    <div class="flex-1 h-px bg-zinc-800"></div>
+                </div>
+
+                <div>
+                    <label class="field-label">ICS Calendar URL</label>
+                    <input class="field-input" type="url" id="icsUrl" placeholder="https://…/calendar.ics">
+                    <p class="text-[11px] text-zinc-600 mt-1.5 leading-relaxed">RosterBuster, Google Calendar, and most airline apps support ICS export.</p>
+                </div>
+            </div>
+
+            <div id="step2-error" class="hidden mt-4 px-4 py-3 rounded-xl border text-xs font-semibold" style="background:rgba(127,29,29,0.3);border-color:rgba(153,27,27,0.5);color:#fca5a5;"></div>
+
+            <div class="mt-7 space-y-2">
+                <button class="btn-primary" id="join-btn" onclick="submitJoin()">Create Account →</button>
+                <button class="btn-ghost" onclick="submitJoin(true)">Skip — do this later</button>
+                <button class="btn-ghost" onclick="goStep(1)">← Back</button>
+            </div>
+        </div>
+
+        <!-- Step 3 — Done -->
+        <div class="step" id="step-3">
+            <div class="w-12 h-12 rounded-2xl flex items-center justify-center mb-6" style="background:rgba(37,99,235,0.15);border:1.5px solid rgba(59,130,246,0.25);">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <h1 class="text-2xl font-black text-white uppercase tracking-tight leading-none mb-1">You're in.</h1>
+            <p class="text-zinc-500 text-sm mb-7">Your personal link is below. Add it to your Home Screen — it signs you in every time.</p>
+
+            <div class="rounded-2xl p-4 mb-4 space-y-3" style="background:#111113;border:1.5px solid #27272a;">
+                <label class="field-label">Your Personal Link</label>
+                <div class="flex gap-2">
+                    <div class="link-box" id="your-link"></div>
+                    <button onclick="copyLink()" id="copy-btn" class="px-4 rounded-xl font-bold text-xs text-white whitespace-nowrap transition-colors" style="background:#2563eb;font-family:inherit;border:none;cursor:pointer;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">Copy</button>
+                </div>
+                <p class="text-[11px] leading-relaxed" style="color:#3f3f46;">Keep this private — it's your login. Anyone with this link can access your account.</p>
+            </div>
+
+            <div class="rounded-2xl p-4 mb-7" style="background:#0d0d0f;border:1.5px solid #1c1c1f;">
+                <p class="text-[10px] font-bold uppercase tracking-widest mb-1.5" style="color:#3f3f46;">Add to Home Screen (iOS Safari)</p>
+                <p class="text-xs leading-relaxed" style="color:#52525b;">Tap <span style="color:#a1a1aa;font-weight:600;">Share ↑</span> · then <span style="color:#a1a1aa;font-weight:600;">Add to Home Screen</span></p>
+            </div>
+
+            <a id="open-app-btn" href="#" class="btn-primary">Open CrewSync →</a>
+        </div>
+
+    </div>
+
+    <script>
+        function selectParser(type) {
+            document.getElementById('parserType').value = type;
+            document.querySelectorAll('.parser-pill').forEach(btn => {
+                const active = btn.dataset.parser === type;
+                btn.style.borderColor  = active ? '#3b82f6' : '#27272a';
+                btn.style.background   = active ? 'rgba(59,130,246,0.1)' : '#111113';
+                btn.style.color        = active ? '#93c5fd' : '#52525b';
+            });
+            // Show airline code only for CSV types
+            const showCode = type === 'csv' || type === 'csv_skywest';
+            document.getElementById('airline-code-row').style.display = showCode ? 'block' : 'none';
+        }
+
+        function goStep(n) {
+            document.querySelectorAll('.step').forEach(s => s.classList.remove('active', 'fade-up'));
+            const el = document.getElementById(`step-${n}`);
+            el.classList.add('active');
+            void el.offsetWidth;
+            el.classList.add('fade-up');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function goStep2() {
+            const fn = document.getElementById('firstName').value.trim();
+            const ln = document.getElementById('lastName').value.trim();
+            const missing = !fn ? 'firstName' : !ln ? 'lastName' : null;
+            if (missing) {
+                const el = document.getElementById(missing);
+                el.focus();
+                el.style.borderColor = '#ef4444';
+                el.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.12)';
+                setTimeout(() => { el.style.borderColor = ''; el.style.boxShadow = ''; }, 1800);
+                return;
+            }
+            goStep(2);
+        }
+
+        async function submitJoin(skipSchedule = false) {
+            const btn   = document.getElementById('join-btn');
+            const errEl = document.getElementById('step2-error');
+            errEl.classList.add('hidden');
+            btn.disabled = true;
+            btn.textContent = 'Creating…';
+
+            const firstName   = document.getElementById('firstName').value.trim();
+            const lastName    = document.getElementById('lastName').value.trim();
+            const base        = document.getElementById('homeBase').value.trim().toUpperCase();
+            const role        = document.getElementById('role').value.trim();
+            const parserType  = document.getElementById('parserType').value;
+            const airlineCode = document.getElementById('airlineCode').value.trim().toUpperCase();
+
+            try {
+                const resp = await fetch('/api/join', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ firstName, lastName, base, role, parserType, airlineCode })
+                });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error || 'Failed to create account');
+
+                if (!skipSchedule) {
+                    const file   = document.getElementById('scheduleFile').files[0];
+                    const icsUrl = document.getElementById('icsUrl').value.trim();
+                    if (file) {
+                        const fd = new FormData();
+                        fd.append('file', file);
+                        await fetch(`/api/pilots/${data.pilotKey}/upload`, { method: 'POST', body: fd });
+                    } else if (icsUrl) {
+                        await fetch(`/api/pilots/${data.pilotKey}/sync-ics`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ url: icsUrl })
+                        });
+                    }
+                }
+
+                const link = `${location.origin}/app?u=${data.token}`;
+                document.getElementById('your-link').textContent = link;
+                document.getElementById('open-app-btn').href = link;
+                goStep(3);
+
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.classList.remove('hidden');
+                btn.disabled = false;
+                btn.textContent = 'Create Account →';
+            }
+        }
+
+        async function copyLink() {
+            const link = document.getElementById('your-link').textContent;
+            const btn  = document.getElementById('copy-btn');
+            try {
+                await navigator.clipboard.writeText(link);
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            } catch { /* ignore */ }
+        }
+    </script>
+</body>
+</html>

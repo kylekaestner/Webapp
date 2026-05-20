@@ -352,6 +352,9 @@
             </button>
         </div>
 
+        <!-- Sidebar: next trip widget (signed-in users only) -->
+        <div id="sidebar-next-trip" class="hidden px-4 pt-3 pb-1 shrink-0"></div>
+
         <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="p-4 space-y-1">
             <p class="text-[10px] font-black text-zinc-600 uppercase px-2 mb-2">Navigation</p>
@@ -377,7 +380,7 @@
             <button onclick="switchView('overlap')" id="btn-overlap" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🤝 Location Overlap</button>
         </div>
 
-        <div class="p-4 space-y-1 mt-4">
+        <div id="sidebar-pilot-list" class="p-4 space-y-1 mt-4">
             <p class="text-[10px] font-black text-zinc-600 uppercase px-2 mb-2">Crew Selection</p>
             <button onclick="loadPilot('kyle')" id="pilot-kyle" class="w-full text-left p-4 rounded-xl border border-zinc-800 hover:border-blue-500 transition-colors">
                 <span class="text-[9px] block text-zinc-500 font-black uppercase">Kyle</span>
@@ -403,21 +406,21 @@
 
         </div><!-- end scrollable area -->
 
-        <div class="shrink-0 px-3 py-2.5 border-t border-zinc-800 bg-black/20 space-y-1.5">
-            <div id="sidebar-upload-pilot-row" class="space-y-1 hidden">
+        <div class="shrink-0 px-3 py-2 border-t border-zinc-800 bg-black/20 space-y-1.5">
+            <div id="upload-for-row" class="space-y-1">
                 <label class="text-[9px] font-black text-zinc-600 uppercase px-1 block">Upload For</label>
                 <select id="upload-pilot-select" onchange="updateUploadSyncButtons(this.value)" class="w-full px-2 py-1.5 rounded-lg border border-zinc-700 bg-zinc-900 text-xs font-bold text-zinc-100 hover:border-blue-500 transition">
-                    <option value="kyle">Kyle</option>
-                    <option value="adam">Adam</option>
-                    <option value="sam">Sam</option>
-                    <option value="logan">Logan</option>
-                    <option value="drew">Drew</option>
+                    <option value="kyle">Kyle Kaestner</option>
+                    <option value="adam">Adam Burke</option>
+                    <option value="sam">Sam Byrne</option>
+                    <option value="logan">Logan Hine</option>
+                    <option value="drew">Drew Sinelli</option>
                 </select>
             </div>
             <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
-            <button id="btn-upload-file" onclick="document.getElementById('file-input').accept='.ics,.csv';document.getElementById('file-input').click()" class="hidden w-full py-2 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-lg transition text-[10px] font-black uppercase">Upload Schedule</button>
-            <button id="btn-sync-schedaero" onclick="openSchedaeroSync()" class="hidden w-full py-2 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-lg transition text-[10px] font-black uppercase">⟳ Sync Schedule</button>
-            <button id="btn-sync-drew-ics" onclick="openDrewICSSync()" class="hidden w-full py-2 border border-zinc-800 hover:border-teal-500 text-zinc-600 hover:text-teal-400 rounded-lg transition text-[10px] font-black uppercase">⟳ Sync Schedule</button>
+            <button id="btn-upload-schedule" onclick="triggerUpload('upload-pilot-select','file-input')" class="w-full py-1.5 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-lg transition text-[9px] font-black uppercase text-center">↑ Upload Schedule</button>
+            <button id="btn-sync-schedaero" onclick="openSchedaeroSync()" class="hidden w-full py-1.5 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedaero</button>
+            <button id="btn-sync-drew-ics" onclick="openDrewICSSync()" class="hidden w-full py-1.5 border border-zinc-800 hover:border-teal-500 text-zinc-600 hover:text-teal-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedule</button>
         </div>
     </div>
 
@@ -441,7 +444,7 @@
             </div>
             <div class="flex items-center gap-2">
                 <button onclick="openViewHelp()" class="w-8 h-8 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 text-xs font-black transition-colors">?</button>
-                <button onclick="openAddFlight()" class="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-wide transition-colors">
+                <button id="btn-add-flight-desktop" onclick="openAddFlight()" class="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-wide transition-colors">
                     <span class="text-base leading-none">+</span> Add Flight
                 </button>
             </div>
@@ -463,12 +466,23 @@
                 <button onclick="changeMonth(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">‹</button>
                 <button onclick="changeMonth(1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">›</button>
                 <button onclick="openViewHelp()" class="w-8 h-8 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 font-black text-xs ml-0.5">?</button>
-                <button onclick="openAddFlight()" class="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-600 text-white font-black text-base ml-0.5">+</button>
+                <button id="btn-add-flight-mobile" onclick="openAddFlight()" class="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-600 text-white font-black text-base ml-0.5">+</button>
             </div>
         </header>
 
+        <!-- Demo mode banner -->
+        <div id="demo-banner" class="hidden shrink-0 px-4 py-2 text-center text-[11px] font-black uppercase tracking-widest" style="background:rgba(234,179,8,0.1);border-bottom:1px solid rgba(234,179,8,0.2);color:#ca8a04;">
+            Demo Mode — Read Only &nbsp;·&nbsp; <a href="/join" style="color:#eab308;text-decoration:underline;text-underline-offset:2px;">Join CrewSync</a>
+        </div>
+
+        <!-- Empty schedule prompt (shown for newly joined pilot with no data yet) -->
+        <div id="empty-schedule-banner" class="hidden shrink-0 px-4 py-3 flex items-center justify-between gap-3" style="background:rgba(99,102,241,0.08);border-bottom:1px solid rgba(99,102,241,0.2);">
+            <span class="text-xs text-indigo-300 font-black uppercase tracking-wide">No schedule yet — add your first flight or upload your schedule</span>
+            <button onclick="openUploadSheet()" class="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wide transition-colors">Upload</button>
+        </div>
+
         <!-- Mobile pilot selector bar -->
-        <div class="md:hidden flex gap-2 px-3 py-2 bg-zinc-950 border-b border-zinc-800 shrink-0 overflow-x-auto">
+        <div id="mobile-pilot-bar" class="md:hidden flex gap-2 px-3 py-2 bg-zinc-950 border-b border-zinc-800 shrink-0 overflow-x-auto">
             <button onclick="loadPilot('kyle')" id="mpilot-kyle" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Kyle</button>
             <button onclick="loadPilot('adam')" id="mpilot-adam" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Adam</button>
             <button onclick="loadPilot('sam')" id="mpilot-sam" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">Sam</button>
@@ -571,7 +585,6 @@
                                 <button onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">Refresh</button>
                             </div>
                         </div>
-                        <div id="overlap-summary" class="hidden px-6 pb-4"></div>
                     </div>
                     <div id="overlap-content" class="space-y-3 px-6">
                         <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate overlaps</div>
@@ -598,9 +611,9 @@
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="12" r="6.5"/><circle cx="15" cy="12" r="6.5"/></svg>
                 <span class="text-[8px] font-black uppercase tracking-wide leading-none">Overlap</span>
             </button>
-            <button onclick="openMobileUpload()" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
+            <button id="btn-upload-nav" onclick="openUploadSheet()" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <span id="mbtn-upload-label" class="text-[8px] font-black uppercase tracking-wide leading-none">Upload</span>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Upload</span>
             </button>
         </nav>
     </div>
@@ -623,8 +636,8 @@
                     <button onclick="setAddFlightType('personal')" id="ftype-personal" class="py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Personal</button>
                 </div>
                 <!-- Pilot + Date -->
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
+                <div id="add-pilot-date-grid" class="grid grid-cols-2 gap-3">
+                    <div id="add-pilot-row">
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Pilot</label>
                         <select id="add-pilot" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
                             <option value="kyle">Kyle Kaestner</option>
@@ -812,11 +825,6 @@
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Metro Areas</p>
                     <p>Airports in the same city are grouped — JFK, LGA, EWR, and TEB all count as "New York Area." The specific airports are shown in smaller text below the city name.</p>
-                </div>
-
-                <div class="space-y-1.5">
-                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Your Upcoming Crossings</p>
-                    <p>Pinned at the top — your next 14 days of real crossings. <strong class="text-zinc-300">Tap any row</strong> to jump to the full card. Refreshes automatically when you switch crew members.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -1012,9 +1020,9 @@
         <div class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl p-6 space-y-4">
             <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto mb-2"></div>
             <h3 class="text-sm font-black uppercase tracking-widest text-zinc-400 text-center">Upload Schedule</h3>
-            <div id="mobile-upload-pilot-row" class="space-y-2">
+            <div class="space-y-2">
                 <label class="text-[10px] font-black text-zinc-500 uppercase block">Upload For</label>
-                <select id="mobile-upload-pilot-select" class="w-full p-3 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100">
+                <select id="mobile-upload-pilot-select" onchange="updateUploadSyncButtons(this.value)" class="w-full p-3 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100">
                     <option value="kyle">Kyle Kaestner</option>
                     <option value="adam">Adam Burke</option>
                     <option value="sam">Sam Byrne</option>
@@ -1023,7 +1031,9 @@
                 </select>
             </div>
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
-            <button onclick="triggerUpload('mobile-upload-pilot-select','mobile-file-input')" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
+            <button id="mobile-upload-file-btn" onclick="triggerUpload('mobile-upload-pilot-select','mobile-file-input')" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
+            <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');quickSyncSchedaero()" class="w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
+            <button id="mobile-sync-drew-ics-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openDrewICSSync()" class="hidden w-full py-3 border border-teal-800 text-teal-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedule (Drew)</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
     </div>
@@ -1060,14 +1070,121 @@
                 <div class="space-y-2" id="crew-visibility-btns"></div>
             </div>
 
+            <!-- Admin: manage users -->
+            <div id="admin-manage-section" class="hidden border-t border-zinc-800 pt-4">
+                <button onclick="closeProfile();openAdminPanel()" class="w-full py-2.5 border border-indigo-800/60 text-indigo-400 hover:text-indigo-300 hover:border-indigo-600 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">★ Manage Users</button>
+            </div>
+
             <button onclick="closeProfile()" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Done</button>
+            <button id="sign-out-btn" onclick="signOut()" class="hidden w-full py-3 border border-red-900/60 text-red-500/70 rounded-xl font-black uppercase text-xs tracking-wide hover:border-red-700 hover:text-red-400 transition-colors">Sign Out</button>
         </div>
     </div>
+</div>
+
+<!-- Admin Panel Modal -->
+<div id="admin-panel" class="hidden fixed inset-0 z-[1002] flex items-end md:items-center md:justify-center" onclick="if(event.target===this)closeAdminPanel()">
+    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+    <div class="relative w-full md:max-w-2xl bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl flex flex-col" style="max-height:90vh" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-800 shrink-0">
+            <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Manage Users</h3>
+            <div class="flex items-center gap-3">
+                <button onclick="openEditUserModal(null)" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-black uppercase text-[10px] tracking-wide transition-colors">+ Add User</button>
+                <button onclick="closeAdminPanel()" class="text-zinc-500 hover:text-zinc-300 text-xl leading-none">✕</button>
+            </div>
+        </div>
+        <div id="admin-user-list" class="overflow-y-auto p-4 space-y-2 flex-1 min-h-0"></div>
+    </div>
+</div>
+
+<!-- Edit / Add User Modal -->
+<div id="edit-user-modal" class="hidden fixed inset-0 z-[1003] flex items-center justify-center" onclick="if(event.target===this)closeEditUserModal()">
+    <div class="absolute inset-0 bg-black/70"></div>
+    <div class="relative w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-6 space-y-4 mx-4" onclick="event.stopPropagation()">
+        <h3 id="edit-user-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Add User</h3>
+        <input type="hidden" id="edit-user-key">
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">First Name</label>
+                <input id="edit-user-first" type="text" placeholder="Kyle" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Last Name</label>
+                <input id="edit-user-last" type="text" placeholder="Kaestner" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Base</label>
+                <input id="edit-user-base" type="text" placeholder="KSUS" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline Code</label>
+                <input id="edit-user-airline" type="text" placeholder="SWA" maxlength="3" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+        </div>
+        <div>
+            <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Role / Description</label>
+            <input id="edit-user-role" type="text" placeholder="Corporate · KSUS" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+        </div>
+        <div>
+            <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Schedule Parser</label>
+            <select id="edit-user-parser" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                <option value="csv">CSV (Republic / SkyWest app)</option>
+                <option value="ics">ICS calendar (Schedaero)</option>
+                <option value="rosterbuster_ics">RosterBuster ICS</option>
+            </select>
+        </div>
+        <div id="edit-user-error" class="hidden text-xs text-red-400 font-bold"></div>
+        <div class="flex gap-3 pt-1">
+            <button onclick="closeEditUserModal()" class="flex-1 py-2.5 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
+            <button id="edit-user-save-btn" onclick="saveUser()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Modal -->
+<div id="confirm-modal" class="hidden fixed inset-0 z-[1010] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)_confirmReject()">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-xs bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+        <div class="px-6 pt-6 pb-5 space-y-2">
+            <p id="confirm-title" class="text-sm font-black uppercase tracking-wide text-white"></p>
+            <p id="confirm-body" class="text-xs text-zinc-400 leading-relaxed"></p>
+        </div>
+        <div class="flex border-t border-zinc-800">
+            <button onclick="_confirmReject()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Cancel</button>
+            <button id="confirm-ok-btn" onclick="_confirmAccept()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-red-400 hover:text-red-300 hover:bg-red-950/30 transition-colors">Delete</button>
+        </div>
+    </div>
+</div>
 
     <script>
-        // Server-side data store
+        // Server-side data store — swapped to demo endpoints on /demo route
         const pilotsCache = {};
-        const API_BASE = '/api';
+        const _isDemo = window.location.pathname === '/demo';
+        const API_BASE = _isDemo ? '/api/demo' : '/api';
+
+        let _confirmCallback = null;
+        function showConfirm(title, body, { label = 'Delete', danger = true } = {}) {
+            return new Promise(resolve => {
+                _confirmCallback = resolve;
+                document.getElementById('confirm-title').textContent = title;
+                document.getElementById('confirm-body').textContent = body;
+                const okBtn = document.getElementById('confirm-ok-btn');
+                okBtn.textContent = label;
+                okBtn.className = `flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide transition-colors ${danger ? 'text-red-400 hover:text-red-300 hover:bg-red-950/30' : 'text-blue-400 hover:text-blue-300 hover:bg-blue-950/30'}`;
+                document.getElementById('confirm-modal').classList.remove('hidden');
+            });
+        }
+        function _confirmAccept() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            _confirmCallback?.(true);
+            _confirmCallback = null;
+        }
+        function _confirmReject() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            _confirmCallback?.(false);
+            _confirmCallback = null;
+        }
 
         function showToast(msg, type = 'success', duration = 3800) {
             const icons = { success: '✓', error: '✕', info: 'ℹ' };
@@ -1464,30 +1581,110 @@
         let mapRenderGen = 0;
         const _localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
         let mapDayDate = _localToday();
-        const PILOT_KEYS = ['kyle', 'adam', 'sam', 'logan', 'drew'];
-        const VALID_PILOTS = PILOT_KEYS; // global alias used by identity system
-        const PILOT_COLORS = { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185' };
+        const PILOT_KEYS   = _isDemo ? ['alex','morgan','casey','jordan'] : ['kyle','adam','sam','logan','drew'];
+        const VALID_PILOTS = PILOT_KEYS;
+        const PILOT_COLORS = _isDemo
+            ? { alex: '#3b82f6', morgan: '#2dd4bf', casey: '#f97316', jordan: '#818cf8' }
+            : { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185' };
         const hiddenPilots = new Set();
-        const PILOT_NAMES = { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine', drew: 'Drew Sinelli' };
-        const PILOT_ROLES = { kyle: 'Corporate · SUS', adam: 'Regional · TUL', sam: 'Regional · STL', logan: 'Regional · PHX', drew: 'Regional · STL' };
-        // Where each pilot actually lives (not airline crew base)
-        const PILOT_HOME = { kyle: 'STL', drew: 'STL', sam: 'STL', adam: 'TUL', logan: 'PHX' };
+        const PILOT_NAMES = _isDemo
+            ? { alex: 'Alex Rivera', morgan: 'Morgan Tate', casey: 'Casey Walsh', jordan: 'Jordan Ellis' }
+            : { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine', drew: 'Drew Sinelli' };
+        const PILOT_ROLES = _isDemo
+            ? { alex: 'Major · ORD', morgan: 'Major · ATL', casey: 'Low-Cost · DEN', jordan: 'Major · JFK' }
+            : { kyle: 'Corporate · SUS', adam: 'Regional · TUL', sam: 'Regional · STL', logan: 'Regional · PHX', drew: 'Regional · STL' };
+        const PILOT_HOME = _isDemo
+            ? { alex: 'ORD', morgan: 'ATL', casey: 'DEN', jordan: 'JFK' }
+            : { kyle: 'STL', drew: 'STL', sam: 'STL', adam: 'TUL', logan: 'PHX' };
 
         // ── Identity system ───────────────────────────────────────────────
-        let myPilot = null; // who you ARE (persists), vs currentPilot (who you're viewing)
+        let myPilot = null; // who you ARE, resolved from ?u=TOKEN on every load
+        let myToken = null; // token from URL — kept for personal link display
+        let isDemo  = false; // read-only demo mode (/demo route)
 
-        function initIdentity() {
-            const urlPilot = new URLSearchParams(window.location.search).get('pilot');
-            const stored   = localStorage.getItem('myPilot');
-            if (urlPilot && VALID_PILOTS.includes(urlPilot)) {
-                myPilot = urlPilot;
-                localStorage.setItem('myPilot', urlPilot);
-            } else if (stored && VALID_PILOTS.includes(stored)) {
-                myPilot = stored;
+        async function initIdentity() {
+            const params   = new URLSearchParams(window.location.search);
+            const urlToken = params.get('u');
+            const urlPilot = params.get('pilot'); // admin/dev override
+
+            isDemo = window.location.pathname === '/demo';
+
+            if (urlToken) {
+                try {
+                    const resp = await fetch(`/api/pilots/by-token/${encodeURIComponent(urlToken)}`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        myToken = urlToken;
+                        if (data.pilotKey === 'admin') {
+                            // Admin token → full access, no crew identity
+                            myPilot = null;
+                        } else {
+                            myPilot = data.pilotKey;
+                        }
+                        // Dynamically register pilot if not in the hardcoded list (e.g., newly joined)
+                        if (myPilot && !PILOT_KEYS.includes(myPilot)) {
+                            const firstName = (data.name || myPilot).split(' ')[0];
+                            PILOT_KEYS.push(myPilot);
+                            PILOT_NAMES[myPilot] = data.name || myPilot;
+                            PILOT_HOME[myPilot]  = data.base || '';
+                            PILOT_ROLES[myPilot] = data.base || '';
+                            PILOT_COLORS[myPilot] = '#6366f1';
+                            // Add pill buttons to DOM
+                            const mobileBar = document.getElementById('mobile-pilot-bar');
+                            if (mobileBar && !document.getElementById(`mpilot-${myPilot}`)) {
+                                const mb = document.createElement('button');
+                                mb.onclick = () => loadPilot(myPilot);
+                                mb.id = `mpilot-${myPilot}`;
+                                mb.className = 'mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap';
+                                mb.textContent = firstName;
+                                mobileBar.appendChild(mb);
+                            }
+                            const sidebarList = document.getElementById('sidebar-pilot-list');
+                            if (sidebarList && !document.getElementById(`pilot-${myPilot}`)) {
+                                const db = document.createElement('button');
+                                db.onclick = () => loadPilot(myPilot);
+                                db.id = `pilot-${myPilot}`;
+                                db.className = 'w-full text-left p-4 rounded-xl border border-zinc-800 hover:border-blue-500 transition-colors';
+                                db.innerHTML = `<span class="text-[9px] block text-zinc-500 font-black uppercase">${firstName}</span><span class="font-bold text-sm tracking-tight">${PILOT_NAMES[myPilot]}</span>`;
+                                sidebarList.appendChild(db);
+                            }
+                        }
+                    } else {
+                        window.location.replace('/');
+                        return;
+                    }
+                } catch { /* network error — let them in, token was at least present */ }
+            } else if (!isDemo) {
+                // No token, not demo — redirect to landing
+                window.location.replace('/');
+                return;
             }
-            // null myPilot = admin/guest (bare URL)
+
+            // Demo banner
+            const banner = document.getElementById('demo-banner');
+            if (banner) banner.classList.toggle('hidden', !isDemo);
+
             _applyIdentityUI();
             _applyPilotPillVisibility();
+            _reorderPilotPills();
+            _applyEditPermissions();
+        }
+
+        // Move myPilot's pill to the front of both pill bars
+        function _reorderPilotPills() {
+            if (!myPilot) return;
+            const mobileBar = document.getElementById('mobile-pilot-bar');
+            const myMobile  = document.getElementById(`mpilot-${myPilot}`);
+            if (mobileBar && myMobile) mobileBar.prepend(myMobile);
+
+            const sidebarList = document.getElementById('sidebar-pilot-list');
+            const myDesk      = document.getElementById(`pilot-${myPilot}`);
+            // prepend after the label (first child is the <p> label)
+            if (sidebarList && myDesk) {
+                const label = sidebarList.querySelector('p');
+                if (label) label.after(myDesk);
+                else sidebarList.prepend(myDesk);
+            }
         }
 
         // ── Crew visibility ───────────────────────────────────────────────
@@ -1557,21 +1754,23 @@
             const linkDisplay = document.getElementById('profile-link-display');
             const linkSection = document.getElementById('profile-link-section');
             if (myPilot) {
-                const url = new URL(window.location.href);
-                url.searchParams.set('pilot', myPilot);
-                url.hash = '';
-                if (linkDisplay) linkDisplay.textContent = url.toString();
+                if (linkDisplay) linkDisplay.textContent = location.href;
                 if (linkSection) linkSection.classList.remove('hidden');
             } else {
                 if (linkSection) linkSection.classList.add('hidden');
             }
 
-            // Hide crew visibility section for admin (no identity)
+            // Hide crew visibility + sign-out for admin (no identity)
             const cvSection = document.getElementById('crew-visibility-section');
             if (cvSection) cvSection.classList.toggle('hidden', !myPilot);
+            const signOutBtn = document.getElementById('sign-out-btn');
+            if (signOutBtn) signOutBtn.classList.toggle('hidden', !myPilot);
+
+            // Show manage-users button only for admin with a token
+            const adminSection = document.getElementById('admin-manage-section');
+            if (adminSection) adminSection.classList.toggle('hidden', !!myPilot || !myToken);
 
             _buildCrewVisibilityUI();
-            _applyUploadUI();
         }
 
         function _buildCrewVisibilityUI() {
@@ -1627,13 +1826,78 @@
             document.getElementById('profile-sheet').classList.add('hidden');
         }
 
+        function signOut() {
+            window.location.href = '/app';
+        }
+
+        // Sidebar widget: shows signed-in pilot's next upcoming flight
+        function _updateNextTripWidget(pilot, segs) {
+            const el = document.getElementById('sidebar-next-trip');
+            if (!el) return;
+            // Only show when the signed-in pilot is viewing their own schedule
+            if (!myPilot || pilot !== myPilot) { el.classList.add('hidden'); return; }
+            const now = new Date();
+            const next = segs
+                .filter(s => s.type === 'flight' && s.departureTime && new Date(s.departureTime) > now)
+                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+            if (!next) { el.classList.add('hidden'); return; }
+            const dep  = new Date(next.departureTime);
+            const isToday    = dep.toDateString() === now.toDateString();
+            const isTomorrow = dep.toDateString() === new Date(now.getTime() + 86400000).toDateString();
+            const dayLabel   = isToday ? 'Today' : isTomorrow ? 'Tomorrow'
+                : dep.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            const color = PILOT_COLORS[myPilot] || '#6366f1';
+            el.classList.remove('hidden');
+            el.innerHTML = `<div class="rounded-xl px-3 py-2.5" style="background:${color}12;border:1px solid ${color}28">
+                <div class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:${color}99">Your Next Flight</div>
+                <div class="flex items-baseline gap-1.5">
+                    <span class="text-sm font-black text-white">${next.departureAirport} → ${next.arrivalAirport}</span>
+                </div>
+                <div class="text-[10px] mt-0.5" style="color:${color}cc">${dayLabel}</div>
+            </div>`;
+        }
+
+        // Returns true if current user is allowed to add/edit/delete for currentPilot
+        function canEdit() {
+            if (isDemo) return false;
+            return !myPilot || myPilot === currentPilot;
+        }
+
+        // Show/hide add-flight controls based on identity vs. currently viewed pilot
+        function _applyEditPermissions() {
+            const ok = canEdit();
+            const btnD = document.getElementById('btn-add-flight-desktop');
+            const btnM = document.getElementById('btn-add-flight-mobile');
+            if (btnD) btnD.classList.toggle('hidden', !ok);
+            if (btnM) btnM.classList.toggle('hidden', !ok);
+            // Lock desktop upload select to myPilot when identified; hide it for signed-in pilots
+            const desktopSelect = document.getElementById('upload-pilot-select');
+            document.getElementById('upload-for-row')?.classList.toggle('hidden', !!myPilot);
+            if (desktopSelect && myPilot) {
+                desktopSelect.value = myPilot;
+                desktopSelect.disabled = true;
+                updateUploadSyncButtons(myPilot);
+            } else if (desktopSelect) {
+                desktopSelect.disabled = false;
+            }
+        }
+
+        // Open the upload sheet, restricting pilot select to myPilot when identified
+        function openUploadSheet() {
+            const p = myPilot || currentPilot || 'kyle';
+            const mobileSelect = document.getElementById('mobile-upload-pilot-select');
+            if (mobileSelect) {
+                mobileSelect.value = p;
+                mobileSelect.disabled = !!myPilot; // identified pilots can only upload for themselves
+            }
+            updateUploadSyncButtons(p);
+            document.getElementById('mobile-upload-sheet').classList.remove('hidden');
+        }
+
         async function copyMyLink() {
             if (!myPilot) return;
-            const url = new URL(window.location.href);
-            url.searchParams.set('pilot', myPilot);
-            url.hash = '';
             try {
-                await navigator.clipboard.writeText(url.toString());
+                await navigator.clipboard.writeText(location.href);
                 haptic('success');
                 showToast('Link copied!', 'success', 2000);
             } catch {
@@ -1937,6 +2201,7 @@
             haptic('tap');
             currentPilot = pilot;
             localStorage.setItem('lastPilot', pilot);
+            _applyEditPermissions();
 
             const loadingOverlay = document.getElementById('loading-overlay');
             loadingOverlay.classList.add('loading-active');
@@ -1971,16 +2236,36 @@
                 // Cache pilot data for use in render()
                 pilotsCache[pilot] = data;
 
+                // Sync dynamic pilot metadata from DB (role, name) — handles newly joined pilots
+                if (data.name)  PILOT_NAMES[pilot] = data.name;
+                if (data.role)  PILOT_ROLES[pilot] = data.role;
+                if (data.base)  PILOT_HOME[pilot]  = data.base;
+
                 const pilotBase = data.base || null;
                 console.log(`Loading pilot ${pilot}, base: ${pilotBase}, segments: ${segmentData.length}`);
                 segments = inferAwayLayovers(segmentData || [], pilotBase);
                 const displayName = data.name || pilot;
-                document.getElementById('pilot-header').textContent = displayName;
+                const firstName   = displayName.split(' ')[0];
+                // Personalized header: "Your Schedule" / "[Name]'s Schedule" / full name for admin
+                let headerText, mobileHeaderText;
+                if (myPilot && pilot === myPilot) {
+                    headerText = 'Your Schedule';
+                    mobileHeaderText = 'YOU';
+                } else if (myPilot) {
+                    headerText = `${firstName}'s Schedule`;
+                    mobileHeaderText = firstName.toUpperCase();
+                } else {
+                    headerText = displayName;
+                    mobileHeaderText = firstName.toUpperCase();
+                }
+                document.getElementById('pilot-header').textContent = headerText;
                 // Sync mobile header
                 const mobileHeader = document.getElementById('pilot-header-mobile');
-                if (mobileHeader) mobileHeader.textContent = displayName.split(' ')[0].toUpperCase();
+                if (mobileHeader) mobileHeader.textContent = mobileHeaderText;
+                // Update sidebar next-trip widget when viewing own schedule
+                _updateNextTripWidget(pilot, segmentData);
                 // Sync desktop sidebar pilot active states
-                ['kyle','adam','sam','logan','drew'].forEach(k => {
+                PILOT_KEYS.forEach(k => {
                     const btn = document.getElementById(`pilot-${k}`);
                     if (!btn) return;
                     if (k === pilot) {
@@ -2008,6 +2293,12 @@
                 // Re-apply identity tint to "you" pill (if different from active)
                 _applyPillIdentity();
                 render();
+                // Show empty-state prompt for newly joined pilots viewing their own blank schedule
+                const emptyBanner = document.getElementById('empty-schedule-banner');
+                if (emptyBanner) {
+                    const isOwn = myPilot && myPilot === pilot && !isDemo;
+                    emptyBanner.classList.toggle('hidden', !(isOwn && segmentData.length === 0));
+                }
                 if (currentView === 'overlap') computeOverlap();
                 dismissSplash();
             });
@@ -2048,8 +2339,6 @@
 
         async function computeOverlap() {
             const container = document.getElementById('overlap-content');
-            const summaryElReset = document.getElementById('overlap-summary');
-            if (summaryElReset) { summaryElReset.innerHTML = ''; summaryElReset.classList.add('hidden'); }
             container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
 
             const now = new Date();
@@ -2306,57 +2595,6 @@
             const primary   = unique.filter(o => (o.classification?.tier || 3) <= 2 && involvesMe(o));
             const secondary = unique.filter(o => (o.classification?.tier || 3) >= 3 && involvesMe(o));
 
-            // "Near me" summary: tier-1 overlaps involving currentPilot within 14 days
-            const cutoff14 = new Date(now.getTime() + 14 * 86400000);
-            const myUpcoming = primary.filter(o =>
-                (o.kA === currentPilot || o.kB === currentPilot) &&
-                o.isDirect &&
-                (o.classification?.tier || 3) === 1 &&
-                o.directEnd > now &&
-                o.directStart < cutoff14
-            ).slice(0, 4);
-
-            const summaryEl = document.getElementById('overlap-summary');
-            if (myUpcoming.length > 0) {
-                const summaryItems = myUpcoming.map(o => {
-                    const cardIdx = primary.indexOf(o);
-                    const other = o.kA === currentPilot ? o.kB : o.kA;
-                    const otherName = PILOT_NAMES[other].split(' ')[0];
-                    const otherColor = PILOT_COLORS[other];
-                    const loc = locationLabel(o.airport, o.airportB);
-                    const locSubSum = locationSub(o.airport, o.airportB);
-                    const isNow = o.directStart <= now && o.directEnd >= now;
-                    const refTime = isNow ? now : o.directStart;
-                    const dayLabel = isNow ? 'Right now' : localDateStr(refTime) === todayStr ? 'Today' :
-                        localDateStr(refTime) === tomorrowStr ? 'Tomorrow' : fmtDateShort(refTime);
-                    const dur = fmtDur(o.directEnd - o.directStart);
-                    const cls = o.classification;
-                    return `<div class="flex items-center gap-3 py-2.5 border-b border-zinc-800/50 last:border-0 cursor-pointer hover:bg-zinc-800/30 -mx-4 px-4 rounded transition-colors" onclick="scrollToOverlapCard(${cardIdx})">
-                        <span class="w-2 h-2 rounded-full shrink-0" style="background:${otherColor}"></span>
-                        <div class="flex-1 min-w-0">
-                            <span class="font-black text-xs" style="color:${otherColor}">${otherName}</span>
-                            <span class="text-xs text-zinc-400"> · ${loc}${locSubSum ? ` <span class="font-mono text-zinc-600">(${locSubSum})</span>` : ''}</span>
-                            ${cls?.label ? `<span class="text-[10px] font-bold ml-1.5 px-1.5 py-0.5 rounded-full" style="background:${cls.color}22;color:${cls.color}">${cls.label}</span>` : ''}
-                        </div>
-                        <div class="text-right shrink-0">
-                            <div class="text-[11px] font-black text-zinc-300">${dayLabel}</div>
-                            ${dur ? `<div class="text-[10px] text-zinc-500">${dur}</div>` : ''}
-                        </div>
-                        <span class="text-zinc-700 text-xs ml-1">›</span>
-                    </div>`;
-                }).join('');
-                summaryEl.innerHTML = `<div class="rounded-xl border border-zinc-700/60 bg-zinc-900/60 overflow-hidden">
-                    <div class="px-4 py-2.5 border-b border-zinc-800 flex items-center gap-2">
-                        <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                        <span class="text-[11px] font-black uppercase tracking-widest text-zinc-400">Your Upcoming Crossings</span>
-                    </div>
-                    <div class="px-4">${summaryItems}</div>
-                </div>`;
-                summaryEl.classList.remove('hidden');
-            } else {
-                summaryEl.innerHTML = '';
-                summaryEl.classList.add('hidden');
-            }
 
             const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const scrollTargetIdx = primary.findIndex(o => o.sortKey >= todayMidnight.getTime());
@@ -2552,23 +2790,63 @@
                 </div>`;
             }
 
-            const noneMsg = primary.length === 0
-                ? `<div class="text-center py-12 text-zinc-500 text-sm">No crew crossings found — everyone's going different directions.</div>`
-                : '';
-            const primaryCards  = primary.map((o, idx) => renderPrimaryCard(o, idx, idx === scrollTargetIdx)).join('');
-            const secondaryRows = secondary.filter(o => {
+            const recentSec = secondary.filter(o => {
                 if (!o.isDirect) return false;
                 return (o.directEnd?.getTime() ?? 0) >= now.getTime() - 86400000;
             });
-            const secondaryHtml = secondaryRows.length > 0
+
+            // When signed in, split into "Your Crossings" and "Other Crew Crossings"
+            const involvesMyPilot = o => myPilot && (o.kA === myPilot || o.kB === myPilot);
+            const myPrimary    = myPilot ? primary.filter(involvesMyPilot)    : primary;
+            const otherPrimary = myPilot ? primary.filter(o => !involvesMyPilot(o)) : [];
+            const mySec        = myPilot ? recentSec.filter(involvesMyPilot)  : recentSec;
+            const otherSec     = myPilot ? recentSec.filter(o => !involvesMyPilot(o)) : [];
+
+            const myFirstName  = myPilot ? (PILOT_NAMES[myPilot] || '').split(' ')[0] : '';
+
+            const noneMsg = !myPilot && primary.length === 0
+                ? `<div class="text-center py-12 text-zinc-500 text-sm">No crew crossings found — everyone's going different directions.</div>`
+                : myPilot && myPrimary.length === 0
+                ? `<div class="py-6 px-1 text-zinc-500 text-sm">No upcoming crossings for ${myFirstName} — you're flying solo this stretch.</div>`
+                : '';
+
+            const myHeader = myPilot && myPrimary.length > 0
+                ? `<div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1 mb-2">Your Crossings</div>` : '';
+            const myCards     = myHeader + myPrimary.map((o, idx) => renderPrimaryCard(o, idx, idx === scrollTargetIdx)).join('');
+            const otherCards  = otherPrimary.map((o, idx) => renderPrimaryCard(o, myPrimary.length + idx, false)).join('');
+
+            const mySecHtml = mySec.length > 0
                 ? `<div class="mt-4 rounded-xl border border-zinc-800/40 overflow-hidden">
                     <div class="px-4 py-2.5 border-b border-zinc-800/40">
                         <span class="text-[10px] font-black uppercase tracking-widest text-zinc-600">Also Nearby</span>
                         <span class="text-[10px] text-zinc-700 ml-2">— tap for details</span>
                     </div>
-                    <div class="px-4">${secondaryRows.map((o, i) => renderSecondaryRow(o, i)).join('')}</div>
-                </div>`
-                : '';
+                    <div class="px-4">${mySec.map((o, i) => renderSecondaryRow(o, i)).join('')}</div>
+                </div>` : '';
+
+            const otherSecHtml = otherSec.length > 0
+                ? `<div class="px-4">${otherSec.map((o, i) => renderSecondaryRow(o, mySec.length + i)).join('')}</div>` : '';
+
+            const otherCrewHtml = myPilot && (otherPrimary.length > 0 || otherSec.length > 0)
+                ? `<div class="mt-6 rounded-xl border border-zinc-800/30 overflow-hidden">
+                    <button onclick="const b=this.nextElementSibling;const arr=this.querySelector('.oc-arr');b.classList.toggle('hidden');arr.textContent=b.classList.contains('hidden')?'›':'‹';" class="w-full px-4 py-2.5 flex items-center gap-2 text-left">
+                        <span class="oc-arr text-zinc-600 text-xs">›</span>
+                        <span class="text-[10px] font-black uppercase tracking-widest text-zinc-600">Other Crew Crossings</span>
+                        <span class="text-[10px] text-zinc-700 ml-1">${otherPrimary.length > 0 ? `${otherPrimary.length} crossing${otherPrimary.length > 1 ? 's' : ''}` : ''}</span>
+                    </button>
+                    <div class="hidden border-t border-zinc-800/30">
+                        <div class="p-3 space-y-3">${otherCards}</div>
+                        ${otherSec.length > 0 ? `<div class="rounded-xl border border-zinc-800/40 overflow-hidden mx-3 mb-3">
+                            <div class="px-4 py-2.5 border-b border-zinc-800/40"><span class="text-[10px] font-black uppercase tracking-widest text-zinc-600">Also Nearby</span></div>
+                            ${otherSecHtml}
+                        </div>` : ''}
+                    </div>
+                </div>` : '';
+
+            const primaryHtml  = myPilot
+                ? (myPrimary.length > 0 ? myCards : '') + mySecHtml
+                : myCards + mySecHtml;
+            const secondaryHtml = myPilot ? otherCrewHtml : '';
 
             // Common off days — days where 2+ pilots have no flights (free to plan anything)
             const pilotFlyingDates = {};
@@ -2628,16 +2906,17 @@
                 const isToday = dateStr === todayStr;
                 const isTomorrow = dateStr === tomorrowStr;
                 const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : fmtDateShort(date);
-                const isAllOff = pilots.length === 5;
+                const crewCount = PILOT_KEYS.length;
+                const isAllOff = pilots.length === crewCount;
                 const rowStyle = isAllOff
                     ? 'border-left:2px solid rgba(251,191,36,0.45);'
                     : '';
                 const countBadge = isAllOff
                     ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-950/60 text-amber-400 border border-amber-700/60">✦ ALL OFF</span>`
-                    : pilots.length >= 4
-                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">${pilots.length} of 5</span>`
-                    : pilots.length === 3
-                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/60 text-sky-400 border border-sky-800/50">${pilots.length} of 5</span>`
+                    : pilots.length >= crewCount - 1
+                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">${pilots.length} of ${crewCount}</span>`
+                    : pilots.length >= crewCount - 2
+                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/60 text-sky-400 border border-sky-800/50">${pilots.length} of ${crewCount}</span>`
                     : '';
                 const dayLabelStyle = isAllOff ? 'color:#fbbf24;' : '';
                 const chips = pilots.map(({ key: k }) =>
@@ -2668,7 +2947,7 @@
                     </div>
                 </div>`;
 
-            container.innerHTML = noneMsg + commonOffHtml + primaryCards + secondaryHtml;
+            container.innerHTML = noneMsg + commonOffHtml + primaryHtml + secondaryHtml;
 
             if (scrollTargetIdx >= 0) {
                 requestAnimationFrame(() => scrollToOverlapCard(scrollTargetIdx));
@@ -4362,7 +4641,7 @@
             
             const file = input.files[0];
             // Get selected pilot from dropdown
-            const uploadPilot = myPilot || document.getElementById('upload-pilot-select')?.value || 'kyle';
+            const uploadPilot = document.getElementById('upload-pilot-select').value;
             
             console.log(`Uploading ${file.name} for pilot ${uploadPilot}...`);
             
@@ -4456,7 +4735,7 @@
                 const cardBorder = isActiveLeg ? 'border-emerald-500/80' : isPersonal ? 'border-violet-500/30' : isCommute ? 'border-amber-500/30' : 'border-white/10';
                 const cardBg = isPersonal ? 'bg-violet-950/30' : isCommute ? 'bg-amber-950/30' : 'bg-black/40';
                 const liveBadge = isActiveLeg ? `<span class="text-[9px] font-black text-emerald-400 tracking-widest">▶ LIVE</span>` : '';
-                const editActions = f.id ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
+                const editActions = (f.id && canEdit()) ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${f.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
                     <button onclick="deleteManualFlight(${f.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
                 </div>` : '';
@@ -4602,12 +4881,13 @@ let _blockUserEdited = false;
         }
 
         function openAddFlight() {
+            if (!canEdit()) { showToast('You can only add flights to your own schedule.', 'error'); return; }
             _editSegmentId = null;
             _blockUserEdited = false;
             document.getElementById('add-flight-title').textContent = 'Add Flight';
             document.getElementById('add-flight-submit-btn').textContent = 'Add Flight';
             document.getElementById('add-date').value = _localToday();
-            document.getElementById('add-pilot').value = currentPilot || 'kyle';
+            document.getElementById('add-pilot').value = myPilot || currentPilot || PILOT_KEYS[0];
             ['add-dep','add-arr','add-dep-time','add-arr-time','add-flight-num','add-tail-num','add-block-time'].forEach(id => document.getElementById(id).value = '');
             document.getElementById('add-block-auto-label').textContent = '(auto-calculated)';
             document.getElementById('add-arr-next-day-label').textContent = '';
@@ -4622,7 +4902,7 @@ let _blockUserEdited = false;
             _editSegmentId = segmentId;
             document.getElementById('add-flight-title').textContent = 'Edit Flight';
             document.getElementById('add-flight-submit-btn').textContent = 'Save Changes';
-            document.getElementById('add-pilot').value = currentPilot || 'kyle';
+            document.getElementById('add-pilot').value = myPilot || currentPilot || PILOT_KEYS[0];
             // Date
             const depDate = seg.departureTime ? seg.departureTime.slice(0, 10) : '';
             document.getElementById('add-date').value = depDate;
@@ -4659,7 +4939,8 @@ let _blockUserEdited = false;
         }
 
         async function deleteManualFlight(segmentId) {
-            if (!confirm('Delete this flight? This cannot be undone.')) return;
+            const ok = await showConfirm('Delete Flight', 'This cannot be undone.');
+            if (!ok) return;
             try {
                 const resp = await fetch(`${API_BASE}/pilots/${currentPilot}/segments/${segmentId}`, { method: 'DELETE' });
                 const data = await resp.json();
@@ -4743,7 +5024,7 @@ let _blockUserEdited = false;
         async function handleMobileUpload(input) {
             if (!input.files[0]) return;
             const file = input.files[0];
-            const uploadPilot = myPilot || document.getElementById('mobile-upload-pilot-select')?.value || 'kyle';
+            const uploadPilot = document.getElementById('mobile-upload-pilot-select').value;
             document.getElementById('mobile-upload-sheet').classList.add('hidden');
             const result = await uploadPilotSchedule(uploadPilot, file);
             if (result && result.success) {
@@ -4894,53 +5175,15 @@ let _blockUserEdited = false;
         function updateUploadSyncButtons(pilot) {
             const isKyle = pilot === 'kyle';
             const isDrew = pilot === 'drew';
-            document.getElementById('btn-upload-file')?.classList.toggle('hidden', isKyle || isDrew);
+            const isSyncOnly = isKyle || isDrew;
+            // Desktop
+            document.getElementById('btn-upload-schedule')?.classList.toggle('hidden', isSyncOnly);
             document.getElementById('btn-sync-schedaero')?.classList.toggle('hidden', !isKyle);
             document.getElementById('btn-sync-drew-ics')?.classList.toggle('hidden', !isDrew);
-        }
-
-        function _applyUploadUI() {
-            const pilotRow = document.getElementById('sidebar-upload-pilot-row');
-            if (!pilotRow) return;
-            if (!myPilot) {
-                pilotRow.classList.remove('hidden');
-                updateUploadSyncButtons(document.getElementById('upload-pilot-select')?.value || 'kyle');
-            } else if (myPilot === 'kyle') {
-                pilotRow.classList.add('hidden');
-                document.getElementById('btn-upload-file')?.classList.add('hidden');
-                document.getElementById('btn-sync-schedaero')?.classList.remove('hidden');
-                document.getElementById('btn-sync-drew-ics')?.classList.add('hidden');
-            } else if (myPilot === 'drew') {
-                pilotRow.classList.add('hidden');
-                document.getElementById('btn-upload-file')?.classList.add('hidden');
-                document.getElementById('btn-sync-schedaero')?.classList.add('hidden');
-                document.getElementById('btn-sync-drew-ics')?.classList.remove('hidden');
-            } else {
-                pilotRow.classList.add('hidden');
-                document.getElementById('btn-upload-file')?.classList.remove('hidden');
-                document.getElementById('btn-sync-schedaero')?.classList.add('hidden');
-                document.getElementById('btn-sync-drew-ics')?.classList.add('hidden');
-            }
-
-            // Mobile upload button label
-            const lbl = document.getElementById('mbtn-upload-label');
-            if (lbl) lbl.textContent = (myPilot === 'kyle' || myPilot === 'drew') ? 'Sync' : 'Upload';
-        }
-
-        function openMobileUpload() {
-            if (myPilot === 'kyle') { quickSyncSchedaero(); return; }
-            if (myPilot === 'drew') { openDrewICSSync(); return; }
-            // Adam/Sam/Logan or admin: open the sheet
-            const pilotRow = document.getElementById('mobile-upload-pilot-row');
-            const sel = document.getElementById('mobile-upload-pilot-select');
-            if (myPilot) {
-                pilotRow?.classList.add('hidden');
-                if (sel) sel.value = myPilot;
-            } else {
-                pilotRow?.classList.remove('hidden');
-                if (sel) sel.value = currentPilot || 'kyle';
-            }
-            document.getElementById('mobile-upload-sheet').classList.remove('hidden');
+            // Mobile
+            document.getElementById('mobile-upload-file-btn')?.classList.toggle('hidden', isSyncOnly);
+            document.getElementById('mobile-sync-schedaero-btn')?.classList.toggle('hidden', !isKyle);
+            document.getElementById('mobile-sync-drew-ics-btn')?.classList.toggle('hidden', !isDrew);
         }
 
         // ── Drew ICS Sync ─────────────────────────────────────────────────
@@ -5063,24 +5306,293 @@ let _blockUserEdited = false;
         // Safety fallback — dismiss after 4s no matter what
         setTimeout(dismissSplash, 4000);
 
-        window.addEventListener('DOMContentLoaded', () => {
+        // ── Admin User Management ─────────────────────────────────────────
+        let _adminUsers = [];
+
+        async function openAdminPanel() {
+            document.getElementById('admin-panel').classList.remove('hidden');
+            await loadAdminUsers();
+        }
+
+        function closeAdminPanel() {
+            document.getElementById('admin-panel').classList.add('hidden');
+        }
+
+        async function loadAdminUsers() {
+            const list = document.getElementById('admin-user-list');
+            list.innerHTML = '<div class="text-zinc-500 text-xs font-bold py-4 text-center">Loading…</div>';
+            try {
+                const rows = await fetch(`${API_BASE}/pilots`).then(r => r.json());
+                _adminUsers = rows;
+                renderAdminUserList(rows);
+            } catch (e) {
+                list.innerHTML = '<div class="text-red-400 text-xs font-bold py-4 text-center">Failed to load users</div>';
+            }
+        }
+
+        function renderAdminUserList(rows) {
+            const list = document.getElementById('admin-user-list');
+            if (!rows.length) {
+                list.innerHTML = '<div class="text-zinc-500 text-xs font-bold py-4 text-center">No users found</div>';
+                return;
+            }
+            list.innerHTML = rows.map(u => {
+                const link = `${location.origin}/app?u=${u.token}`;
+                const initials = (u.name || u.pilot_key).split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+                const color = PILOT_COLORS[u.pilot_key] || '#6366f1';
+                return `<div class="bg-zinc-800/60 border border-zinc-700/60 rounded-xl p-3.5 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black shrink-0" style="background:${color}22;color:${color}">${initials}</div>
+                            <div>
+                                <div class="text-sm font-black text-white">${u.name}</div>
+                                <div class="text-[10px] text-zinc-500 font-bold">${u.pilot_key} · ${u.base || '—'} · ${u.parser_type || 'csv'}</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <button onclick="openEditUserModal('${u.pilot_key}')" class="px-2.5 py-1.5 border border-zinc-600 text-zinc-300 hover:border-blue-500 hover:text-blue-400 rounded-lg text-[10px] font-black uppercase transition-colors">Edit</button>
+                            <button onclick="confirmDeleteUser('${u.pilot_key}','${u.name}')" class="px-2.5 py-1.5 border border-zinc-700 text-zinc-500 hover:border-red-700 hover:text-red-400 rounded-lg text-[10px] font-black uppercase transition-colors">Del</button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="flex-1 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400 overflow-hidden text-ellipsis whitespace-nowrap">${link}</div>
+                        <button onclick="navigator.clipboard.writeText('${link}').then(()=>showToast('Link copied'))" class="px-2.5 py-1.5 border border-zinc-600 text-zinc-400 hover:border-blue-500 hover:text-blue-400 rounded-lg text-[10px] font-black uppercase transition-colors shrink-0">Copy</button>
+                        <button onclick="confirmRegenerateToken('${u.pilot_key}','${u.name}')" class="px-2.5 py-1.5 border border-zinc-600 text-zinc-400 hover:border-amber-500 hover:text-amber-400 rounded-lg text-[10px] font-black uppercase transition-colors shrink-0" title="Generate new link">↺</button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function openEditUserModal(pilotKey) {
+            const errEl = document.getElementById('edit-user-error');
+            errEl.classList.add('hidden');
+            document.getElementById('edit-user-key').value = pilotKey || '';
+            document.getElementById('edit-user-title').textContent = pilotKey ? 'Edit User' : 'Add User';
+            document.getElementById('edit-user-save-btn').textContent = pilotKey ? 'Save' : 'Add User';
+
+            if (pilotKey) {
+                const u = _adminUsers.find(x => x.pilot_key === pilotKey);
+                if (u) {
+                    const nameParts = (u.name || '').split(' ');
+                    document.getElementById('edit-user-first').value = nameParts[0] || '';
+                    document.getElementById('edit-user-last').value = nameParts.slice(1).join(' ') || '';
+                    document.getElementById('edit-user-base').value = u.base || '';
+                    document.getElementById('edit-user-airline').value = u.airline_code || '';
+                    document.getElementById('edit-user-role').value = u.role || '';
+                    document.getElementById('edit-user-parser').value = u.parser_type || 'csv';
+                }
+            } else {
+                ['edit-user-first','edit-user-last','edit-user-base','edit-user-airline','edit-user-role'].forEach(id => document.getElementById(id).value = '');
+                document.getElementById('edit-user-parser').value = 'csv';
+            }
+            document.getElementById('edit-user-modal').classList.remove('hidden');
+        }
+
+        function closeEditUserModal() {
+            document.getElementById('edit-user-modal').classList.add('hidden');
+        }
+
+        async function saveUser() {
+            const pilotKey = document.getElementById('edit-user-key').value;
+            const firstName = document.getElementById('edit-user-first').value.trim();
+            const lastName  = document.getElementById('edit-user-last').value.trim();
+            const base      = document.getElementById('edit-user-base').value.trim();
+            const airline   = document.getElementById('edit-user-airline').value.trim();
+            const role      = document.getElementById('edit-user-role').value.trim();
+            const parser    = document.getElementById('edit-user-parser').value;
+            const errEl     = document.getElementById('edit-user-error');
+            const saveBtn   = document.getElementById('edit-user-save-btn');
+
+            if (!firstName) { errEl.textContent = 'First name required'; errEl.classList.remove('hidden'); return; }
+
+            errEl.classList.add('hidden');
+            saveBtn.textContent = 'Saving…';
+            saveBtn.disabled = true;
+
+            try {
+                let ok;
+                if (pilotKey) {
+                    const r = await fetch(`${API_BASE}/pilots/${pilotKey}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: `${firstName} ${lastName}`.trim(), base, role, parserType: parser, airlineCode: airline })
+                    });
+                    ok = r.ok;
+                } else {
+                    const r = await fetch(`${API_BASE}/join`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ firstName, lastName, base, role, parserType: parser, airlineCode: airline })
+                    });
+                    ok = r.ok;
+                }
+                if (!ok) { errEl.textContent = 'Save failed — try again'; errEl.classList.remove('hidden'); return; }
+                closeEditUserModal();
+                await loadAdminUsers();
+                showToast(pilotKey ? 'User updated' : 'User added');
+            } catch { errEl.textContent = 'Network error'; errEl.classList.remove('hidden'); }
+            finally { saveBtn.textContent = pilotKey ? 'Save' : 'Add User'; saveBtn.disabled = false; }
+        }
+
+        async function confirmDeleteUser(pilotKey, name) {
+            const ok = await showConfirm(`Delete ${name}?`, 'This will permanently remove their account and all schedule data.');
+            if (!ok) return;
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${pilotKey}`, { method: 'DELETE' });
+                if (!r.ok) { showToast('Delete failed', 'error'); return; }
+                await loadAdminUsers();
+                showToast(`${name} deleted`);
+            } catch { showToast('Network error', 'error'); }
+        }
+
+        async function confirmRegenerateToken(pilotKey, name) {
+            if (!confirm(`Generate a new login link for ${name}? Their old link will stop working.`)) return;
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${pilotKey}/regenerate-token`, { method: 'POST' });
+                if (!r.ok) { showToast('Failed to regenerate link', 'error'); return; }
+                await loadAdminUsers();
+                showToast(`New link generated for ${name}`);
+            } catch { showToast('Network error', 'error'); }
+        }
+
+        window.addEventListener('DOMContentLoaded', async () => {
             setupMobileGestures();
+
+            // Rebuild pilot pills + sidebar buttons from PILOT_KEYS (handles demo mode)
+            if (_isDemo) _rebuildPilotUI();
 
             // Set initial mobile nav active state
             const mbtn = document.getElementById('mbtn-grid');
             if (mbtn) mbtn.classList.add('mbtn-active');
 
-            // Identity: must run before loadPilot so myPilot is set
-            initIdentity();
+            // Identity: must run before loadPilot so myPilot/myToken are set
+            await initIdentity();
 
-            // Default view: URL pilot → my identity → last viewed → kyle (admin/bare URL)
-            const urlPilot = new URLSearchParams(window.location.search).get('pilot');
-            const defaultPilot = (VALID_PILOTS.includes(urlPilot) ? urlPilot : null)
-                               || myPilot
-                               || (VALID_PILOTS.includes(localStorage.getItem('lastPilot')) ? localStorage.getItem('lastPilot') : null)
-                               || 'kyle';
+            // Sync full pilot roster from DB — registers any pilots not in the hardcoded list
+            if (!_isDemo) await _syncPilotRoster();
+
+            // Default view: token identity → first pilot
+            const defaultPilot = myPilot || PILOT_KEYS[0];
+            updateUploadSyncButtons(defaultPilot);
             loadPilot(defaultPilot);
         });
+
+        // Fetch all pilots from DB and register any not in the hardcoded list (e.g. Brett)
+        async function _syncPilotRoster() {
+            try {
+                const pilots = await fetch('/api/pilots').then(r => r.json());
+                if (!Array.isArray(pilots)) return;
+                pilots.forEach(p => {
+                    const key = p.pilot_key;
+                    if (!key || key === 'admin') return;
+                    if (!PILOT_KEYS.includes(key)) {
+                        PILOT_KEYS.push(key);
+                        PILOT_NAMES[key]  = p.name || key;
+                        PILOT_HOME[key]   = p.base || '';
+                        PILOT_ROLES[key]  = p.role || p.base || '';
+                        PILOT_COLORS[key] = _assignColor(key);
+                        // Add pill buttons to DOM
+                        const mobileBar = document.getElementById('mobile-pilot-bar');
+                        if (mobileBar && !document.getElementById(`mpilot-${key}`)) {
+                            const mb = document.createElement('button');
+                            mb.onclick = () => loadPilot(key);
+                            mb.id = `mpilot-${key}`;
+                            mb.className = 'mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap';
+                            mb.textContent = PILOT_NAMES[key].split(' ')[0];
+                            mobileBar.appendChild(mb);
+                        }
+                        const sidebarList = document.getElementById('sidebar-pilot-list');
+                        if (sidebarList && !document.getElementById(`pilot-${key}`)) {
+                            const db = document.createElement('button');
+                            db.onclick = () => loadPilot(key);
+                            db.id = `pilot-${key}`;
+                            db.className = 'w-full text-left p-4 rounded-xl border border-zinc-800 hover:border-blue-500 transition-colors';
+                            const fn = PILOT_NAMES[key].split(' ')[0];
+                            db.innerHTML = `<span class="text-[9px] block text-zinc-500 font-black uppercase">${fn}</span><span class="font-bold text-sm tracking-tight">${PILOT_NAMES[key]}</span>`;
+                            sidebarList.appendChild(db);
+                        }
+                    }
+                });
+                // Rebuild dropdowns to include all pilots
+                _rebuildPilotDropdowns();
+                // Re-run pill ordering / visibility now that roster is complete
+                _reorderPilotPills();
+                _applyPilotPillVisibility();
+                _buildCrewVisibilityUI();
+            } catch(e) { /* non-fatal — hardcoded list still works */ }
+        }
+
+        // Pick a stable color for a pilot not in the hardcoded set
+        function _assignColor(key) {
+            const palette = ['#6366f1','#ec4899','#14b8a6','#f59e0b','#84cc16','#f97316'];
+            let hash = 0;
+            for (const c of key) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff;
+            return palette[Math.abs(hash) % palette.length];
+        }
+
+        // Rebuild the add-flight pilot select and upload selects from current PILOT_KEYS
+        function _rebuildPilotDropdowns() {
+            // Add flight modal — admin sees all pilots, signed-in user sees only themselves
+            const addPilotRow  = document.getElementById('add-pilot-row');
+            const addPilotSel  = document.getElementById('add-pilot');
+            const addPilotGrid = document.getElementById('add-pilot-date-grid');
+            if (addPilotSel) {
+                if (myPilot) {
+                    // Signed-in: hide pilot dropdown, date takes full width
+                    if (addPilotRow)  addPilotRow.style.display = 'none';
+                    if (addPilotGrid) addPilotGrid.className = 'grid grid-cols-1 gap-3';
+                    addPilotSel.innerHTML = `<option value="${myPilot}">${PILOT_NAMES[myPilot]}</option>`;
+                } else {
+                    // Admin: show all pilots, restore 2-col grid
+                    if (addPilotRow)  addPilotRow.style.display = '';
+                    if (addPilotGrid) addPilotGrid.className = 'grid grid-cols-2 gap-3';
+                    addPilotSel.innerHTML = PILOT_KEYS.map(k =>
+                        `<option value="${k}">${PILOT_NAMES[k]}</option>`
+                    ).join('');
+                }
+            }
+            // Upload selects
+            ['upload-pilot-select', 'mobile-upload-pilot-select'].forEach(id => {
+                const sel = document.getElementById(id);
+                if (!sel) return;
+                const cur = sel.value;
+                sel.innerHTML = PILOT_KEYS.map(k =>
+                    `<option value="${k}">${PILOT_NAMES[k]}</option>`
+                ).join('');
+                if (PILOT_KEYS.includes(cur)) sel.value = cur;
+                if (myPilot && PILOT_KEYS.includes(myPilot)) sel.value = myPilot;
+            });
+        }
+
+        function _rebuildPilotUI() {
+            // Replace static HTML pilot pills and sidebar buttons with demo pilots
+            const mobileBar = document.getElementById('mobile-pilot-bar');
+            if (mobileBar) {
+                mobileBar.innerHTML = PILOT_KEYS.map(k =>
+                    `<button onclick="loadPilot('${k}')" id="mpilot-${k}" class="mpilot-btn flex-none px-4 py-1.5 rounded-full border border-zinc-700 text-xs font-black text-zinc-400 whitespace-nowrap">${PILOT_NAMES[k].split(' ')[0]}</button>`
+                ).join('');
+            }
+            const sidebarList = document.getElementById('sidebar-pilot-list');
+            if (sidebarList) {
+                const label = sidebarList.querySelector('p');
+                const existing = sidebarList.querySelectorAll('button');
+                existing.forEach(b => b.remove());
+                PILOT_KEYS.forEach(k => {
+                    const btn = document.createElement('button');
+                    btn.onclick = () => loadPilot(k);
+                    btn.id = `pilot-${k}`;
+                    btn.className = 'w-full text-left p-4 rounded-xl border border-zinc-800 hover:border-blue-500 transition-colors';
+                    btn.innerHTML = `<span class="text-[9px] block text-zinc-500 font-black uppercase">${PILOT_NAMES[k].split(' ')[0]}</span><span class="font-bold text-sm tracking-tight">${PILOT_NAMES[k]}</span>`;
+                    sidebarList.appendChild(btn);
+                });
+            }
+            // Hide upload section in demo
+            const uploadSection = document.querySelector('.shrink-0.p-4.border-t.border-zinc-800');
+            if (uploadSection) uploadSection.classList.add('hidden');
+            // Hide upload nav button
+            const uploadNav = document.getElementById('btn-upload-nav');
+            if (uploadNav) uploadNav.classList.add('hidden');
+        }
     </script>
 </body>
 </html>

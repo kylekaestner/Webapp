@@ -1,9 +1,11 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const { getDB } = require('./db');
+const { getDB, generateToken } = require('./db');
+const { DEMO_PILOTS, DEMO_SEGMENTS } = require('./demo-data');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -432,7 +434,6 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
 // ===== NetLine/Crew PDF Parser (GoJet / Drew) =====
 const pdfParse = require('pdf-parse');
 const tzlookup = require('tz-lookup');
-const fs = require('fs');
 
 // Build airport code → [lat, lon] and IATA↔ICAO maps from bundled airports.dat (OpenFlights format)
 const _aptCoords = {};
@@ -597,8 +598,9 @@ const pilotAirlineCodes = {
     drew: 'GJS'
 };
 
-function getParserForPilot(pilotKey) {
-    return pilotParsers[pilotKey] || 'csv';
+function getParserForPilot(pilotKey, pilotRow) {
+    // Prefer hardcoded config for existing pilots; use DB value for new ones
+    return pilotParsers[pilotKey] || (pilotRow?.parser_type) || 'csv';
 }
 
 // ===== API Routes =====
@@ -606,7 +608,7 @@ function getParserForPilot(pilotKey) {
 // GET all pilots
 app.get('/api/pilots', (req, res) => {
     const db = getDB();
-    db.all('SELECT * FROM pilots ORDER BY name', (err, rows) => {
+    db.all(`SELECT * FROM pilots WHERE pilot_key != 'admin' ORDER BY name`, (err, rows) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
@@ -619,7 +621,7 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
 
-    db.get('SELECT id, pilot_key, name, base FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
+    db.get('SELECT id, pilot_key, name, base, role, parser_type, airline_code FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
@@ -647,40 +649,35 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
 
     let events = [];
 
-    // Detect file type and parse
-    const filename = req.file.originalname.toLowerCase();
-    const parserType = getParserForPilot(pilotKey);
+    // Get pilot first so we can use their parser_type and airline_code from DB
+    db.get('SELECT id, parser_type, airline_code FROM pilots WHERE pilot_key = ?', [pilotKey], async (err, pilot) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
-    try {
-        if (filename.endsWith('.pdf')) {
-            events = await parseNetlinePDF(req.file.buffer);
-        } else {
-            const fileContent = req.file.buffer.toString('utf-8');
-            if (filename.endsWith('.ics')) {
-                events = parserType === 'ics_rosterbuster'
-                    ? parseRosterBusterICS(fileContent)
-                    : parseICS(fileContent);
-            } else if (filename.endsWith('.csv')) {
-                if (parserType === 'csv_skywest') {
-                    events = parseCSV_skywest(fileContent);
-                } else {
-                    events = parseCSV(fileContent, pilotAirlineCodes[pilotKey] || '');
-                }
+        // Detect file type and parse using pilot's stored parser_type + airline_code
+        const filename = req.file.originalname.toLowerCase();
+        const parserType = getParserForPilot(pilotKey, pilot);
+        const airlineCode = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
+
+        try {
+            if (filename.endsWith('.pdf')) {
+                events = await parseNetlinePDF(req.file.buffer);
             } else {
-                return res.status(400).json({ error: 'Unsupported file type. Use .ics, .csv, or .pdf' });
+                const fileContent = req.file.buffer.toString('utf-8');
+                if (filename.endsWith('.ics')) {
+                    events = parserType === 'ics_rosterbuster'
+                        ? parseRosterBusterICS(fileContent)
+                        : parseICS(fileContent);
+                } else if (filename.endsWith('.csv')) {
+                    events = parserType === 'csv_skywest'
+                        ? parseCSV_skywest(fileContent)
+                        : parseCSV(fileContent, airlineCode);
+                } else {
+                    return res.status(400).json({ error: 'Unsupported file type. Use .ics, .csv, or .pdf' });
+                }
             }
-        }
-    } catch (parseError) {
-        return res.status(400).json({ error: `Parse error: ${parseError.message}` });
-    }
-
-    // Get pilot
-    db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!pilot) {
-            return res.status(404).json({ error: 'Pilot not found' });
+        } catch (parseError) {
+            return res.status(400).json({ error: `Parse error: ${parseError.message}` });
         }
 
         // Delete only the months covered by this upload so other months are preserved
@@ -904,6 +901,50 @@ app.delete('/api/pilots/:pilotKey/segments/:id', (req, res) => {
                 res.json({ success: true });
             }
         );
+    });
+});
+
+// Update pilot info (admin)
+app.put('/api/pilots/:pilotKey', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    if (pilotKey === 'admin') return res.status(400).json({ error: 'Cannot modify admin' });
+    const { name, base, homeAirport, role, parserType, airlineCode } = req.body;
+    if (!name) return res.status(400).json({ error: 'name required' });
+    db.run(
+        `UPDATE pilots SET name=?, base=?, home_airport=?, role=?, parser_type=?, airline_code=? WHERE pilot_key=?`,
+        [name.trim(), (base || '').toUpperCase().trim(), (homeAirport || '').toUpperCase().trim(),
+         (role || '').trim(), (parserType || 'csv').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
+            res.json({ success: true });
+        }
+    );
+});
+
+// Delete pilot and their segments (admin)
+app.delete('/api/pilots/:pilotKey', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    if (pilotKey === 'admin') return res.status(400).json({ error: 'Cannot delete admin' });
+    db.run(`DELETE FROM pilots WHERE pilot_key=?`, [pilotKey], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
+        res.json({ success: true });
+    });
+});
+
+// Regenerate login token (admin)
+app.post('/api/pilots/:pilotKey/regenerate-token', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    if (pilotKey === 'admin') return res.status(400).json({ error: 'Cannot modify admin' });
+    const token = generateToken();
+    db.run(`UPDATE pilots SET token=? WHERE pilot_key=?`, [token, pilotKey], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
+        res.json({ success: true, token });
     });
 });
 
@@ -1230,9 +1271,101 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Serve index.html for all other routes (SPA)
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// ── Page routes ────────────────────────────────────────────────────────
+// Landing page at root (unauthenticated entry point)
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'landing.html'));
+});
+
+// Main app
+app.get('/app', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'app.html'));
+});
+
+// Join / onboarding
+app.get('/join', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'join.html'));
+});
+
+// Demo — read-only view, no token required
+app.get('/demo', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'app.html'));
+});
+
+// Demo API — returns fake data, never touches the real DB
+app.get('/api/demo/pilots/:pilotKey', (req, res) => {
+    const key = req.params.pilotKey;
+    const pilot = DEMO_PILOTS[key];
+    if (!pilot) return res.status(404).json({ error: 'Demo pilot not found' });
+    res.json({ ...pilot, segments: DEMO_SEGMENTS[key] || [] });
+});
+
+// ── Token auth API ──────────────────────────────────────────────────────
+// Resolve a token → pilot info (used on app load)
+app.get('/api/pilots/by-token/:token', (req, res) => {
+    const db = getDB();
+    db.get(`SELECT pilot_key, name, base FROM pilots WHERE token=?`, [req.params.token], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: 'Invalid token' });
+        res.json({ pilotKey: row.pilot_key, name: row.name, base: row.base });
+    });
+});
+
+// Get token for a pilot (admin only — used to display links)
+app.get('/api/pilots/:pilotKey/token', (req, res) => {
+    const db = getDB();
+    db.get(`SELECT token FROM pilots WHERE pilot_key=?`, [req.params.pilotKey], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: 'Pilot not found' });
+        res.json({ token: row.token });
+    });
+});
+
+// Join: create a new pilot
+app.post('/api/join', async (req, res) => {
+    const { firstName, lastName, base, homeAirport, role, parserType, airlineCode } = req.body;
+    if (!firstName || !lastName) return res.status(400).json({ error: 'Name required' });
+
+    const db = getDB();
+    const name = `${firstName.trim()} ${lastName.trim()}`;
+    // Derive a unique pilot_key from first name, add number suffix if collision
+    const baseKey = firstName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const token = generateToken();
+    const safeRole    = (role || '').trim();
+    const safeParser  = (parserType || 'csv').trim();
+    const safeCode    = (airlineCode || '').trim().toUpperCase();
+    const safeHome    = (homeAirport || base || '').toUpperCase().trim();
+
+    const tryInsert = (key, attempt) => {
+        const finalKey = attempt === 0 ? key : `${key}${attempt}`;
+        db.run(
+            `INSERT INTO pilots (pilot_key, name, base, home_airport, role, parser_type, airline_code, token) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [finalKey, name, (base || '').toUpperCase().trim(), safeHome, safeRole, safeParser, safeCode, token],
+            function(err) {
+                if (err && err.message.includes('UNIQUE')) return tryInsert(key, attempt + 1);
+                if (err) return res.status(500).json({ error: err.message });
+                // Append new pilot's links to PILOT_LINKS.md
+                try {
+                    const linksPath = path.join(__dirname, 'PILOT_LINKS.md');
+                    const prodHost = '167.71.107.245:3000';
+                    const prodRow  = `| ${name} | http://${prodHost}/app?u=${token} |`;
+                    const localRow = `| ${name} | http://localhost:3000/app?u=${token} |`;
+                    let content = fs.readFileSync(linksPath, 'utf8');
+                    // Insert before the first Admin row (Production table), then the second (Local table)
+                    let insertedProd = false;
+                    content = content.replace(/^(\| \*\*Admin\*\* \|.*)$/gm, (match) => {
+                        if (!insertedProd) { insertedProd = true; return `${prodRow}\n${match}`; }
+                        return `${localRow}\n${match}`;
+                    });
+                    fs.writeFileSync(linksPath, content, 'utf8');
+                } catch (e) {
+                    console.error('Could not update PILOT_LINKS.md:', e.message);
+                }
+                res.json({ success: true, pilotKey: finalKey, token, link: `/app?u=${token}` });
+            }
+        );
+    };
+    tryInsert(baseKey, 0);
 });
 
 // Keep the process alive — log unhandled errors instead of crashing silently
@@ -1264,6 +1397,13 @@ app.post('/api/settings/:key', (req, res) => {
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    // Print admin link so it's always findable in server logs
+    const db = getDB();
+    db.get(`SELECT token FROM pilots WHERE pilot_key='admin'`, (err, row) => {
+        if (row && row.token) {
+            console.log(`  Admin: http://localhost:${PORT}/app?u=${row.token}`);
+        }
+    });
 });
 
 // Keepalive — ping Schedaero every 20 min with stored creds so the session never expires

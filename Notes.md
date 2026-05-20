@@ -36,7 +36,6 @@
 ~~mobile - when added to home on iphone as webapp, make the app refresh itself automatically.~~
 ~~Kyle has a layover duration for KSUS.~~
 ~~If a flight was live, but the ETA time past, and the aircraft is airborne (ADSB), continue showing the flight until it lands. Then update the time it landed. Same if a flight lands early. Marked the flight as no longer live/landed. Flight for Adam is showing live bc it hasn't reach the arrival time in CT but it has in ET. So it should've already landed.~~
--Maybe for personal/DH manual add they can just put the flight number in and airport pair and it'll figure out the rest?
 ~~Overlap could have a small inset map of the airport/location~~
 ~~Find a way to keep the session cookie active. Make it easier to sync on mobile bc safari doesn't have DevTools~~
 ~~Changing crew selection while on location overlap should automatically refresh.~~
@@ -59,14 +58,13 @@
 ~~Status bar theming - meta theme-color~~
 ~~Splash screen - custom loading screen for PWA~~
 ~~Scroll to top - when switching views~~
-maybe a URL like localhost:3000/join where a new user can fill out their information, preferences, and either upload their schedule OR link an .ics file where the website will figure out what to do with it and add the user
+~~maybe a URL like localhost:3000/join where a new user can fill out their information, preferences, and either upload their schedule OR link an .ics file where the website will figure out what to do with it and add the user~~
 
 Based on the person logged in, make their name/schedule first on the list. Look for other ways to personalize based on who's signed it. Does each user need to see everything? What's pertinent to see for planning and seeing other friend's schedules, flying, off days, meetups, etc. 
-Each user's link should be a unique ID. That way people can't login to other's accounts
-Localhost:3000/demo shows a demo version
-the normal localhost:3000 should be a landing page kinda like an advertisement showing the app off. With links to demo or join.
-Admin link.
-You can only manually add, edit, or delete flights for yourself.
-Same with uploading schedules Only show the pertinent way of uploading/syncing schedule and only you.
+~~Each user's link should be a unique ID. That way people can't login to other's accounts~~
+~~Localhost:3000/demo shows a demo version~~ (fake pilots: Alex/Morgan/Casey/Jordan with realistic schedules, read-only)
+~~the normal localhost:3000 should be a landing page kinda like an advertisement showing the app off. With links to demo or join.~~
+~~Admin link.~~
+~~You can only manually add, edit, or delete flights for yourself.~~
+~~Same with uploading schedules Only show the pertinent way of uploading/syncing schedule and only you.~~
 
-Ical flights upload. 

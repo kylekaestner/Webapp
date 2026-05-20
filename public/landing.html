@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#09090b">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <title>CrewSync — Crew Scheduling</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        html, body { background: #050505; }
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(45deg); }
+            50%       { transform: translateY(-10px) rotate(45deg); }
+        }
+        .plane-float { animation: float 3.5s ease-in-out infinite; }
+        @keyframes fade-up {
+            from { opacity: 0; transform: translateY(18px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .fade-up { animation: fade-up 0.6s ease forwards; }
+        .fade-up-2 { animation: fade-up 0.6s 0.15s ease both; }
+        .fade-up-3 { animation: fade-up 0.6s 0.3s ease both; }
+        .fade-up-4 { animation: fade-up 0.6s 0.45s ease both; }
+        .glow { box-shadow: 0 0 40px rgba(59,130,246,0.25); }
+    </style>
+</head>
+<body class="min-h-screen text-zinc-100 font-sans flex flex-col" style="height:100dvh;overflow-y:auto;">
+
+    <!-- Nav -->
+    <nav class="flex items-center justify-between px-6 py-5 shrink-0">
+        <span class="text-blue-500 font-black italic text-lg tracking-tighter uppercase">CrewSync</span>
+        <div class="flex gap-3">
+            <a href="/join" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-wide transition-colors">Join</a>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <main class="flex-1 flex flex-col items-center justify-center text-center px-6 py-12">
+        <div class="fade-up mb-8">
+            <img src="/icon-192.png" alt="CrewSync" class="plane-float inline-block w-24 h-24 rounded-3xl shadow-2xl" style="box-shadow:0 0 60px rgba(59,130,246,0.3)">
+        </div>
+
+        <h1 class="fade-up-2 text-4xl md:text-6xl font-black italic tracking-tighter text-white uppercase leading-none mb-4">
+            Crew<span class="text-blue-500">Sync</span>
+        </h1>
+        <p class="fade-up-3 text-zinc-400 text-lg md:text-xl font-medium max-w-md mb-10">
+            Scheduling, live flight tracking, and crew meetup planning — built for pilots.
+        </p>
+
+        <div class="fade-up-4 flex flex-col sm:flex-row gap-3 w-full max-w-xs sm:max-w-none sm:justify-center">
+            <a href="/join" class="px-8 py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black text-sm uppercase tracking-wide transition-colors glow">
+                Join Your Crew
+            </a>
+            <a href="/demo" class="px-8 py-4 rounded-2xl border border-zinc-700 hover:border-zinc-500 text-zinc-300 hover:text-white font-black text-sm uppercase tracking-wide transition-colors">
+                View Demo
+            </a>
+        </div>
+
+        <p class="fade-up-4 mt-6 text-xs text-zinc-600">Already a member? Open your personal link to sign in.</p>
+    </main>
+
+    <!-- Features -->
+    <section class="px-6 pb-16 max-w-3xl mx-auto w-full">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5">
+                <div class="text-2xl mb-3">📅</div>
+                <div class="font-black text-white text-sm uppercase tracking-wide mb-1">Calendar</div>
+                <div class="text-zinc-500 text-xs leading-relaxed">Your schedule at a glance — flights, layovers, off days, and more.</div>
+            </div>
+            <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5">
+                <div class="text-2xl mb-3">🗺️</div>
+                <div class="font-black text-white text-sm uppercase tracking-wide mb-1">Live Map</div>
+                <div class="text-zinc-500 text-xs leading-relaxed">Real-time ADS-B tracking of active flights with route visualization.</div>
+            </div>
+            <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5">
+                <div class="text-2xl mb-3">🤝</div>
+                <div class="font-black text-white text-sm uppercase tracking-wide mb-1">Crew Overlap</div>
+                <div class="text-zinc-500 text-xs leading-relaxed">See when and where you'll cross paths with your crew.</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="text-center pb-8 text-zinc-700 text-xs font-black uppercase tracking-widest shrink-0">
+        CrewSync &mdash; Private Beta
+    </footer>
+
+</body>
+</html>
