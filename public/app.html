@@ -147,6 +147,8 @@
         .map-mode-bar-pill.map-mode-active { color:#e4e4e7; background:rgba(39,39,42,0.6); }
         .map-ctrl-radar { color:#f87171 !important; border-color:rgba(248,113,113,0.5) !important; background:rgba(248,113,113,0.08) !important; }
         .flight-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 8px; }
+        /* active-leg cards keep their full green border even when not :last-child */
+        .flight-row.active-leg { border-bottom-color: rgba(34,197,94,0.8) !important; border-bottom-width: 2px !important; }
         .day-past { opacity: 0.55; }
         #calendar-list-content .list-past { filter: grayscale(30%) brightness(0.75); }
         .day-today { border-color: #38bdf8 !important; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.3); }
