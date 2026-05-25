@@ -9,7 +9,13 @@
       "Bash(curl -s \"https://raw.githubusercontent.com/airplanes-live/tar1090/master/html/markers.js\")",
       "Bash(curl -s \"https://raw.githubusercontent.com/airplanes-live/tar1090/master/html/markers.js\" -o \"C:\\\\Users\\\\kylek\\\\AppData\\\\Local\\\\Temp\\\\markers.js\")",
       "Bash(node -e ' *)",
-      "Bash(node -e \"const p = require\\('pdf-parse'\\); console.log\\(typeof p, typeof p.default, Object.keys\\(p\\).slice\\(0,5\\)\\)\")"
+      "Bash(node -e \"const p = require\\('pdf-parse'\\); console.log\\(typeof p, typeof p.default, Object.keys\\(p\\).slice\\(0,5\\)\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://globe.adsb.lol/data/traces/1a/trace_full_a8431a.json\")",
+      "Bash(curl -sL -o /dev/null -w \"%{http_code} %{url_effective}\" \"https://globe.adsb.lol/data/traces/1a/trace_full_a8431a.json\")",
+      "Bash(curl -sL \"https://globe.adsb.lol/data/traces/1a/trace_full_a8431a.json\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"https://api.adsb.lol/v2/callsign/RPA\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(a.get\\('hex'\\), a.get\\('flight',''\\).strip\\(\\)\\) for a in \\(d.get\\('ac'\\) or []\\)]\")"
     ]
   }
 }

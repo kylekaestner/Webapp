@@ -1211,31 +1211,117 @@ const _liveCache = {};
 const LIVE_TTL = 5000; // 5s cache; client polls every 8s
 
 const _posTrail = {};  // hex → [[lat, lon], ...]
-const _trailSeeded = new Set(); // hexes whose OpenSky history has been fetched
+const _trailLastTime = {}; // hex → Date.now() of last appended trail point
+const _trailSeeded = new Set(); // hexes whose adsb.lol/OpenSky history has been fetched
+const _trailSeedTime = {}; // hex → timestamp of last adsb.lol fetch
+const TRAIL_RESEED_MS = 5 * 1000; // re-fetch adsb.lol trace every 5 seconds
+
+// Trail persistence — survives server restarts so the full flight path accumulates
+const TRAIL_CACHE_FILE = path.join(__dirname, '.trail_cache.json');
+
+function loadTrailCache() {
+    try {
+        const data = JSON.parse(fs.readFileSync(TRAIL_CACHE_FILE, 'utf8'));
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000; // drop entries older than 24h
+        for (const [hex, entry] of Object.entries(data)) {
+            if (entry.ts > cutoff && Array.isArray(entry.coords) && entry.coords.length >= 2) {
+                _posTrail[hex] = entry.coords;
+                // Don't mark as seeded — let the adsb.lol fetch run and prepend denser historical points
+            }
+        }
+        const n = Object.keys(_posTrail).length;
+        if (n > 0) console.log(`Trail cache loaded: ${n} aircraft`);
+    } catch (_) {} // file missing or corrupt — start fresh
+}
+
+let _saveTrailTimer = null;
+function scheduleTrailSave() {
+    clearTimeout(_saveTrailTimer);
+    _saveTrailTimer = setTimeout(() => {
+        const data = {};
+        for (const [hex, coords] of Object.entries(_posTrail)) {
+            data[hex] = { ts: Date.now(), coords };
+        }
+        try { fs.writeFileSync(TRAIL_CACHE_FILE, JSON.stringify(data)); } catch (_) {}
+    }, 5000); // batch writes — save 5s after the last update
+}
+
+loadTrailCache();
 
 async function seedTrailFromOpenSky(hex) {
-    if (_trailSeeded.has(hex)) return;
+    const now = Date.now();
+    const alreadySeeded = _trailSeeded.has(hex);
+    const lastSeed = _trailSeedTime[hex] || 0;
+    // Skip if seeded recently — but always re-fetch from adsb.lol every 90s for active flights
+    if (alreadySeeded && (now - lastSeed) < TRAIL_RESEED_MS) return;
     _trailSeeded.add(hex);
+    _trailSeedTime[hex] = now;
     try {
-        const url = `https://opensky-network.org/api/tracks/all?icao24=${hex}&time=0`;
-        const resp = await fetch(url, { signal: AbortSignal.timeout(12000) });
-        if (!resp.ok) return;
-        const json = await resp.json();
-        const path = json?.path;
-        if (!path || path.length < 2) return;
-        const coords = path
-            .filter(p => p[1] != null && p[2] != null && !p[5])
-            .map(p => [p[1], p[2]]);
-        if (coords.length < 2) return;
-        // Prepend OpenSky history; our live points (if any) go after
-        _posTrail[hex] = [...coords, ...(_posTrail[hex] || [])];
-        if (_posTrail[hex].length > 2000) _posTrail[hex].splice(0, _posTrail[hex].length - 2000);
-        console.log(`Seeded trail for ${hex}: ${coords.length} OpenSky points`);
+        let coords = null;
+
+        // Try adsb.lol trace files — re-fetched every 90s to get dense live data
+        try {
+            const zz = hex.slice(-2).toLowerCase();
+            const h = hex.toLowerCase();
+            const traceUrls = [
+                `https://globe.adsb.lol/data/traces/${zz}/trace_full_${h}.json`,
+                `https://globe.adsb.lol/data/traces/${zz}/trace_recent_${h}.json`,
+                `https://globe.adsb.lol/trace/recent/${zz}/${h}.json`,
+            ];
+            for (const traceUrl of traceUrls) {
+                if (coords) break;
+                try {
+                    const tr = await fetch(traceUrl, { signal: AbortSignal.timeout(8000) });
+                    if (!tr.ok) { console.log(`Trace ${traceUrl}: HTTP ${tr.status}`); continue; }
+                    const tj = await tr.json();
+                    if (tj?.trace && tj.trace.length >= 2) {
+                        const pts = tj.trace
+                            .filter(p => p[1] != null && p[2] != null)
+                            .map(p => [p[1], p[2]]);
+                        if (pts.length >= 2) {
+                            coords = pts;
+                            console.log(`${alreadySeeded ? 'Refreshed' : 'Seeded'} trail for ${hex}: ${coords.length} pts from ${traceUrl}`);
+                        }
+                    }
+                } catch (e) { console.log(`Trace ${traceUrl}: ${e.message}`); }
+            }
+        } catch (_) {}
+
+        // Fall back to OpenSky on first seed only (no point polling OpenSky every 90s)
+        if (!coords && !alreadySeeded) {
+            const osUser = process.env.OPENSKY_USER, osPass = process.env.OPENSKY_PASS;
+            const headers = osUser ? { Authorization: 'Basic ' + Buffer.from(`${osUser}:${osPass}`).toString('base64') } : {};
+            const url = `https://opensky-network.org/api/tracks/all?icao24=${hex}&time=0`;
+            const resp = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
+            if (resp.ok) {
+                const json = await resp.json();
+                const path = json?.path;
+                if (path && path.length >= 2) {
+                    coords = path
+                        .filter(p => p[1] != null && p[2] != null && !p[5])
+                        .map(p => [p[1], p[2]]);
+                    if (coords.length < 2) coords = null;
+                    else console.log(`Seeded trail for ${hex}: ${coords.length} OpenSky points`);
+                }
+            }
+        }
+
+        if (!coords) { if (!alreadySeeded) _trailSeeded.delete(hex); return; }
+
+        // Replace trail with fresh adsb.lol data — it's denser than our polled accumulation
+        _posTrail[hex] = coords;
+        if (_posTrail[hex].length > 3000) _posTrail[hex].splice(0, _posTrail[hex].length - 3000);
+        scheduleTrailSave();
     } catch (e) {
-        _trailSeeded.delete(hex); // allow retry
-        console.warn(`OpenSky seed error for ${hex}:`, e.message);
+        if (!alreadySeeded) _trailSeeded.delete(hex);
+        console.warn(`Trail seed error for ${hex}:`, e.message);
     }
 }
+
+// Per-hex flight phase tracking for parked detection
+const _flightState = {}; // hex → { hasBeenAirborne, groundStillCount }
+const _callsignToHex = {}; // callsign → last-known hex (survives cache expiry)
+const _parkedCallsigns = new Set(); // suppress background polling after flight completes
 
 function parseAdsbAircraft(s, callsign) {
     const onGround = s.alt_baro === 'ground' || (typeof s.alt_baro === 'number' && s.alt_baro < 200);
@@ -1247,6 +1333,81 @@ function parseAdsbAircraft(s, callsign) {
         : null;
 }
 
+// Shared position processing — called by both the API endpoint and background poller.
+// Mutates `data` to attach `trail` and `parked` fields.
+function processPositionUpdate(data) {
+    if (!data.found || data.lat == null || !data.hex) return;
+    const hex = data.hex;
+    if (data.callsign) { _callsignToHex[data.callsign] = hex; _parkedCallsigns.delete(data.callsign); }
+    if (!_flightState[hex]) _flightState[hex] = { hasBeenAirborne: false, groundStillCount: 0 };
+    const state = _flightState[hex];
+    const moving = (data.speedKts ?? 0) > 5;
+
+    if (!data.onGround) {
+        // Airborne
+        state.hasBeenAirborne = true;
+        state.groundStillCount = 0;
+        if (!_posTrail[hex]) _posTrail[hex] = [];
+        seedTrailFromOpenSky(hex); // async, fire-and-forget — rate-limited to TRAIL_RESEED_MS
+    } else if (state.hasBeenAirborne) {
+        // On ground after being airborne — taxiing in or parked
+        if (moving) {
+            state.groundStillCount = 0; // rolling — not parked yet
+        } else {
+            state.groundStillCount++;
+            if (state.groundStillCount >= 3) {
+                // Three consecutive slow/stopped ground readings → parked
+                data.parked = true;
+                delete _posTrail[hex];
+                delete _flightState[hex];
+                delete _trailLastTime[hex];
+                delete _trailSeedTime[hex];
+                _trailSeeded.delete(hex);
+                if (data.callsign) _parkedCallsigns.add(data.callsign);
+                scheduleTrailSave();
+                return; // no trail to attach
+            }
+        }
+    } else if (data.onGround && moving && _posTrail[hex] === undefined) {
+        // Taxi-out: plane is rolling before first takeoff — start breadcrumb trail now
+        _posTrail[hex] = [];
+    }
+
+    // Accumulate trail when airborne OR rolling on ground (taxi-out/taxi-in breadcrumbs)
+    if (_posTrail[hex] !== undefined && (!data.onGround || moving)) {
+        const trail = _posTrail[hex];
+        const last = trail[trail.length - 1];
+        const now = Date.now();
+        if (!last || (now - (_trailLastTime[hex] || 0)) >= 5000) {
+            trail.push([data.lat, data.lon]);
+            _trailLastTime[hex] = now;
+            if (trail.length > 3000) trail.splice(0, trail.length - 3000);
+            scheduleTrailSave();
+        }
+        data.trail = [...trail];
+    }
+}
+
+// Fetch live position from ADS-B sources, racing for the fastest response.
+async function fetchAdsbPosition(callsign) {
+    const ADSB_SOURCES = [
+        `https://api.adsb.lol/v2/callsign/${encodeURIComponent(callsign)}`,
+        `https://api.airplanes.live/v2/callsign/${encodeURIComponent(callsign)}`
+    ];
+    const trySource = async (url) => {
+        const resp = await fetch(url, { signal: AbortSignal.timeout(7000) });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} from ${new URL(url).hostname}`);
+        const json = await resp.json();
+        const aircraft = json?.ac;
+        if (!aircraft || aircraft.length === 0) throw new Error(`no aircraft at ${new URL(url).hostname}`);
+        const s = aircraft.sort((a, b) => (a.seen_pos ?? 999) - (b.seen_pos ?? 999))[0];
+        const parsed = parseAdsbAircraft(s, callsign);
+        if (!parsed) throw new Error(`no position at ${new URL(url).hostname}`);
+        return parsed;
+    };
+    return Promise.any(ADSB_SOURCES.map(trySource));
+}
+
 app.get('/api/live-position', async (req, res) => {
     const callsign = (req.query.callsign || '').toUpperCase().replace(/\s/g, '');
     if (!callsign) return res.json({ found: false });
@@ -1254,64 +1415,75 @@ app.get('/api/live-position', async (req, res) => {
     const cached = _liveCache[callsign];
     if (cached && Date.now() - cached.ts < LIVE_TTL) return res.json(cached.data);
 
-    // Race adsb.lol and airplanes.live — use whichever responds first with data
-    const sources = [
-        `https://api.adsb.lol/v2/callsign/${encodeURIComponent(callsign)}`,
-        `https://api.airplanes.live/v2/callsign/${encodeURIComponent(callsign)}`
-    ];
-
-    const trySource = async (url) => {
-        const resp = await fetch(url, { signal: AbortSignal.timeout(7000) });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} from ${new URL(url).hostname}`);
-        const json = await resp.json();
-        const aircraft = json?.ac;
-        if (!aircraft || aircraft.length === 0) throw new Error(`no aircraft at ${new URL(url).hostname}`);
-        // Sort ascending by seen_pos so the freshest fix is first
-        const s = aircraft.sort((a, b) => (a.seen_pos ?? 999) - (b.seen_pos ?? 999))[0];
-        const parsed = parseAdsbAircraft(s, callsign);
-        if (!parsed) throw new Error(`no position at ${new URL(url).hostname}`);
-        return parsed;
-    };
-
     let data;
     try {
-        data = await Promise.any(sources.map(trySource));
+        data = await fetchAdsbPosition(callsign);
     } catch (e) {
         const details = e instanceof AggregateError
             ? e.errors.map(err => err.message).join(' | ')
             : e.message;
-        console.warn(`live-position [${callsign}]: all sources failed: ${details}`);
-        data = { found: false };
-        // Don't cache failures — retry on the next client poll
-        return res.json(data);
+        // "no aircraft" is normal for landed/pre-departure flights — don't spam the log
+        const isNoAircraft = details.includes('no aircraft');
+        if (!isNoAircraft) console.warn(`live-position [${callsign}]: all sources failed: ${details}`);
+        // Tell the client whether this flight has been tracked (has a trail) even though
+        // we can't find it live — this lets the client know the flight already flew.
+        const lastHex = _callsignToHex[callsign] || _liveCache[callsign]?.data?.hex;
+        const hadTrail = !!(lastHex && Array.isArray(_posTrail[lastHex]) && _posTrail[lastHex].length >= 2);
+        return res.json({ found: false, hadTrail });
     }
 
-    // Accumulate position trail keyed by ICAO hex
-    if (data.found && data.hex) {
-        const hex = data.hex;
-        if (data.onGround) {
-            // Flight landed — clear trail so next flight starts fresh
-            delete _posTrail[hex];
-            _trailSeeded.delete(hex);
-        } else {
-            if (!_posTrail[hex]) {
-                _posTrail[hex] = [];
-                seedTrailFromOpenSky(hex); // async, fire-and-forget
-            }
-            const trail = _posTrail[hex];
-            const last = trail[trail.length - 1];
-            // Add point only if aircraft has moved meaningfully (~0.35 mi)
-            if (!last || Math.abs(last[0] - data.lat) > 0.005 || Math.abs(last[1] - data.lon) > 0.005) {
-                trail.push([data.lat, data.lon]);
-                if (trail.length > 2000) trail.splice(0, trail.length - 2000);
-            }
-            data.trail = [...trail];
-        }
-    }
-
+    processPositionUpdate(data);
     _liveCache[callsign] = { ts: Date.now(), data };
     res.json(data);
 });
+
+// ── Background flight poller ────────────────────────────────────────────
+// Polls ADS-B every 45 s for any scheduled flight whose departure window is
+// active. Builds the trail whether or not any client is connected.
+async function runActiveFlightPoller() {
+    const db = getDB();
+    const now = new Date();
+    // Wide window: up to 8 h past departure (long flights) and 30 min in future (pre-departure)
+    const pastCutoff   = new Date(now.getTime() - 8 * 60 * 60 * 1000).toISOString().slice(0, 16);
+    const futureCutoff = new Date(now.getTime() + 30 * 60 * 1000).toISOString().slice(0, 16);
+
+    db.all(
+        `SELECT s.flight_number, s.departure_time, s.pilot_id,
+                COALESCE(p.airline_code, '') AS airline_code, p.pilot_key
+         FROM segments s
+         JOIN pilots p ON s.pilot_id = p.id
+         WHERE s.type = 'flight'
+           AND s.flight_number IS NOT NULL AND trim(s.flight_number) != ''
+           AND s.departure_time >= ? AND s.departure_time <= ?`,
+        [pastCutoff, futureCutoff],
+        async (err, rows) => {
+            if (err || !rows || rows.length === 0) return;
+            const polled = new Set();
+            for (const row of rows) {
+                const airlineCode = (pilotAirlineCodes[row.pilot_key] || row.airline_code || '').toUpperCase();
+                let flightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
+                // Strip airline prefix if the DB already stores it (e.g. "SKW5613" → "5613")
+                if (airlineCode && flightNum.startsWith(airlineCode)) flightNum = flightNum.slice(airlineCode.length);
+                if (!airlineCode || !flightNum) continue;
+                const callsign = airlineCode + flightNum;
+                if (polled.has(callsign)) continue;
+                if (_parkedCallsigns.has(callsign)) continue; // already completed this flight
+                polled.add(callsign);
+                try {
+                    const data = await fetchAdsbPosition(callsign);
+                    processPositionUpdate(data);
+                    // Update the live cache so the next client poll gets pre-built data
+                    _liveCache[callsign] = { ts: Date.now(), data };
+                    if (data.found && !data.parked) console.log(`Poller: ${callsign} ${data.onGround ? (data.speedKts > 5 ? 'taxiing' : 'ground') : `${data.altFt ? Math.round(data.altFt) + 'ft' : 'airborne'}`} trail=${_posTrail[data.hex]?.length ?? 0}pts`);
+                } catch (_) {} // flight not yet airborne or ADS-B unavailable
+            }
+        }
+    );
+}
+
+setInterval(runActiveFlightPoller, 15000);
+// Run once at startup so the first client poll already has trail data
+setTimeout(runActiveFlightPoller, 3000);
 
 // Health check
 app.get('/api/health', (req, res) => {
