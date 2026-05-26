@@ -727,119 +727,55 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
             return res.status(400).json({ error: `Parse error: ${parseError.message}` });
         }
 
-        // Delete only the months covered by this upload so other months are preserved
-        const uploadedMonths = [...new Set(
-            events
-                .map(e => (e.departureTime || '').substring(0, 7))
-                .filter(m => /^\d{4}-\d{2}$/.test(m))
-        )];
-        const doInsert = (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-
-            // Insert new segments
-            const stmt = db.prepare(`
-                INSERT INTO segments
-                (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
-            let completed = 0;
-            const errors = [];
-
-            events.forEach((event) => {
-                const params = [
-                    pilot.id,
-                    event.type,
-                    event.departureTime || null,
-                    event.arrivalTime || null,
-                    event.departureAirport || null,
-                    event.arrivalAirport || null,
-                    event.tail || null,
-                    event.trip || null,
-                    event.flightNumber || null,
-                    event.dh ? 1 : 0,
-                    event.blockMinutes || null
-                ];
-
-                stmt.run(params, function (err) {
-                    if (err) errors.push(err.message);
-                    completed++;
-                    if (completed === events.length) {
-                        stmt.finalize();
-                        if (errors.length > 0)
-                            return res.status(500).json({ error: 'Some segments failed to insert', details: errors });
-                        res.json({ success: true, segmentsAdded: events.length, parser: parserType });
-                    }
-                });
-            });
-
-            if (events.length === 0) {
-                stmt.finalize();
-                res.json({ success: true, segmentsAdded: 0, parser: parserType });
-            }
-        };
-
-        if (uploadedMonths.length > 0) {
-            const placeholders = uploadedMonths.map(() => "departure_time LIKE ? || '%'").join(' OR ');
-            db.run(
-                `DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0) AND (${placeholders})`,
-                [pilot.id, ...uploadedMonths],
-                doInsert
-            );
-        } else {
-            // No date info (e.g. hard-day-only upload) — fall back to full replace
-            db.run('DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)', [pilot.id], (err) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-
-            // Insert new segments
-            const stmt = db.prepare(`
-                INSERT INTO segments
-                (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
-            let completed = 0;
-            const errors = [];
-
-            events.forEach((event) => {
-                const params = [
-                    pilot.id,
-                    event.type,
-                    event.departureTime || null,
-                    event.arrivalTime || null,
-                    event.departureAirport || null,
-                    event.arrivalAirport || null,
-                    event.tail || null,
-                    event.trip || null,
-                    event.flightNumber || null,
-                    event.dh ? 1 : 0,
-                    event.blockMinutes || null
-                ];
-
-                stmt.run(params, function (err) {
-                    if (err) {
-                        errors.push(err.message);
-                    }
-                    completed++;
-
-                    if (completed === events.length) {
-                        stmt.finalize();
-                        if (errors.length > 0) {
-                            return res.status(500).json({ error: 'Some segments failed to insert', details: errors });
-                        }
-                        res.json({ success: true, segmentsAdded: events.length, parser: parserType });
-                    }
-                });
-            });
-
-            if (events.length === 0) {
-                stmt.finalize();
-                res.json({ success: true, segmentsAdded: 0, parser: parserType });
-            }
-        });
+        // Upsert all events — never delete existing data.
+        // Match on (type, departure_time, departure_airport): same segment → UPDATE, new → INSERT.
+        if (events.length === 0) {
+            return res.json({ success: true, segmentsAdded: 0, parser: parserType });
         }
+
+        db.all(
+            'SELECT id, type, departure_time, departure_airport FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)',
+            [pilot.id],
+            (err, existing) => {
+                if (err) return res.status(500).json({ error: err.message });
+
+                const existingMap = {};
+                existing.forEach(s => {
+                    const key = `${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`;
+                    existingMap[key] = s.id;
+                });
+
+                let completed = 0;
+                const errors = [];
+                const done = () => {
+                    completed++;
+                    if (completed === events.length) {
+                        if (errors.length > 0)
+                            return res.status(500).json({ error: 'Some segments failed', details: errors });
+                        res.json({ success: true, segmentsAdded: events.length, parser: parserType });
+                    }
+                };
+
+                events.forEach(event => {
+                    const key = `${event.type}|${event.departureTime || ''}|${event.departureAirport || ''}`;
+                    const existingId = existingMap[key];
+
+                    if (existingId) {
+                        db.run(
+                            `UPDATE segments SET arrival_time=?, arrival_airport=?, tail=?, trip=?, flight_number=?, is_dh=?, block_minutes=? WHERE id=?`,
+                            [event.arrivalTime || null, event.arrivalAirport || null, event.tail || null, event.trip || null, event.flightNumber || null, event.dh ? 1 : 0, event.blockMinutes || null, existingId],
+                            err => { if (err) errors.push(err.message); done(); }
+                        );
+                    } else {
+                        db.run(
+                            `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            [pilot.id, event.type, event.departureTime || null, event.arrivalTime || null, event.departureAirport || null, event.arrivalAirport || null, event.tail || null, event.trip || null, event.flightNumber || null, event.dh ? 1 : 0, event.blockMinutes || null],
+                            err => { if (err) errors.push(err.message); done(); }
+                        );
+                    }
+                });
+            }
+        );
     });
 });
 
