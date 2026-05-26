@@ -2607,11 +2607,6 @@
             // Regular pilots only see overlaps involving themselves
             const filtered = myPilot ? unique.filter(o => o.kA === myPilot || o.kB === myPilot) : unique;
 
-            if (filtered.length === 0) {
-                container.innerHTML = `<div class="text-center py-12 text-zinc-500 text-sm">No location overlaps found${myPilot ? ' for you' : ' for any crew members'}.</div>`;
-                return;
-            }
-
             filtered.sort((a, b) => a.sortKey - b.sortKey);
 
             const _pad = n => String(n).padStart(2, '0');
