@@ -534,11 +534,7 @@
                             <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 border border-white/60" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-500">Here Now</span></div>
                         </div>
                         <div id="legend-day" class="hidden space-y-1 pointer-events-auto">
-                            <button onclick="togglePilotLegend('kyle')"  id="legend-pilot-kyle"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-blue-500 shrink-0"></span><span class="text-zinc-500">Kyle</span></button>
-                            <button onclick="togglePilotLegend('adam')"  id="legend-pilot-adam"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-teal-400 shrink-0"></span><span class="text-zinc-500">Adam</span></button>
-                            <button onclick="togglePilotLegend('sam')"   id="legend-pilot-sam"   class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-orange-500 shrink-0"></span><span class="text-zinc-500">Sam</span></button>
-                            <button onclick="togglePilotLegend('logan')" id="legend-pilot-logan" class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-indigo-400 shrink-0"></span><span class="text-zinc-500">Logan</span></button>
-                            <button onclick="togglePilotLegend('drew')"  id="legend-pilot-drew"  class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70"><span class="inline-block w-4 h-[2.5px] rounded-full bg-rose-400 shrink-0"></span><span class="text-zinc-500">Drew</span></button>
+                            <div id="legend-day-pilots" class="space-y-1"></div>
                             <div class="flex items-center gap-1.5 pt-1 mt-0.5 border-t border-zinc-800/60"><span class="inline-block w-4 shrink-0" style="height:2.5px;background:repeating-linear-gradient(90deg,#94a3b8 0,#94a3b8 5px,transparent 5px,transparent 8px)"></span><span class="text-zinc-500">Airborne</span></div>
                         </div>
                     </div>
@@ -847,7 +843,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Common Off Days</p>
-                    <p>Collapsed section at the top showing upcoming days where 2+ crew are free. <strong class="text-zinc-300">Tap the header to expand.</strong> For Kyle, only confirmed Hard Day Offs count — on-call days are treated as potentially working. Days where all 5 pilots are free show a <strong class="text-zinc-300">gold left border and ✦ ALL OFF badge</strong> — those are rare. If a pilot's schedule data hasn't been loaded yet, a <strong class="text-zinc-300">⚠ warning</strong> appears at the top of the list noting who's missing, so you know the results may be incomplete.</p>
+                    <p>Collapsed section at the top showing upcoming days where 2+ selected crew are free. <strong class="text-zinc-300">Tap the header to expand.</strong> For Kyle, only confirmed Hard Day Offs count — on-call days are treated as potentially working. Days where all selected pilots are free show a <strong class="text-zinc-300">gold left border and ✦ ALL OFF badge</strong>. Use the <strong class="text-zinc-300">pilot chips</strong> inside the section to filter down to just the people you care about — tap any chip to toggle them on or off. Who appears is also controlled by your <strong class="text-zinc-300">Your Crew</strong> visibility setting — pilots you've hidden there won't show up here. If a pilot's schedule data hasn't been loaded yet, a <strong class="text-zinc-300">⚠ warning</strong> appears at the top of the list noting who's missing, so you know the results may be incomplete.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -916,7 +912,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Syncing Schedules</p>
-                    <p>Kyle syncs automatically via Schedaero. Drew syncs via RosterBuster ICS. Adam, Sam, and Logan upload a CSV from their airline app. Use the <strong class="text-zinc-300">Upload</strong> tab on mobile.</p>
+                    <p>Kyle syncs automatically via Schedaero. Drew syncs via RosterBuster ICS. Adam, Sam, and Logan upload a CSV from their airline app. Use the <strong class="text-zinc-300">Upload</strong> tab on mobile. Uploading a new month's schedule <strong class="text-zinc-300">never deletes existing data</strong> — flights are added or updated in place. If the same flight already exists it gets updated; everything else stays untouched, so uploading June won't wipe out May.</p>
                 </div>
             </div>
         </div>
@@ -1002,7 +998,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Legend & Filters</p>
-                    <p>In All Crew modes, the legend shows each pilot's color. <strong class="text-zinc-300">Tap a legend entry</strong> to toggle that pilot's routes on or off. Use the <strong class="text-zinc-300">Flown / Upcoming</strong> filter to show only past or future legs.</p>
+                    <p>In All Crew modes, the legend shows each pilot's color — <strong class="text-zinc-300">only pilots you've enabled under Your Crew</strong> appear here. <strong class="text-zinc-300">Tap a legend entry</strong> to temporarily toggle that pilot's routes on or off without changing your crew settings. Use the <strong class="text-zinc-300">Flown / Upcoming</strong> filter to show only past or future legs.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -1631,6 +1627,7 @@
         let currentPilot = 'kyle'; // whose schedule is displayed
         let currentView = 'grid';  // 'grid' | 'list' | 'map' | 'overlap'
         let map, mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
+        let _offDayFilter = null; // Set of pilot keys included in Common Off Days; null = all
         const _livePollers  = {};    // callsign -> intervalId; cleared on every map render
         const _liveLabels   = new Map(); // callsign -> { markers, html, direction }
         const _landedEarly  = new Set(); // callsigns confirmed landed before scheduledArrUTC
@@ -1812,6 +1809,16 @@
             localStorage.setItem(_visKey(), JSON.stringify(next));
             _applyPilotPillVisibility();
             _buildCrewVisibilityUI();
+            _updateCrewLegend();
+            if (currentView === 'map' && (mapDayMode || mapAllMode)) renderMap();
+            // Keep _offDayFilter in sync — remove any pilot no longer in crew visible
+            if (_offDayFilter) {
+                const nextSet = new Set(next);
+                _offDayFilter.forEach(k => { if (!nextSet.has(k)) _offDayFilter.delete(k); });
+                // If newly visible, add to filter by default
+                if (visible) _offDayFilter.add(pilot);
+                renderCommonOffSection(true);
+            }
         }
 
         function _applyIdentityUI() {
@@ -2387,6 +2394,144 @@
         //      then haversine fallback (50 mi). classifyOverlap() assigns tier + label.
         //   3. Render: tier 1-2 -> primary cards; tier 3 -> compact "Also Nearby" rows.
         //      involvesMyPilot filters cards shown in "Your Crossings" vs "Other Crew".
+        function toggleOffDayPilot(key) {
+            if (!_offDayFilter) _offDayFilter = new Set(PILOT_KEYS);
+            if (_offDayFilter.has(key)) {
+                _offDayFilter.delete(key);
+            } else {
+                _offDayFilter.add(key);
+            }
+            renderCommonOffSection(true);
+        }
+
+        function renderCommonOffSection(preserveOpen) {
+            const visibleCrew = getCrewVisible();
+            if (!_offDayFilter) _offDayFilter = new Set(visibleCrew);
+            const el = document.getElementById('common-off-section');
+            if (!el) return;
+
+            const wasOpen = preserveOpen && !el.querySelector('.off-days-body')?.classList.contains('hidden');
+
+            const now = new Date();
+            const _pad = n => String(n).padStart(2, '0');
+            const localDateStr = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
+            const todayStr = localDateStr(now);
+            const tomorrowStr = localDateStr(new Date(now.getTime() + 86400000));
+            const fmtDateShort = t => t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+            // Only consider pilots the user has chosen to see
+            const activeKeys = visibleCrew.filter(k => _offDayFilter.has(k));
+
+            const pilotFlyingDates = {};
+            const pilotMaxDate = {};
+            const kyleHardOffDates = new Set();
+            let allDatesMax = null;
+            PILOT_KEYS.forEach(k => {
+                const flying = new Set();
+                (pilotsCache[k]?.segments || []).forEach(s => {
+                    if (k === 'kyle' && s.type === 'hard' && s.departure_time) {
+                        kyleHardOffDates.add(s.departure_time.slice(0, 10));
+                        return;
+                    }
+                    if (s.type !== 'flight') return;
+                    [s.departure_time, s.arrival_time].forEach(t => {
+                        if (!t) return;
+                        flying.add(t.slice(0, 10));
+                        if (!allDatesMax || t.slice(0, 10) > allDatesMax) allDatesMax = t.slice(0, 10);
+                        if (!pilotMaxDate[k] || t.slice(0, 10) > pilotMaxDate[k]) pilotMaxDate[k] = t.slice(0, 10);
+                    });
+                });
+                pilotFlyingDates[k] = flying;
+            });
+
+            const stalePilots = allDatesMax
+                ? activeKeys.filter(k => {
+                    if (k === 'kyle') return false;
+                    const diff = (new Date(allDatesMax) - new Date(pilotMaxDate[k] || '2000-01-01')) / 86400000;
+                    return diff > 7;
+                  })
+                : [];
+
+            const kyleAvail = dateStr => kyleHardOffDates.has(dateStr) ? 'certain' : 'no';
+
+            const commonOffDays = [];
+            const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const endDate = allDatesMax ? new Date(allDatesMax + 'T12:00:00') : new Date(startDate.getTime() + 90 * 86400000);
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                const dateStr = localDateStr(d);
+                const offPilots = activeKeys.flatMap(k => {
+                    if (k === 'kyle') {
+                        const avail = kyleAvail(dateStr);
+                        return avail !== 'no' ? [{ key: k, certain: avail === 'certain' }] : [];
+                    }
+                    return !pilotFlyingDates[k].has(dateStr) ? [{ key: k, certain: true }] : [];
+                });
+                if (offPilots.length >= 2) commonOffDays.push({ date: new Date(d), dateStr, pilots: offPilots });
+            }
+
+            const nextOff = commonOffDays[0];
+            const nextOffPreview = nextOff
+                ? `<span class="text-zinc-600 text-[10px] font-normal normal-case ml-2">Next: ${nextOff.dateStr === todayStr ? 'Today' : nextOff.dateStr === tomorrowStr ? 'Tomorrow' : fmtDateShort(nextOff.date)} — ${nextOff.pilots.map(p => PILOT_NAMES[p.key].split(' ')[0]).join(', ')}</span>`
+                : `<span class="text-zinc-700 text-[10px] font-normal normal-case ml-2">None found</span>`;
+
+            const offDayRows = commonOffDays.map(({ date, dateStr, pilots }) => {
+                const isToday = dateStr === todayStr;
+                const isTomorrow = dateStr === tomorrowStr;
+                const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : fmtDateShort(date);
+                const filterCount = activeKeys.length;
+                const isAllOff = pilots.length === filterCount;
+                const rowStyle = isAllOff ? 'border-left:2px solid rgba(251,191,36,0.45);' : '';
+                const countBadge = isAllOff
+                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-950/60 text-amber-400 border border-amber-700/60">✦ ALL OFF</span>`
+                    : pilots.length >= filterCount - 1
+                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">${pilots.length} of ${filterCount}</span>`
+                    : pilots.length >= filterCount - 2
+                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/60 text-sky-400 border border-sky-800/50">${pilots.length} of ${filterCount}</span>`
+                    : '';
+                const dayLabelStyle = isAllOff ? 'color:#fbbf24;' : '';
+                const chips = pilots.map(({ key: k }) =>
+                    `<span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black whitespace-nowrap" style="background:${PILOT_COLORS[k]}22;color:${PILOT_COLORS[k]};border:1px solid ${PILOT_COLORS[k]}44"><span class="w-1.5 h-1.5 rounded-full" style="background:${PILOT_COLORS[k]}"></span>${PILOT_NAMES[k].split(' ')[0]}</span>`
+                ).join('');
+                return `<div class="flex items-center gap-2 px-4 min-w-0" style="padding-top:10px;padding-bottom:10px;${rowStyle}">
+                    <div class="flex items-center gap-1.5 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:4px 0">${chips}</div>
+                    <div class="flex items-center gap-1.5 shrink-0 ml-auto pl-1">
+                        ${countBadge}
+                        <div class="text-[11px] font-black whitespace-nowrap" style="${dayLabelStyle}">${dayLabel}</div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const filterChips = visibleCrew.map(k => {
+                const active = _offDayFilter.has(k);
+                const color = PILOT_COLORS[k];
+                const name = PILOT_NAMES[k].split(' ')[0];
+                return `<button onclick="toggleOffDayPilot('${k}')" style="background:${active ? color + '22' : 'transparent'};color:${active ? color : '#52525b'};border:1px solid ${active ? color + '55' : '#3f3f46'};border-radius:9999px;padding:6px 14px;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;transition:all 0.15s;-webkit-tap-highlight-color:transparent;min-height:36px;display:inline-flex;align-items:center">${name}</button>`;
+            }).join('');
+
+            const bodyHidden = wasOpen ? '' : ' hidden';
+            const arrText = wasOpen ? '‹' : '›';
+
+            el.innerHTML = `<div class="mb-4 rounded-xl border border-zinc-800/50 overflow-hidden">
+                <button onclick="const b=this.parentElement.querySelector('.off-days-body');const arr=this.querySelector('.off-arr');b.classList.toggle('hidden');arr.textContent=b.classList.contains('hidden')?'›':'‹';"
+                    class="w-full px-4 py-2.5 flex items-center gap-2 text-left">
+                    <span class="off-arr text-zinc-600 text-xs">${arrText}</span>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Common Off Days</span>
+                    ${nextOffPreview}
+                </button>
+                <div class="off-days-body${bodyHidden} border-t border-zinc-800/50 divide-y divide-zinc-800/30">
+                    <div class="px-4 py-2.5 flex items-center gap-2.5 border-b border-zinc-800/30">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-zinc-600 shrink-0">Show</span>
+                        <div class="flex items-center gap-1.5 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:2px 0">${filterChips}</div>
+                    </div>
+                    ${stalePilots.length ? `<div class="px-4 py-2.5 flex items-center gap-2 border-b border-zinc-800/30 bg-zinc-900/40">
+                        <span style="color:#92400e;font-size:11px">⚠</span>
+                        <span style="font-size:10px;color:#78716c">${stalePilots.map(k => PILOT_NAMES[k].split(' ')[0]).join(', ')} ${stalePilots.length === 1 ? 'has' : 'have'} no upcoming schedule — off days may be incomplete</span>
+                    </div>` : ''}
+                    ${offDayRows || '<div class="px-4 py-3 text-xs text-zinc-600">No common off days found in schedule data.</div>'}
+                </div>
+            </div>`;
+        }
+
         async function computeOverlap() {
             const container = document.getElementById('overlap-content');
             container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
@@ -2897,106 +3042,8 @@
                 : myCards + mySecHtml;
             const secondaryHtml = myPilot ? otherCrewHtml : '';
 
-            // Common off days — days where 2+ pilots have no flights (free to plan anything)
-            const pilotFlyingDates = {};
-            const pilotMaxDate = {};
-            const kyleHardOffDates = new Set();
-            let allDatesMax = null;
-            PILOT_KEYS.forEach(k => {
-                const flying = new Set();
-                (pilotsCache[k]?.segments || []).forEach(s => {
-                    if (k === 'kyle' && s.type === 'hard' && s.departure_time) {
-                        kyleHardOffDates.add(s.departure_time.slice(0, 10));
-                        return;
-                    }
-                    if (s.type !== 'flight') return;
-                    [s.departure_time, s.arrival_time].forEach(t => {
-                        if (!t) return;
-                        flying.add(t.slice(0, 10));
-                        if (!allDatesMax || t.slice(0, 10) > allDatesMax) allDatesMax = t.slice(0, 10);
-                        if (!pilotMaxDate[k] || t.slice(0, 10) > pilotMaxDate[k]) pilotMaxDate[k] = t.slice(0, 10);
-                    });
-                });
-                pilotFlyingDates[k] = flying;
-            });
-            // Flag pilots whose schedule ends more than 7 days before the pilot with the most data
-            const stalePilots = allDatesMax
-                ? PILOT_KEYS.filter(k => {
-                    if (k === 'kyle') return false; // kyle uses hard-off days, not flight range
-                    const diff = (new Date(allDatesMax) - new Date(pilotMaxDate[k] || '2000-01-01')) / 86400000;
-                    return diff > 7;
-                  })
-                : [];
-
-            // Kyle: only hard off days count — on-call means potentially working, even with no flights yet scheduled
-            function kyleAvail(dateStr) {
-                return kyleHardOffDates.has(dateStr) ? 'certain' : 'no';
-            }
-
-            const commonOffDays = [];
-            const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const endDate = allDatesMax ? new Date(allDatesMax + 'T12:00:00') : new Date(startDate.getTime() + 90 * 86400000);
-            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-                const dateStr = localDateStr(d);
-                const offPilots = PILOT_KEYS.flatMap(k => {
-                    if (k === 'kyle') {
-                        const avail = kyleAvail(dateStr);
-                        return avail !== 'no' ? [{ key: k, certain: avail === 'certain' }] : [];
-                    }
-                    return !pilotFlyingDates[k].has(dateStr) ? [{ key: k, certain: true }] : [];
-                });
-                if (offPilots.length >= 2) commonOffDays.push({ date: new Date(d), dateStr, pilots: offPilots });
-            }
-            const nextOff = commonOffDays[0];
-            const nextOffPreview = nextOff
-                ? `<span class="text-zinc-600 text-[10px] font-normal normal-case ml-2">Next: ${nextOff.dateStr === todayStr ? 'Today' : nextOff.dateStr === tomorrowStr ? 'Tomorrow' : fmtDateShort(nextOff.date)} — ${nextOff.pilots.map(p => PILOT_NAMES[p.key].split(' ')[0]).join(', ')}</span>`
-                : `<span class="text-zinc-700 text-[10px] font-normal normal-case ml-2">None found</span>`;
-            const offDayRows = commonOffDays.map(({ date, dateStr, pilots }) => {
-                const isToday = dateStr === todayStr;
-                const isTomorrow = dateStr === tomorrowStr;
-                const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : fmtDateShort(date);
-                const crewCount = PILOT_KEYS.length;
-                const isAllOff = pilots.length === crewCount;
-                const rowStyle = isAllOff
-                    ? 'border-left:2px solid rgba(251,191,36,0.45);'
-                    : '';
-                const countBadge = isAllOff
-                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-950/60 text-amber-400 border border-amber-700/60">✦ ALL OFF</span>`
-                    : pilots.length >= crewCount - 1
-                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">${pilots.length} of ${crewCount}</span>`
-                    : pilots.length >= crewCount - 2
-                    ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/60 text-sky-400 border border-sky-800/50">${pilots.length} of ${crewCount}</span>`
-                    : '';
-                const dayLabelStyle = isAllOff ? 'color:#fbbf24;' : '';
-                const chips = pilots.map(({ key: k }) =>
-                    `<span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black whitespace-nowrap" style="background:${PILOT_COLORS[k]}22;color:${PILOT_COLORS[k]};border:1px solid ${PILOT_COLORS[k]}44"><span class="w-1.5 h-1.5 rounded-full" style="background:${PILOT_COLORS[k]}"></span>${PILOT_NAMES[k].split(' ')[0]}</span>`
-                ).join('');
-                return `<div class="flex items-center gap-2 px-4 min-w-0" style="padding-top:10px;padding-bottom:10px;${rowStyle}">
-                    <div class="flex items-center gap-1.5 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:4px 0">${chips}</div>
-                    <div class="flex items-center gap-1.5 shrink-0 ml-auto pl-1">
-                        ${countBadge}
-                        <div class="text-[11px] font-black whitespace-nowrap" style="${dayLabelStyle}">${dayLabel}</div>
-                    </div>
-                </div>`;
-            }).join('');
-            const commonOffHtml = `
-                <div class="mb-4 rounded-xl border border-zinc-800/50 overflow-hidden">
-                    <button onclick="const b=this.parentElement.querySelector('.off-days-body');const arr=this.querySelector('.off-arr');b.classList.toggle('hidden');arr.textContent=b.classList.contains('hidden')?'›':'‹';"
-                        class="w-full px-4 py-2.5 flex items-center gap-2 text-left">
-                        <span class="off-arr text-zinc-600 text-xs">›</span>
-                        <span class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Common Off Days</span>
-                        ${nextOffPreview}
-                    </button>
-                    <div class="off-days-body hidden border-t border-zinc-800/50 divide-y divide-zinc-800/30">
-                        ${stalePilots.length ? `<div class="px-4 py-2.5 flex items-center gap-2 border-b border-zinc-800/30 bg-zinc-900/40">
-                            <span style="color:#92400e;font-size:11px">⚠</span>
-                            <span style="font-size:10px;color:#78716c">${stalePilots.map(k => PILOT_NAMES[k].split(' ')[0]).join(', ')} ${stalePilots.length === 1 ? 'has' : 'have'} no upcoming schedule — off days may be incomplete</span>
-                        </div>` : ''}
-                        ${offDayRows || '<div class="px-4 py-3 text-xs text-zinc-600">No common off days found in schedule data.</div>'}
-                    </div>
-                </div>`;
-
-            container.innerHTML = noneMsg + commonOffHtml + primaryHtml + secondaryHtml;
+            container.innerHTML = noneMsg + '<div id="common-off-section"></div>' + primaryHtml + secondaryHtml;
+            renderCommonOffSection(false);
 
             if (scrollTargetIdx >= 0) {
                 requestAnimationFrame(() => scrollToOverlapCard(scrollTargetIdx));
@@ -3128,6 +3175,17 @@
 
         function toggleAllPilotsMonth() { setMapMode(mapAllMode ? 'mine' : 'month'); }
 
+        function _updateCrewLegend() {
+            const container = document.getElementById('legend-day-pilots');
+            if (!container) return;
+            container.innerHTML = getCrewVisible().map(k => {
+                const color = PILOT_COLORS[k] || '#94a3b8';
+                const name = (PILOT_NAMES[k] || k).split(' ')[0];
+                const opacity = hiddenPilots.has(k) ? '0.3' : '1';
+                return `<button onclick="togglePilotLegend('${k}')" id="legend-pilot-${k}" class="flex items-center gap-1.5 w-full text-left transition-opacity hover:opacity-70" style="opacity:${opacity}"><span class="inline-block w-4 h-[2.5px] rounded-full shrink-0" style="background:${color}"></span><span class="text-zinc-500">${name}</span></button>`;
+            }).join('');
+        }
+
         function togglePilotLegend(key) {
             if (hiddenPilots.has(key)) hiddenPilots.delete(key);
             else hiddenPilots.add(key);
@@ -3143,8 +3201,9 @@
                 .forEach(l => map.removeLayer(l));
             mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
 
-            // Ensure all pilots are loaded
-            await Promise.all(PILOT_KEYS.map(async key => {
+            // Ensure all visible pilots are loaded
+            const visiblePilots = getCrewVisible();
+            await Promise.all(visiblePilots.map(async key => {
                 if (!pilotsCache[key]) {
                     try { pilotsCache[key] = await (await fetch(`${API_BASE}/pilots/${key}`)).json(); }
                     catch(_) {}
@@ -3157,7 +3216,7 @@
             const bounds = [];
             const airportSeen = new Set();
 
-            for (const key of PILOT_KEYS) {
+            for (const key of visiblePilots) {
                 if (hiddenPilots.has(key)) continue;
                 const data = pilotsCache[key];
                 if (!data?.segments) continue;
@@ -3241,11 +3300,7 @@
             // Update legend
             document.getElementById('legend-single').classList.add('hidden');
             document.getElementById('legend-day').classList.remove('hidden');
-            // Restore toggle state on legend buttons
-            PILOT_KEYS.forEach(k => {
-                const el = document.getElementById(`legend-pilot-${k}`);
-                if (el) el.style.opacity = hiddenPilots.has(k) ? '0.3' : '';
-            });
+            _updateCrewLegend();
             if (bounds.length) {
                 const nb = bounds.map(p => [p[0], ((p[1] % 360) + 360) % 360]);
                 map.fitBounds(L.latLngBounds(nb).pad(0.2));
@@ -4298,10 +4353,12 @@
             // Day view uses the pilot-name legend
             document.getElementById('legend-single')?.classList.add('hidden');
             document.getElementById('legend-day')?.classList.remove('hidden');
+            _updateCrewLegend();
 
-            // Load all pilots (cache where possible)
+            // Load all visible pilots (cache where possible)
+            const visiblePilots = getCrewVisible();
             const allPilotSegments = {};
-            await Promise.all(PILOT_KEYS.map(async (key) => {
+            await Promise.all(visiblePilots.map(async (key) => {
                 if (!pilotsCache[key]) {
                     try {
                         const resp = await fetch(`${API_BASE}/pilots/${key}`);
@@ -4325,7 +4382,7 @@
 
             // Flatten all day flights with pilot key attached
             const allDayFlights = [];
-            PILOT_KEYS.forEach(pilotKey => {
+            visiblePilots.forEach(pilotKey => {
                 const segs = allPilotSegments[pilotKey];
                 if (!segs) return;
                 segs.filter(s => s.type === 'flight' && s.departureTime && flightLocalDate(s.departureTime, s.departureAirport) === mapDayDate)
