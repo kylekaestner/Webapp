@@ -1485,12 +1485,39 @@ app.post('/crew-roster/login', express.urlencoded({ extended: false }), (req, re
     res.redirect('/crew-roster?err=1');
 });
 
+// Add viewer from crew-roster page (form POST, no JS required)
+app.post('/crew-roster/add-viewer', rosterAuth, express.urlencoded({ extended: false }), (req, res) => {
+    const { firstName, lastName } = req.body;
+    if (!firstName || !firstName.trim()) return res.redirect('/crew-roster?err=name');
+    const db = getDB();
+    const name = lastName && lastName.trim() ? `${firstName.trim()} ${lastName.trim()}` : firstName.trim();
+    const baseKey = firstName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const token = generateToken();
+    const tryInsert = (key, attempt) => {
+        const finalKey = attempt === 0 ? key : `${key}${attempt}`;
+        db.run(
+            `INSERT INTO pilots (pilot_key, name, role, parser_type, token) VALUES (?, ?, 'viewer', 'none', ?)`,
+            [finalKey, name, token],
+            function(err) {
+                if (err && err.message.includes('UNIQUE')) return tryInsert(key, attempt + 1);
+                if (err) return res.redirect('/crew-roster?err=db');
+                res.redirect(`/crew-roster?added=${encodeURIComponent(token)}`);
+            }
+        );
+    };
+    tryInsert(baseKey, 0);
+});
+
 // Admin user list — password-protected HTML page
 app.get('/crew-roster', rosterAuth, (req, res) => {
     const db = getDB();
+    const addedToken = req.query.added || '';
+    const addErr     = req.query.err   || '';
     db.all(`SELECT pilot_key, name, base, home_airport, role, token, last_active FROM pilots ORDER BY pilot_key='admin' DESC, name`, (err, rows) => {
         if (err) return res.status(500).send(err.message);
-        const origin = req.headers.host ? `${req.protocol}://${req.headers.host}` : '';
+        const host   = req.headers.host || `localhost:${PORT}`;
+        const proto  = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+        const origin = `${proto}://${host}`;
         const fmtActive = (iso) => {
             if (!iso) return 'Never';
             const diff = Date.now() - new Date(iso).getTime();
@@ -1505,27 +1532,88 @@ app.get('/crew-roster', rosterAuth, (req, res) => {
         };
         const cards = rows.map(r => {
             const link = `${origin}/app?u=${r.token}`;
-            const initials = r.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-            const sub = [r.pilot_key, r.base && `base ${r.base}`, r.home_airport && r.home_airport !== r.base && `home ${r.home_airport}`, r.role].filter(Boolean).join(' · ');
+            const isViewer = r.role === 'viewer';
+            const initials = isViewer ? '👁' : r.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+            const avatarBg = isViewer ? '#064e3b' : '#1e3a5f';
+            const avatarColor = isViewer ? '#34d399' : '#60a5fa';
+            const sub = isViewer
+                ? `${r.pilot_key} · View only`
+                : [r.pilot_key, r.base && `base ${r.base}`, r.home_airport && r.home_airport !== r.base && `home ${r.home_airport}`].filter(Boolean).join(' · ');
             const activeStr = fmtActive(r.last_active);
             const activeColor = !r.last_active ? '#52525b' : (Date.now() - new Date(r.last_active).getTime()) < 86400000 ? '#22c55e' : '#71717a';
-            return `<div style="background:#18181b;border:1px solid #27272a;border-radius:12px;padding:16px 20px;display:flex;flex-direction:column;gap:8px">
+            const cardBorder = isViewer ? '#166534' : '#27272a';
+            return `<div style="background:#111113;border:1px solid ${cardBorder};border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px">
   <div style="display:flex;align-items:center;gap:12px">
-    <div style="width:40px;height:40px;border-radius:50%;background:#312e81;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">${initials}</div>
-    <div style="flex:1"><div style="font-weight:600;font-size:15px">${r.name}</div><div style="font-size:12px;color:#71717a">${sub}</div></div>
-    <div style="font-size:11px;color:${activeColor};white-space:nowrap">${activeStr}</div>
+    <div style="width:40px;height:40px;border-radius:10px;background:${avatarBg};color:${avatarColor};display:flex;align-items:center;justify-content:center;font-weight:900;font-size:${isViewer?'18':'13'}px;flex-shrink:0">${initials}</div>
+    <div style="flex:1">
+      <div style="font-weight:800;font-size:15px;color:#fff">${r.name}</div>
+      <div style="font-size:11px;color:#52525b;font-weight:600;margin-top:2px">${sub}</div>
+    </div>
+    <div style="font-size:11px;color:${activeColor};white-space:nowrap;font-weight:600">${activeStr}</div>
   </div>
-  <div style="display:flex;gap:8px;align-items:center;background:#09090b;border:1px solid #27272a;border-radius:8px;padding:8px 12px">
-    <span style="flex:1;font-size:12px;color:#a1a1aa;word-break:break-all">${link}</span>
-    <button onclick="copyText('${link}',this)" style="background:#27272a;border:none;color:#e4e4e7;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;white-space:nowrap">Copy</button>
-    <a href="${link}" target="_blank" style="background:#27272a;color:#e4e4e7;border-radius:6px;padding:4px 10px;font-size:12px;text-decoration:none;white-space:nowrap">Open</a>
+  <div style="display:flex;gap:8px;align-items:center;background:#09090b;border:1px solid #1c1c1f;border-radius:8px;padding:8px 10px">
+    <span style="flex:1;font-size:11px;color:#71717a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,monospace">${link}</span>
+    <button onclick="copyText('${link}',this)" style="flex-shrink:0;background:#1d4ed8;border:none;color:#fff;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em">Copy</button>
+    <a href="${link}" target="_blank" style="flex-shrink:0;background:#18181b;color:#a1a1aa;border:1px solid #27272a;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;text-decoration:none">Open</a>
   </div>
 </div>`;
         }).join('');
-        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>CrewSync · Roster</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:24px 16px;background:#09090b;color:#e4e4e7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:640px;margin:0 auto}</style></head><body>
-<h2 style="margin:0 0 20px;font-size:20px;font-weight:700">CrewSync · Pilot Links</h2>
-<div style="display:flex;flex-direction:column;gap:12px">${cards}</div>
-<script>function copyText(t,btn){if(navigator.clipboard&&location.protocol==='https:'){navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='Copy',1500)});}else{var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');btn.textContent='✓';setTimeout(()=>btn.textContent='Copy',1500);}catch(e){}document.body.removeChild(ta);}}</script>
+        res.send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><title>CrewSync · Roster</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#09090b;color:#e4e4e7;min-height:100vh;padding:2rem 1rem}
+.wrap{max-width:640px;margin:0 auto}
+.header{display:flex;align-items:center;gap:8px;margin-bottom:1.5rem}
+.logo{font-size:1.1rem;font-weight:900;color:#3b82f6;text-transform:uppercase;letter-spacing:.05em;font-style:italic}
+.header-sub{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#52525b;margin-top:2px}
+.cards{display:flex;flex-direction:column;gap:10px}
+.add-viewer{margin-top:2rem;padding:16px;background:#052e16;border:1px solid #166534;border-radius:14px}
+.add-viewer-label{font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#34d399;margin-bottom:5px}
+.add-viewer-desc{font-size:.75rem;color:#6ee7b7;margin-bottom:12px;line-height:1.45}
+.add-viewer-row{display:flex;gap:8px;flex-wrap:wrap}
+.add-viewer-input{flex:1;min-width:110px;padding:8px 12px;background:#09090b;border:1px solid #166534;border-radius:8px;color:#e4e4e7;font-size:.85rem;outline:none}
+.add-viewer-input:focus{border-color:#34d399}
+.btn-add{padding:8px 16px;background:#166534;border:none;color:#34d399;border-radius:8px;font-size:.8rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;white-space:nowrap}
+.btn-add:hover{background:#15803d}
+#v-result{margin-top:10px;font-size:.75rem;color:#34d399;display:none;line-height:1.4}
+</style>
+</head><body>
+<div class="wrap">
+  <div class="header">
+    <div><div class="logo">CrewSync</div><div class="header-sub">Crew Roster</div></div>
+  </div>
+  <div class="cards">${cards}</div>
+  <div class="add-viewer">
+    <div class="add-viewer-label">Add View-Only Guest</div>
+    <p class="add-viewer-desc">View-only guests can see all crew schedules but cannot upload, edit, or add flights. They get their own "Your Crew" filter to choose who they follow.</p>
+    ${addErr ? `<p style="color:#f87171;font-size:.8rem;margin-bottom:8px">Error adding viewer — try again.</p>` : ''}
+    ${addedToken ? `<div style="margin-bottom:12px;padding:10px 12px;background:#052e16;border:1px solid #16a34a;border-radius:8px;font-size:.8rem;color:#34d399">
+      Viewer added! Link: <strong style="color:#fff;word-break:break-all">${origin}/app?u=${addedToken}</strong>
+      <button onclick="copyText('${origin}/app?u=${addedToken}',this)" style="display:block;margin-top:6px;background:#166534;border:none;color:#34d399;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.75rem;font-weight:800">Copy Link</button>
+    </div>` : ''}
+    <form method="POST" action="/crew-roster/add-viewer" class="add-viewer-row">
+      <input name="firstName" placeholder="First name" class="add-viewer-input" required>
+      <input name="lastName" placeholder="Last name (optional)" class="add-viewer-input">
+      <button type="submit" class="btn-add">Add Viewer</button>
+    </form>
+  </div>
+</div>
+<script>
+function copyText(t,btn){
+  var prev=btn.textContent;
+  if(navigator.clipboard&&location.protocol==='https:'){
+    navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓ Copied';setTimeout(()=>btn.textContent=prev,1800);});
+  } else {
+    var ta=document.createElement('textarea');ta.value=t;ta.style.cssText='position:fixed;opacity:0';
+    document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');btn.textContent='✓ Copied';setTimeout(()=>btn.textContent=prev,1800);}catch(e){}
+    document.body.removeChild(ta);
+  }
+}
+</script>
 </body></html>`);
     });
 });
@@ -1549,10 +1637,15 @@ app.get('/admin/users', (req, res) => {
             const cards = rows.map(u => {
                 const link = `${origin}/app?u=${u.token}`;
                 const initials = (u.name || '').split(' ').map(w => w[0]).join('').slice(0, 2);
-                const sub = [u.base, u.home_airport && u.home_airport !== u.base ? `home ${u.home_airport}` : null, u.role].filter(Boolean).join(' · ');
+                const isViewer = u.role === 'viewer';
+                const sub = isViewer
+                    ? `${u.pilot_key} · View only`
+                    : [u.base, u.home_airport && u.home_airport !== u.base ? `home ${u.home_airport}` : null, u.role].filter(Boolean).join(' · ');
+                const avatarBg = isViewer ? '#064e3b' : '#1e3a5f';
+                const avatarColor = isViewer ? '#34d399' : '#60a5fa';
                 return `<div class="card">
   <div class="card-header">
-    <div class="avatar">${initials}</div>
+    <div class="avatar" style="background:${avatarBg};color:${avatarColor}">${isViewer ? '👁' : initials}</div>
     <div>
       <div class="name">${u.name}</div>
       <div class="sub">${sub || u.pilot_key}</div>
@@ -1589,10 +1682,18 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#09090b;color:#e4
 .btn-copy,.btn-open{flex-shrink:0;padding:7px 14px;border-radius:8px;font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;border:none;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;transition:background .15s}
 .btn-copy{background:#1d4ed8;color:#fff}.btn-copy:hover{background:#2563eb}
 .btn-open{background:#18181b;color:#a1a1aa;border:1px solid #27272a}.btn-open:hover{color:#fff;border-color:#3f3f46}
-.my-link{margin-top:2.5rem;padding:14px 16px;background:#111113;border:1px solid #27272a;border-radius:12px}
+.my-link{margin-top:1.5rem;padding:14px 16px;background:#111113;border:1px solid #27272a;border-radius:12px}
 .my-link-label{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#3f3f46;margin-bottom:6px}
 .my-link-box{display:flex;gap:8px;align-items:center}
 .my-link-url{flex:1;font-family:ui-monospace,monospace;font-size:.65rem;color:#3f3f46;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.add-viewer{margin-top:2.5rem;padding:16px;background:#052e16;border:1px solid #166534;border-radius:12px}
+.add-viewer-label{font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#34d399;margin-bottom:6px}
+.add-viewer-desc{font-size:.75rem;color:#6ee7b7;margin-bottom:12px;line-height:1.4}
+.add-viewer-row{display:flex;gap:8px;flex-wrap:wrap}
+.add-viewer-input{flex:1;min-width:120px;padding:8px 12px;background:#09090b;border:1px solid #166534;border-radius:8px;color:#e4e4e7;font-size:.85rem;outline:none}
+.add-viewer-input:focus{border-color:#34d399}
+.btn-add-viewer{padding:8px 16px;background:#166534;border:none;color:#34d399;border-radius:8px;font-size:.8rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;white-space:nowrap}
+.btn-add-viewer:hover{background:#15803d}
 </style>
 </head><body>
 <div class="wrap">
@@ -1603,6 +1704,16 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#09090b;color:#e4
     </div>
   </div>
   <div class="cards">${cards}</div>
+  <div class="add-viewer">
+    <div class="add-viewer-label">Add View-Only Guest</div>
+    <p class="add-viewer-desc">View-only guests can see all crew schedules but cannot upload, edit, or add flights. They get their own "Your Crew" filter.</p>
+    <div class="add-viewer-row">
+      <input id="v-first" placeholder="First name" class="add-viewer-input">
+      <input id="v-last" placeholder="Last name" class="add-viewer-input">
+      <button onclick="addViewer()" class="btn-add-viewer">Add Viewer</button>
+    </div>
+    <div id="v-result" style="margin-top:10px;font-size:.75rem;color:#34d399;display:none"></div>
+  </div>
   <div class="my-link">
     <div class="my-link-label">This page (bookmark it)</div>
     <div class="my-link-box">
@@ -1614,6 +1725,25 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#09090b;color:#e4
 <script>
 function copyText(t,btn){if(navigator.clipboard&&location.protocol==='https:'){navigator.clipboard.writeText(t).then(()=>{btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy',2000)});}else{var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy',2000);}catch(e){}document.body.removeChild(ta);}}
 function copy(key,link,btn){copyText(link,btn);}
+async function addViewer(){
+  const first=document.getElementById('v-first').value.trim();
+  const last=document.getElementById('v-last').value.trim();
+  const el=document.getElementById('v-result');
+  el.style.display='block';
+  if(!first){el.style.color='#f87171';el.textContent='Enter at least a first name.';return;}
+  el.style.color='#a1a1aa';el.textContent='Creating…';
+  try{
+    const res=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:first,lastName:last||'',role:'viewer',parserType:'none'})});
+    const data=await res.json();
+    if(!data.success){el.style.color='#f87171';el.textContent='Error: '+(data.error||'Unknown');return;}
+    const link=location.origin+data.link;
+    el.style.color='#34d399';
+    el.innerHTML='Link created — <strong style="color:#fff">'+link+'</strong> &nbsp;<button onclick="copyText(\''+link+'\',this)" style="background:#27272a;border:none;color:#e4e4e7;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.7rem">Copy</button>';
+    document.getElementById('v-first').value='';
+    document.getElementById('v-last').value='';
+    setTimeout(()=>location.reload(),4000);
+  }catch(e){el.style.color='#f87171';el.textContent='Network error — try again.';}
+}
 </script>
 </body></html>`);
         });
@@ -1673,11 +1803,11 @@ app.get('/api/demo/pilots/:pilotKey', (req, res) => {
 app.get('/api/pilots/by-token/:token', (req, res) => {
     const db = getDB();
     const token = req.params.token;
-    db.get(`SELECT pilot_key, name, base FROM pilots WHERE token=?`, [token], (err, row) => {
+    db.get(`SELECT pilot_key, name, base, role FROM pilots WHERE token=?`, [token], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!row) return res.status(404).json({ error: 'Invalid token' });
         db.run(`UPDATE pilots SET last_active=? WHERE token=?`, [new Date().toISOString(), token]);
-        res.json({ pilotKey: row.pilot_key, name: row.name, base: row.base });
+        res.json({ pilotKey: row.pilot_key, name: row.name, base: row.base, isViewer: row.role === 'viewer' });
     });
 });
 
@@ -1694,10 +1824,10 @@ app.get('/api/pilots/:pilotKey/token', (req, res) => {
 // Join: create a new pilot
 app.post('/api/join', async (req, res) => {
     const { firstName, lastName, base, homeAirport, role, parserType, airlineCode } = req.body;
-    if (!firstName || !lastName) return res.status(400).json({ error: 'Name required' });
+    if (!firstName) return res.status(400).json({ error: 'Name required' });
 
     const db = getDB();
-    const name = `${firstName.trim()} ${lastName.trim()}`;
+    const name = lastName ? `${firstName.trim()} ${lastName.trim()}` : firstName.trim();
     // Derive a unique pilot_key from first name, add number suffix if collision
     const baseKey = firstName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const token = generateToken();

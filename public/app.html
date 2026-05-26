@@ -369,7 +369,7 @@
                 <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
                     <button onclick="setMapMode('mine')" id="mapmode-mine" class="map-sub-header-btn map-mode-active">
                         <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
-                        <span>My Routes</span>
+                        <span id="mapmode-mine-label">My Routes</span>
                     </button>
                 </div>
                 <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
@@ -410,7 +410,7 @@
 
         </div><!-- end scrollable area -->
 
-        <div class="shrink-0 px-3 py-2 border-t border-zinc-800 bg-black/20 space-y-1.5">
+        <div id="sidebar-upload-section" class="shrink-0 px-3 py-2 border-t border-zinc-800 bg-black/20 space-y-1.5">
             <div id="upload-for-row" class="space-y-1">
                 <label class="text-[9px] font-black text-zinc-600 uppercase px-1 block">Upload For</label>
                 <select id="upload-pilot-select" onchange="updateUploadSyncButtons(this.value)" class="w-full px-2 py-1.5 rounded-lg border border-zinc-700 bg-zinc-900 text-xs font-bold text-zinc-100 hover:border-blue-500 transition">
@@ -561,7 +561,7 @@
                     <div class="flex">
                         <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill map-mode-active flex-1 flex flex-col items-center justify-center gap-1" style="padding:8px 4px">
                             <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
-                            <span>My Routes</span>
+                            <span id="mapmode-bar-mine-label">My Routes</span>
                         </button>
                         <div class="flex-1 flex flex-col bg-zinc-900/60 border-l border-zinc-800">
                             <div class="flex items-center justify-center gap-1.5 pt-1.5 pb-0.5 border-b border-zinc-800/70">
@@ -1117,6 +1117,19 @@
     <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto -mt-1 mb-0 md:hidden"></div>
         <h3 id="edit-user-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Add User</h3>
         <input type="hidden" id="edit-user-key">
+        <!-- View-only toggle -->
+        <div onclick="_toggleViewerMode()" id="edit-user-viewer-row" class="flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-colors select-none" style="background:#052e16;border:1px solid #166534;-webkit-tap-highlight-color:transparent">
+            <div class="flex items-center gap-2.5">
+                <span class="text-base">👁</span>
+                <div>
+                    <div class="text-sm font-black text-emerald-300">View Only</div>
+                    <div class="text-[10px] text-emerald-800">Can see schedules, cannot upload or edit</div>
+                </div>
+            </div>
+            <div id="edit-user-viewer-toggle" class="w-11 h-6 rounded-full flex items-center px-0.5 transition-all pointer-events-none" style="background:#3f3f46">
+                <div id="edit-user-viewer-knob" class="w-5 h-5 rounded-full bg-white shadow transition-transform" style="transform:translateX(0px)"></div>
+            </div>
+        </div>
         <div class="grid grid-cols-2 gap-3">
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">First Name</label>
@@ -1127,31 +1140,34 @@
                 <input id="edit-user-last" type="text" placeholder="Kaestner" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
         </div>
-        <div class="grid grid-cols-2 gap-3">
-            <div>
-                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
-                <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+        <!-- Pilot-only fields — hidden when View Only is on -->
+        <div id="edit-user-pilot-fields" class="space-y-4">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
+                    <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                </div>
+                <div>
+                    <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
+                    <input id="edit-user-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                </div>
             </div>
             <div>
-                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
-                <input id="edit-user-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline Code <span class="normal-case font-normal text-zinc-600">(ICAO, e.g. RPA)</span></label>
+                <input id="edit-user-airline" type="text" placeholder="RPA" maxlength="3" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
-        </div>
-        <div>
-            <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline Code <span class="normal-case font-normal text-zinc-600">(ICAO, e.g. RPA)</span></label>
-            <input id="edit-user-airline" type="text" placeholder="RPA" maxlength="3" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
-        </div>
-        <div>
-            <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Role / Description</label>
-            <input id="edit-user-role" type="text" placeholder="Corporate · KSUS" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
-        </div>
-        <div>
-            <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Schedule Parser</label>
-            <select id="edit-user-parser" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
-                <option value="csv">CSV (Republic / SkyWest app)</option>
-                <option value="ics">ICS calendar (Schedaero)</option>
-                <option value="rosterbuster_ics">RosterBuster ICS</option>
-            </select>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Role / Description</label>
+                <input id="edit-user-role" type="text" placeholder="Corporate · KSUS" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Schedule Parser</label>
+                <select id="edit-user-parser" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                    <option value="csv">CSV (Republic / SkyWest app)</option>
+                    <option value="ics">ICS calendar (Schedaero)</option>
+                    <option value="rosterbuster_ics">RosterBuster ICS</option>
+                </select>
+            </div>
         </div>
         <div id="edit-user-error" class="hidden text-xs text-red-400 font-bold"></div>
         <div class="flex gap-3 pt-1">
@@ -1682,9 +1698,12 @@
         // initIdentity() sets myPilot / myToken / isDemo, registers the signed-in
         // pilot into PILOT_KEYS if they joined after the hardcoded list was written,
         // and applies all identity-driven UI (avatar, upload locks, add-flight gate).
-        let myPilot = null; // who you ARE, resolved from ?u=TOKEN on every load
-        let myToken = null; // token from URL -- kept for personal link copy
-        let isDemo  = false; // read-only demo mode (/demo route)
+        let myPilot      = null;  // who you ARE (null = admin or viewer)
+        let myToken      = null;  // token from URL -- kept for personal link copy
+        let isDemo       = false; // read-only demo mode (/demo route)
+        let myViewer     = false; // true when authenticated as a view-only guest
+        let myViewerKey  = null;  // pilot_key in DB for the viewer (used as localStorage key)
+        let myViewerName = null;  // display name for the viewer
 
         async function initIdentity() {
             const params   = new URLSearchParams(window.location.search);
@@ -1708,6 +1727,12 @@
                         if (data.pilotKey === 'admin') {
                             // Admin token → full access, no crew identity
                             myPilot = null;
+                        } else if (data.isViewer) {
+                            // View-only guest — no pilot identity, no editing
+                            myPilot      = null;
+                            myViewer     = true;
+                            myViewerKey  = data.pilotKey;
+                            myViewerName = data.name || 'Viewer';
                         } else {
                             myPilot = data.pilotKey;
                         }
@@ -1780,17 +1805,21 @@
         }
 
         // ── Crew visibility ───────────────────────────────────────────────
-        function _visKey() { return myPilot ? `crewVisible_${myPilot}` : null; }
+        function _visKey() {
+            if (myPilot) return `crewVisible_${myPilot}`;
+            if (myViewer) return `crewVisible_${myViewerKey}`;
+            return null; // admin — no preference stored
+        }
 
         function getCrewVisible() {
-            // Admin (no identity) sees all pilots
-            if (!myPilot) return [...VALID_PILOTS];
+            // Admin (no identity, no viewer flag) sees all pilots
+            if (!myPilot && !myViewer) return [...VALID_PILOTS];
             const stored = localStorage.getItem(_visKey());
             if (stored) {
                 try {
                     const arr = JSON.parse(stored);
-                    // Always include self
-                    if (!arr.includes(myPilot)) arr.unshift(myPilot);
+                    // Pilots always include self; viewers have no "self" pilot
+                    if (myPilot && !arr.includes(myPilot)) arr.unshift(myPilot);
                     return arr.filter(p => VALID_PILOTS.includes(p));
                 } catch { /* fall through */ }
             }
@@ -1803,8 +1832,9 @@
             if (visible) {
                 next = [...new Set([...current, pilot])];
             } else {
-                next = current.filter(p => p !== pilot && p !== myPilot); // can't hide self
-                if (!next.includes(myPilot)) next.unshift(myPilot);
+                // Pilots can't hide themselves; viewers have no self to protect
+                next = current.filter(p => p !== pilot && p !== myPilot);
+                if (myPilot && !next.includes(myPilot)) next.unshift(myPilot);
             }
             localStorage.setItem(_visKey(), JSON.stringify(next));
             _applyPilotPillVisibility();
@@ -1822,10 +1852,11 @@
         }
 
         function _applyIdentityUI() {
-            const color    = myPilot ? PILOT_COLORS[myPilot] : '#6366f1';
-            const initials = myPilot ? PILOT_NAMES[myPilot].split(' ').map(w => w[0]).join('') : '★';
-            const name     = myPilot ? PILOT_NAMES[myPilot] : 'Admin';
-            const role     = myPilot ? PILOT_ROLES[myPilot] : 'All access · no identity set';
+            const color    = myPilot ? PILOT_COLORS[myPilot] : myViewer ? '#10b981' : '#6366f1';
+            const initials = myPilot ? PILOT_NAMES[myPilot].split(' ').map(w => w[0]).join('')
+                           : myViewer ? myViewerName.split(' ').map(w => w[0]).join('') : '★';
+            const name     = myPilot ? PILOT_NAMES[myPilot] : myViewer ? myViewerName : 'Admin';
+            const role     = myPilot ? PILOT_ROLES[myPilot] : myViewer ? 'View only' : 'All access · no identity set';
 
             // Mobile header avatar
             const av = document.getElementById('identity-avatar');
@@ -1843,7 +1874,7 @@
             const sidebarNm = document.getElementById('sidebar-identity-name');
             if (sidebarEl) sidebarEl.classList.remove('hidden');
             if (sidebarAv) { sidebarAv.textContent = initials; sidebarAv.style.background = color + '22'; sidebarAv.style.color = color; }
-            if (sidebarNm) sidebarNm.textContent = myPilot ? PILOT_NAMES[myPilot].split(' ')[0] : 'Admin';
+            if (sidebarNm) sidebarNm.textContent = myPilot ? PILOT_NAMES[myPilot].split(' ')[0] : myViewer ? myViewerName.split(' ')[0] : 'Admin';
 
             // Profile sheet
             const pAv = document.getElementById('profile-avatar');
@@ -1855,22 +1886,26 @@
 
             const linkDisplay = document.getElementById('profile-link-display');
             const linkSection = document.getElementById('profile-link-section');
-            if (myPilot) {
+            if (myPilot || myViewer) {
                 if (linkDisplay) linkDisplay.textContent = location.href;
                 if (linkSection) linkSection.classList.remove('hidden');
             } else {
                 if (linkSection) linkSection.classList.add('hidden');
             }
 
-            // Hide crew visibility + sign-out for admin (no identity)
+            // Viewers and pilots both get crew visibility + sign-out; admin gets neither
             const cvSection = document.getElementById('crew-visibility-section');
-            if (cvSection) cvSection.classList.toggle('hidden', !myPilot);
+            if (cvSection) cvSection.classList.toggle('hidden', !myPilot && !myViewer);
             const signOutBtn = document.getElementById('sign-out-btn');
-            if (signOutBtn) signOutBtn.classList.toggle('hidden', !myPilot);
+            if (signOutBtn) signOutBtn.classList.toggle('hidden', !myPilot && !myViewer);
 
-            // Show manage-users button only for admin with a token
+            // Show manage-users button only for admin with a token (not viewer)
             const adminSection = document.getElementById('admin-manage-section');
-            if (adminSection) adminSection.classList.toggle('hidden', !!myPilot || !myToken);
+            if (adminSection) adminSection.classList.toggle('hidden', !!myPilot || myViewer || !myToken);
+
+            // Hide mobile upload nav button for viewers — they have no schedule to upload
+            const uploadNav = document.getElementById('btn-upload-nav');
+            if (uploadNav) uploadNav.classList.toggle('hidden', myViewer);
 
             // Upload nav label: sync pilots get "Sync", others get "Upload"
             const isSyncPilot = myPilot === 'kyle' || myPilot === 'drew';
@@ -1886,8 +1921,9 @@
 
         function _buildCrewVisibilityUI() {
             const el = document.getElementById('crew-visibility-btns');
-            if (!el || !myPilot) return;
+            if (!el || (!myPilot && !myViewer)) return;
             const visible = getCrewVisible();
+            // Pilots exclude themselves (they can't hide their own schedule); viewers see all pilots
             el.innerHTML = VALID_PILOTS.filter(p => p !== myPilot).map(p => {
                 const c  = PILOT_COLORS[p];
                 const on = visible.includes(p);
@@ -1901,6 +1937,15 @@
                     </div>
                 </label>`;
             }).join('');
+        }
+
+        function _updateMyRoutesLabel() {
+            const firstName = (PILOT_NAMES[currentPilot] || currentPilot).split(' ')[0];
+            const label = (currentPilot === myPilot) ? 'My Routes' : `${firstName}'s Routes`;
+            const d = document.getElementById('mapmode-mine-label');
+            const m = document.getElementById('mapmode-bar-mine-label');
+            if (d) d.textContent = label;
+            if (m) m.textContent = label;
         }
 
         function _applyPilotPillVisibility() {
@@ -1973,7 +2018,7 @@
         // Admin (myPilot=null) can edit anyone. Signed-in pilots can only edit
         // their own schedule. Demo always returns false.
         function canEdit() {
-            if (isDemo) return false;
+            if (isDemo || myViewer) return false;
             return !myPilot || myPilot === currentPilot;
         }
 
@@ -1984,9 +2029,11 @@
             const btnM = document.getElementById('btn-add-flight-mobile');
             if (btnD) btnD.classList.toggle('hidden', !ok);
             if (btnM) btnM.classList.toggle('hidden', !ok);
+            // Hide entire desktop sidebar upload section for viewers
+            document.getElementById('sidebar-upload-section')?.classList.toggle('hidden', myViewer);
             // Lock desktop upload select to myPilot when identified; hide it for signed-in pilots
             const desktopSelect = document.getElementById('upload-pilot-select');
-            document.getElementById('upload-for-row')?.classList.toggle('hidden', !!myPilot);
+            document.getElementById('upload-for-row')?.classList.toggle('hidden', !!myPilot || myViewer);
             if (desktopSelect && myPilot) {
                 desktopSelect.value = myPilot;
                 desktopSelect.disabled = true;
@@ -1998,6 +2045,7 @@
 
         // Open the upload sheet, restricting pilot select to myPilot when identified
         function openMobileUpload() {
+            if (myViewer) return; // view-only — no uploads
             if (myPilot === 'kyle') return quickSyncSchedaero();
             if (myPilot === 'drew') return openDrewICSSync();
             openUploadSheet();
@@ -2018,7 +2066,7 @@
         }
 
         async function copyMyLink() {
-            if (!myPilot) return;
+            if (!myPilot && !myViewer) return;
             try {
                 await navigator.clipboard.writeText(location.href);
                 haptic('success');
@@ -2252,6 +2300,7 @@
             currentPilot = pilot;
             localStorage.setItem('lastPilot', pilot);
             _applyEditPermissions();
+            _updateMyRoutesLabel();
 
             const loadingOverlay = document.getElementById('loading-overlay');
             loadingOverlay.classList.add('loading-active');
@@ -5884,15 +5933,19 @@ let _blockUserEdited = false;
             }
             list.innerHTML = rows.map(u => {
                 const link = `${location.origin}/app?u=${u.token}`;
-                const initials = (u.name || u.pilot_key).split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-                const color = PILOT_COLORS[u.pilot_key] || '#6366f1';
-                return `<div class="bg-zinc-800/60 border border-zinc-700/60 rounded-xl p-3.5 space-y-2.5">
+                const isViewer = u.role === 'viewer';
+                const initials = isViewer ? '👁' : (u.name || u.pilot_key).split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+                const color = isViewer ? '#10b981' : (PILOT_COLORS[u.pilot_key] || '#6366f1');
+                const subtext = isViewer
+                    ? `${u.pilot_key} · View only`
+                    : `${u.pilot_key} · base ${u.base || '—'}${u.home_airport && u.home_airport !== u.base ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'csv'}`;
+                return `<div class="bg-zinc-800/60 border border-zinc-700/60 rounded-xl p-3.5 space-y-2.5" style="${isViewer ? 'border-color:#166534' : ''}">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-3">
                             <div class="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black shrink-0" style="background:${color}22;color:${color}">${initials}</div>
                             <div>
                                 <div class="text-sm font-black text-white">${u.name}</div>
-                                <div class="text-[10px] text-zinc-500 font-bold">${u.pilot_key} · base ${u.base || '—'}${u.home_airport && u.home_airport !== u.base ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'csv'}</div>
+                                <div class="text-[10px] text-zinc-500 font-bold">${subtext}</div>
                             </div>
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">
@@ -5909,6 +5962,27 @@ let _blockUserEdited = false;
             }).join('');
         }
 
+        let _editUserIsViewer = false;
+
+        function _toggleViewerMode(forceTo) {
+            _editUserIsViewer = (forceTo !== undefined) ? forceTo : !_editUserIsViewer;
+            const knob   = document.getElementById('edit-user-viewer-knob');
+            const toggle = document.getElementById('edit-user-viewer-toggle');
+            const fields = document.getElementById('edit-user-pilot-fields');
+            const row    = document.getElementById('edit-user-viewer-row');
+            if (_editUserIsViewer) {
+                knob.style.transform    = 'translateX(20px)';
+                toggle.style.background = '#16a34a';
+                row.style.borderColor   = '#16a34a';
+                fields.classList.add('hidden');
+            } else {
+                knob.style.transform    = 'translateX(0px)';
+                toggle.style.background = '#3f3f46';
+                row.style.borderColor   = '#166534';
+                fields.classList.remove('hidden');
+            }
+        }
+
         function openEditUserModal(pilotKey) {
             const errEl = document.getElementById('edit-user-error');
             errEl.classList.add('hidden');
@@ -5919,16 +5993,19 @@ let _blockUserEdited = false;
             if (pilotKey) {
                 const u = _adminUsers.find(x => x.pilot_key === pilotKey);
                 if (u) {
+                    const isViewer = u.role === 'viewer';
+                    _toggleViewerMode(isViewer);
                     const nameParts = (u.name || '').split(' ');
                     document.getElementById('edit-user-first').value = nameParts[0] || '';
                     document.getElementById('edit-user-last').value = nameParts.slice(1).join(' ') || '';
                     document.getElementById('edit-user-base').value = u.base || '';
                     document.getElementById('edit-user-home').value = u.home_airport || '';
                     document.getElementById('edit-user-airline').value = u.airline_code || '';
-                    document.getElementById('edit-user-role').value = u.role || '';
+                    document.getElementById('edit-user-role').value = isViewer ? '' : (u.role || '');
                     document.getElementById('edit-user-parser').value = u.parser_type || 'csv';
                 }
             } else {
+                _toggleViewerMode(false);
                 ['edit-user-first','edit-user-last','edit-user-base','edit-user-home','edit-user-airline','edit-user-role'].forEach(id => document.getElementById(id).value = '');
                 document.getElementById('edit-user-parser').value = 'csv';
             }
@@ -5943,11 +6020,11 @@ let _blockUserEdited = false;
             const pilotKey = document.getElementById('edit-user-key').value;
             const firstName = document.getElementById('edit-user-first').value.trim();
             const lastName  = document.getElementById('edit-user-last').value.trim();
-            const base        = document.getElementById('edit-user-base').value.trim();
-            const homeAirport = document.getElementById('edit-user-home').value.trim();
-            const airline     = document.getElementById('edit-user-airline').value.trim();
-            const role        = document.getElementById('edit-user-role').value.trim();
-            const parser      = document.getElementById('edit-user-parser').value;
+            const base        = _editUserIsViewer ? '' : document.getElementById('edit-user-base').value.trim();
+            const homeAirport = _editUserIsViewer ? '' : document.getElementById('edit-user-home').value.trim();
+            const airline     = _editUserIsViewer ? '' : document.getElementById('edit-user-airline').value.trim();
+            const role        = _editUserIsViewer ? 'viewer' : document.getElementById('edit-user-role').value.trim();
+            const parser      = _editUserIsViewer ? 'none' : document.getElementById('edit-user-parser').value;
             const errEl     = document.getElementById('edit-user-error');
             const saveBtn   = document.getElementById('edit-user-save-btn');
 
@@ -6038,7 +6115,7 @@ let _blockUserEdited = false;
                 if (!Array.isArray(pilots)) return;
                 pilots.forEach(p => {
                     const key = p.pilot_key;
-                    if (!key || key === 'admin') return;
+                    if (!key || key === 'admin' || p.role === 'viewer') return;
                     if (!PILOT_KEYS.includes(key)) {
                         PILOT_KEYS.push(key);
                         PILOT_NAMES[key]  = p.name || key;
