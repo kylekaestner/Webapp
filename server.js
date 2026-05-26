@@ -990,35 +990,74 @@ app.post('/api/pilots/drew/sync-ics', async (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
-        // Replace all non-manual Drew segments
-        db.run('DELETE FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)', [pilot.id], (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            if (events.length === 0) return res.json({ success: true, segmentsAdded: 0 });
+        const nowIso = new Date().toISOString();
 
-            const stmt = db.prepare(`
-                INSERT INTO segments
-                (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-            let completed = 0;
-            const errors = [];
-            events.forEach(ev => {
-                stmt.run([
-                    pilot.id, ev.type,
-                    ev.departureTime || null, ev.arrivalTime || null,
-                    ev.departureAirport || null, ev.arrivalAirport || null,
-                    ev.tail || null, ev.trip || null,
-                    ev.flightNumber || null, ev.dh ? 1 : 0, null
-                ], function(err) {
-                    if (err) errors.push(err.message);
+        db.all(
+            'SELECT id, type, departure_time, departure_airport FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)',
+            [pilot.id],
+            (err, existing) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const existingMap = {};
+            existing.forEach(s => {
+                const key = `${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`;
+                existingMap[key] = s.id;
+            });
+
+            // Track which existing IDs the new feed accounts for
+            const matchedIds = new Set();
+            const incomingKeys = new Set(events.map(ev =>
+                `${ev.type}|${ev.departureTime || ''}|${ev.departureAirport || ''}`
+            ));
+            existing.forEach(s => {
+                const key = `${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`;
+                if (incomingKeys.has(key)) matchedIds.add(s.id);
+            });
+
+            // Delete future segments that are no longer in the feed
+            const staleIds = existing
+                .filter(s => !matchedIds.has(s.id) && (s.departure_time || '') >= nowIso)
+                .map(s => s.id);
+
+            const doUpsert = () => {
+                if (events.length === 0) return res.json({ success: true, segmentsAdded: 0 });
+                let completed = 0;
+                const errors = [];
+                const done = () => {
                     completed++;
                     if (completed === events.length) {
-                        stmt.finalize();
                         if (errors.length > 0) return res.status(500).json({ error: 'Some segments failed', details: errors });
                         res.json({ success: true, segmentsAdded: events.length });
                     }
+                };
+                events.forEach(ev => {
+                    const key = `${ev.type}|${ev.departureTime || ''}|${ev.departureAirport || ''}`;
+                    const existingId = existingMap[key];
+                    if (existingId) {
+                        db.run(
+                            `UPDATE segments SET arrival_time=?, arrival_airport=?, tail=?, trip=?, flight_number=?, is_dh=?, block_minutes=? WHERE id=?`,
+                            [ev.arrivalTime || null, ev.arrivalAirport || null, ev.tail || null, ev.trip || null, ev.flightNumber || null, ev.dh ? 1 : 0, null, existingId],
+                            err => { if (err) errors.push(err.message); done(); }
+                        );
+                    } else {
+                        db.run(
+                            `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            [pilot.id, ev.type, ev.departureTime || null, ev.arrivalTime || null, ev.departureAirport || null, ev.arrivalAirport || null, ev.tail || null, ev.trip || null, ev.flightNumber || null, ev.dh ? 1 : 0, null],
+                            err => { if (err) errors.push(err.message); done(); }
+                        );
+                    }
                 });
-            });
+            };
+
+            if (staleIds.length > 0) {
+                const placeholders = staleIds.map(() => '?').join(',');
+                db.run(`DELETE FROM segments WHERE id IN (${placeholders})`, staleIds, err => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    doUpsert();
+                });
+            } else {
+                doUpsert();
+            }
         });
     });
 });

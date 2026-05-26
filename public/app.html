@@ -1639,11 +1639,11 @@
         const _delayedFlights = new Map();   // callsign → delayMins (pre-departure / taxi)
         const _departureDelays = new Map(); // callsign → delayMins captured at takeoff, persists through flight
 
-        // Returns delay in minutes rounded up to the nearest 5, or 0 if < 5 min past dep.
+        // Returns delay in minutes rounded up to the nearest 5, or 0 if < 10 min past dep.
         function computeDelayMins(scheduledDepUTC) {
             if (!scheduledDepUTC) return 0;
             const diffMs = Date.now() - scheduledDepUTC.getTime();
-            if (diffMs < 5 * 60000) return 0;
+            if (diffMs < 10 * 60000) return 0;
             return Math.ceil(diffMs / 60000 / 5) * 5;
         }
         let radarLayer = null, radarOn = false;
@@ -3768,16 +3768,18 @@
                             txt = `${alt}${kts}`;
                             _delayedFlights.delete(cs);
                         } else {
-                            // No airborne signal — check for delay
-                            const depTimeAttr = el.dataset.depTime;
-                            const depAptAttr  = el.dataset.depApt;
-                            if (depTimeAttr) {
-                                const scheduledDep = flightUTCTime(depTimeAttr, depAptAttr || '');
-                                const delayMins = computeDelayMins(scheduledDep);
-                                if (delayMins > 0) {
-                                    _delayedFlights.set(cs, delayMins);
-                                    txt = `DELAYED · +${delayMins} min`;
-                                    txtColor = '#f97316';
+                            // No airborne signal — only show delay if takeoff hasn't been confirmed yet
+                            if (!_departureDelays.has(cs) && !_landedEarly.has(cs)) {
+                                const depTimeAttr = el.dataset.depTime;
+                                const depAptAttr  = el.dataset.depApt;
+                                if (depTimeAttr) {
+                                    const scheduledDep = flightUTCTime(depTimeAttr, depAptAttr || '');
+                                    const delayMins = computeDelayMins(scheduledDep);
+                                    if (delayMins > 0) {
+                                        _delayedFlights.set(cs, delayMins);
+                                        txt = `DELAYED · +${delayMins} min`;
+                                        txtColor = '#f97316';
+                                    }
                                 }
                             }
                         }
@@ -3923,7 +3925,8 @@
             const tooltipOpts = { permanent: true, className: 'live-label', direction: 'right', offset: [14, 0] };
             const baseTooltip = `<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
                 (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : '');
-            markers.forEach(m => m.bindTooltip(baseTooltip, tooltipOpts));
+            // Start hover-only — tooltip goes permanent once ADS-B confirms airborne
+            markers.forEach(m => m.bindTooltip(baseTooltip, { ...tooltipOpts, permanent: false }));
             const labelEntry = { markers, html: baseTooltip, direction: 'right' };
             _liveLabels.set(callsign, labelEntry);
             scheduleDeoverlap();
@@ -3944,7 +3947,18 @@
 
             // Hide the plane icon until ADS-B confirms the aircraft is actually moving
             markers.forEach(m => m.setOpacity(0));
-            const showIcon = () => { if (!iconShown) { iconShown = true; markers.forEach(m => m.setOpacity(1)); } };
+            const showIcon = () => {
+                if (!iconShown) {
+                    iconShown = true;
+                    markers.forEach(m => {
+                        m.setOpacity(1);
+                        // Switch tooltip to permanent now that the plane is live
+                        const tip = m.getTooltip();
+                        if (tip) { m.unbindTooltip(); m.bindTooltip(labelEntry.html, tooltipOpts); }
+                    });
+                    scheduleDeoverlap();
+                }
+            };
 
             const _arcLines = () => Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
             const setArcDelayStyle = () => {
@@ -3972,7 +3986,7 @@
 
             // Pre-apply delay style immediately if departure time has already passed —
             // avoids waiting for the first polling cycle to show the orange arc.
-            if (scheduledDepUTC && computeDelayMins(scheduledDepUTC) > 0) {
+            if (scheduledDepUTC && computeDelayMins(scheduledDepUTC) > 0 && !_departureDelays.has(callsign) && !_landedEarly.has(callsign)) {
                 const initDelay = computeDelayMins(scheduledDepUTC);
                 _delayedFlights.set(callsign, initDelay);
                 setArcDelayStyle();
