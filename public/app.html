@@ -1851,7 +1851,8 @@
                     return arr.filter(p => VALID_PILOTS.includes(p));
                 } catch { /* fall through */ }
             }
-            return [...VALID_PILOTS]; // default: see everyone
+            // Default: only yourself (no stored preference = first login or cleared storage)
+            return myPilot ? [myPilot] : [...VALID_PILOTS];
         }
 
         function setCrewVisible(pilot, visible) {
@@ -1931,13 +1932,15 @@
             const adminSection = document.getElementById('admin-manage-section');
             if (adminSection) adminSection.classList.toggle('hidden', !!myPilot || myViewer || !myToken);
 
-            // Hide mobile upload nav button for viewers — they have no schedule to upload
+            // Hide mobile upload nav button for viewers and demo
             const uploadNav = document.getElementById('btn-upload-nav');
-            if (uploadNav) uploadNav.classList.toggle('hidden', myViewer);
+            if (uploadNav) uploadNav.classList.toggle('hidden', myViewer || isDemo);
+            if (isDemo) document.getElementById('sidebar-upload-section')?.classList.add('hidden');
 
             // Upload nav label: sync pilots get "Sync", others get "Upload"
+            // (updateUploadSyncButtons re-evaluates this once pilotsCache is warm)
             const myParser    = pilotsCache[myPilot]?.parser_type || '';
-            const isSyncPilot = myPilot === 'kyle' || myPilot === 'drew' || myParser.startsWith('ics');
+            const isSyncPilot = myParser === 'schedaero' || myParser.startsWith('ics');
             const uploadLabel = document.getElementById('mbtn-upload-label');
             if (uploadLabel) uploadLabel.textContent = isSyncPilot ? 'Sync' : 'Upload';
 
@@ -2074,11 +2077,11 @@
 
         // Open the upload sheet, restricting pilot select to myPilot when identified
         function openMobileUpload() {
-            if (myViewer) return; // view-only — no uploads
-            if (myPilot === 'kyle') return quickSyncSchedaero();
-            if (myPilot === 'drew') return openDrewICSSync();
+            if (_isDemo || myViewer) return;
             const parser = pilotsCache[myPilot]?.parser_type || '';
-            if (parser.startsWith('ics')) return openGenericICSSync(myPilot);
+            if (parser === 'schedaero')          return quickSyncSchedaero();
+            if (parser === 'ics_rosterbuster')   return openDrewICSSync();
+            if (parser.startsWith('ics'))        return openGenericICSSync(myPilot);
             openUploadSheet();
         }
 
@@ -2109,6 +2112,7 @@
         let isLoading = false;
 
         function triggerUpload(selectId, inputId) {
+            if (_isDemo) return;
             const pilot = document.getElementById(selectId).value;
             const input = document.getElementById(inputId);
             input.accept = pilot === 'drew' ? '.pdf' : '.ics,.csv';
@@ -2370,6 +2374,9 @@
                 if (data.name)  PILOT_NAMES[pilot] = data.name;
                 if (data.role)  PILOT_ROLES[pilot] = data.role;
                 PILOT_HOME[pilot] = data.home_airport || data.base || PILOT_HOME[pilot] || '';
+
+                // Re-evaluate upload vs sync button now that parser_type is known
+                if (pilot === myPilot) updateUploadSyncButtons(pilot);
 
                 const pilotBase = data.base || null;
                 console.log(`Loading pilot ${pilot}, base: ${pilotBase}, segments: ${segmentData.length}`);
@@ -5292,7 +5299,7 @@
         }
 
         async function handleUpload(input) {
-            if (!input.files[0]) return;
+            if (_isDemo || !input.files[0]) return;
             
             const file = input.files[0];
             // Get selected pilot from dropdown
@@ -5737,7 +5744,7 @@ let _blockUserEdited = false;
         function changeMonth(dir) { viewDate.setMonth(viewDate.getMonth() + dir); render(); }
 
         async function handleMobileUpload(input) {
-            if (!input.files[0]) return;
+            if (_isDemo || !input.files[0]) return;
             const file = input.files[0];
             const uploadPilot = document.getElementById('mobile-upload-pilot-select').value;
             document.getElementById('mobile-upload-sheet').classList.add('hidden');
@@ -5888,21 +5895,26 @@ let _blockUserEdited = false;
         // ─────────────────────────────────────────────────────────────────
 
         function updateUploadSyncButtons(pilot) {
-            const isKyle  = pilot === 'kyle';
-            const isDrew  = pilot === 'drew';
-            const parser  = pilotsCache[pilot]?.parser_type || '';
-            const isICS   = !isKyle && !isDrew && parser.startsWith('ics');
-            const isSyncOnly = isKyle || isDrew || isICS;
+            const parser      = pilotsCache[pilot]?.parser_type || '';
+            const isSchedaero = parser === 'schedaero';
+            const isRB        = parser === 'ics_rosterbuster';
+            const isICS       = parser.startsWith('ics') && !isRB;
+            const isSyncOnly  = isSchedaero || isRB || isICS;
             // Desktop
             document.getElementById('btn-upload-schedule')?.classList.toggle('hidden', isSyncOnly);
-            document.getElementById('btn-sync-schedaero')?.classList.toggle('hidden', !isKyle);
-            document.getElementById('btn-sync-drew-ics')?.classList.toggle('hidden', !isDrew);
+            document.getElementById('btn-sync-schedaero')?.classList.toggle('hidden', !isSchedaero);
+            document.getElementById('btn-sync-drew-ics')?.classList.toggle('hidden', !isRB);
             document.getElementById('btn-sync-ics')?.classList.toggle('hidden', !isICS);
             // Mobile
             document.getElementById('mobile-upload-file-btn')?.classList.toggle('hidden', isSyncOnly);
-            document.getElementById('mobile-sync-schedaero-btn')?.classList.toggle('hidden', !isKyle);
-            document.getElementById('mobile-sync-drew-ics-btn')?.classList.toggle('hidden', !isDrew);
+            document.getElementById('mobile-sync-schedaero-btn')?.classList.toggle('hidden', !isSchedaero);
+            document.getElementById('mobile-sync-drew-ics-btn')?.classList.toggle('hidden', !isRB);
             document.getElementById('mobile-sync-ics-btn')?.classList.toggle('hidden', !isICS);
+            // Update mobile nav label
+            if (pilot === myPilot) {
+                const uploadLabel = document.getElementById('mbtn-upload-label');
+                if (uploadLabel) uploadLabel.textContent = isSyncOnly ? 'Sync' : 'Upload';
+            }
         }
 
         // ── Drew ICS Sync ─────────────────────────────────────────────────
@@ -6444,6 +6456,8 @@ let _blockUserEdited = false;
                     sidebarList.appendChild(btn);
                 });
             }
+            // Rebuild upload dropdowns with demo names
+            _rebuildPilotDropdowns();
             // Hide upload section in demo
             document.getElementById('sidebar-upload-section')?.classList.add('hidden');
             document.getElementById('btn-upload-nav')?.classList.add('hidden');
