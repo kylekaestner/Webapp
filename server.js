@@ -167,6 +167,116 @@ function formatICSDatetime(s) {
     return s;
 }
 
+// Convert local datetime (YYYYMMDDTHHMMSS) in a named timezone to UTC ISO string.
+// Works via the Intl.DateTimeFormat "TZ-as-display" offset trick — no DST tables needed.
+function localTZToUTC(dtStr, tzid) {
+    const y = dtStr.slice(0, 4), mo = dtStr.slice(4, 6), d = dtStr.slice(6, 8);
+    const h = dtStr.slice(9, 11), mi = dtStr.slice(11, 13), s = dtStr.slice(13, 15) || '00';
+    const asUTC = new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`); // treat local as UTC first
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tzid, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).formatToParts(asUTC);
+    const p = {};
+    parts.forEach(pt => { if (pt.type !== 'literal') p[pt.type] = pt.value; });
+    const hh = p.hour === '24' ? '00' : p.hour;
+    const tzDisplayed = new Date(`${p.year}-${p.month}-${p.day}T${hh}:${p.minute}:${p.second}Z`);
+    const offsetMs = asUTC.getTime() - tzDisplayed.getTime();
+    return new Date(asUTC.getTime() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+// AIMS eCrew ICS parser (Sun Country / SCX + other AIMS airlines)
+function parseSCXICS(text) {
+    const events = [];
+    const unfolded = text.replace(/\r?\n[ \t]/g, '');
+    const blocks = unfolded.split(/BEGIN:VEVENT/gi).slice(1);
+
+    for (const b of blocks) {
+        const lines = b.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+        const getField = (prefix) => {
+            const up = prefix.toUpperCase();
+            const ln = lines.find(l => { const u = l.toUpperCase(); return u.startsWith(up + ':') || u.startsWith(up + ';'); });
+            if (!ln) return '';
+            const ci = ln.indexOf(':');
+            return ci >= 0 ? ln.slice(ci + 1) : '';
+        };
+
+        const summary  = getField('SUMMARY');
+        const location = getField('LOCATION');
+        const rawDesc  = getField('DESCRIPTION').replace(/\\n/g, '\n');
+        const rawStart = lines.find(l => /^DTSTART/i.test(l)) || '';
+        const rawEnd   = lines.find(l => /^DTEND/i.test(l))   || '';
+
+        if (!summary || !rawStart) continue;
+
+        const dtStartVal = rawStart.split(':').slice(1).join(':');
+        const dtEndVal   = rawEnd ? rawEnd.split(':').slice(1).join(':') : '';
+        const tzMatch    = rawStart.match(/TZID=([^:;]+)/i);
+        const tzid       = tzMatch ? tzMatch[1] : null;
+
+        const depTime = tzid ? localTZToUTC(dtStartVal, tzid) : formatICSDatetime(dtStartVal);
+        const arrTime = dtEndVal ? (tzid ? localTZToUTC(dtEndVal, tzid) : formatICSDatetime(dtEndVal)) : '';
+
+        // Reserve duty: any RES* prefix (RESR=red-eye, RESP=PM, RESA=AM)
+        const resMatch = summary.match(/^(RES[A-Z])\b/i);
+        if (resMatch) {
+            const locApt = location.split(')').pop().trim().replace(/\d+$/, '').trim() || '';
+            events.push({
+                type: 'reserve',
+                departureTime: depTime,
+                arrivalTime: arrTime,
+                departureAirport: locApt,
+                arrivalAirport: locApt,
+                flightNumber: resMatch[1].toUpperCase(), // sub-type stored here
+            });
+            continue;
+        }
+
+        // Pairing: "{code} {DEP}-{ARR}"
+        const pairMatch = summary.match(/^(\S+)\s+([A-Z0-9]{3,4})-([A-Z0-9]{3,4})$/i);
+        if (!pairMatch) continue;
+
+        const pairingId = pairMatch[1].toUpperCase();
+        const cleanApt  = (a) => /^[A-Z]{3}\d$/.test(a.toUpperCase()) ? a.slice(0, 3).toUpperCase() : a.toUpperCase();
+        const dep = cleanApt(pairMatch[2]);
+        const arr = cleanApt(pairMatch[3]);
+
+        if (dep === arr) continue; // skip same-airport ground/training events
+
+        // Extract flight number from DESCRIPTION: "OWN5280 - MSP1 ..." or "DL3113 - CVG ..."
+        const flightLineMatch = rawDesc.match(/\n([A-Z0-9]{2,4}\d{3,4})\s{1,3}-\s/);
+        let flightNumber = '';
+        let isDH = false;
+        if (flightLineMatch) {
+            const code = flightLineMatch[1];
+            if (/^OWN/i.test(code)) {
+                // Released to travel on own — no assigned flight
+            } else if (/^(SY|SCX)/i.test(code)) {
+                flightNumber = 'SCX' + code.replace(/^(SY|SCX)/i, '');
+            } else {
+                flightNumber = code.toUpperCase();
+                isDH = true;
+            }
+        }
+
+        events.push({
+            type: 'flight',
+            departureTime: depTime,
+            arrivalTime: arrTime,
+            departureAirport: dep,
+            arrivalAirport: arr,
+            flightNumber,
+            tail: '',
+            trip: pairingId,
+            dh: isDH,
+        });
+    }
+
+    events.sort((a, b) => (a.departureTime || '').localeCompare(b.departureTime || ''));
+    return events;
+}
+
 function normalizeTime(time) {
     if (!time) return '00:00';
     const txt = time.trim().replace(/[^\d:]/g, '');
@@ -714,6 +824,8 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                 } else if (filename.endsWith('.ics')) {
                     events = parserType === 'ics_rosterbuster'
                         ? parseRosterBusterICS(fileContent)
+                        : parserType === 'ics_scx'
+                        ? parseSCXICS(fileContent)
                         : parseICS(fileContent);
                 } else if (filename.endsWith('.csv')) {
                     events = parserType === 'csv_skywest'
@@ -964,101 +1076,122 @@ app.get('/api/segments', (req, res) => {
     });
 });
 
-// RosterBuster ICS sync — fetch subscription URL and import into Drew's schedule
-app.post('/api/pilots/drew/sync-ics', async (req, res) => {
+// Core ICS sync logic — shared by the HTTP endpoint and the auto-sync scheduler
+async function syncPilotICS(pilotKey, urlOverride = null) {
     const db = getDB();
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ error: 'url is required' });
 
-    // Persist the URL for future use
-    db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
-    db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`,
-        ['drew_ics_url', JSON.stringify({ url })]);
+    const url = urlOverride || await new Promise((resolve, reject) => {
+        db.get(`SELECT value FROM settings WHERE key=?`, [`${pilotKey}_ics_url`], (err, row) => {
+            if (err) return reject(err);
+            const data = row ? JSON.parse(row.value) : null;
+            resolve(data?.url || null);
+        });
+    });
+    if (!url) throw new Error('No ICS URL configured');
 
-    let icsText;
-    try {
-        const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
-        if (!resp.ok) return res.status(resp.status).json({ error: `ICS fetch returned ${resp.status}` });
-        icsText = await resp.text();
-    } catch (err) {
-        return res.status(500).json({ error: `Could not fetch ICS: ${err.message}` });
-    }
+    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!resp.ok) throw Object.assign(new Error(`ICS fetch returned ${resp.status}`), { status: resp.status });
+    const icsText = await resp.text();
 
-    const events = parseRosterBusterICS(icsText);
+    const pilot = await new Promise((resolve, reject) => {
+        db.get('SELECT id, parser_type FROM pilots WHERE pilot_key = ?', [pilotKey], (err, row) => {
+            if (err) return reject(err); resolve(row);
+        });
+    });
+    if (!pilot) throw new Error('Pilot not found');
 
-    db.get('SELECT id FROM pilots WHERE pilot_key = ?', ['drew'], (err, pilot) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
+    const resolvedParser = pilotParsers[pilotKey] || pilot.parser_type || 'ics';
+    const events = resolvedParser === 'ics_rosterbuster'
+        ? parseRosterBusterICS(icsText)
+        : resolvedParser === 'ics_scx'
+        ? parseSCXICS(icsText)
+        : parseICS(icsText);
 
-        const nowIso = new Date().toISOString();
+    const nowIso = new Date().toISOString();
 
+    const existing = await new Promise((resolve, reject) => {
         db.all(
             'SELECT id, type, departure_time, departure_airport FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)',
             [pilot.id],
-            (err, existing) => {
-            if (err) return res.status(500).json({ error: err.message });
+            (err, rows) => { if (err) return reject(err); resolve(rows); }
+        );
+    });
 
-            const existingMap = {};
-            existing.forEach(s => {
-                const key = `${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`;
-                existingMap[key] = s.id;
+    const existingMap = {};
+    existing.forEach(s => {
+        existingMap[`${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`] = s.id;
+    });
+
+    const incomingKeys = new Set(events.map(ev => `${ev.type}|${ev.departureTime || ''}|${ev.departureAirport || ''}`));
+    const matchedIds = new Set();
+    existing.forEach(s => {
+        const key = `${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`;
+        if (incomingKeys.has(key)) matchedIds.add(s.id);
+    });
+
+    const staleIds = existing
+        .filter(s => !matchedIds.has(s.id) && (s.departure_time || '') >= nowIso)
+        .map(s => s.id);
+
+    if (staleIds.length > 0) {
+        const placeholders = staleIds.map(() => '?').join(',');
+        await new Promise((resolve, reject) => {
+            db.run(`DELETE FROM segments WHERE id IN (${placeholders})`, staleIds, err => {
+                if (err) return reject(err); resolve();
             });
-
-            // Track which existing IDs the new feed accounts for
-            const matchedIds = new Set();
-            const incomingKeys = new Set(events.map(ev =>
-                `${ev.type}|${ev.departureTime || ''}|${ev.departureAirport || ''}`
-            ));
-            existing.forEach(s => {
-                const key = `${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`;
-                if (incomingKeys.has(key)) matchedIds.add(s.id);
-            });
-
-            // Delete future segments that are no longer in the feed
-            const staleIds = existing
-                .filter(s => !matchedIds.has(s.id) && (s.departure_time || '') >= nowIso)
-                .map(s => s.id);
-
-            const doUpsert = () => {
-                if (events.length === 0) return res.json({ success: true, segmentsAdded: 0 });
-                let completed = 0;
-                const errors = [];
-                const done = () => {
-                    completed++;
-                    if (completed === events.length) {
-                        if (errors.length > 0) return res.status(500).json({ error: 'Some segments failed', details: errors });
-                        res.json({ success: true, segmentsAdded: events.length });
-                    }
-                };
-                events.forEach(ev => {
-                    const key = `${ev.type}|${ev.departureTime || ''}|${ev.departureAirport || ''}`;
-                    const existingId = existingMap[key];
-                    if (existingId) {
-                        db.run(
-                            `UPDATE segments SET arrival_time=?, arrival_airport=?, tail=?, trip=?, flight_number=?, is_dh=?, block_minutes=? WHERE id=?`,
-                            [ev.arrivalTime || null, ev.arrivalAirport || null, ev.tail || null, ev.trip || null, ev.flightNumber || null, ev.dh ? 1 : 0, null, existingId],
-                            err => { if (err) errors.push(err.message); done(); }
-                        );
-                    } else {
-                        db.run(
-                            `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                            [pilot.id, ev.type, ev.departureTime || null, ev.arrivalTime || null, ev.departureAirport || null, ev.arrivalAirport || null, ev.tail || null, ev.trip || null, ev.flightNumber || null, ev.dh ? 1 : 0, null],
-                            err => { if (err) errors.push(err.message); done(); }
-                        );
-                    }
-                });
-            };
-
-            if (staleIds.length > 0) {
-                const placeholders = staleIds.map(() => '?').join(',');
-                db.run(`DELETE FROM segments WHERE id IN (${placeholders})`, staleIds, err => {
-                    if (err) return res.status(500).json({ error: err.message });
-                    doUpsert();
-                });
-            } else {
-                doUpsert();
-            }
         });
+    }
+
+    if (events.length === 0) return { success: true, segmentsAdded: 0 };
+
+    await Promise.all(events.map(ev => new Promise((resolve, reject) => {
+        const key = `${ev.type}|${ev.departureTime || ''}|${ev.departureAirport || ''}`;
+        const existingId = existingMap[key];
+        if (existingId) {
+            db.run(
+                `UPDATE segments SET arrival_time=?, arrival_airport=?, tail=?, trip=?, flight_number=?, is_dh=?, block_minutes=? WHERE id=?`,
+                [ev.arrivalTime||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, ev.flightNumber||null, ev.dh?1:0, null, existingId],
+                err => { if (err) return reject(err); resolve(); }
+            );
+        } else {
+            db.run(
+                `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [pilot.id, ev.type, ev.departureTime||null, ev.arrivalTime||null, ev.departureAirport||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, ev.flightNumber||null, ev.dh?1:0, null],
+                err => { if (err) return reject(err); resolve(); }
+            );
+        }
+    })));
+
+    return { success: true, segmentsAdded: events.length };
+}
+
+// ICS sync endpoint — saves URL then delegates to syncPilotICS
+app.post('/api/pilots/:pilotKey/sync-ics', async (req, res) => {
+    const { pilotKey } = req.params;
+    if (pilotKey === 'admin') return res.status(403).json({ error: 'Not allowed' });
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'url is required' });
+
+    const db = getDB();
+    db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`,
+        [`${pilotKey}_ics_url`, JSON.stringify({ url })]);
+
+    try {
+        const result = await syncPilotICS(pilotKey, url);
+        res.json(result);
+    } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+// GET stored ICS URL for a pilot
+app.get('/api/pilots/:pilotKey/ics-url', (req, res) => {
+    const { pilotKey } = req.params;
+    const db = getDB();
+    db.get(`SELECT value FROM settings WHERE key=?`, [`${pilotKey}_ics_url`], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const data = row ? JSON.parse(row.value) : null;
+        res.json({ url: data?.url || null });
     });
 });
 
@@ -1913,6 +2046,85 @@ app.listen(PORT, () => {
         console.log('  ─────────────────────────────────────────────');
     });
 });
+
+// ── Auto-sync scheduler — runs 3x/day at 6 AM, 2 PM, and 10 PM UTC ────────────
+
+async function autoSyncAllICS() {
+    const db = getDB();
+    const rows = await new Promise((resolve, reject) => {
+        db.all(`SELECT key, value FROM settings WHERE key LIKE '%_ics_url'`, (err, rows) => {
+            if (err) return reject(err); resolve(rows || []);
+        });
+    });
+    for (const row of rows) {
+        const pilotKey = row.key.replace(/_ics_url$/, '');
+        if (pilotKey === 'admin') continue;
+        try {
+            const data = JSON.parse(row.value);
+            const result = await syncPilotICS(pilotKey, data.url);
+            console.log(`[auto-sync] ${pilotKey} (ICS): ${result.segmentsAdded} segments`);
+        } catch (err) {
+            console.error(`[auto-sync] ${pilotKey} (ICS) failed:`, err.message);
+        }
+    }
+}
+
+async function autoSyncKyleSchedaero() {
+    const db = getDB();
+    const row = await new Promise((resolve, reject) => {
+        db.get(`SELECT value FROM settings WHERE key='schedaero-creds'`, (err, row) => {
+            if (err) return reject(err); resolve(row);
+        });
+    });
+    if (!row) return;
+    const creds = JSON.parse(row.value);
+    if (!creds.cookie || !creds.url || !creds.apiToken) return;
+    const now = new Date();
+    const back  = parseInt(creds.monthsBack)  || 0;
+    const ahead = parseInt(creds.monthsAhead) || 3;
+    const pilot = await new Promise((resolve, reject) => {
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', ['kyle'], (err, row) => {
+            if (err) return reject(err); resolve(row);
+        });
+    });
+    if (!pilot) return;
+    let totalAdded = 0;
+    for (let i = -back; i < ahead; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+        try {
+            const events = await fetchSchedaeroMonth(creds.cookie, creds.url, creds.apiToken, d.getMonth() + 1, d.getFullYear());
+            totalAdded += await importSchedaeroEvents(db, pilot.id, events, d.getMonth() + 1, d.getFullYear());
+        } catch (e) {
+            console.error(`[auto-sync] kyle (Schedaero) failed:`, e.message);
+            return;
+        }
+    }
+    console.log(`[auto-sync] kyle (Schedaero): ${totalAdded} segments`);
+}
+
+async function autoSyncAll() {
+    console.log('[auto-sync] Starting scheduled sync…');
+    await autoSyncAllICS();
+    await autoSyncKyleSchedaero();
+    console.log('[auto-sync] Done.');
+}
+
+// Schedule at 06:00, 14:00, 22:00 UTC daily
+function scheduleNextSync() {
+    const now = new Date();
+    const fireHours = [6, 14, 22];
+    const candidates = fireHours.map(h => {
+        const t = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, 0, 0));
+        if (t <= now) t.setUTCDate(t.getUTCDate() + 1);
+        return t;
+    });
+    const next = candidates.reduce((a, b) => a < b ? a : b);
+    const delay = next - now;
+    console.log(`[auto-sync] Next sync scheduled at ${next.toISOString()} (in ${Math.round(delay / 60000)} min)`);
+    setTimeout(() => { autoSyncAll(); scheduleNextSync(); }, delay);
+}
+
+scheduleNextSync();
 
 // Keepalive — ping Schedaero every 20 min with stored creds so the session never expires
 setInterval(async () => {

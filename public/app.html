@@ -1153,20 +1153,25 @@
                 </div>
             </div>
             <div>
-                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline Code <span class="normal-case font-normal text-zinc-600">(ICAO, e.g. RPA)</span></label>
-                <input id="edit-user-airline" type="text" placeholder="RPA" maxlength="3" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
+                <select id="edit-user-airline-sel" onchange="_onAirlineChange()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                    <option value="">— Select airline —</option>
+                    <option value="GJS">GoJet Services</option>
+                    <option value="SKW">SkyWest Airlines</option>
+                    <option value="RPA">Republic Airways</option>
+                    <option value="SCX">Sun Country Airlines</option>
+                    <option value="RB">RosterBuster (subscription)</option>
+                    <option value="OTHER">Other / Auto-detect</option>
+                </select>
+            </div>
+            <div id="edit-user-ics-row" class="hidden space-y-1">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block">ICS Calendar URL</label>
+                <input id="edit-user-ics-url" type="url" placeholder="https://…" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <p class="text-[10px] text-zinc-600">Paste the private subscription link from your airline's scheduling app.</p>
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Role / Description</label>
                 <input id="edit-user-role" type="text" placeholder="Corporate · KSUS" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
-            </div>
-            <div>
-                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Schedule Parser</label>
-                <select id="edit-user-parser" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
-                    <option value="csv">CSV (Republic / SkyWest app)</option>
-                    <option value="ics">ICS calendar (Schedaero)</option>
-                    <option value="rosterbuster_ics">RosterBuster ICS</option>
-                </select>
             </div>
         </div>
         <div id="edit-user-error" class="hidden text-xs text-red-400 font-bold"></div>
@@ -4683,6 +4688,39 @@
                 el.addEventListener('mousemove', onMove);
                 el.addEventListener('mouseleave', onLeave);
             });
+
+            // Reserve slot tooltips
+            document.querySelectorAll('.reserve-item').forEach(el => {
+                function onEnter(e) {
+                    const depTime = el.dataset.depTime;
+                    const arrTime = el.dataset.arrTime;
+                    const depApt  = el.dataset.depApt || '';
+                    const arrApt  = el.dataset.arrApt || '';
+                    const resType = el.dataset.resType || 'RES';
+                    const typeLabels = { RESR: 'Red-Eye Reserve', RESP: 'PM Reserve', RESA: 'AM Reserve' };
+                    const typeLabel  = typeLabels[resType] || 'On-Call Reserve';
+                    const depFmt = depTime ? formatTimeISO(depTime, depApt) : '—';
+                    const arrFmt = arrTime ? formatTimeISO(arrTime, arrApt) : '—';
+                    const depTz  = depApt  ? tzAbbr(depApt, depTime)  : '';
+                    const arrTz  = arrApt  ? tzAbbr(arrApt, arrTime)  : '';
+                    const tzTag  = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${lbl}</span>` : '';
+                    const durMs  = (depTime && arrTime) ? new Date(arrTime) - new Date(depTime) : 0;
+                    const html   = `<div style="font-weight:800;margin-bottom:6px;color:#fbbf24">ON CALL — ${typeLabel}</div>` +
+                        `<div style="font-size:12px;color:#cbd5e1">Start: ${depFmt}${tzTag(depTz)}</div>` +
+                        `<div style="font-size:12px;color:#cbd5e1">End: &nbsp;&nbsp;${arrFmt}${tzTag(arrTz)}</div>` +
+                        (durMs > 0 ? `<div style="font-size:12px;color:#cbd5e1;margin-top:4px">Duration: ${formatDurationMinutes(durMs / 60000)}</div>` : '');
+                    showTooltip(html, e.clientX, e.clientY);
+                }
+                function onMove(e) { moveTooltip(e.clientX, e.clientY); }
+                function onLeave() { hideTooltip(); }
+                el.removeEventListener('mouseenter', el._enter);
+                el.removeEventListener('mousemove', el._move);
+                el.removeEventListener('mouseleave', el._leave);
+                el._enter = onEnter; el._move = onMove; el._leave = onLeave;
+                el.addEventListener('mouseenter', onEnter);
+                el.addEventListener('mousemove', onMove);
+                el.addEventListener('mouseleave', onLeave);
+            });
         }
 
         // render() rebuilds the active view from the current segments[] array.
@@ -4736,6 +4774,7 @@
                     });
                     const isHard = dayEvents.some(e => e.type === 'hard');
                     const isFlying = dayEvents.some(e => e.type === 'flight');
+                    const isReserve = dayEvents.some(e => e.type === 'reserve');
                     let away = dayEvents.find(e => e.type === 'away');
                     if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
 
@@ -4759,6 +4798,7 @@
                     let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
                     if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
+                    else if (isReserve) { style = "border-amber-400/30 bg-amber-400/5"; tag = "ON CALL"; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
                     else if (isAllCrewOff) { style = "border-amber-400/60 bg-amber-950/30"; tag = "✦ ALL OFF"; }
                     const glowStyle = isAllCrewOff ? 'box-shadow:0 0 0 1px rgba(251,191,36,0.45),0 0 18px rgba(251,191,36,0.18);' : '';
@@ -4826,6 +4866,19 @@
                         if (isActiveLeg && csig) html += `<div id="live-${csig}" style="font-size:9px;color:#4ade80;font-weight:700;margin-top:2px;display:none"></div>`;
                         html += `</div>`;
                     });
+                    // Reserve slots (on-call duty)
+                    dayEvents.filter(e => e.type === 'reserve').forEach(r => {
+                        const subType = r.flightNumber || 'RES';
+                        const depFmt = r.departureTime ? formatTimeISO(r.departureTime, r.departureAirport) : '';
+                        const arrFmt = r.arrivalTime  ? formatTimeISO(r.arrivalTime,  r.arrivalAirport)  : '';
+                        const depTz  = r.departureAirport ? tzAbbr(r.departureAirport, r.departureTime) : '';
+                        const arrTz  = r.arrivalAirport   ? tzAbbr(r.arrivalAirport,  r.arrivalTime)   : '';
+                        const tzS = (lbl) => lbl ? `<span style="font-size:7.5px;color:#78716c;font-weight:700;margin-left:1px">${lbl}</span>` : '';
+                        html += `<div class="rounded-lg px-2 py-[5px] reserve-item" style="font-size:10px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2)" data-dep-time="${r.departureTime||''}" data-arr-time="${r.arrivalTime||''}" data-dep-apt="${r.departureAirport||''}" data-arr-apt="${r.arrivalAirport||''}" data-res-type="${subType}">`;
+                        html += `<div style="font-weight:800;font-size:11px;color:#fbbf24">ON CALL <span style="font-size:9px;font-weight:600;color:#d97706">${subType}</span></div>`;
+                        if (depFmt) html += `<div style="color:#b45309;font-size:10px;margin-top:1px">${depFmt}${tzS(depTz)} – ${arrFmt}${tzS(arrTz)}</div>`;
+                        html += `</div>`;
+                    });
                     html += `</div></div>`;
                     gridContainer.innerHTML += html;
                 }
@@ -4851,6 +4904,7 @@
                     let away = dayEvents.find(e => e.type === 'away');
                     if (away && away.arrivalAirport === pilotBase) away = null;
                     const flights = dayEvents.filter(e => e.type === 'flight');
+                    const reserves = dayEvents.filter(e => e.type === 'reserve');
                     const _listNow = Date.now();
                     const _listAnyDelayed = flights.some(f => {
                         const cs = deriveCallsign(f, currentPilot) || '';
@@ -4869,6 +4923,8 @@
                     let bgColor, labelColor, sidebarColor, sidebarBorder, label = currentPilot === 'kyle' ? "ON CALL" : "OFF";
                     if (isHard) {
                         bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = "HARD OFF";
+                    } else if (reserves.length > 0 && flights.length === 0) {
+                        bgColor = "bg-amber-950/30 border-amber-500/30"; labelColor = "text-amber-400"; sidebarColor = "text-amber-400"; sidebarBorder = "border-amber-700/40"; label = "ON CALL";
                     } else if (away) {
                         bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${away.arrivalAirport}`;
                     } else if (_listAnyDelayed) {
@@ -4881,6 +4937,17 @@
                         bgColor = "bg-zinc-900/20 border-zinc-700/50"; labelColor = "text-zinc-500"; sidebarColor = "text-zinc-400"; sidebarBorder = "border-zinc-700/50";
                     }
                     let contentHtml = `<div class="text-xs font-black uppercase tracking-widest ${labelColor}">${label}</div>`;
+                    if (reserves.length > 0 && flights.length === 0) {
+                        contentHtml = reserves.map(r => {
+                            const subType = r.flightNumber || 'RES';
+                            const depFmt = r.departureTime ? formatTimeISO(r.departureTime, r.departureAirport) : '';
+                            const arrFmt = r.arrivalTime  ? formatTimeISO(r.arrivalTime,  r.arrivalAirport)  : '';
+                            const depTz = r.departureAirport ? tzAbbr(r.departureAirport, r.departureTime) : '';
+                            const arrTz = r.arrivalAirport  ? tzAbbr(r.arrivalAirport,  r.arrivalTime)  : '';
+                            const tzSup2 = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:2px">${lbl}</span>` : '';
+                            return `<div class="border border-amber-500/25 rounded-2xl px-4 py-3 bg-amber-950/20 text-sm text-amber-200"><div class="flex items-center justify-between"><div class="font-black text-amber-300 uppercase tracking-wide">On Call <span class="text-amber-600 text-xs font-semibold ml-1">${subType}</span></div><div class="text-right text-xs text-amber-400/70">${depFmt}${tzSup2(depTz)} – ${arrFmt}${tzSup2(arrTz)}</div></div></div>`;
+                        }).join('');
+                    }
                     if (flights.length > 0) {
                         const sortedFlights = flights.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
                         contentHtml = sortedFlights.map((f, index) => {
@@ -5238,6 +5305,7 @@
             let away = dayEvents.find(e => e.type === 'away');
             if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
             const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+            const reserves = dayEvents.filter(e => e.type === 'reserve').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
 
             const nowMs = Date.now();
             const flightMs = flights.map(f => {
@@ -5258,6 +5326,7 @@
             else if (anyDelayedActive) { label = '⏱ DELAYED'; labelColor = 'text-orange-400'; }
             else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
             else if (flights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
+            else if (reserves.length > 0) { label = 'ON CALL'; labelColor = 'text-amber-400'; }
 
             let html = `<div class="flex items-start justify-between mb-4">
                 <div>
@@ -5267,7 +5336,7 @@
                 <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden')" class="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 text-sm shrink-0">✕</button>
             </div>`;
 
-            if (flights.length === 0) {
+            if (flights.length === 0 && reserves.length === 0) {
                 const icon = isHard ? '🔴' : away ? '🏨' : currentPilot === 'kyle' ? '📟' : '😴';
                 const msg = isHard ? 'Hard Day Off' : away ? `Away at ${away.arrivalAirport}` : currentPilot === 'kyle' ? 'On Call' : 'Day Off';
                 html += `<div class="text-center py-8"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>`;
@@ -5330,6 +5399,31 @@
                     ${groundBadge}
                     ${f.tail ? `<div class="text-[10px] text-zinc-600 mt-1">${f.tail}</div>` : ''}
                     ${editActions}
+                </div>`;
+            });
+
+            reserves.forEach(r => {
+                const resType = r.flightNumber || 'RES';
+                const typeLabels = { RESR: 'Red-Eye Reserve', RESP: 'PM Reserve', RESA: 'AM Reserve' };
+                const typeLabel = typeLabels[resType] || 'On-Call Reserve';
+                const dep = r.departureAirport || '';
+                const arr = r.arrivalAirport || '';
+                const depTime = r.departureTime ? formatTimeISO(r.departureTime, dep) : '—';
+                const arrTime = r.arrivalTime ? formatTimeISO(r.arrivalTime, arr) : '—';
+                const depTz = dep ? tzAbbr(dep, r.departureTime) : '';
+                const arrTz = arr ? tzAbbr(arr, r.arrivalTime) : '';
+                const tzTag = (lbl) => lbl ? ` <span class="text-[10px] font-semibold text-zinc-500">${lbl}</span>` : '';
+                const durMs = (r.departureTime && r.arrivalTime) ? new Date(r.arrivalTime) - new Date(r.departureTime) : 0;
+                html += `<div class="bg-amber-950/30 border border-amber-400/20 rounded-xl p-4 mb-3">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="text-[10px] font-black uppercase tracking-widest text-amber-400">ON CALL</div>
+                        <div class="text-[10px] font-semibold text-amber-600">${resType}</div>
+                    </div>
+                    <div class="text-sm font-bold text-amber-200 mb-1">${typeLabel}</div>
+                    <div class="flex items-center justify-between text-sm">
+                        <div class="font-bold text-zinc-200">${depTime}${tzTag(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzTag(arrTz)}</div>
+                        <div class="text-zinc-500">${durMs > 0 ? formatDurationMinutes(durMs / 60000) : ''}</div>
+                    </div>
                 </div>`;
             });
 
@@ -5964,6 +6058,27 @@ let _blockUserEdited = false;
 
         let _editUserIsViewer = false;
 
+        const AIRLINE_OPTIONS = [
+            { icao: 'GJS',   dbCode: 'GJS', parser: 'csv',             needsIcs: false },
+            { icao: 'SKW',   dbCode: 'SKW', parser: 'csv_skywest',      needsIcs: false },
+            { icao: 'RPA',   dbCode: 'RPA', parser: 'csv',              needsIcs: false },
+            { icao: 'SCX',   dbCode: 'SCX', parser: 'ics_scx',          needsIcs: true  },
+            { icao: 'RB',    dbCode: '',    parser: 'ics_rosterbuster',  needsIcs: true  },
+            { icao: 'OTHER', dbCode: '',    parser: 'other',            needsIcs: false },
+        ];
+
+        function _onAirlineChange() {
+            const val = document.getElementById('edit-user-airline-sel').value;
+            const opt = AIRLINE_OPTIONS.find(o => o.icao === val);
+            document.getElementById('edit-user-ics-row').classList.toggle('hidden', !opt?.needsIcs);
+        }
+
+        function _airlineSelectValue(airlineCode, parserType) {
+            if (parserType === 'ics_rosterbuster') return 'RB';
+            const opt = AIRLINE_OPTIONS.find(o => o.icao === airlineCode);
+            return opt ? opt.icao : 'OTHER';
+        }
+
         function _toggleViewerMode(forceTo) {
             _editUserIsViewer = (forceTo !== undefined) ? forceTo : !_editUserIsViewer;
             const knob   = document.getElementById('edit-user-viewer-knob');
@@ -6000,14 +6115,25 @@ let _blockUserEdited = false;
                     document.getElementById('edit-user-last').value = nameParts.slice(1).join(' ') || '';
                     document.getElementById('edit-user-base').value = u.base || '';
                     document.getElementById('edit-user-home').value = u.home_airport || '';
-                    document.getElementById('edit-user-airline').value = u.airline_code || '';
+                    const asel = _airlineSelectValue(u.airline_code || '', u.parser_type || '');
+                    document.getElementById('edit-user-airline-sel').value = asel;
                     document.getElementById('edit-user-role').value = isViewer ? '' : (u.role || '');
-                    document.getElementById('edit-user-parser').value = u.parser_type || 'csv';
+                    _onAirlineChange();
+                    document.getElementById('edit-user-ics-url').value = '';
+                    const aopt = AIRLINE_OPTIONS.find(o => o.icao === asel);
+                    if (aopt?.needsIcs) {
+                        fetch(`${API_BASE}/pilots/${u.pilot_key}/ics-url`)
+                            .then(r => r.ok ? r.json() : null)
+                            .then(d => { if (d?.url) document.getElementById('edit-user-ics-url').value = d.url; })
+                            .catch(() => {});
+                    }
                 }
             } else {
                 _toggleViewerMode(false);
-                ['edit-user-first','edit-user-last','edit-user-base','edit-user-home','edit-user-airline','edit-user-role'].forEach(id => document.getElementById(id).value = '');
-                document.getElementById('edit-user-parser').value = 'csv';
+                ['edit-user-first','edit-user-last','edit-user-base','edit-user-home','edit-user-role'].forEach(id => document.getElementById(id).value = '');
+                document.getElementById('edit-user-airline-sel').value = '';
+                document.getElementById('edit-user-ics-url').value = '';
+                document.getElementById('edit-user-ics-row').classList.add('hidden');
             }
             document.getElementById('edit-user-modal').classList.remove('hidden');
         }
@@ -6022,11 +6148,14 @@ let _blockUserEdited = false;
             const lastName  = document.getElementById('edit-user-last').value.trim();
             const base        = _editUserIsViewer ? '' : document.getElementById('edit-user-base').value.trim();
             const homeAirport = _editUserIsViewer ? '' : document.getElementById('edit-user-home').value.trim();
-            const airline     = _editUserIsViewer ? '' : document.getElementById('edit-user-airline').value.trim();
+            const airlineSel  = document.getElementById('edit-user-airline-sel').value;
+            const airlineOpt  = AIRLINE_OPTIONS.find(o => o.icao === airlineSel) || { dbCode: '', parser: 'other', needsIcs: false };
+            const airline     = _editUserIsViewer ? '' : (airlineOpt.dbCode || '');
             const role        = _editUserIsViewer ? 'viewer' : document.getElementById('edit-user-role').value.trim();
-            const parser      = _editUserIsViewer ? 'none' : document.getElementById('edit-user-parser').value;
-            const errEl     = document.getElementById('edit-user-error');
-            const saveBtn   = document.getElementById('edit-user-save-btn');
+            const parser      = _editUserIsViewer ? 'none' : airlineOpt.parser;
+            const icsUrl      = (!_editUserIsViewer && airlineOpt.needsIcs) ? document.getElementById('edit-user-ics-url').value.trim() : '';
+            const errEl       = document.getElementById('edit-user-error');
+            const saveBtn     = document.getElementById('edit-user-save-btn');
 
             if (!firstName) { errEl.textContent = 'First name required'; errEl.classList.remove('hidden'); return; }
 
@@ -6035,23 +6164,37 @@ let _blockUserEdited = false;
             saveBtn.disabled = true;
 
             try {
-                let ok;
+                let finalPilotKey = pilotKey;
                 if (pilotKey) {
                     const r = await fetch(`${API_BASE}/pilots/${pilotKey}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name: `${firstName} ${lastName}`.trim(), base, homeAirport, role, parserType: parser, airlineCode: airline })
                     });
-                    ok = r.ok;
+                    if (!r.ok) { errEl.textContent = 'Save failed — try again'; errEl.classList.remove('hidden'); return; }
                 } else {
                     const r = await fetch(`${API_BASE}/join`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ firstName, lastName, base, homeAirport, role, parserType: parser, airlineCode: airline })
                     });
-                    ok = r.ok;
+                    if (!r.ok) { errEl.textContent = 'Save failed — try again'; errEl.classList.remove('hidden'); return; }
+                    const data = await r.json();
+                    finalPilotKey = data.pilotKey;
                 }
-                if (!ok) { errEl.textContent = 'Save failed — try again'; errEl.classList.remove('hidden'); return; }
+                if (icsUrl && finalPilotKey) {
+                    saveBtn.textContent = 'Syncing…';
+                    const syncR = await fetch(`${API_BASE}/pilots/${finalPilotKey}/sync-ics`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: icsUrl })
+                    });
+                    if (!syncR.ok) {
+                        const syncErr = await syncR.json().catch(() => ({}));
+                        errEl.textContent = `Saved, but ICS sync failed: ${syncErr.error || 'Unknown'}`;
+                        errEl.classList.remove('hidden');
+                    }
+                }
                 closeEditUserModal();
                 await loadAdminUsers();
                 showToast(pilotKey ? 'User updated' : 'User added');
