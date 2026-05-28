@@ -1949,6 +1949,7 @@
             if (uploadForRow) uploadForRow.classList.toggle('hidden', !!myPilot);
 
             _buildCrewVisibilityUI();
+            setTimeout(_maybeShowCrewNudge, 1200);
         }
 
         function _buildCrewVisibilityUI() {
@@ -6462,6 +6463,42 @@ let _blockUserEdited = false;
             document.getElementById('sidebar-upload-section')?.classList.add('hidden');
             document.getElementById('btn-upload-nav')?.classList.add('hidden');
         }
+
+        // ── Crew visibility one-time nudge ───────────────────────────────────
+        function _maybeShowCrewNudge() {
+            if (!myPilot || isDemo) return;
+            if (localStorage.getItem('crewNudgeDismissed')) return;
+            // Only show if all other crew are currently off
+            const visible = getCrewVisible().filter(k => k !== myPilot);
+            if (visible.length > 0) { localStorage.setItem('crewNudgeDismissed', '1'); return; }
+
+            const nudge = document.getElementById('crew-nudge-banner');
+            if (nudge) nudge.classList.remove('hidden');
+        }
+
+        function _dismissCrewNudge(andOpen) {
+            localStorage.setItem('crewNudgeDismissed', '1');
+            const nudge = document.getElementById('crew-nudge-banner');
+            if (nudge) nudge.classList.add('hidden');
+            if (andOpen) openProfile();
+        }
     </script>
+
+    <!-- One-time crew visibility nudge banner -->
+    <div id="crew-nudge-banner" class="hidden fixed z-[900] left-0 right-0 flex justify-center pointer-events-none"
+        style="bottom: calc(58px + env(safe-area-inset-bottom, 0px));">
+        <div class="pointer-events-auto mx-4 w-full max-w-sm bg-zinc-900 border border-blue-500/40 rounded-2xl shadow-2xl p-4 flex items-start gap-3"
+            style="box-shadow:0 0 0 1px rgba(59,130,246,0.15),0 8px 32px rgba(0,0,0,0.6)">
+            <div class="text-blue-400 text-xl shrink-0 mt-0.5">👥</div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-black text-white leading-snug">Your crew is hidden</p>
+                <p class="text-xs text-zinc-400 mt-0.5 leading-snug">Crew members are now off by default. Turn them on in <strong class="text-zinc-200">Your Crew</strong>.</p>
+                <div class="flex gap-2 mt-3">
+                    <button onclick="_dismissCrewNudge(true)" class="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-wide transition">Turn On Crew</button>
+                    <button onclick="_dismissCrewNudge(false)" class="px-4 py-2 border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-xl font-black text-xs uppercase tracking-wide transition">Got It</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
