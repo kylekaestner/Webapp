@@ -2520,7 +2520,7 @@
                         kyleHardOffDates.add(s.departure_time.slice(0, 10));
                         return;
                     }
-                    if (s.type !== 'flight') return;
+                    if (s.type !== 'flight' && s.type !== 'reserve') return;
                     [s.departure_time, s.arrival_time].forEach(t => {
                         if (!t) return;
                         flying.add(t.slice(0, 10));
