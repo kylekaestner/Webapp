@@ -1965,7 +1965,7 @@ app.post('/api/join', async (req, res) => {
     const baseKey = firstName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const token = generateToken();
     const safeRole    = (role || '').trim();
-    const safeParser  = (parserType || 'csv').trim();
+    const safeParser  = (parserType || 'other').trim();
     const safeCode    = (airlineCode || '').trim().toUpperCase();
     const safeHome    = (homeAirport || base || '').toUpperCase().trim();
 

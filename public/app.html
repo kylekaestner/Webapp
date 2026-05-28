@@ -425,6 +425,7 @@
             <button id="btn-upload-schedule" onclick="triggerUpload('upload-pilot-select','file-input')" class="w-full py-1.5 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-lg transition text-[9px] font-black uppercase text-center">↑ Upload Schedule</button>
             <button id="btn-sync-schedaero" onclick="openSchedaeroSync()" class="hidden w-full py-1.5 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedaero</button>
             <button id="btn-sync-drew-ics" onclick="openDrewICSSync()" class="hidden w-full py-1.5 border border-zinc-800 hover:border-teal-500 text-zinc-600 hover:text-teal-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedule</button>
+            <button id="btn-sync-ics" onclick="openGenericICSSync(document.getElementById('upload-pilot-select').value)" class="hidden w-full py-1.5 border border-zinc-800 hover:border-teal-500 text-zinc-600 hover:text-teal-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedule</button>
         </div>
     </div>
 
@@ -1028,6 +1029,27 @@
         </div>
     </div>
 
+    <!-- Generic ICS Sync Modal -->
+    <div id="ics-sync-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeGenericICSModal()">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="p-6 space-y-4">
+                <h3 id="ics-sync-modal-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Sync Schedule</h3>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block">ICS Calendar URL</label>
+                    <input id="ics-sync-url" type="url" placeholder="https://…/calendar.ics"
+                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-teal-500 placeholder-zinc-600">
+                    <p class="text-[10px] text-zinc-600">Paste the private subscription link from your airline's scheduling app.</p>
+                </div>
+                <p id="ics-sync-error" class="hidden text-xs text-red-400 font-bold"></p>
+                <div class="flex gap-3">
+                    <button onclick="syncGenericICS()" id="ics-sync-btn" class="flex-1 py-3 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition">Sync</button>
+                    <button onclick="closeGenericICSModal()" class="flex-1 py-3 border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-xl font-black uppercase text-xs tracking-wide transition">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Mobile upload sheet -->
     <div id="mobile-upload-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
@@ -1048,6 +1070,7 @@
             <button id="mobile-upload-file-btn" onclick="triggerUpload('mobile-upload-pilot-select','mobile-file-input')" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
             <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');quickSyncSchedaero()" class="hidden w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
             <button id="mobile-sync-drew-ics-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openDrewICSSync()" class="hidden w-full py-3 border border-teal-800 text-teal-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedule (Drew)</button>
+            <button id="mobile-sync-ics-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openGenericICSSync(document.getElementById('mobile-upload-pilot-select').value)" class="hidden w-full py-3 border border-teal-800 text-teal-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedule</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
     </div>
@@ -1913,7 +1936,8 @@
             if (uploadNav) uploadNav.classList.toggle('hidden', myViewer);
 
             // Upload nav label: sync pilots get "Sync", others get "Upload"
-            const isSyncPilot = myPilot === 'kyle' || myPilot === 'drew';
+            const myParser    = pilotsCache[myPilot]?.parser_type || '';
+            const isSyncPilot = myPilot === 'kyle' || myPilot === 'drew' || myParser.startsWith('ics');
             const uploadLabel = document.getElementById('mbtn-upload-label');
             if (uploadLabel) uploadLabel.textContent = isSyncPilot ? 'Sync' : 'Upload';
 
@@ -2053,6 +2077,8 @@
             if (myViewer) return; // view-only — no uploads
             if (myPilot === 'kyle') return quickSyncSchedaero();
             if (myPilot === 'drew') return openDrewICSSync();
+            const parser = pilotsCache[myPilot]?.parser_type || '';
+            if (parser.startsWith('ics')) return openGenericICSSync(myPilot);
             openUploadSheet();
         }
 
@@ -5862,17 +5888,21 @@ let _blockUserEdited = false;
         // ─────────────────────────────────────────────────────────────────
 
         function updateUploadSyncButtons(pilot) {
-            const isKyle = pilot === 'kyle';
-            const isDrew = pilot === 'drew';
-            const isSyncOnly = isKyle || isDrew;
+            const isKyle  = pilot === 'kyle';
+            const isDrew  = pilot === 'drew';
+            const parser  = pilotsCache[pilot]?.parser_type || '';
+            const isICS   = !isKyle && !isDrew && parser.startsWith('ics');
+            const isSyncOnly = isKyle || isDrew || isICS;
             // Desktop
             document.getElementById('btn-upload-schedule')?.classList.toggle('hidden', isSyncOnly);
             document.getElementById('btn-sync-schedaero')?.classList.toggle('hidden', !isKyle);
             document.getElementById('btn-sync-drew-ics')?.classList.toggle('hidden', !isDrew);
+            document.getElementById('btn-sync-ics')?.classList.toggle('hidden', !isICS);
             // Mobile
             document.getElementById('mobile-upload-file-btn')?.classList.toggle('hidden', isSyncOnly);
             document.getElementById('mobile-sync-schedaero-btn')?.classList.toggle('hidden', !isKyle);
             document.getElementById('mobile-sync-drew-ics-btn')?.classList.toggle('hidden', !isDrew);
+            document.getElementById('mobile-sync-ics-btn')?.classList.toggle('hidden', !isICS);
         }
 
         // ── Drew ICS Sync ─────────────────────────────────────────────────
@@ -5909,6 +5939,57 @@ let _blockUserEdited = false;
                     closeDrewICSModal();
                     showToast(`Drew's schedule synced — ${result.segmentsAdded} segments updated`);
                     if (currentPilot === 'drew') loadPilot('drew');
+                } else {
+                    errEl.textContent = result.error || 'Sync failed';
+                    errEl.classList.remove('hidden');
+                }
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.classList.remove('hidden');
+            }
+            btn.textContent = 'Sync';
+            btn.disabled = false;
+        }
+        // ── Generic ICS Sync (any ICS-based pilot) ────────────────────────
+        function openGenericICSSync(pilotKey) {
+            const modal = document.getElementById('ics-sync-modal');
+            modal._pilotKey = pilotKey;
+            const name = (pilotsCache[pilotKey]?.name || pilotKey).split(' ')[0];
+            document.getElementById('ics-sync-modal-title').textContent = `Sync ${name}'s Schedule`;
+            document.getElementById('ics-sync-url').value = '';
+            document.getElementById('ics-sync-error').classList.add('hidden');
+            fetch(`${API_BASE}/pilots/${pilotKey}/ics-url`)
+                .then(r => r.ok ? r.json() : null)
+                .then(d => { if (d?.url) document.getElementById('ics-sync-url').value = d.url; })
+                .catch(() => {});
+            modal.classList.remove('hidden');
+        }
+
+        function closeGenericICSModal() {
+            document.getElementById('ics-sync-modal').classList.add('hidden');
+        }
+
+        async function syncGenericICS() {
+            const modal    = document.getElementById('ics-sync-modal');
+            const pilotKey = modal._pilotKey;
+            const url      = document.getElementById('ics-sync-url').value.trim();
+            const btn      = document.getElementById('ics-sync-btn');
+            const errEl    = document.getElementById('ics-sync-error');
+            if (!url) { errEl.textContent = 'URL required'; errEl.classList.remove('hidden'); return; }
+            errEl.classList.add('hidden');
+            btn.textContent = 'Syncing…';
+            btn.disabled = true;
+            try {
+                const resp = await fetch(`${API_BASE}/pilots/${pilotKey}/sync-ics`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    closeGenericICSModal();
+                    showToast(`Schedule synced — ${result.segmentsAdded} segments updated`);
+                    if (currentPilot === pilotKey) loadPilot(pilotKey);
                 } else {
                     errEl.textContent = result.error || 'Sync failed';
                     errEl.classList.remove('hidden');
@@ -6364,12 +6445,8 @@ let _blockUserEdited = false;
                 });
             }
             // Hide upload section in demo
-            //Test
-            const uploadSection = document.querySelector('.shrink-0.p-4.border-t.border-zinc-800');
-            if (uploadSection) uploadSection.classList.add('hidden');
-            // Hide upload nav button
-            const uploadNav = document.getElementById('btn-upload-nav');
-            if (uploadNav) uploadNav.classList.add('hidden');
+            document.getElementById('sidebar-upload-section')?.classList.add('hidden');
+            document.getElementById('btn-upload-nav')?.classList.add('hidden');
         }
     </script>
 </body>
