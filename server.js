@@ -777,7 +777,10 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
-            res.json({ ...pilot, segments });
+            // Resolve parser and airline code — hardcoded map takes precedence over DB for existing pilots
+            const resolvedParser = getParserForPilot(pilotKey, pilot);
+            const resolvedCode   = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
+            res.json({ ...pilot, parser_type: resolvedParser, airline_code: resolvedCode, segments });
         });
     });
 });
