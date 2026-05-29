@@ -163,6 +163,7 @@
                         <button type="button" onclick="selectParser('schedaero')" data-parser="schedaero" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SpiritJets</button>
                         <button type="button" onclick="selectParser('csv_skywest')" data-parser="csv_skywest" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SkyWest</button>
                         <button type="button" onclick="selectParser('ics_scx')" data-parser="ics_scx" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Sun Country</button>
+                        <button type="button" onclick="selectParser('ics_ecrew')" data-parser="ics_ecrew" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Atlas Air</button>
                         <button type="button" onclick="selectParser('other')" data-parser="other" class="parser-pill" style="grid-column:1/-1;padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Other Airline / Operation</button>
                     </div>
                     <p id="parser-other-note" style="display:none;margin-top:8px;font-size:11px;color:#52525b;line-height:1.5;">Upload your schedule in the next step — we'll identify your format automatically and set up your account.</p>
@@ -248,6 +249,7 @@
             'schedaero':        { airline: 'SpiritJets',          code: 'SJJ', needsIcs: false },
             'csv_skywest':      { airline: 'SkyWest Airlines',    code: 'SKW', needsIcs: false },
             'ics_scx':          { airline: 'Sun Country Airlines', code: 'SCX', needsIcs: true  },
+            'ics_ecrew':        { airline: 'Atlas Air',            code: 'GTI', needsIcs: true  },
         };
 
         function selectParser(type) {

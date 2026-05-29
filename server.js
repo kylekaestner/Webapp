@@ -194,9 +194,10 @@ function localTZToUTC(dtStr, tzid) {
     return new Date(asUTC.getTime() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-// AIMS eCrew ICS parser (Sun Country / SCX + other AIMS airlines)
+// AIMS eCrew ICS parser — works for any airline using AIMS eCrew scheduling
 // Each VEVENT is a duty period; individual legs are in the DESCRIPTION.
-function parseSCXICS(text) {
+// airlineCode (ICAO) is used to prefix numeric-only operating flight codes (e.g. '3030' → 'SCX3030')
+function parseECrewICS(text, airlineCode = '', iataAliases = []) {
     const events = [];
     const unfolded = text.replace(/\r?\n[ \t]/g, '');
     const blocks = unfolded.split(/BEGIN:VEVENT/gi).slice(1);
@@ -311,13 +312,32 @@ function parseSCXICS(text) {
                 continue;
             }
 
-            const isOWN = /^OWN/i.test(code);
-            const isSCX = /^(SY|SCX)/i.test(code) || /^\d+$/.test(code);
-            const isDH  = !isSCX || isOWN;
+            const isOWN     = /^OWN/i.test(code);
+            const isNumeric = /^\d+$/.test(code);
+            // Code starts with the pilot's own main ICAO prefix (e.g. GTI789)
+            const startsWithMain = !isNumeric && airlineCode &&
+                code.toUpperCase().startsWith(airlineCode.toUpperCase()) &&
+                /^\d+$/.test(code.slice(airlineCode.length));
+            // Code starts with a known alias for this airline
+            const matchedAlias = !isNumeric && !startsWithMain && iataAliases.find(p =>
+                code.toUpperCase().startsWith(p.toUpperCase()) && /^\d+$/.test(code.slice(p.length))
+            );
+            const isOperating = isNumeric || startsWithMain || !!matchedAlias;
+            const isDH        = !isOperating || isOWN;
 
             let flightNumber = '';
-            if (isSCX && !isOWN) {
-                flightNumber = /^\d+$/.test(code) ? `SY${code}` : `SCX${code.replace(/^(SY|SCX)/i, '')}`;
+            if (isOperating && !isOWN) {
+                if (isNumeric) {
+                    flightNumber = `${airlineCode}${code}`;
+                } else if (startsWithMain) {
+                    flightNumber = code.toUpperCase(); // already correct ICAO prefix
+                } else if (matchedAlias) {
+                    const digits = code.slice(matchedAlias.length);
+                    // 3-char all-alpha alias = ICAO → keep that prefix (e.g. PAC456 stays PAC456)
+                    // 2-char or contains digit = IATA → normalize to main ICAO (e.g. 5Y1234 → GTI1234)
+                    const isIcaoAlias = /^[A-Z]{3}$/i.test(matchedAlias);
+                    flightNumber = isIcaoAlias ? `${matchedAlias.toUpperCase()}${digits}` : `${airlineCode}${digits}`;
+                }
             } else if (!isOWN) {
                 flightNumber = code;
             }
@@ -923,6 +943,15 @@ const pilotAirlineCodes = {
     drew: 'GJS'
 };
 
+// Operating code aliases for eCrew airlines, keyed by main ICAO code.
+// Numeric-only codes are always operating. These aliases catch prefixed codes.
+// 3-char alpha aliases are ICAO (flight number keeps that prefix for ADS-B).
+// 2-char or mixed aliases are IATA (flight number normalized to main ICAO).
+const ECREW_IATA_ALIASES = {
+    'SCX': ['SY'],                // Sun Country: IATA SY
+    'GTI': ['PAC', '5Y', 'PO'],  // Atlas Air: Polar ICAO, Atlas IATA, Polar IATA
+};
+
 function getParserForPilot(pilotKey, pilotRow) {
     // Prefer hardcoded config for existing pilots; use DB value for new ones
     return pilotParsers[pilotKey] || (pilotRow?.parser_type) || 'csv';
@@ -1030,8 +1059,8 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                 } else if (filename.endsWith('.ics')) {
                     events = parserType === 'ics_rosterbuster'
                         ? parseRosterBusterICS(fileContent)
-                        : parserType === 'ics_scx'
-                        ? parseSCXICS(fileContent)
+                        : (parserType === 'ics_scx' || parserType === 'ics_ecrew')
+                        ? parseECrewICS(fileContent, airlineCode, ECREW_IATA_ALIASES[airlineCode] || [])
                         : parseICS(fileContent);
                 } else if (filename.endsWith('.vcs') || (filename.endsWith('.ics') && fileContent.includes('PRODID:SkyWest Inc SkedPlus+'))) {
                     events = parseVCS_skywest(fileContent);
@@ -1320,10 +1349,11 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
     if (!pilot) throw new Error('Pilot not found');
 
     const resolvedParser = pilotParsers[pilotKey] || pilot.parser_type || 'ics';
+    const resolvedCode = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
     const events = resolvedParser === 'ics_rosterbuster'
         ? parseRosterBusterICS(icsText)
-        : resolvedParser === 'ics_scx'
-        ? parseSCXICS(icsText)
+        : (resolvedParser === 'ics_scx' || resolvedParser === 'ics_ecrew')
+        ? parseECrewICS(icsText, resolvedCode, ECREW_IATA_ALIASES[resolvedCode] || [])
         : parseICS(icsText);
 
     const pilotBase = pilot.base || '';
