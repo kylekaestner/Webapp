@@ -2116,7 +2116,10 @@
             if (_isDemo) return;
             const pilot = document.getElementById(selectId).value;
             const input = document.getElementById(inputId);
-            input.accept = pilot === 'drew' ? '.pdf' : '.ics,.csv';
+            const parser = pilotsCache[pilot]?.parser_type || '';
+            input.accept = pilot === 'drew' ? '.pdf'
+                : (parser === 'csv_skywest' || parser === 'vcs_skywest') ? '.csv,.vcs'
+                : '.ics,.csv';
             input.click();
         }
         const overlapRadiusMi = 50;

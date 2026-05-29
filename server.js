@@ -512,6 +512,132 @@ function parseCSV_skywest(text) {
     return events;
 }
 
+// SkyWest SkedPlus+ VCS parser (.vcs file from SkyWest scheduling)
+function parseVCS_skywest(text) {
+    // Decode a quoted-printable field value (handles soft line breaks and =XX escapes)
+    function decodeQP(raw) {
+        return raw
+            .replace(/=\r?\n/g, '')                                          // soft line breaks
+            .replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    }
+
+    // Extract a single-line property value, joining QP-folded continuation lines
+    function extractProp(block, key) {
+        const re = new RegExp(`^${key}[^\r\n]*:([^\r\n]*)(\r?\n[ \t][^\r\n]*)*`, 'm');
+        const m = block.match(re);
+        if (!m) return '';
+        return m[0].split(/\r?\n/).map((l, i) => i === 0 ? l.replace(/^[^:]+:/, '') : l.replace(/^[ \t]/, '')).join('');
+    }
+
+    // Extract DESCRIPTION, which uses ENCODING=QUOTED-PRINTABLE with physical line soft-wraps.
+    // Lines MUST be joined with \n preserved so decodeQP can match =\n soft-break sequences.
+    // VCS property keys are ALL_CAPS before the colon — use that to detect next-property lines.
+    function extractDesc(block) {
+        const start = block.search(/^DESCRIPTION/m);
+        if (start < 0) return '';
+        const chunk = block.slice(start);
+        const lines = chunk.split(/\r?\n/);
+        const rawLines = [lines[0].replace(/^DESCRIPTION[^:]*:/, '')];
+        for (let i = 1; i < lines.length; i++) {
+            if (/^[A-Z]+[;:]/.test(lines[i])) break;  // start of next VCS property (ALL_CAPS:)
+            rawLines.push(lines[i]);
+        }
+        return decodeQP(rawLines.join('\n'));
+    }
+
+    const events = [];
+    const seenUIDs = new Set();
+    const blocks = text.split(/BEGIN:VEVENT/);
+
+    for (const block of blocks.slice(1)) {
+        const summary  = extractProp(block, 'SUMMARY').trim();
+        const uid      = extractProp(block, 'UID').trim();
+        const dtstart  = extractProp(block, 'DTSTART').trim();
+        const dtend    = extractProp(block, 'DTEND').trim();
+
+        if (summary === 'OFF') continue;
+        if (summary.includes('(cont)')) continue;
+        if (seenUIDs.has(uid)) continue;
+        seenUIDs.add(uid);
+
+        // RE2 / RE3 etc — reserve on-call window (floating local time, SFO base)
+        if (/^RE\d*$/.test(summary)) {
+            const parseLocal = s => s && s.length >= 13
+                ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(9,11)}:${s.slice(11,13)}:00`
+                : null;
+            const dep = parseLocal(dtstart);
+            const arr = parseLocal(dtend);
+            if (dep) {
+                events.push({
+                    type: 'reserve',
+                    departureTime:   dep,
+                    arrivalTime:     arr || dep,
+                    departureAirport: 'SFO',
+                    arrivalAirport:   'SFO',
+                    flightNumber:    summary,
+                    tail: '', trip: '', dh: false, blockMinutes: null
+                });
+            }
+            continue;
+        }
+
+        // Pairing event (ADD Q5089A ER7) — parse DESCRIPTION for individual legs
+        const pairingM = summary.match(/^ADD\s+(\S+)(?:\s+(\S+))?/);
+        if (!pairingM) continue;
+        const tripName   = pairingM[1] || '';
+        const defaultTail = pairingM[2] || '';
+
+        const desc  = extractDesc(block);
+        const lines = desc.split(/\n/);
+        let currentDate = null;
+
+        for (const line of lines) {
+            // Day header: "Tuesday 06-02-2026   Report: 17:52"
+            const dayM = line.match(/(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*\s+(\d{2})-(\d{2})-(\d{4})/);
+            if (dayM) {
+                currentDate = `${dayM[3]}-${dayM[1]}-${dayM[2]}`;
+                continue;
+            }
+
+            // Flight leg: "2. 5508  ER7   SFO  CLD  18:37  20:27  Block: 1:50"
+            const legM = line.match(/^\s*\d+\.\s+(\S+)\s+(\S+)\s+([A-Z]{3,4})\s+([A-Z]{3,4})\s+(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})(?:.*?Block:\s*([\d:]+))?/);
+            if (!legM || !currentDate) continue;
+
+            const [, fltNum, tail, dep, arr, depT, arrT, blockStr] = legM;
+            if (dep === arr) continue;  // skip LCO/ground events
+
+            const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+            const depMin = toMin(depT);
+            const arrMin = toMin(arrT);
+            let arrDate = currentDate;
+            if (arrMin < depMin) {
+                const d = new Date(currentDate + 'T12:00:00Z');
+                d.setUTCDate(d.getUTCDate() + 1);
+                arrDate = d.toISOString().slice(0, 10);
+            }
+            const blockMinutes = blockStr
+                ? parseInt(blockStr.split(':')[0]) * 60 + parseInt(blockStr.split(':')[1])
+                : null;
+
+            events.push({
+                type: 'flight',
+                departureTime:    `${currentDate}T${depT.padStart(5,'0')}:00`,
+                arrivalTime:      `${arrDate}T${arrT.padStart(5,'0')}:00`,
+                departureAirport: dep,
+                arrivalAirport:   arr,
+                flightNumber:     fltNum,
+                tail:             tail !== dep && tail !== arr ? tail : defaultTail,
+                trip:             tripName,
+                dh:               false,
+                blockMinutes
+            });
+        }
+    }
+
+    events.sort((a, b) => (a.departureTime || '').localeCompare(b.departureTime || ''));
+    return events;
+}
+
 // Schedaero returns UTC times without a Z — append it so JS parses them as UTC, not local
 function asUtcIso(s) {
     if (!s || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) return s;
@@ -730,6 +856,10 @@ function getParserForPilot(pilotKey, pilotRow) {
 }
 
 function autoDetectParser(filename, fileContent) {
+    if (filename.endsWith('.vcs') || fileContent.includes('PRODID:SkyWest Inc SkedPlus+')) {
+        const events = parseVCS_skywest(fileContent);
+        if (events.length > 0) return { parser: 'vcs_skywest', events };
+    }
     if (filename.endsWith('.ics')) {
         const rbEvents  = parseRosterBusterICS(fileContent);
         const stdEvents = parseICS(fileContent);
@@ -830,12 +960,14 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                         : parserType === 'ics_scx'
                         ? parseSCXICS(fileContent)
                         : parseICS(fileContent);
+                } else if (filename.endsWith('.vcs') || (filename.endsWith('.ics') && fileContent.includes('PRODID:SkyWest Inc SkedPlus+'))) {
+                    events = parseVCS_skywest(fileContent);
                 } else if (filename.endsWith('.csv')) {
                     events = parserType === 'csv_skywest'
                         ? parseCSV_skywest(fileContent)
                         : parseCSV(fileContent, airlineCode);
                 } else {
-                    return res.status(400).json({ error: 'Unsupported file type. Use .ics, .csv, or .pdf' });
+                    return res.status(400).json({ error: 'Unsupported file type. Use .ics, .csv, .vcs, or .pdf' });
                 }
             }
         } catch (parseError) {
