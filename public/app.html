@@ -1708,7 +1708,10 @@
         // so _syncPilotRoster() can add new entries for dynamically joined pilots.
         const PILOT_COLORS = _isDemo
             ? { alex: '#3b82f6', morgan: '#2dd4bf', casey: '#f97316', jordan: '#818cf8' }
-            : { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185' };
+            : { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185',
+                brett: '#10b981', hunter: '#f59e0b', nick: '#e879f9', jack: '#38bdf8' };
+        // Rotating palette for any future dynamically-joined pilots not listed above
+        const _dynamicColorPool = ['#a3e635','#c084fc','#f43f5e','#06b6d4','#ff8c42','#7dd3fc','#4ade80','#e879f9'];
         const hiddenPilots = new Set(); // pilot keys toggled off in the map legend
         const PILOT_NAMES = _isDemo
             ? { alex: 'Alex Rivera', morgan: 'Morgan Tate', casey: 'Casey Walsh', jordan: 'Jordan Ellis' }
@@ -3912,6 +3915,22 @@
                             const alt = d.altFt >= 18000 ? `FL${Math.round(d.altFt / 100)}` : `${Math.round(d.altFt).toLocaleString()} ft`;
                             const kts = d.speedKts ? ` · ${Math.round(d.speedKts)} kts` : '';
                             txt = `${alt}${kts}`;
+                            if (_delayedFlights.has(cs)) {
+                                _delayedFlights.delete(cs);
+                                // Swap flight row border: orange → green
+                                el.classList.remove('border-orange-500/80', 'ring-orange-500/30');
+                                el.classList.add('border-green-500/80', 'ring-green-500/30');
+                                // Fix live slot border color
+                                if (liveEl) liveEl.style.borderTopColor = 'rgba(34,197,94,0.15)';
+                                // Update the day container label + colors
+                                const dayDiv = el.parentElement?.parentElement;
+                                if (dayDiv) {
+                                    ['bg-orange-950/40','border-orange-600/60'].forEach(c => dayDiv.classList.remove(c));
+                                    ['bg-emerald-950/40','border-emerald-600/60'].forEach(c => dayDiv.classList.add(c));
+                                    const labelDiv = dayDiv.querySelector('.w-16 .tracking-widest');
+                                    if (labelDiv) { labelDiv.textContent = '▶ IN THE AIR'; labelDiv.className = 'text-[8px] font-bold uppercase text-emerald-300 mt-1 tracking-widest'; }
+                                }
+                            }
                             _delayedFlights.delete(cs);
                         } else {
                             // No airborne signal — only show delay if takeoff hasn't been confirmed yet
@@ -4310,7 +4329,7 @@
                     if (depCoords && arrCoords && !isPositionOnRoute(d.lat, d.lon, depCoords, arrCoords)) return;
 
                     setAllLatLng(d.lat, d.lon);
-                    if (d.heading != null) setAllIcon(makePlaneIcon(d.heading, color, d.type, false));
+                    if (d.heading != null) setAllIcon(makePlaneIcon(d.heading, color, d.type, true));
 
                     const livePoint = [d.lat, d.lon];
 
@@ -4553,7 +4572,7 @@
                     const dotPos = arcCoords[dotIdx];
                     const nextPos = arcCoords[dotIdx + 1] || arcCoords[dotIdx];
                     const bearing = computeBearing(dotPos, nextPos);
-                    const dots = worldPlaneMarkers(dotPos, makePlaneIcon(bearing, color));
+                    const dots = worldPlaneMarkers(dotPos, makePlaneIcon(bearing, color, null, true));
                     dots[2].bindTooltip(`✈ ${PILOT_NAMES[f.pilotKey]} — in the air`, { permanent: false, className: 'dark-popup' });
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
@@ -6508,9 +6527,19 @@ let _blockUserEdited = false;
             } catch(e) { /* non-fatal — hardcoded list still works */ }
         }
 
-        // Pick a stable color for a pilot not in the hardcoded set
+        // Pick the first color from the palette not already used by any other pilot
         function _assignColor(key) {
-            const palette = ['#6366f1','#ec4899','#14b8a6','#f59e0b','#84cc16','#f97316'];
+            const palette = [
+                '#6366f1','#ec4899','#14b8a6','#f59e0b','#84cc16','#f97316',
+                '#a3e635','#c084fc','#f43f5e','#06b6d4','#ff8c42','#7dd3fc',
+                '#4ade80','#e879f9','#38bdf8','#fb923c','#34d399','#a78bfa',
+                '#fbbf24','#60a5fa','#f472b6','#4ade80','#22d3ee','#86efac'
+            ];
+            const used = new Set(Object.values(PILOT_COLORS));
+            for (const c of palette) {
+                if (!used.has(c)) return c;
+            }
+            // Fallback if palette exhausted
             let hash = 0;
             for (const c of key) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff;
             return palette[Math.abs(hash) % palette.length];
