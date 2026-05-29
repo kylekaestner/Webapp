@@ -1602,7 +1602,7 @@ const _posTrail = {};  // hex → [[lat, lon], ...]
 const _trailLastTime = {}; // hex → Date.now() of last appended trail point
 const _trailSeeded = new Set(); // hexes whose adsb.lol/OpenSky history has been fetched
 const _trailSeedTime = {}; // hex → timestamp of last adsb.lol fetch
-const TRAIL_RESEED_MS = 5 * 1000; // re-fetch adsb.lol trace every 5 seconds
+const TRAIL_RESEED_MS = 90 * 1000; // re-fetch adsb.lol trace every 90 s (CDN updates ~1–2 min)
 
 // Trail persistence — survives server restarts so the full flight path accumulates
 const TRAIL_CACHE_FILE = path.join(__dirname, '.trail_cache.json');
@@ -1703,10 +1703,15 @@ async function seedTrailFromOpenSky(hex, sinceUnixSec = null) {
 
         if (!coords) { if (!alreadySeeded) _trailSeeded.delete(hex); return; }
 
-        // Replace trail with fresh adsb.lol data — it's denser than our polled accumulation
-        _posTrail[hex] = coords;
-        if (_posTrail[hex].length > 3000) _posTrail[hex].splice(0, _posTrail[hex].length - 3000);
-        scheduleTrailSave();
+        // Only replace the trail if adsb.lol has more points than we've accumulated locally.
+        // Re-fetches return the same point count until adsb.lol updates, so replacing every
+        // 5s would reset the trail and discard locally polled points, keeping it stuck.
+        const currentLen = _posTrail[hex]?.length || 0;
+        if (coords.length > currentLen) {
+            _posTrail[hex] = coords;
+            if (_posTrail[hex].length > 3000) _posTrail[hex].splice(0, _posTrail[hex].length - 3000);
+            scheduleTrailSave();
+        }
     } catch (e) {
         if (!alreadySeeded) _trailSeeded.delete(hex);
         console.warn(`Trail seed error for ${hex}:`, e.message);
