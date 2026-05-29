@@ -4382,18 +4382,25 @@
 
                     // Flown: smooth GPS trail (interpolate great-circle between each pair of fixes)
                     const rawTrail = (d.trail && d.trail.length >= 2) ? d.trail : null;
-                    // Trim the trail to the current leg. OpenSky history includes prior legs on the
-                    // same aircraft (e.g. turns with the same flight number), so we find the trail
-                    // point closest to depCoords and discard everything before it.
+                    // Trim trail to current leg using departure timestamp when available (pt[2]).
+                    // Falls back to geographic proximity for older cached trails without timestamps.
                     let legTrail = rawTrail;
-                    if (rawTrail && depCoords) {
-                        let closestIdx = 0, closestDist2 = Infinity;
-                        for (let ti = 0; ti < rawTrail.length; ti++) {
-                            const dlat = rawTrail[ti][0] - depCoords[0], dlon = rawTrail[ti][1] - depCoords[1];
-                            const dist2 = dlat * dlat + dlon * dlon;
-                            if (dist2 < closestDist2) { closestDist2 = dist2; closestIdx = ti; }
+                    if (rawTrail) {
+                        const depMs = scheduledDepUTC ? scheduledDepUTC.getTime() - 15 * 60 * 1000 : null;
+                        if (depMs && rawTrail[0][2]) {
+                            // Timestamp-based trim — most accurate
+                            const filtered = rawTrail.filter(pt => pt[2] >= depMs);
+                            if (filtered.length >= 2) legTrail = filtered;
+                        } else if (depCoords) {
+                            // Geographic fallback for trails without timestamps
+                            let closestIdx = 0, closestDist2 = Infinity;
+                            for (let ti = 0; ti < rawTrail.length; ti++) {
+                                const dlat = rawTrail[ti][0] - depCoords[0], dlon = rawTrail[ti][1] - depCoords[1];
+                                const dist2 = dlat * dlat + dlon * dlon;
+                                if (dist2 < closestDist2) { closestDist2 = dist2; closestIdx = ti; }
+                            }
+                            if (closestIdx > 0 && rawTrail.length - closestIdx >= 2) legTrail = rawTrail.slice(closestIdx);
                         }
-                        if (closestIdx > 0 && rawTrail.length - closestIdx >= 2) legTrail = rawTrail.slice(closestIdx);
                     }
                     const flownPath = (legTrail && legTrail.length >= 2) ? smoothTrail(legTrail) : null;
                     if (flownPath) {

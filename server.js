@@ -1640,76 +1640,77 @@ async function seedTrailFromOpenSky(hex, sinceUnixSec = null) {
     const now = Date.now();
     const alreadySeeded = _trailSeeded.has(hex);
     const lastSeed = _trailSeedTime[hex] || 0;
-    // Skip if seeded recently — but always re-fetch from adsb.lol every 90s for active flights
     if (alreadySeeded && (now - lastSeed) < TRAIL_RESEED_MS) return;
     _trailSeeded.add(hex);
     _trailSeedTime[hex] = now;
     try {
-        let coords = null;
+        let coords = null; // will be [lat, lon, tsMs] triples
 
-        // Try adsb.lol trace files — re-fetched every 90s to get dense live data
-        try {
-            const zz = hex.slice(-2).toLowerCase();
-            const h = hex.toLowerCase();
-            const traceUrls = [
-                `https://globe.adsb.lol/data/traces/${zz}/trace_full_${h}.json`,
-                `https://globe.adsb.lol/data/traces/${zz}/trace_recent_${h}.json`,
-                `https://globe.adsb.lol/trace/recent/${zz}/${h}.json`,
-            ];
-            for (const traceUrl of traceUrls) {
-                if (coords) break;
-                try {
-                    const tr = await fetch(traceUrl, { signal: AbortSignal.timeout(8000) });
-                    if (!tr.ok) { console.log(`Trace ${traceUrl}: HTTP ${tr.status}`); continue; }
-                    const tj = await tr.json();
-                    if (tj?.trace && tj.trace.length >= 2) {
-                        // If we know the departure time, only keep points from that leg onward.
-                        // adsb.lol trace_full spans days of history — filtering to the current leg
-                        // prevents the trail from being swamped by prior flights on the same aircraft.
-                        const baseTs = tj.timestamp || 0; // UNIX seconds of first trace point
-                        // Only apply time filter if baseTs looks valid (epoch seconds, not offset)
-                        const cutoffSec = (sinceUnixSec && baseTs > 1000000000) ? sinceUnixSec - 15 * 60 : null;
-                        const pts = tj.trace
-                            .filter(p => p[1] != null && p[2] != null &&
-                                         (!cutoffSec || (baseTs + p[0]) >= cutoffSec))
-                            .map(p => [p[1], p[2]]);
-                        if (pts.length >= 2) {
-                            coords = pts;
-                            console.log(`${alreadySeeded ? 'Refreshed' : 'Seeded'} trail for ${hex}: ${coords.length} pts from ${traceUrl}${cutoffSec ? ` (since dep)` : ''}`);
-                        }
+        // On re-seeds prefer trace_recent (smaller, updates faster on adsb.lol CDN).
+        // On first seed prefer trace_full (complete leg history from departure).
+        const zz = hex.slice(-2).toLowerCase();
+        const h  = hex.toLowerCase();
+        const traceUrls = alreadySeeded
+            ? [`https://globe.adsb.lol/data/traces/${zz}/trace_recent_${h}.json`,
+               `https://globe.adsb.lol/data/traces/${zz}/trace_full_${h}.json`]
+            : [`https://globe.adsb.lol/data/traces/${zz}/trace_full_${h}.json`,
+               `https://globe.adsb.lol/data/traces/${zz}/trace_recent_${h}.json`];
+
+        for (const traceUrl of traceUrls) {
+            if (coords) break;
+            try {
+                const tr = await fetch(traceUrl, { signal: AbortSignal.timeout(5000) });
+                if (!tr.ok) continue;
+                const tj = await tr.json();
+                if (tj?.trace && tj.trace.length >= 2) {
+                    const baseTs = tj.timestamp || 0; // UNIX seconds of trace epoch
+                    // Only filter by time if baseTs looks like a real epoch (post-2001)
+                    const cutoffSec = (sinceUnixSec && baseTs > 1000000000) ? sinceUnixSec - 15 * 60 : null;
+                    const pts = tj.trace
+                        .filter(p => p[1] != null && p[2] != null &&
+                                     (!cutoffSec || (baseTs + p[0]) >= cutoffSec))
+                        .map(p => [p[1], p[2], (baseTs + p[0]) * 1000]); // [lat, lon, tsMs]
+                    if (pts.length >= 2) {
+                        coords = pts;
+                        const src = traceUrl.includes('recent') ? 'trace_recent' : 'trace_full';
+                        console.log(`${alreadySeeded ? 'Refreshed' : 'Seeded'} trail for ${hex}: ${coords.length} pts (${src}${cutoffSec ? ', since dep' : ''})`);
                     }
-                } catch (e) { console.log(`Trace ${traceUrl}: ${e.message}`); }
-            }
-        } catch (_) {}
+                }
+            } catch (_) {}
+        }
 
-        // Fall back to OpenSky on first seed only (no point polling OpenSky every 90s)
+        // Fall back to OpenSky on first seed only
         if (!coords && !alreadySeeded) {
             const osUser = process.env.OPENSKY_USER, osPass = process.env.OPENSKY_PASS;
             const headers = osUser ? { Authorization: 'Basic ' + Buffer.from(`${osUser}:${osPass}`).toString('base64') } : {};
-            const url = `https://opensky-network.org/api/tracks/all?icao24=${hex}&time=0`;
-            const resp = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
+            const resp = await fetch(`https://opensky-network.org/api/tracks/all?icao24=${hex}&time=0`,
+                { headers, signal: AbortSignal.timeout(10000) });
             if (resp.ok) {
                 const json = await resp.json();
                 const path = json?.path;
                 if (path && path.length >= 2) {
-                    coords = path
-                        .filter(p => p[1] != null && p[2] != null && !p[5])
-                        .map(p => [p[1], p[2]]);
-                    if (coords.length < 2) coords = null;
-                    else console.log(`Seeded trail for ${hex}: ${coords.length} OpenSky points`);
+                    const raw = path.filter(p => p[1] != null && p[2] != null && !p[5])
+                                    .map(p => [p[1], p[2], p[0] * 1000]); // p[0] is UNIX s
+                    if (raw.length >= 2) { coords = raw; console.log(`Seeded trail for ${hex}: ${coords.length} OpenSky pts`); }
                 }
             }
         }
 
         if (!coords) { if (!alreadySeeded) _trailSeeded.delete(hex); return; }
 
-        // Only replace the trail if adsb.lol has more points than we've accumulated locally.
-        // Re-fetches return the same point count until adsb.lol updates, so replacing every
-        // 5s would reset the trail and discard locally polled points, keeping it stuck.
-        const currentLen = _posTrail[hex]?.length || 0;
-        if (coords.length > currentLen) {
-            _posTrail[hex] = coords;
-            if (_posTrail[hex].length > 3000) _posTrail[hex].splice(0, _posTrail[hex].length - 3000);
+        // Merge: take adsb.lol points (dense, slightly delayed) and append any locally-polled
+        // points that are NEWER than the last adsb.lol timestamp. adsb.lol CDN lags ~1–2 min,
+        // so local polling always has the freshest tail.
+        const existing = _posTrail[hex] || [];
+        const lastAdsbTs = coords[coords.length - 1][2] || 0;
+        const localNewer = existing.filter(pt => (pt[2] || 0) > lastAdsbTs);
+        const merged = [...coords, ...localNewer];
+        // merged is already chronological (coords sorted by trace order, localNewer appended)
+
+        const currentLen = existing.length;
+        if (merged.length > currentLen) {
+            _posTrail[hex] = merged;
+            if (_posTrail[hex].length > 4000) _posTrail[hex].splice(0, _posTrail[hex].length - 4000);
             scheduleTrailSave();
         }
     } catch (e) {
@@ -1779,7 +1780,7 @@ function processPositionUpdate(data, sinceUnixSec = null) {
         const last = trail[trail.length - 1];
         const now = Date.now();
         if (!last || (now - (_trailLastTime[hex] || 0)) >= 5000) {
-            trail.push([data.lat, data.lon]);
+            trail.push([data.lat, data.lon, now]); // [lat, lon, tsMs]
             _trailLastTime[hex] = now;
             if (trail.length > 3000) trail.splice(0, trail.length - 3000);
             scheduleTrailSave();
