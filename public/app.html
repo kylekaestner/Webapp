@@ -2524,7 +2524,7 @@
                         kyleHardOffDates.add(s.departure_time.slice(0, 10));
                         return;
                     }
-                    if (s.type !== 'flight' && s.type !== 'reserve') return;
+                    if (s.type !== 'flight' && s.type !== 'reserve' && s.type !== 'ground') return;
                     [s.departure_time, s.arrival_time].forEach(t => {
                         if (!t) return;
                         flying.add(t.slice(0, 10));
@@ -2641,7 +2641,7 @@
                 const home = homeBase ? homeBase.toUpperCase() : null;
                 const homeC = homeCity ? homeCity.toUpperCase() : null;
                 const flights = segments
-                    .filter(s => s.type === 'flight' && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport)
+                    .filter(s => (s.type === 'flight' || s.type === 'ground') && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport)
                     .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
                 const periods = [];
 
@@ -4811,7 +4811,7 @@
                         return arrLocal === dateKey && arrLocal !== depLocal;
                     });
                     const isHard = dayEvents.some(e => e.type === 'hard');
-                    const isFlying = dayEvents.some(e => e.type === 'flight');
+                    const isFlying = dayEvents.some(e => e.type === 'flight' || e.type === 'ground');
                     const isReserve = dayEvents.some(e => e.type === 'reserve');
                     let away = dayEvents.find(e => e.type === 'away');
                     if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
@@ -4943,6 +4943,7 @@
                     if (away && away.arrivalAirport === pilotBase) away = null;
                     const flights = dayEvents.filter(e => e.type === 'flight');
                     const reserves = dayEvents.filter(e => e.type === 'reserve');
+                    const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
                     const _listNow = Date.now();
                     const _listAnyDelayed = flights.some(f => {
                         const cs = deriveCallsign(f, currentPilot) || '';
@@ -5043,6 +5044,15 @@
                             const liveSlot = isActiveLeg2 && csig2 ? `<div id="live-${csig2}" style="font-size:11px;color:#4ade80;font-weight:700;margin-top:8px;padding-top:6px;border-top:1px solid ${_liveSlotBorder};display:none"></div>` : '';
                             return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}" data-dep-time="${depAttr}" data-dep-apt="${depApt}"` : ''}><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}${commuteBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div>${liveSlot}</div>`;
                         }).join('');
+                    }
+                    if (groundLegs.length > 0) {
+                        contentHtml += groundLegs.map(g =>
+                            `<div class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-700/25 bg-zinc-800/20 text-zinc-500">
+                                <span class="text-[9px] font-black uppercase tracking-widest shrink-0">Ground</span>
+                                <span class="text-xs font-semibold text-zinc-400">${g.departureAirport} <span class="text-zinc-600">→</span> ${g.arrivalAirport}</span>
+                                <span class="text-[9px] text-zinc-600 ml-auto">${g.flightNumber || ''}</span>
+                            </div>`
+                        ).join('');
                     }
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];
                     if (isPastDay) listClasses.push('list-past');
@@ -5344,6 +5354,7 @@
             if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
             const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
             const reserves = dayEvents.filter(e => e.type === 'reserve').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+            const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
 
             const nowMs = Date.now();
             const flightMs = flights.map(f => {
@@ -5374,7 +5385,7 @@
                 <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden')" class="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 text-sm shrink-0">✕</button>
             </div>`;
 
-            if (flights.length === 0 && reserves.length === 0) {
+            if (flights.length === 0 && reserves.length === 0 && groundLegs.length === 0) {
                 const icon = isHard ? '🔴' : away ? '🏨' : currentPilot === 'kyle' ? '📟' : '😴';
                 const msg = isHard ? 'Hard Day Off' : away ? `Away at ${away.arrivalAirport}` : currentPilot === 'kyle' ? 'On Call' : 'Day Off';
                 html += `<div class="text-center py-8"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>`;
@@ -5462,6 +5473,14 @@
                         <div class="font-bold text-zinc-200">${depTime}${tzTag(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzTag(arrTz)}</div>
                         <div class="text-zinc-500">${durMs > 0 ? formatDurationMinutes(durMs / 60000) : ''}</div>
                     </div>
+                </div>`;
+            });
+
+            groundLegs.forEach(g => {
+                html += `<div class="bg-zinc-800/40 border border-zinc-700/30 rounded-xl px-4 py-2.5 mb-2 flex items-center gap-3">
+                    <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Ground</div>
+                    <div class="text-sm font-bold text-zinc-300">${g.departureAirport} <span class="text-zinc-600">→</span> ${g.arrivalAirport}</div>
+                    <div class="text-[10px] text-zinc-600 ml-auto">${g.flightNumber || ''}</div>
                 </div>`;
             });
 

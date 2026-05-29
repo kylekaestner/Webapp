@@ -186,10 +186,31 @@ function localTZToUTC(dtStr, tzid) {
 }
 
 // AIMS eCrew ICS parser (Sun Country / SCX + other AIMS airlines)
+// Each VEVENT is a duty period; individual legs are in the DESCRIPTION.
 function parseSCXICS(text) {
     const events = [];
     const unfolded = text.replace(/\r?\n[ \t]/g, '');
     const blocks = unfolded.split(/BEGIN:VEVENT/gi).slice(1);
+
+    const cleanApt = (a) => /^[A-Z]{3}\d$/.test(a.toUpperCase()) ? a.slice(0, 3).toUpperCase() : a.toUpperCase();
+
+    // Add N calendar days to a YYYYMMDD string
+    const addDays = (yyyymmdd, n) => {
+        const d = new Date(`${yyyymmdd.slice(0,4)}-${yyyymmdd.slice(4,6)}-${yyyymmdd.slice(6,8)}T12:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0,10).replace(/-/g,'');
+    };
+
+    // Parse ⁺¹ / ⁺² day-offset suffix from a time field string (Unicode superscripts)
+    const parseDayOffset = (s) => {
+        const m = s.match(/[⁺+]([¹²³\d])/);
+        if (!m) return 0;
+        const sup = { '¹': 1, '²': 2, '³': 3 };
+        return sup[m[1]] ?? parseInt(m[1], 10);
+    };
+
+    // Leg line: "CODE  - DEP  (HHMM[⁺¹]) - ARR  (HHMM[⁺¹])"
+    const LEG_RE = /^([A-Z0-9]+)\s{1,4}-\s+([A-Z]{3}\d?)\s*\((\d{4}[^)]*)\)\s+-\s+([A-Z]{3}\d?)\s*\((\d{4}[^)]*)\)/i;
 
     for (const b of blocks) {
         const lines = b.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -213,64 +234,102 @@ function parseSCXICS(text) {
         const dtStartVal = rawStart.split(':').slice(1).join(':');
         const dtEndVal   = rawEnd ? rawEnd.split(':').slice(1).join(':') : '';
         const tzMatch    = rawStart.match(/TZID=([^:;]+)/i);
-        const tzid       = tzMatch ? tzMatch[1] : null;
+        const tzid       = tzMatch ? tzMatch[1] : 'UTC';
 
-        const depTime = tzid ? localTZToUTC(dtStartVal, tzid) : formatICSDatetime(dtStartVal);
-        const arrTime = dtEndVal ? (tzid ? localTZToUTC(dtEndVal, tzid) : formatICSDatetime(dtEndVal)) : '';
+        const toUTC = (val, tz) => tz !== 'UTC' ? localTZToUTC(val, tz) : formatICSDatetime(val);
 
-        // Reserve duty: any RES* prefix (RESR=red-eye, RESP=PM, RESA=AM)
+        // Reserve duty: RESR / RESP / RESA — use DTSTART/DTEND directly
         const resMatch = summary.match(/^(RES[A-Z])\b/i);
         if (resMatch) {
-            const locApt = location.split(')').pop().trim().replace(/\d+$/, '').trim() || '';
+            const locApt = cleanApt(location.split(')').pop().trim().replace(/\d+$/, '').trim() || '');
             events.push({
                 type: 'reserve',
-                departureTime: depTime,
-                arrivalTime: arrTime,
+                departureTime: toUTC(dtStartVal, tzid),
+                arrivalTime: dtEndVal ? toUTC(dtEndVal, tzid) : '',
                 departureAirport: locApt,
                 arrivalAirport: locApt,
-                flightNumber: resMatch[1].toUpperCase(), // sub-type stored here
+                flightNumber: resMatch[1].toUpperCase(),
+                tail: '', trip: null, dh: false, blockMinutes: null
             });
             continue;
         }
 
-        // Pairing: "{code} {DEP}-{ARR}"
-        const pairMatch = summary.match(/^(\S+)\s+([A-Z0-9]{3,4})-([A-Z0-9]{3,4})$/i);
-        if (!pairMatch) continue;
+        // Trip ID: first word of SUMMARY (skip "RAP" prefix if present)
+        const summaryParts = summary.trim().split(/\s+/);
+        const tripId = (summaryParts[0].toUpperCase() === 'RAP' ? summaryParts[1] : summaryParts[0]) || summaryParts[0];
 
-        const pairingId = pairMatch[1].toUpperCase();
-        const cleanApt  = (a) => /^[A-Z]{3}\d$/.test(a.toUpperCase()) ? a.slice(0, 3).toUpperCase() : a.toUpperCase();
-        const dep = cleanApt(pairMatch[2]);
-        const arr = cleanApt(pairMatch[3]);
+        // Base date = local date from DTSTART (e.g. "20260530" from "20260530T223000")
+        const baseDate = dtStartVal.slice(0, 8);
 
-        if (dep === arr) continue; // skip same-airport ground/training events
+        // Parse each individual leg from DESCRIPTION
+        const descLines = rawDesc.split('\n').map(l => l.trim()).filter(Boolean);
+        for (const line of descLines) {
+            const m = line.match(LEG_RE);
+            if (!m) continue;
 
-        // Extract flight number from DESCRIPTION: "OWN5280 - MSP1 ..." or "DL3113 - CVG ..."
-        const flightLineMatch = rawDesc.match(/\n([A-Z0-9]{2,4}\d{3,4})\s{1,3}-\s/);
-        let flightNumber = '';
-        let isDH = false;
-        if (flightLineMatch) {
-            const code = flightLineMatch[1];
-            if (/^OWN/i.test(code)) {
-                // Released to travel on own — no assigned flight
-            } else if (/^(SY|SCX)/i.test(code)) {
-                flightNumber = 'SCX' + code.replace(/^(SY|SCX)/i, '');
-            } else {
-                flightNumber = code.toUpperCase();
-                isDH = true;
+            const code   = m[1].toUpperCase();
+            const depApt = cleanApt(m[2]);
+            const arrApt = cleanApt(m[4]);
+
+            if (code === 'RAP' || depApt === arrApt) continue; // repositioning pay or same-airport
+
+            const depField = m[3]; // e.g. "2330" or "0150⁺¹"
+            const arrField = m[5];
+            const depHHMM  = depField.replace(/\D/g, '').slice(0, 4);
+            const arrHHMM  = arrField.replace(/\D/g, '').slice(0, 4);
+
+            const depDateStr = addDays(baseDate, parseDayOffset(depField));
+            const arrDateStr = addDays(baseDate, parseDayOffset(arrField));
+
+            // Use each airport's own timezone for accurate UTC conversion
+            const depTZ = _aptTimezone[depApt] || tzid;
+            const arrTZ = _aptTimezone[arrApt] || tzid;
+
+            const depUTC = toUTC(`${depDateStr}T${depHHMM}00`, depTZ);
+            const arrUTC = toUTC(`${arrDateStr}T${arrHHMM}00`, arrTZ);
+
+            if (/^GRND/i.test(code)) {
+                // Ground transport (van/bus) — store for map location tracking only
+                events.push({
+                    type: 'ground',
+                    departureTime: depUTC,
+                    arrivalTime:   arrUTC,
+                    departureAirport: depApt,
+                    arrivalAirport:   arrApt,
+                    flightNumber: code,
+                    tail: '', trip: tripId, dh: false, blockMinutes: null
+                });
+                continue;
             }
-        }
 
-        events.push({
-            type: 'flight',
-            departureTime: depTime,
-            arrivalTime: arrTime,
-            departureAirport: dep,
-            arrivalAirport: arr,
-            flightNumber,
-            tail: '',
-            trip: pairingId,
-            dh: isDH,
-        });
+            const isOWN = /^OWN/i.test(code);
+            const isSCX = /^(SY|SCX)/i.test(code) || /^\d+$/.test(code);
+            const isDH  = !isSCX || isOWN;
+
+            let flightNumber = '';
+            if (isSCX && !isOWN) {
+                flightNumber = /^\d+$/.test(code) ? `SY${code}` : `SCX${code.replace(/^(SY|SCX)/i, '')}`;
+            } else if (!isOWN) {
+                flightNumber = code;
+            }
+
+            const blockMinutes = depUTC && arrUTC
+                ? Math.round((new Date(arrUTC) - new Date(depUTC)) / 60000)
+                : null;
+
+            events.push({
+                type: 'flight',
+                departureTime: depUTC,
+                arrivalTime:   arrUTC,
+                departureAirport: depApt,
+                arrivalAirport:   arrApt,
+                flightNumber,
+                tail: '',
+                trip: tripId,
+                dh:   isDH,
+                blockMinutes: blockMinutes > 0 ? blockMinutes : null
+            });
+        }
     }
 
     events.sort((a, b) => (a.departureTime || '').localeCompare(b.departureTime || ''));
@@ -686,8 +745,9 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
 const pdfParse = require('pdf-parse');
 const tzlookup = require('tz-lookup');
 
-// Build airport code → [lat, lon] and IATA↔ICAO maps from bundled airports.dat (OpenFlights format)
+// Build airport code → [lat, lon], timezone, and IATA↔ICAO maps from bundled airports.dat (OpenFlights format)
 const _aptCoords = {};
+const _aptTimezone = {};
 const _iataToIcaoApt = {};
 const _icaoToIataApt = {};
 try {
@@ -696,8 +756,12 @@ try {
         const p = line.split(',').map(s => s.replace(/^"|"$/g, ''));
         const iata = p[4]?.trim(), icao = p[5]?.trim();
         const lat = parseFloat(p[6]), lon = parseFloat(p[7]);
+        const tz = p[11]?.trim();
         if (!isFinite(lat) || !isFinite(lon)) continue;
-        if (iata && iata !== '\\N' && iata !== 'N/A') _aptCoords[iata.toUpperCase()] = [lat, lon];
+        if (iata && iata !== '\\N' && iata !== 'N/A') {
+            _aptCoords[iata.toUpperCase()] = [lat, lon];
+            if (tz && tz !== '\\N') _aptTimezone[iata.toUpperCase()] = tz;
+        }
         if (icao && icao !== '\\N' && icao !== 'N/A') _aptCoords[icao.toUpperCase()] = [lat, lon];
         if (iata && iata !== '\\N' && icao && icao !== '\\N') {
             _iataToIcaoApt[iata.toUpperCase()] = icao.toUpperCase();
