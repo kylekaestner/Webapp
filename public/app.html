@@ -4891,8 +4891,18 @@
                     html += `<div class="flex items-start justify-between px-2.5 pt-2 pb-1 shrink-0"><span class="text-base font-black font-mono leading-none day-number" style="${dayNumColor}">${d}</span><span class="text-[7px] font-black px-1.5 py-[2px] rounded-full border border-current leading-none opacity-90">${tag}</span></div>`;
                     // Scrollable flight list
                     html += `<div class="overflow-y-auto flex-1 px-1.5 pb-1.5 space-y-1">`;
-                    const cellFlights = dayEvents.filter(e => e.type === 'flight');
+                    const cellFlights = dayEvents.filter(e => e.type === 'flight' || e.type === 'ground')
+                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
                     cellFlights.forEach(f => {
+                        if (f.type === 'ground') {
+                            const gDepFmt = f.departureTime ? formatTimeISO(f.departureTime, f.departureAirport) : '';
+                            const gCode   = f.flightNumber || '';
+                            html += `<div class="rounded-lg px-2 py-[4px] ground-item" data-dep-apt="${f.departureAirport||''}" data-arr-apt="${f.arrivalAirport||''}" data-dep-time="${f.departureTime||''}" data-arr-time="${f.arrivalTime||''}" data-flight="${gCode}" style="font-size:9px;font-weight:700;color:#52525b;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+                                <div>GND ${f.departureAirport}→${f.arrivalAirport}</div>
+                                <div style="font-weight:500;font-size:8.5px;margin-top:1px">${gDepFmt}${gCode ? ` · ${gCode}` : ''}</div>
+                            </div>`;
+                            return;
+                        }
                         const depAttr = f.departureTime || '';
                         const arrAttr = f.arrivalTime || '';
                         const tailAttr = f.tail || '';
@@ -4960,15 +4970,6 @@
                         html += `<div style="font-weight:800;font-size:11px;color:#fbbf24">ON CALL <span style="font-size:9px;font-weight:600;color:#d97706">${subType}</span></div>`;
                         if (depFmt) html += `<div style="color:#b45309;font-size:10px;margin-top:1px">${depFmt}${tzS(depTz)} – ${arrFmt}${tzS(arrTz)}</div>`;
                         html += `</div>`;
-                    });
-                    // Ground transfers
-                    dayEvents.filter(e => e.type === 'ground').forEach(g => {
-                        const gDepFmt = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
-                        const gCode   = g.flightNumber || '';
-                        html += `<div class="rounded-lg px-2 py-[4px] ground-item" data-dep-apt="${g.departureAirport||''}" data-arr-apt="${g.arrivalAirport||''}" data-dep-time="${g.departureTime||''}" data-arr-time="${g.arrivalTime||''}" data-flight="${gCode}" style="font-size:9px;font-weight:700;color:#52525b;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);margin-top:1px">
-                            <div>GND ${g.departureAirport}→${g.arrivalAirport}</div>
-                            <div style="font-weight:500;font-size:8.5px;margin-top:1px">${gDepFmt}${gCode ? ` · ${gCode}` : ''}</div>
-                        </div>`;
                     });
                     html += `</div></div>`;
                     gridContainer.innerHTML += html;
