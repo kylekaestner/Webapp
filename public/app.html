@@ -5832,7 +5832,7 @@ let _blockUserEdited = false;
                 const resp = await fetch(`${API_BASE}/pilots/kyle/quick-sync-schedaero`, { method: 'POST' });
                 const data = await resp.json();
                 if (data.success) {
-                    if (currentPilot === 'kyle') loadPilot('kyle');
+                    loadPilot('kyle');
                     showToast(`Schedaero synced — ${data.segmentsAdded} segments updated`);
                 } else if (data.sessionExpired) {
                     openSchedaeroSync(true);
@@ -5913,7 +5913,7 @@ let _blockUserEdited = false;
                 }).catch(() => {});
                 closeSchedaeroModal();
                 showToast(`Schedaero synced — ${totalAdded} segments updated`);
-                if (currentPilot === 'kyle') loadPilot('kyle');
+                loadPilot('kyle');
             }
         }
         // ─────────────────────────────────────────────────────────────────
@@ -5974,7 +5974,7 @@ let _blockUserEdited = false;
                 if (result.success) {
                     closeDrewICSModal();
                     showToast(`Drew's schedule synced — ${result.segmentsAdded} segments updated`);
-                    if (currentPilot === 'drew') loadPilot('drew');
+                    loadPilot('drew');
                 } else {
                     errEl.textContent = result.error || 'Sync failed';
                     errEl.classList.remove('hidden');
@@ -6025,7 +6025,7 @@ let _blockUserEdited = false;
                 if (result.success) {
                     closeGenericICSModal();
                     showToast(`Schedule synced — ${result.segmentsAdded} segments updated`);
-                    if (currentPilot === pilotKey) loadPilot(pilotKey);
+                    loadPilot(pilotKey);
                 } else {
                     errEl.textContent = result.error || 'Sync failed';
                     errEl.classList.remove('hidden');
