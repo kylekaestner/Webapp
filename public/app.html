@@ -718,6 +718,52 @@
         </div>
     </div>
 
+    <!-- Ground transport edit modal -->
+    <div id="edit-ground-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeEditGround()">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Edit Ground Transport</h3>
+                <button onclick="closeEditGround()" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">From</label>
+                        <input type="text" id="eg-dep" maxlength="4" placeholder="KSUS" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">To</label>
+                        <input type="text" id="eg-arr" maxlength="4" placeholder="KSTL" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Date</label>
+                    <input type="date" id="eg-date" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Departs</label>
+                        <input type="time" id="eg-dep-time" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Arrives</label>
+                        <input type="time" id="eg-arr-time" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Label <span class="text-zinc-600 normal-case font-normal">(opt)</span></label>
+                    <input type="text" id="eg-label" placeholder="GRND01" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                </div>
+                <div id="eg-error" class="hidden text-xs text-red-400 font-bold bg-red-950/40 border border-red-800/50 rounded-lg px-3 py-2"></div>
+            </div>
+            <div class="flex gap-3 px-5 pb-5">
+                <button onclick="saveEditGround()" class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-xs tracking-widest transition-colors">Save</button>
+                <button onclick="closeEditGround()" class="px-5 py-3 border border-zinc-700 hover:border-zinc-500 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Day detail sheet (bottom sheet on mobile, centered modal on desktop) -->
     <div id="day-detail-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:items-center md:justify-center md:p-6" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
@@ -5066,92 +5112,95 @@
                             return `<div class="border border-amber-500/25 rounded-2xl px-4 py-3 bg-amber-950/20 text-sm text-amber-200"><div class="flex items-center justify-between"><div class="font-black text-amber-300 uppercase tracking-wide">On Call <span class="text-amber-600 text-xs font-semibold ml-1">${subType}</span></div><div class="text-right text-xs text-amber-400/70">${depFmt}${tzSup2(depTz)} – ${arrFmt}${tzSup2(arrTz)}</div></div></div>`;
                         }).join('');
                     }
-                    if (flights.length > 0) {
-                        const sortedFlights = flights.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
-                        contentHtml = sortedFlights.map((f, index) => {
-                            const depAttr = f.departureTime || '';
-                            const arrAttr = f.arrivalTime || '';
-                            const tailAttr = f.tail || '';
-                            const tripAttr = f.trip || '';
-                            const depApt = f.departureAirport || '';
-                            const arrApt = f.arrivalAirport || '';
-                            const depTime = formatTimeISO(depAttr, depApt);
-                            const arrTime = formatTimeISO(arrAttr, arrApt);
-                            const depTz = depApt ? tzAbbr(depApt, depAttr) : '';
-                            const arrTz = arrApt ? tzAbbr(arrApt, arrAttr) : '';
-                            const tzSup = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:2px">${lbl}</span>` : '';
-                            const blockMins = calcBlockMins(f);
-                            const isPersonal = tripAttr === 'PERSONAL';
-                            const isCommute = tripAttr === 'COMMUTE';
-                            const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-500/60 text-pink-300 bg-pink-950/40">DH</span>` : '';
-                            const personalBadge = isPersonal ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-violet-500/60 text-violet-300 bg-violet-950/40">Personal</span>` : '';
-                            const commuteBadge = isCommute ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-amber-500/60 text-amber-300 bg-amber-950/40">Commute</span>` : '';
-                            const flightNumAttr = f.flightNumber || '';
-                            const _flLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                            const tripLabel = _flLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_flLabel}</span>` : '';
-                            let layoverText = '';
-                            if (!isPersonal && arrApt && arrAttr) {
-                                const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arrApt && s.departureTime > arrAttr)
-                                    .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
-                                if (nextLeg) {
-                                    const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                    const atHome = pilotBase && arrApt === pilotBase;
-                                    if (groundMins > 0) {
-                                        if (!atHome) {
-                                            const label = groundMins < 240 ? 'Turn' : 'Overnight';
-                                            layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
-                                        } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
-                                            layoverText = `Turn ${formatDurationMinutes(groundMins)}`;
+                    const allLegs = [...flights, ...groundLegs].sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+                    if (allLegs.length > 0) {
+                        contentHtml = allLegs.map(leg => {
+                            if (leg.type === 'ground') {
+                                const g = leg;
+                                const nextFromGrnd = g.arrivalAirport && g.arrivalTime
+                                    ? segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === g.arrivalAirport && s.departureTime > g.arrivalTime)
+                                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0]
+                                    : null;
+                                let grndLayover = '';
+                                if (nextFromGrnd) {
+                                    const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
+                                    const atHome = pilotBase && g.arrivalAirport === pilotBase;
+                                    if (gm > 240 && !atHome) grndLayover = `<span class="text-amber-400 font-semibold ml-2 text-[10px]">Overnight ${formatDurationMinutes(gm)}</span>`;
+                                }
+                                const gDepFmt2 = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
+                                const gArrFmt2 = g.arrivalTime   ? formatTimeISO(g.arrivalTime,   g.arrivalAirport)  : '';
+                                const gDepTz2  = g.departureAirport && g.departureTime ? tzAbbr(g.departureAirport, g.departureTime) : '';
+                                const gArrTz2  = g.arrivalAirport  && g.arrivalTime   ? tzAbbr(g.arrivalAirport,  g.arrivalTime)   : '';
+                                const gTzSpan2 = (lbl) => lbl ? `<span class="text-[8px] text-zinc-600 font-bold ml-0.5">${lbl}</span>` : '';
+                                const gEditBtns = (g.id && canEdit()) ? `<div class="flex items-center gap-1 ml-1 shrink-0"><button onclick="openEditGround(${g.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${g.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
+                                return `<div class="px-3 py-2 rounded-lg border border-zinc-700/25 bg-zinc-800/20 ground-item" data-dep-apt="${g.departureAirport||''}" data-arr-apt="${g.arrivalAirport||''}" data-dep-time="${g.departureTime||''}" data-arr-time="${g.arrivalTime||''}" data-flight="${g.flightNumber||''}">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[9px] font-black uppercase tracking-widest text-zinc-500 shrink-0">Ground</span>
+                                        <span class="text-xs font-semibold text-zinc-400">${g.departureAirport} <span class="text-zinc-600">→</span> ${g.arrivalAirport}</span>
+                                        <span class="text-[9px] text-zinc-600 ml-auto">${g.flightNumber || ''}</span>
+                                        ${gEditBtns}
+                                    </div>
+                                    <div class="flex items-center justify-between mt-0.5">
+                                        <span class="text-[10px] text-zinc-500">${gDepFmt2}${gTzSpan2(gDepTz2)} <span class="text-zinc-700">→</span> ${gArrFmt2}${gTzSpan2(gArrTz2)}</span>
+                                        ${grndLayover}
+                                    </div>
+                                </div>`;
+                            } else {
+                                const f = leg;
+                                const depAttr = f.departureTime || '';
+                                const arrAttr = f.arrivalTime || '';
+                                const tailAttr = f.tail || '';
+                                const tripAttr = f.trip || '';
+                                const depApt = f.departureAirport || '';
+                                const arrApt = f.arrivalAirport || '';
+                                const depTime = formatTimeISO(depAttr, depApt);
+                                const arrTime = formatTimeISO(arrAttr, arrApt);
+                                const depTz = depApt ? tzAbbr(depApt, depAttr) : '';
+                                const arrTz = arrApt ? tzAbbr(arrApt, arrAttr) : '';
+                                const tzSup = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:2px">${lbl}</span>` : '';
+                                const blockMins = calcBlockMins(f);
+                                const isPersonal = tripAttr === 'PERSONAL';
+                                const isCommute = tripAttr === 'COMMUTE';
+                                const dhBadge = f.dh ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-pink-500/60 text-pink-300 bg-pink-950/40">DH</span>` : '';
+                                const personalBadge = isPersonal ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-violet-500/60 text-violet-300 bg-violet-950/40">Personal</span>` : '';
+                                const commuteBadge = isCommute ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 text-[9px] uppercase font-black tracking-widest rounded-full border border-amber-500/60 text-amber-300 bg-amber-950/40">Commute</span>` : '';
+                                const flightNumAttr = f.flightNumber || '';
+                                const _flLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
+                                const tripLabel = _flLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_flLabel}</span>` : '';
+                                let layoverText = '';
+                                if (!isPersonal && arrApt && arrAttr) {
+                                    const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arrApt && s.departureTime > arrAttr)
+                                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                                    if (nextLeg) {
+                                        const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
+                                        const atHome = pilotBase && arrApt === pilotBase;
+                                        if (groundMins > 0) {
+                                            if (!atHome) {
+                                                const label = groundMins < 240 ? 'Turn' : 'Overnight';
+                                                layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
+                                            } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
+                                                layoverText = `Turn ${formatDurationMinutes(groundMins)}`;
+                                            }
                                         }
                                     }
                                 }
+                                const nowMs2 = Date.now();
+                                const depMs2 = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
+                                const arrMs2 = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
+                                const csig2 = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
+                                const _listDepDelay = _departureDelays.get(csig2) || 0;
+                                const _listEstArr  = arrMs2 ? arrMs2 + _listDepDelay * 60000 : null;
+                                const isActiveLeg2 = depMs2 && _listEstArr && depMs2 <= nowMs2 && nowMs2 <= _listEstArr;
+                                const isListDelayed = isActiveLeg2 && _delayedFlights.has(csig2);
+                                const rowBorder = isActiveLeg2
+                                    ? (isListDelayed ? 'border-orange-500/80 ring-1 ring-orange-500/30' : 'border-green-500/80 ring-1 ring-green-500/30')
+                                    : (isPersonal ? 'border-violet-900/50' : isCommute ? 'border-amber-900/50' : 'border-blue-900/30');
+                                const rowBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : 'bg-black/30';
+                                const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
+                                const _liveSlotBorder = isListDelayed ? 'rgba(249,115,22,0.15)' : 'rgba(34,197,94,0.15)';
+                                const liveSlot = isActiveLeg2 && csig2 ? `<div id="live-${csig2}" style="font-size:11px;color:#4ade80;font-weight:700;margin-top:8px;padding-top:6px;border-top:1px solid ${_liveSlotBorder};display:none"></div>` : '';
+                                return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}" data-dep-time="${depAttr}" data-dep-apt="${depApt}"` : ''}><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}${commuteBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div>${liveSlot}</div>`;
                             }
-                            const nowMs2 = Date.now();
-                            const depMs2 = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
-                            const arrMs2 = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
-                            const csig2 = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                            const _listDepDelay = _departureDelays.get(csig2) || 0;
-                            const _listEstArr  = arrMs2 ? arrMs2 + _listDepDelay * 60000 : null;
-                            const isActiveLeg2 = depMs2 && _listEstArr && depMs2 <= nowMs2 && nowMs2 <= _listEstArr;
-                            const isListDelayed = isActiveLeg2 && _delayedFlights.has(csig2);
-                            const rowBorder = isActiveLeg2
-                                ? (isListDelayed ? 'border-orange-500/80 ring-1 ring-orange-500/30' : 'border-green-500/80 ring-1 ring-green-500/30')
-                                : (isPersonal ? 'border-violet-900/50' : isCommute ? 'border-amber-900/50' : 'border-blue-900/30');
-                            const rowBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : 'bg-black/30';
-                            const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
-                            const _liveSlotBorder = isListDelayed ? 'rgba(249,115,22,0.15)' : 'rgba(34,197,94,0.15)';
-                            const liveSlot = isActiveLeg2 && csig2 ? `<div id="live-${csig2}" style="font-size:11px;color:#4ade80;font-weight:700;margin-top:8px;padding-top:6px;border-top:1px solid ${_liveSlotBorder};display:none"></div>` : '';
-                            return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}" data-dep-time="${depAttr}" data-dep-apt="${depApt}"` : ''}><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}${commuteBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div>${liveSlot}</div>`;
-                        }).join('');
-                    }
-                    if (groundLegs.length > 0) {
-                        contentHtml += groundLegs.map(g => {
-                            const nextFromGrnd = g.arrivalAirport && g.arrivalTime
-                                ? segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === g.arrivalAirport && s.departureTime > g.arrivalTime)
-                                    .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0]
-                                : null;
-                            let grndLayover = '';
-                            if (nextFromGrnd) {
-                                const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
-                                const atHome = pilotBase && g.arrivalAirport === pilotBase;
-                                if (gm > 240 && !atHome) grndLayover = `<span class="text-amber-400 font-semibold ml-2 text-[10px]">Overnight ${formatDurationMinutes(gm)}</span>`;
-                            }
-                            const gDepFmt2 = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
-                            const gArrFmt2 = g.arrivalTime   ? formatTimeISO(g.arrivalTime,   g.arrivalAirport)  : '';
-                            const gDepTz2  = g.departureAirport && g.departureTime ? tzAbbr(g.departureAirport, g.departureTime) : '';
-                            const gArrTz2  = g.arrivalAirport  && g.arrivalTime   ? tzAbbr(g.arrivalAirport,  g.arrivalTime)   : '';
-                            const gTzSpan2 = (lbl) => lbl ? `<span class="text-[8px] text-zinc-600 font-bold ml-0.5">${lbl}</span>` : '';
-                            return `<div class="px-3 py-2 rounded-lg border border-zinc-700/25 bg-zinc-800/20 ground-item" data-dep-apt="${g.departureAirport||''}" data-arr-apt="${g.arrivalAirport||''}" data-dep-time="${g.departureTime||''}" data-arr-time="${g.arrivalTime||''}" data-flight="${g.flightNumber||''}">
-                                <div class="flex items-center gap-2">
-                                    <span class="text-[9px] font-black uppercase tracking-widest text-zinc-500 shrink-0">Ground</span>
-                                    <span class="text-xs font-semibold text-zinc-400">${g.departureAirport} <span class="text-zinc-600">→</span> ${g.arrivalAirport}</span>
-                                    <span class="text-[9px] text-zinc-600 ml-auto">${g.flightNumber || ''}</span>
-                                </div>
-                                <div class="flex items-center justify-between mt-0.5">
-                                    <span class="text-[10px] text-zinc-500">${gDepFmt2}${gTzSpan2(gDepTz2)} <span class="text-zinc-700">→</span> ${gArrFmt2}${gTzSpan2(gArrTz2)}</span>
-                                    ${grndLayover}
-                                </div>
-                            </div>`;
                         }).join('');
                     }
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];
@@ -5491,7 +5540,44 @@
                 html += `<div class="text-center py-8"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>`;
             }
 
-            flights.forEach((f, fi) => {
+            const allDayLegs = [...flights, ...groundLegs].sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+            allDayLegs.forEach(leg => {
+            if (leg.type === 'ground') {
+                const g = leg;
+                const nextFromGrnd = g.arrivalAirport && g.arrivalTime
+                    ? segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === g.arrivalAirport && s.departureTime > g.arrivalTime)
+                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0]
+                    : null;
+                let grndLayover = '';
+                if (nextFromGrnd) {
+                    const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
+                    if (gm > 240 && !(pilotBase && g.arrivalAirport === pilotBase))
+                        grndLayover = `<div class="text-amber-300 text-xs font-semibold mt-1">Overnight ${formatDurationMinutes(gm)}</div>`;
+                }
+                const gDep = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
+                const gArr = g.arrivalTime   ? formatTimeISO(g.arrivalTime,   g.arrivalAirport)  : '';
+                const gDepTz = g.departureAirport && g.departureTime ? tzAbbr(g.departureAirport, g.departureTime) : '';
+                const gArrTz = g.arrivalAirport  && g.arrivalTime   ? tzAbbr(g.arrivalAirport,  g.arrivalTime)   : '';
+                const gTzTag = (lbl) => lbl ? ` <span class="text-[10px] font-semibold text-zinc-500">${lbl}</span>` : '';
+                const gEditActions = (g.id && canEdit()) ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
+                    <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditGround(${g.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
+                    <button onclick="deleteManualFlight(${g.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
+                </div>` : '';
+                html += `<div class="bg-zinc-800/40 border border-zinc-700/30 rounded-xl px-4 py-2.5 mb-2">
+                    <div class="flex items-center gap-3">
+                        <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Ground</div>
+                        <div class="text-sm font-bold text-zinc-300">${g.departureAirport} <span class="text-zinc-600">→</span> ${g.arrivalAirport}</div>
+                        <div class="text-[10px] text-zinc-600 ml-auto">${g.flightNumber || ''}</div>
+                    </div>
+                    <div class="text-sm font-bold text-zinc-400 mt-1">${gDep}${gTzTag(gDepTz)} <span class="text-zinc-600">→</span> ${gArr}${gTzTag(gArrTz)}</div>
+                    ${grndLayover}
+                    ${gEditActions}
+                </div>`;
+                return;
+            }
+            { // flight
+                const f = leg;
+                const fi = flights.indexOf(f);
                 const { dMs, aMs, cs: _dayCs } = flightMs[fi];
                 const dep = f.departureAirport || '';
                 const arr = f.arrivalAirport || '';
@@ -5549,7 +5635,8 @@
                     ${f.tail ? `<div class="text-[10px] text-zinc-600 mt-1">${f.tail}</div>` : ''}
                     ${editActions}
                 </div>`;
-            });
+            } // end flight block
+            }); // end allDayLegs.forEach
 
             reserves.forEach(r => {
                 const resType = r.flightNumber || 'RES';
@@ -5573,27 +5660,6 @@
                         <div class="font-bold text-zinc-200">${depTime}${tzTag(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzTag(arrTz)}</div>
                         <div class="text-zinc-500">${durMs > 0 ? formatDurationMinutes(durMs / 60000) : ''}</div>
                     </div>
-                </div>`;
-            });
-
-            groundLegs.forEach(g => {
-                const nextFromGrnd = g.arrivalAirport && g.arrivalTime
-                    ? segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === g.arrivalAirport && s.departureTime > g.arrivalTime)
-                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0]
-                    : null;
-                let grndLayover = '';
-                if (nextFromGrnd) {
-                    const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
-                    if (gm > 240 && !(pilotBase && g.arrivalAirport === pilotBase))
-                        grndLayover = `<div class="text-amber-300 text-xs font-semibold mt-1">Overnight ${formatDurationMinutes(gm)}</div>`;
-                }
-                html += `<div class="bg-zinc-800/40 border border-zinc-700/30 rounded-xl px-4 py-2.5 mb-2">
-                    <div class="flex items-center gap-3">
-                        <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Ground</div>
-                        <div class="text-sm font-bold text-zinc-300">${g.departureAirport} <span class="text-zinc-600">→</span> ${g.arrivalAirport}</div>
-                        <div class="text-[10px] text-zinc-600 ml-auto">${g.flightNumber || ''}</div>
-                    </div>
-                    ${grndLayover}
                 </div>`;
             });
 
@@ -5798,15 +5864,68 @@ let _blockUserEdited = false;
         }
 
         async function deleteManualFlight(segmentId) {
-            const ok = await showConfirm('Delete Flight', 'This cannot be undone.');
+            const seg = segments.find(s => s.id === segmentId);
+            const label = seg?.type === 'ground' ? 'Delete Ground Leg' : 'Delete Flight';
+            const ok = await showConfirm(label, 'This cannot be undone.');
             if (!ok) return;
             try {
                 const resp = await fetch(`${API_BASE}/pilots/${currentPilot}/segments/${segmentId}`, { method: 'DELETE' });
                 const data = await resp.json();
-                if (data.success) { haptic('success'); loadPilot(currentPilot); showToast('Flight deleted'); }
-                else showToast(data.error || 'Failed to delete flight.', 'error');
+                if (data.success) { haptic('success'); loadPilot(currentPilot); showToast(seg?.type === 'ground' ? 'Ground leg deleted' : 'Flight deleted'); }
+                else showToast(data.error || 'Failed to delete.', 'error');
             } catch (e) {
                 showToast('Network error — is the server running?', 'error');
+            }
+        }
+
+        let _editGroundId = null;
+
+        function openEditGround(segmentId) {
+            const g = segments.find(s => s.id === segmentId);
+            if (!g) return;
+            _editGroundId = segmentId;
+            document.getElementById('eg-dep').value = g.departureAirport || '';
+            document.getElementById('eg-arr').value = g.arrivalAirport || '';
+            document.getElementById('eg-date').value = g.departureTime ? g.departureTime.slice(0, 10) : '';
+            document.getElementById('eg-dep-time').value = g.departureTime ? g.departureTime.slice(11, 16) : '';
+            document.getElementById('eg-arr-time').value = g.arrivalTime ? g.arrivalTime.slice(11, 16) : '';
+            document.getElementById('eg-label').value = g.flightNumber || '';
+            document.getElementById('eg-error').classList.add('hidden');
+            document.getElementById('edit-ground-modal').classList.remove('hidden');
+        }
+
+        function closeEditGround() {
+            document.getElementById('edit-ground-modal').classList.add('hidden');
+            _editGroundId = null;
+        }
+
+        async function saveEditGround() {
+            const dep = document.getElementById('eg-dep').value.trim().toUpperCase();
+            const arr = document.getElementById('eg-arr').value.trim().toUpperCase();
+            const date = document.getElementById('eg-date').value;
+            const depTime = document.getElementById('eg-dep-time').value;
+            const arrTime = document.getElementById('eg-arr-time').value;
+            const label = document.getElementById('eg-label').value.trim() || null;
+            const errEl = document.getElementById('eg-error');
+            if (!dep || !arr || !date || !depTime) {
+                errEl.textContent = 'From, To, Date, and Departs are required.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+            const depISO = `${date}T${depTime}:00`;
+            const arrISO = arrTime ? `${date}T${arrTime}:00` : null;
+            try {
+                const resp = await fetch(`${API_BASE}/pilots/${currentPilot}/segments/${_editGroundId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ departure_time: depISO, arrival_time: arrISO, departure_airport: dep, arrival_airport: arr, flight_number: label, tail: null, is_dh: false, is_personal: false, is_commute: false, block_minutes: null })
+                });
+                const data = await resp.json();
+                if (data.success) { closeEditGround(); haptic('success'); loadPilot(currentPilot); showToast('Ground transport updated'); }
+                else { errEl.textContent = data.error || 'Failed to save.'; errEl.classList.remove('hidden'); }
+            } catch (e) {
+                errEl.textContent = 'Network error — is the server running?';
+                errEl.classList.remove('hidden');
             }
         }
 
