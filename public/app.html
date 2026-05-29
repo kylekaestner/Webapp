@@ -4687,7 +4687,7 @@
                     try {
                         const pilotBase = pilotsCache[currentPilot]?.base || null;
                         if (arrDate && arrApt) {
-                            const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && new Date(s.departureTime) > arrDate)
+                            const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arrApt && new Date(s.departureTime) > arrDate)
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - arrDate) / 60000;
@@ -4868,7 +4868,7 @@
                         const tzSpan = (lbl) => lbl ? `<span style="font-size:7.5px;color:#52525b;font-weight:700;margin-left:1px">${lbl}</span>` : '';
                         let groundLine = '';
                         if (!isPersonal && arrApt && arrAttr) {
-                            const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
+                            const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arrApt && s.departureTime > arrAttr)
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
@@ -5012,7 +5012,7 @@
                             const tripLabel = _flLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_flLabel}</span>` : '';
                             let layoverText = '';
                             if (!isPersonal && arrApt && arrAttr) {
-                                const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arrApt && s.departureTime > arrAttr)
+                                const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arrApt && s.departureTime > arrAttr)
                                     .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                                 if (nextLeg) {
                                     const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
@@ -5410,7 +5410,7 @@
                 const flightNum = _dayFlLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_dayFlLabel}</span>` : '';
                 let groundBadge = '';
                 if (!isPersonal && arr && f.arrivalTime) {
-                    const nextLeg = segments.filter(s => s.type === 'flight' && s.departureAirport === arr && s.departureTime > f.arrivalTime)
+                    const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arr && s.departureTime > f.arrivalTime)
                         .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                     if (nextLeg) {
                         const gm = (new Date(nextLeg.departureTime) - new Date(f.arrivalTime)) / 60000;
