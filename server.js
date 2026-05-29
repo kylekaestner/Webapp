@@ -318,8 +318,9 @@ function parseECrewICS(text, airlineCode = '', iataAliases = []) {
             const startsWithMain = !isNumeric && airlineCode &&
                 code.toUpperCase().startsWith(airlineCode.toUpperCase()) &&
                 /^\d+$/.test(code.slice(airlineCode.length));
-            // Code starts with a known alias for this airline
-            const matchedAlias = !isNumeric && !startsWithMain && iataAliases.find(p =>
+            // Code starts with a known alias prefix (iataAliases is a {prefix: icaoPrefix} map)
+            const aliasKeys = Object.keys(iataAliases);
+            const matchedAlias = !isNumeric && !startsWithMain && aliasKeys.find(p =>
                 code.toUpperCase().startsWith(p.toUpperCase()) && /^\d+$/.test(code.slice(p.length))
             );
             const isOperating = isNumeric || startsWithMain || !!matchedAlias;
@@ -330,13 +331,11 @@ function parseECrewICS(text, airlineCode = '', iataAliases = []) {
                 if (isNumeric) {
                     flightNumber = `${airlineCode}${code}`;
                 } else if (startsWithMain) {
-                    flightNumber = code.toUpperCase(); // already correct ICAO prefix
+                    flightNumber = code.toUpperCase();
                 } else if (matchedAlias) {
                     const digits = code.slice(matchedAlias.length);
-                    // 3-char all-alpha alias = ICAO → keep that prefix (e.g. PAC456 stays PAC456)
-                    // 2-char or contains digit = IATA → normalize to main ICAO (e.g. 5Y1234 → GTI1234)
-                    const isIcaoAlias = /^[A-Z]{3}$/i.test(matchedAlias);
-                    flightNumber = isIcaoAlias ? `${matchedAlias.toUpperCase()}${digits}` : `${airlineCode}${digits}`;
+                    const icaoPrefix = iataAliases[matchedAlias]; // mapped ICAO prefix
+                    flightNumber = `${icaoPrefix}${digits}`;
                 }
             } else if (!isOWN) {
                 flightNumber = code;
@@ -944,12 +943,11 @@ const pilotAirlineCodes = {
 };
 
 // Operating code aliases for eCrew airlines, keyed by main ICAO code.
-// Numeric-only codes are always operating. These aliases catch prefixed codes.
-// 3-char alpha aliases are ICAO (flight number keeps that prefix for ADS-B).
-// 2-char or mixed aliases are IATA (flight number normalized to main ICAO).
+// Each alias maps a prefix found in the schedule → the ICAO prefix to store.
+// Numeric-only codes always get the main ICAO prefix.
 const ECREW_IATA_ALIASES = {
-    'SCX': ['SY'],                // Sun Country: IATA SY
-    'GTI': ['PAC', '5Y', 'PO'],  // Atlas Air: Polar ICAO, Atlas IATA, Polar IATA
+    'SCX': { 'SY': 'SCX' },                         // Sun Country: SY → SCX
+    'GTI': { 'PAC': 'PAC', '5Y': 'GTI', 'PO': 'PAC' }, // Atlas: PAC stays PAC, 5Y→GTI, PO (Polar IATA)→PAC
 };
 
 function getParserForPilot(pilotKey, pilotRow) {
