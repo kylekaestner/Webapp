@@ -4897,9 +4897,15 @@
                         if (f.type === 'ground') {
                             const gDepFmt = f.departureTime ? formatTimeISO(f.departureTime, f.departureAirport) : '';
                             const gCode   = f.flightNumber || '';
+                            const gNext   = f.arrivalAirport && f.arrivalTime
+                                ? segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === f.arrivalAirport && s.departureTime > f.arrivalTime)
+                                    .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0]
+                                : null;
+                            const gOvr = gNext ? (() => { const gm = (new Date(gNext.departureTime) - new Date(f.arrivalTime)) / 60000; return (gm > 240 && !(pilotBase && f.arrivalAirport === pilotBase)) ? `Overnight ${formatDurationMinutes(gm)}` : ''; })() : '';
                             html += `<div class="rounded-lg px-2 py-[4px] ground-item" data-dep-apt="${f.departureAirport||''}" data-arr-apt="${f.arrivalAirport||''}" data-dep-time="${f.departureTime||''}" data-arr-time="${f.arrivalTime||''}" data-flight="${gCode}" style="font-size:9px;font-weight:700;color:#52525b;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
                                 <div>GND ${f.departureAirport}→${f.arrivalAirport}</div>
                                 <div style="font-weight:500;font-size:8.5px;margin-top:1px">${gDepFmt}${gCode ? ` · ${gCode}` : ''}</div>
+                                ${gOvr ? `<div style="color:#fcd34d;font-size:8.5px;font-weight:700;margin-top:2px">${gOvr}</div>` : ''}
                             </div>`;
                             return;
                         }
