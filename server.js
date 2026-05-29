@@ -248,16 +248,39 @@ function parseECrewICS(text, airlineCode = '', iataAliases = []) {
 
         const toUTC = (val, tz) => tz !== 'UTC' ? localTZToUTC(val, tz) : formatICSDatetime(val);
 
-        // Reserve duty: RESR / RESP / RESA — use DTSTART/DTEND directly
+        // Reserve duty: RESR / RESP / RESA
+        // DTSTART is the reporting/duty block time, NOT the actual reserve window.
+        // Parse actual on-call window times from the DESCRIPTION leg line, e.g.:
+        //   "RESR - CVG  (1700) - CVG  (0659⁺¹)" → window 5:00 PM → 6:59 AM
         const resMatch = summary.match(/^(RES[A-Z])\b/i);
         if (resMatch) {
-            const locApt = cleanApt(location.split(')').pop().trim().replace(/\d+$/, '').trim() || '');
+            const locApt  = cleanApt(location.split(')').pop().trim().replace(/\d+$/, '').trim() || '');
+            const baseDate = dtStartVal.slice(0, 8);
+            let depTime = toUTC(dtStartVal, tzid); // fallback
+            let arrTime = dtEndVal ? toUTC(dtEndVal, tzid) : '';
+
+            const descLines = rawDesc.split('\n').map(l => l.trim()).filter(Boolean);
+            for (const line of descLines) {
+                const m = line.match(LEG_RE);
+                if (!m || !/^RES/i.test(m[1])) continue;
+                const depField = m[3], arrField = m[5];
+                const depHHMM  = depField.replace(/\D/g, '').slice(0, 4);
+                const arrHHMM  = arrField.replace(/\D/g, '').slice(0, 4);
+                const depDateStr = addDays(baseDate, parseDayOffset(depField));
+                const arrDateStr = addDays(baseDate, parseDayOffset(arrField));
+                const depTZ = _aptTimezone[cleanApt(m[2])] || tzid;
+                const arrTZ = _aptTimezone[cleanApt(m[4])] || tzid;
+                depTime = toUTC(`${depDateStr}T${depHHMM}00`, depTZ);
+                arrTime = toUTC(`${arrDateStr}T${arrHHMM}00`, arrTZ);
+                break;
+            }
+
             events.push({
                 type: 'reserve',
-                departureTime: toUTC(dtStartVal, tzid),
-                arrivalTime: dtEndVal ? toUTC(dtEndVal, tzid) : '',
+                departureTime: depTime,
+                arrivalTime:   arrTime,
                 departureAirport: locApt,
-                arrivalAirport: locApt,
+                arrivalAirport:   locApt,
                 flightNumber: resMatch[1].toUpperCase(),
                 tail: '', trip: null, dh: false, blockMinutes: null
             });
@@ -1340,7 +1363,7 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
     const icsText = await resp.text();
 
     const pilot = await new Promise((resolve, reject) => {
-        db.get('SELECT id, parser_type, base, home_airport FROM pilots WHERE pilot_key = ?', [pilotKey], (err, row) => {
+        db.get('SELECT id, parser_type, airline_code, base, home_airport FROM pilots WHERE pilot_key = ?', [pilotKey], (err, row) => {
             if (err) return reject(err); resolve(row);
         });
     });
