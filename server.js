@@ -1797,6 +1797,10 @@ function processPositionUpdate(data, sinceUnixSec = null) {
         }
         data.trail = [...trail];
     }
+    // Tell the client whether this aircraft has ever been airborne this session.
+    // Needed so a fresh map load while the plane is taxiing post-landing can still
+    // remove the planned-route arc and show correct state.
+    if (_flightState[data.hex]) data.hasBeenAirborne = _flightState[data.hex].hasBeenAirborne;
 }
 
 // Fetch live position from ADS-B sources, racing for the fastest response.

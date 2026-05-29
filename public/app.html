@@ -4307,6 +4307,9 @@
 
                     // Taxiing — show the plane moving on the ground
                     if (d.onGround) {
+                        // If server confirms this aircraft was airborne, set local flag so the
+                        // arc and delay state are cleaned up even on a fresh map load mid-taxi.
+                        if (d.hasBeenAirborne) hasBeenAirborne = true;
                         const kts = d.speedKts ? Math.round(d.speedKts) : null;
                         const isTaxiing = kts && kts > 5;
 
