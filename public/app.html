@@ -4743,6 +4743,7 @@
                     const tzTag  = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${lbl}</span>` : '';
                     const durMs  = (depTime && arrTime) ? new Date(arrTime) - new Date(depTime) : 0;
                     const html   = `<div style="font-weight:800;margin-bottom:6px;color:#fbbf24">ON CALL — ${typeLabel}</div>` +
+                        (depApt ? `<div style="font-size:12px;color:#fbbf24;margin-bottom:4px">Base: ${depApt}</div>` : '') +
                         `<div style="font-size:12px;color:#cbd5e1">Start: ${depFmt}${tzTag(depTz)}</div>` +
                         `<div style="font-size:12px;color:#cbd5e1">End: &nbsp;&nbsp;${arrFmt}${tzTag(arrTz)}</div>` +
                         (durMs > 0 ? `<div style="font-size:12px;color:#cbd5e1;margin-top:4px">Duration: ${formatDurationMinutes(durMs / 60000)}</div>` : '');
@@ -5453,7 +5454,7 @@
                 const durMs = (r.departureTime && r.arrivalTime) ? new Date(r.arrivalTime) - new Date(r.departureTime) : 0;
                 html += `<div class="bg-amber-950/30 border border-amber-400/20 rounded-xl p-4 mb-3">
                     <div class="flex items-center justify-between mb-1">
-                        <div class="text-[10px] font-black uppercase tracking-widest text-amber-400">ON CALL</div>
+                        <div class="text-[10px] font-black uppercase tracking-widest text-amber-400">ON CALL${dep ? ` — ${dep}` : ''}</div>
                         <div class="text-[10px] font-semibold text-amber-600">${resType}</div>
                     </div>
                     <div class="text-sm font-bold text-amber-200 mb-1">${typeLabel}</div>

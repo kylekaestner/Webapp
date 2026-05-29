@@ -572,8 +572,8 @@ function parseVCS_skywest(text) {
                     type: 'reserve',
                     departureTime:   dep,
                     arrivalTime:     arr || dep,
-                    departureAirport: 'SFO',
-                    arrivalAirport:   'SFO',
+                    departureAirport: '',
+                    arrivalAirport:   '',
                     flightNumber:    summary,
                     tail: '', trip: '', dh: false, blockMinutes: null
                 });
@@ -927,7 +927,7 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
     let events = [];
 
     // Get pilot first so we can use their parser_type and airline_code from DB
-    db.get('SELECT id, parser_type, airline_code FROM pilots WHERE pilot_key = ?', [pilotKey], async (err, pilot) => {
+    db.get('SELECT id, parser_type, airline_code, base, home_airport FROM pilots WHERE pilot_key = ?', [pilotKey], async (err, pilot) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
@@ -972,6 +972,17 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
             }
         } catch (parseError) {
             return res.status(400).json({ error: `Parse error: ${parseError.message}` });
+        }
+
+        // Fill reserve location from pilot base if parser didn't provide it
+        const pilotBase = pilot.home_airport || pilot.base || '';
+        if (pilotBase) {
+            events.forEach(ev => {
+                if (ev.type === 'reserve' && !ev.departureAirport) {
+                    ev.departureAirport = pilotBase;
+                    ev.arrivalAirport   = pilotBase;
+                }
+            });
         }
 
         // Upsert all events — never delete existing data.
@@ -1229,7 +1240,7 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
     const icsText = await resp.text();
 
     const pilot = await new Promise((resolve, reject) => {
-        db.get('SELECT id, parser_type FROM pilots WHERE pilot_key = ?', [pilotKey], (err, row) => {
+        db.get('SELECT id, parser_type, base, home_airport FROM pilots WHERE pilot_key = ?', [pilotKey], (err, row) => {
             if (err) return reject(err); resolve(row);
         });
     });
@@ -1241,6 +1252,16 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
         : resolvedParser === 'ics_scx'
         ? parseSCXICS(icsText)
         : parseICS(icsText);
+
+    const pilotBase = pilot.base || '';
+    if (pilotBase) {
+        events.forEach(ev => {
+            if (ev.type === 'reserve' && !ev.departureAirport) {
+                ev.departureAirport = pilotBase;
+                ev.arrivalAirport   = pilotBase;
+            }
+        });
+    }
 
     const nowIso = new Date().toISOString();
 
