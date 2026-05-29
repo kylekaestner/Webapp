@@ -1598,10 +1598,11 @@ app.post('/api/pilots/kyle/quick-sync-schedaero', async (req, res) => {
 const _liveCache = {};
 const LIVE_TTL = 5000; // 5s cache; client polls every 8s
 
-const _posTrail = {};  // hex → [[lat, lon], ...]
+const _posTrail = {};  // hex → [[lat, lon, tsMs], ...]
 const _trailLastTime = {}; // hex → Date.now() of last appended trail point
 const _trailSeeded = new Set(); // hexes whose adsb.lol/OpenSky history has been fetched
 const _trailSeedTime = {}; // hex → timestamp of last adsb.lol fetch
+const _trailSeedPromise = {}; // hex → in-flight seed Promise (so API endpoint can await first seed)
 const TRAIL_RESEED_MS = 90 * 1000; // re-fetch adsb.lol trace every 90 s (CDN updates ~1–2 min)
 
 // Trail persistence — survives server restarts so the full flight path accumulates
@@ -1636,13 +1637,22 @@ function scheduleTrailSave() {
 
 loadTrailCache();
 
-async function seedTrailFromOpenSky(hex, sinceUnixSec = null) {
+function seedTrailFromOpenSky(hex, sinceUnixSec = null) {
     const now = Date.now();
     const alreadySeeded = _trailSeeded.has(hex);
     const lastSeed = _trailSeedTime[hex] || 0;
-    if (alreadySeeded && (now - lastSeed) < TRAIL_RESEED_MS) return;
+    // If rate-limited, return the in-flight promise (if any) so callers can await current seed
+    if (alreadySeeded && (now - lastSeed) < TRAIL_RESEED_MS) return _trailSeedPromise[hex] || Promise.resolve();
     _trailSeeded.add(hex);
     _trailSeedTime[hex] = now;
+    const promise = _doSeedTrail(hex, sinceUnixSec);
+    _trailSeedPromise[hex] = promise;
+    promise.finally(() => { if (_trailSeedPromise[hex] === promise) delete _trailSeedPromise[hex]; });
+    return promise;
+}
+
+async function _doSeedTrail(hex, sinceUnixSec) {
+    const alreadySeeded = _trailSeeded.has(hex);
     try {
         let coords = null; // will be [lat, lon, tsMs] triples
 
@@ -1836,6 +1846,15 @@ app.get('/api/live-position', async (req, res) => {
     }
 
     processPositionUpdate(data, sinceUnixSec);
+
+    // If the trail is empty (first contact while airborne), await the adsb.lol seed before
+    // responding so the client gets trail data on the very first map load, not the second.
+    const _hex = data.hex;
+    if (_hex && data.found && !data.onGround && (!data.trail || data.trail.length < 2)) {
+        await (_trailSeedPromise[_hex] || Promise.resolve());
+        if (_posTrail[_hex]?.length >= 2) data.trail = [..._posTrail[_hex]];
+    }
+
     _liveCache[callsign] = { ts: Date.now(), data };
     res.json(data);
 });
