@@ -4224,7 +4224,8 @@
 
             const update = async () => {
                 try {
-                    const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}`).then(r => r.json());
+                    const _depQs = scheduledDepUTC ? `&depTime=${Math.floor(scheduledDepUTC.getTime()/1000)}` : '';
+                    const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}${_depQs}`).then(r => r.json());
 
                     // Server confirmed the plane is parked — flight complete
                     if (d.parked) {

@@ -1636,7 +1636,7 @@ function scheduleTrailSave() {
 
 loadTrailCache();
 
-async function seedTrailFromOpenSky(hex) {
+async function seedTrailFromOpenSky(hex, sinceUnixSec = null) {
     const now = Date.now();
     const alreadySeeded = _trailSeeded.has(hex);
     const lastSeed = _trailSeedTime[hex] || 0;
@@ -1663,12 +1663,19 @@ async function seedTrailFromOpenSky(hex) {
                     if (!tr.ok) { console.log(`Trace ${traceUrl}: HTTP ${tr.status}`); continue; }
                     const tj = await tr.json();
                     if (tj?.trace && tj.trace.length >= 2) {
+                        // If we know the departure time, only keep points from that leg onward.
+                        // adsb.lol trace_full spans days of history — filtering to the current leg
+                        // prevents the trail from being swamped by prior flights on the same aircraft.
+                        const baseTs = tj.timestamp || 0; // UNIX seconds of first trace point
+                        // Only apply time filter if baseTs looks valid (epoch seconds, not offset)
+                        const cutoffSec = (sinceUnixSec && baseTs > 1000000000) ? sinceUnixSec - 15 * 60 : null;
                         const pts = tj.trace
-                            .filter(p => p[1] != null && p[2] != null)
+                            .filter(p => p[1] != null && p[2] != null &&
+                                         (!cutoffSec || (baseTs + p[0]) >= cutoffSec))
                             .map(p => [p[1], p[2]]);
                         if (pts.length >= 2) {
                             coords = pts;
-                            console.log(`${alreadySeeded ? 'Refreshed' : 'Seeded'} trail for ${hex}: ${coords.length} pts from ${traceUrl}`);
+                            console.log(`${alreadySeeded ? 'Refreshed' : 'Seeded'} trail for ${hex}: ${coords.length} pts from ${traceUrl}${cutoffSec ? ` (since dep)` : ''}`);
                         }
                     }
                 } catch (e) { console.log(`Trace ${traceUrl}: ${e.message}`); }
@@ -1723,7 +1730,7 @@ function parseAdsbAircraft(s, callsign) {
 
 // Shared position processing — called by both the API endpoint and background poller.
 // Mutates `data` to attach `trail` and `parked` fields.
-function processPositionUpdate(data) {
+function processPositionUpdate(data, sinceUnixSec = null) {
     if (!data.found || data.lat == null || !data.hex) return;
     const hex = data.hex;
     if (data.callsign) { _callsignToHex[data.callsign] = hex; _parkedCallsigns.delete(data.callsign); }
@@ -1736,7 +1743,7 @@ function processPositionUpdate(data) {
         state.hasBeenAirborne = true;
         state.groundStillCount = 0;
         if (!_posTrail[hex]) _posTrail[hex] = [];
-        seedTrailFromOpenSky(hex); // async, fire-and-forget — rate-limited to TRAIL_RESEED_MS
+        seedTrailFromOpenSky(hex, sinceUnixSec); // async, fire-and-forget — rate-limited to TRAIL_RESEED_MS
     } else if (state.hasBeenAirborne) {
         // On ground after being airborne — taxiing in or parked
         if (moving) {
@@ -1799,6 +1806,8 @@ async function fetchAdsbPosition(callsign) {
 app.get('/api/live-position', async (req, res) => {
     const callsign = (req.query.callsign || '').toUpperCase().replace(/\s/g, '');
     if (!callsign) return res.json({ found: false });
+    // Optional: scheduled departure time (Unix seconds) used to filter trail to current leg only
+    const sinceUnixSec = req.query.depTime ? parseInt(req.query.depTime, 10) : null;
 
     const cached = _liveCache[callsign];
     if (cached && Date.now() - cached.ts < LIVE_TTL) return res.json(cached.data);
@@ -1820,7 +1829,7 @@ app.get('/api/live-position', async (req, res) => {
         return res.json({ found: false, hadTrail });
     }
 
-    processPositionUpdate(data);
+    processPositionUpdate(data, sinceUnixSec);
     _liveCache[callsign] = { ts: Date.now(), data };
     res.json(data);
 });
@@ -1857,9 +1866,10 @@ async function runActiveFlightPoller() {
                 if (polled.has(callsign)) continue;
                 if (_parkedCallsigns.has(callsign)) continue; // already completed this flight
                 polled.add(callsign);
+                const depUnixSec = row.departure_time ? Math.floor(new Date(row.departure_time).getTime() / 1000) : null;
                 try {
                     const data = await fetchAdsbPosition(callsign);
-                    processPositionUpdate(data);
+                    processPositionUpdate(data, depUnixSec);
                     // Update the live cache so the next client poll gets pre-built data
                     _liveCache[callsign] = { ts: Date.now(), data };
                     if (data.found && !data.parked) console.log(`Poller: ${callsign} ${data.onGround ? (data.speedKts > 5 ? 'taxiing' : 'ground') : `${data.altFt ? Math.round(data.altFt) + 'ft' : 'airborne'}`} trail=${_posTrail[data.hex]?.length ?? 0}pts`);
