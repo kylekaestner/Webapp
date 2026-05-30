@@ -1643,16 +1643,16 @@ function seedTrailFromOpenSky(hex, sinceUnixSec = null) {
     const lastSeed = _trailSeedTime[hex] || 0;
     // If rate-limited, return the in-flight promise (if any) so callers can await current seed
     if (alreadySeeded && (now - lastSeed) < TRAIL_RESEED_MS) return _trailSeedPromise[hex] || Promise.resolve();
+    const wasSeeded = alreadySeeded; // capture before mutating set
     _trailSeeded.add(hex);
     _trailSeedTime[hex] = now;
-    const promise = _doSeedTrail(hex, sinceUnixSec);
+    const promise = _doSeedTrail(hex, sinceUnixSec, wasSeeded);
     _trailSeedPromise[hex] = promise;
     promise.finally(() => { if (_trailSeedPromise[hex] === promise) delete _trailSeedPromise[hex]; });
     return promise;
 }
 
-async function _doSeedTrail(hex, sinceUnixSec) {
-    const alreadySeeded = _trailSeeded.has(hex);
+async function _doSeedTrail(hex, sinceUnixSec, alreadySeeded) {
     try {
         let coords = null; // will be [lat, lon, tsMs] triples
 
@@ -1828,6 +1828,10 @@ app.get('/api/live-position', async (req, res) => {
     if (!callsign) return res.json({ found: false });
     // Optional: scheduled departure time (Unix seconds) used to filter trail to current leg only
     const sinceUnixSec = req.query.depTime ? parseInt(req.query.depTime, 10) : null;
+
+    // If the server already confirmed this callsign parked, tell the client immediately
+    // so it can clean up even if the scheduled arrival time hasn't passed yet.
+    if (_parkedCallsigns.has(callsign)) return res.json({ found: false, parked: true });
 
     const cached = _liveCache[callsign];
     if (cached && Date.now() - cached.ts < LIVE_TTL) return res.json(cached.data);

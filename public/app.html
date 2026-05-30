@@ -4195,15 +4195,8 @@
                 });
             };
 
-            // Pre-apply delay style immediately if departure time has already passed —
-            // avoids waiting for the first polling cycle to show the orange arc.
-            if (scheduledDepUTC && computeDelayMins(scheduledDepUTC) > 0 && !_departureDelays.has(callsign) && !_landedEarly.has(callsign)) {
-                const initDelay = computeDelayMins(scheduledDepUTC);
-                _delayedFlights.set(callsign, initDelay);
-                setArcDelayStyle();
-                updateHitPopupStatus(`<span style="color:#f97316">⏱ DELAYED · +${initDelay} min</span>`);
-                setAllTooltip(baseTooltip + `<br><span style="font-size:9px;color:#f97316;font-weight:700">DELAYED · +${initDelay} min</span>`);
-            }
+            // Delay style is applied only after ADS-B confirms no signal >10 min past departure.
+            // Never pre-apply orange — wait for real data.
             const removeArc = () => {
                 if (arcRemoved) return;
                 _arcLines().forEach(rl => {
@@ -4277,14 +4270,15 @@
                             renderMap();
                             return;
                         }
-                        // Delay detection: no ADS-B found and departure time has passed
+                        // Delay detection: only when no ADS-B and >10 min past scheduled departure.
+                        // Freeze the number on first detection — don't grow it every poll.
                         if (!hasBeenAirborne && scheduledDepUTC) {
                             const delayMins = computeDelayMins(scheduledDepUTC);
-                            if (delayMins > 0) {
+                            if (delayMins > 10 && !_delayedFlights.has(callsign)) {
                                 _delayedFlights.set(callsign, delayMins);
                                 if (!arcRemoved) setArcDelayStyle();
-                                updateHitPopupStatus(`<span style="color:#f97316">⏱ DELAYED · +${delayMins} min</span>`);
-                                setAllTooltip(baseTooltip + `<br><span style="font-size:9px;color:#f97316;font-weight:700">DELAYED · +${delayMins} min</span>`);
+                                updateHitPopupStatus(`<span style="color:#f97316">⏱ DELAYED · +${Math.round(delayMins)} min</span>`);
+                                setAllTooltip(baseTooltip + `<br><span style="font-size:9px;color:#f97316;font-weight:700">DELAYED · +${Math.round(delayMins)} min</span>`);
                                 if (depCoords) setAllLatLng(depCoords[0], depCoords[1]);
                             }
                         }
@@ -4304,6 +4298,13 @@
                     }
 
                     missCount = 0;
+
+                    // ADS-B found — immediately clear any pending delay state. Once we have live
+                    // data the orange arc is never appropriate regardless of departure time math.
+                    if (_delayedFlights.has(callsign) && !hasBeenAirborne) {
+                        _delayedFlights.delete(callsign);
+                        if (!arcRemoved) _arcLines().forEach(rl => { try { rl.setStyle({ color, opacity: 0.7 }); } catch (_) {} });
+                    }
 
                     // Taxiing — show the plane moving on the ground
                     if (d.onGround) {
@@ -4326,22 +4327,36 @@
                             remainLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
                             remainLines = null;
                         }
+                        // Dim the flown trail to show the flight is complete
+                        if (hasBeenAirborne && flownLines) {
+                            flownLines.forEach(l => { try { l.setStyle({ opacity: 0.25 }); } catch (_) {} });
+                        }
                         setAllLatLng(d.lat, d.lon);
                         if (d.heading != null) setAllIcon(makePlaneIcon(d.heading, color, d.type, true));
                         showIcon();
-                        let groundLabel = isTaxiing ? `Taxiing · ${kts} kts` : (hasBeenAirborne ? 'On ground' : 'Taxiing for departure');
-                        let groundLabelColor = '#71717a';
-                        if (!hasBeenAirborne && !isTaxiing && scheduledDepUTC) {
-                            const delayMins = computeDelayMins(scheduledDepUTC);
-                            if (delayMins > 0) {
-                                _delayedFlights.set(callsign, delayMins);
-                                if (!arcRemoved) setArcDelayStyle();
-                                updateHitPopupStatus(`<span style="color:#f97316">⏱ DELAYED · +${delayMins} min</span>`);
-                                groundLabel = `DELAYED · +${delayMins} min`;
-                                groundLabelColor = '#f97316';
+                        let groundLabel, groundLabelColor;
+                        if (hasBeenAirborne) {
+                            // Post-landing — never show delay, show arrived state
+                            groundLabel = isTaxiing ? `Taxiing in · ${kts} kts` : 'Arrived';
+                            groundLabelColor = '#22c55e';
+                        } else {
+                            groundLabel = isTaxiing ? `Taxiing for departure` : 'On ground';
+                            groundLabelColor = '#71717a';
+                            // Pre-departure delay: only when on ground, not moving, >10 min past dep
+                            if (!isTaxiing && scheduledDepUTC) {
+                                const delayMins = computeDelayMins(scheduledDepUTC);
+                                if (delayMins > 10 && !_delayedFlights.has(callsign)) {
+                                    _delayedFlights.set(callsign, delayMins);
+                                    if (!arcRemoved) setArcDelayStyle();
+                                    groundLabel = `DELAYED · +${Math.round(delayMins)} min`;
+                                    groundLabelColor = '#f97316';
+                                } else if (_delayedFlights.has(callsign)) {
+                                    groundLabel = `DELAYED · +${Math.round(_delayedFlights.get(callsign))} min`;
+                                    groundLabelColor = '#f97316';
+                                }
                             }
                         }
-                        setAllTooltip(baseTooltip + `<br><span style="font-size:9px;color:${groundLabelColor};font-weight:${groundLabelColor !== '#71717a' ? '700' : '400'}">${groundLabel}</span>`);
+                        setAllTooltip(baseTooltip + `<br><span style="font-size:9px;color:${groundLabelColor};font-weight:700">${groundLabel}</span>`);
                         // Draw taxi breadcrumb trail (taxi-out and taxi-in) only when moving
                         if (d.trail && d.trail.length >= 2 && isTaxiing) {
                             const taxiPath = smoothTrail(d.trail);
