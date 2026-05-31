@@ -3713,9 +3713,10 @@
             });
         }
 
-        function renderMap() {
+        async function renderMap() {
             if (!map || !airportDbReady) return;
             stopLivePollers();
+            await _reloadLandedEarly();
             mapRenderGen++;
             if (mapDayMode) { renderDayMap(); return; }
             if (mapAllMode) { renderAllPilotsMap(); return; }
@@ -4160,11 +4161,27 @@
             if (radarOn) addRadarLayer(); else removeRadarLayer();
         }
 
+        function _saveLandedEarly(callsign) {
+            _landedEarly.add(callsign);
+            const today = _localToday();
+            fetch(`${API_BASE}/early-landing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ callsign, date: today })
+            }).catch(() => {});
+        }
+        async function _reloadLandedEarly() {
+            try {
+                const today = _localToday();
+                const data = await fetch(`${API_BASE}/early-landings?date=${today}`).then(r => r.json());
+                (data.callsigns || []).forEach(cs => _landedEarly.add(cs));
+            } catch (_) {}
+        }
+
         function stopLivePollers() {
             Object.values(_livePollers).forEach(id => clearInterval(id));
             for (const k in _livePollers) delete _livePollers[k];
             _liveLabels.clear();
-            _landedEarly.clear();
             stopCalListPollers();
             removeRadarLayer();
             document.getElementById('btn-radar')?.classList.add('hidden');
@@ -4360,7 +4377,7 @@
                         clearInterval(_livePollers[callsign]);
                         delete _livePollers[callsign];
                         _liveLabels.delete(callsign);
-                        if (scheduledArrUTC && new Date() < scheduledArrUTC) _landedEarly.add(callsign);
+                        if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
                         renderMap();
                         return;
                     }
@@ -4379,24 +4396,29 @@
                         if (!hasBeenAirborne && d.hadTrail && missCount >= 3) {
                             removeArc();
                             markers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
-                            _landedEarly.add(callsign);
-                            clearInterval(_livePollers[callsign]);
-                            delete _livePollers[callsign];
-                            _liveLabels.delete(callsign);
-                            return;
-                        }
-                        // Was airborne + server's trail is gone (parked detected server-side) → done
-                        if (hasBeenAirborne && !d.hadTrail && missCount >= 3) {
-                            _landedEarly.add(callsign);
+                            if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
+                            _departureDelays.delete(callsign);
                             clearInterval(_livePollers[callsign]);
                             delete _livePollers[callsign];
                             _liveLabels.delete(callsign);
                             renderMap();
                             return;
                         }
-                        // Safety valve: if we've been airborne but lost signal for 2+ min, stop polling
-                        if (hasBeenAirborne && missCount >= 15) {
-                            _landedEarly.add(callsign);
+                        // Was airborne + server's trail gone (parked confirmed server-side) → done
+                        if (hasBeenAirborne && !d.hadTrail && missCount >= 3) {
+                            if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
+                            _departureDelays.delete(callsign);
+                            clearInterval(_livePollers[callsign]);
+                            delete _livePollers[callsign];
+                            _liveLabels.delete(callsign);
+                            renderMap();
+                            return;
+                        }
+                        // Was airborne, lost signal ~40s — almost certainly landed.
+                        // Re-render as completed so the arc stops animating.
+                        if (hasBeenAirborne && missCount >= 5) {
+                            if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
+                            _departureDelays.delete(callsign);
                             clearInterval(_livePollers[callsign]);
                             delete _livePollers[callsign];
                             _liveLabels.delete(callsign);

@@ -1738,6 +1738,7 @@ async function _doSeedTrail(hex, sinceUnixSec, alreadySeeded) {
 const _flightState = {}; // hex → { hasBeenAirborne, groundStillCount }
 const _callsignToHex = {}; // callsign → last-known hex (survives cache expiry)
 const _parkedCallsigns = new Set(); // suppress background polling after flight completes
+const _earlyLandings = {}; // date (YYYY-MM-DD) → Set<callsign> — flights that landed before scheduled arrival
 
 function parseAdsbAircraft(s, callsign) {
     const onGround = s.alt_baro === 'ground' || (typeof s.alt_baro === 'number' && s.alt_baro < 200);
@@ -1827,6 +1828,22 @@ async function fetchAdsbPosition(callsign) {
     };
     return Promise.any(ADSB_SOURCES.map(trySource));
 }
+
+app.post('/api/early-landing', express.json(), (req, res) => {
+    const { callsign, date } = req.body || {};
+    if (!callsign || !date) return res.status(400).json({ error: 'missing fields' });
+    const cs = callsign.toUpperCase().trim();
+    if (!_earlyLandings[date]) _earlyLandings[date] = new Set();
+    _earlyLandings[date].add(cs);
+    res.json({ ok: true });
+});
+
+app.get('/api/early-landings', (req, res) => {
+    const { date } = req.query;
+    if (!date) return res.json({ callsigns: [] });
+    const set = _earlyLandings[date];
+    res.json({ callsigns: set ? [...set] : [] });
+});
 
 app.get('/api/live-position', async (req, res) => {
     const callsign = (req.query.callsign || '').toUpperCase().replace(/\s/g, '');
