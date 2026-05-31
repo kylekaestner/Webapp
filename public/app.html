@@ -125,6 +125,9 @@
         #sidebar { transition: width 0.22s ease, min-width 0.22s ease, opacity 0.18s ease; }
         #sidebar.sidebar-hidden { width: 0 !important; min-width: 0 !important; overflow: hidden; opacity: 0; border-right-width: 0 !important; }
         .nav-active { border-color: #3b82f6 !important; color: white !important; background: rgba(59, 130, 246, 0.1); }
+        .overlap-tab { color: #52525b; border-color: transparent; }
+        .overlap-tab:hover { color: #a1a1aa; }
+        .overlap-tab-active { color: #f4f4f5 !important; border-color: #3b82f6 !important; }
         #map { height: 100%; width: 100%; background: #0a0a0a; }
         .map-controls { position: absolute; top: 10px; right: 10px; z-index: 1000; }
         .map-ctrl-pill { display:block; padding:5px 13px; background:rgba(18,18,20,0.82); border:1px solid rgba(63,63,70,0.5); border-radius:8px; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.07em; color:#52525b; white-space:nowrap; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); cursor:pointer; transition:color .15s,border-color .15s,background .15s,box-shadow .15s; }
@@ -213,7 +216,7 @@
         }
 
         /* ── Momentum scrolling ─────────────────────────────────────── */
-        #view-grid, #view-list, #view-overlap {
+        #view-grid, #view-list, #view-overlap, #view-offdays {
             -webkit-overflow-scrolling: touch;
         }
 
@@ -590,19 +593,22 @@
 
             <div id="view-overlap" class="view-section overflow-y-auto">
                 <div class="max-w-2xl mx-auto pb-20">
-                    <div id="overlap-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm border-b border-zinc-800/60 mb-2">
-                        <div class="px-6 pt-6 pb-4 flex items-center justify-between gap-4">
-                            <div>
-                                <h2 class="text-lg font-black text-white uppercase tracking-tight">Location Overlap</h2>
-                                <p class="text-xs text-zinc-500 mt-0.5">Metro-aware · 50 mi radius · 3-hour window</p>
-                            </div>
-                            <div class="flex items-center gap-2 shrink-0">
-                                <button onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">Refresh</button>
-                            </div>
+                    <div id="overlap-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm border-b border-zinc-800/60">
+                        <div class="px-6 pt-5 pb-0 flex items-center justify-between gap-4">
+                            <h2 class="text-lg font-black text-white uppercase tracking-tight">Crew Planning</h2>
+                            <button id="overlap-refresh-btn" onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">Refresh</button>
+                        </div>
+                        <!-- Tabs -->
+                        <div class="flex px-6 pt-3 gap-0">
+                            <button id="tab-crossings" onclick="switchOverlapTab('crossings')" class="overlap-tab overlap-tab-active pb-2.5 pr-5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-colors">Crossings</button>
+                            <button id="tab-offdays" onclick="switchOverlapTab('offdays')" class="overlap-tab pb-2.5 px-5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-colors">Off Days</button>
                         </div>
                     </div>
-                    <div id="overlap-content" class="space-y-3 px-6">
-                        <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate overlaps</div>
+                    <div id="overlap-content" class="space-y-3 px-6 pt-4">
+                        <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate crossings</div>
+                    </div>
+                    <div id="offdays-content" class="px-6 pt-4 hidden">
+                        <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate common off days</div>
                     </div>
                 </div>
             </div>
@@ -842,6 +848,17 @@
     </div>
 
     <!-- Drew ICS Sync Modal -->
+    <!-- Overlap Detail Modal -->
+    <div id="overlap-detail-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
+                <span id="overlap-detail-title" class="text-sm font-black text-white uppercase tracking-widest"></span>
+                <button onclick="document.getElementById('overlap-detail-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div id="overlap-detail-body" class="overflow-y-auto p-5 space-y-4 text-sm text-zinc-400"></div>
+        </div>
+    </div>
     <!-- Overlap Help Modal -->
     <div id="overlap-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
@@ -2177,32 +2194,103 @@
 
         // Airports in the same metro area — treated as co-located for overlap purposes
         const METRO_GROUPS = {
-            'JFK': 'NYC', 'LGA': 'NYC', 'EWR': 'NYC', 'TEB': 'NYC', 'HPN': 'NYC', 'ISP': 'NYC',
-            'STL': 'STL_M', 'SUS': 'STL_M',
-            'ORD': 'CHI', 'MDW': 'CHI', 'PWK': 'CHI',
-            'LAX': 'LAX', 'BUR': 'LAX', 'SNA': 'LAX', 'LGB': 'LAX', 'ONT': 'LAX', 'VNY': 'LAX', 'SMO': 'LAX',
-            'SFO': 'SFB', 'OAK': 'SFB', 'SJC': 'SFB',
-            'DFW': 'DFW_M', 'DAL': 'DFW_M', 'ADS': 'DFW_M', 'FTW': 'DFW_M',
-            'PHX': 'PHX', 'SDL': 'PHX', 'DVT': 'PHX', 'FFZ': 'PHX', 'CHD': 'PHX',
-            'DCA': 'WAS', 'IAD': 'WAS', 'BWI': 'WAS',
-            'BOS': 'BOS', 'BED': 'BOS', 'MHT': 'BOS', 'PVD': 'BOS',
-            'MIA': 'MIA', 'FLL': 'MIA', 'OPF': 'MIA', 'BCT': 'MIA',
-            'IAH': 'HOU', 'HOU': 'HOU', 'EFD': 'HOU',
-            'SEA': 'SEA', 'BFI': 'SEA', 'RNT': 'SEA',
-            'ATL': 'ATL', 'PDK': 'ATL', 'FTY': 'ATL',
-            'DEN': 'DEN', 'APA': 'DEN',
-            'MSP': 'MSP', 'FCM': 'MSP',
-            'DTW': 'DTW', 'PTK': 'DTW',
-            'CVG': 'CVG',
-            'CLT': 'CLT',
+            // New York
+            'JFK': 'NYC', 'LGA': 'NYC', 'EWR': 'NYC', 'TEB': 'NYC', 'HPN': 'NYC', 'ISP': 'NYC', 'SWF': 'NYC',
+            // Philadelphia
+            'PHL': 'PHL', 'ABE': 'PHL', 'TTN': 'PHL', 'ILG': 'PHL', 'ACY': 'PHL',
+            // St. Louis
+            'STL': 'STL_M', 'SUS': 'STL_M', 'CPS': 'STL_M',
+            // Chicago
+            'ORD': 'CHI', 'MDW': 'CHI', 'PWK': 'CHI', 'RFD': 'CHI', 'DPA': 'CHI',
+            // Los Angeles
+            'LAX': 'LAX', 'BUR': 'LAX', 'SNA': 'LAX', 'LGB': 'LAX', 'ONT': 'LAX', 'VNY': 'LAX', 'SMO': 'LAX', 'TOA': 'LAX',
+            // San Francisco Bay Area
+            'SFO': 'SFB', 'OAK': 'SFB', 'SJC': 'SFB', 'STS': 'SFB', 'SQL': 'SFB',
+            // Dallas
+            'DFW': 'DFW_M', 'DAL': 'DFW_M', 'ADS': 'DFW_M', 'FTW': 'DFW_M', 'GPM': 'DFW_M', 'RBD': 'DFW_M',
+            // Phoenix
+            'PHX': 'PHX', 'SDL': 'PHX', 'DVT': 'PHX', 'FFZ': 'PHX', 'CHD': 'PHX', 'IWA': 'PHX',
+            // Washington DC
+            'DCA': 'WAS', 'IAD': 'WAS', 'BWI': 'WAS', 'GAI': 'WAS', 'JYO': 'WAS',
+            // Boston
+            'BOS': 'BOS', 'BED': 'BOS', 'MHT': 'BOS', 'PVD': 'BOS', 'ORH': 'BOS', 'BVY': 'BOS',
+            // Miami / South Florida
+            'MIA': 'MIA', 'FLL': 'MIA', 'OPF': 'MIA', 'BCT': 'MIA', 'PBI': 'MIA', 'TMB': 'MIA',
+            // Tampa Bay
+            'TPA': 'TPA', 'PIE': 'TPA', 'SRQ': 'TPA', 'TBZ': 'TPA',
+            // Orlando
+            'MCO': 'ORL', 'SFB': 'ORL', 'ISM': 'ORL', 'ORL': 'ORL',
+            // Houston
+            'IAH': 'HOU', 'HOU': 'HOU', 'EFD': 'HOU', 'DWH': 'HOU', 'SGR': 'HOU',
+            // Seattle
+            'SEA': 'SEA', 'BFI': 'SEA', 'RNT': 'SEA', 'PAE': 'SEA',
+            // Atlanta
+            'ATL': 'ATL', 'PDK': 'ATL', 'FTY': 'ATL', 'RYY': 'ATL',
+            // Denver
+            'DEN': 'DEN', 'APA': 'DEN', 'BJC': 'DEN', 'FNL': 'DEN',
+            // Minneapolis
+            'MSP': 'MSP', 'FCM': 'MSP', 'ANE': 'MSP', 'STP': 'MSP',
+            // Detroit
+            'DTW': 'DTW', 'PTK': 'DTW', 'YIP': 'DTW', 'DET': 'DTW',
+            // Cleveland / Akron
+            'CLE': 'CLE', 'CAK': 'CLE', 'BKL': 'CLE', 'CGF': 'CLE',
+            // Cincinnati
+            'CVG': 'CVG', 'LUK': 'CVG', 'HAO': 'CVG',
+            // Charlotte
+            'CLT': 'CLT', 'JQF': 'CLT', 'UZA': 'CLT',
+            // Las Vegas
+            'LAS': 'LAS', 'HND': 'LAS', 'VGT': 'LAS',
+            // San Diego
+            'SAN': 'SAN', 'MYF': 'SAN', 'SEE': 'SAN', 'NZY': 'SAN', 'CRQ': 'SAN',
+            // Portland OR
+            'PDX': 'PDX', 'TTD': 'PDX', 'HIO': 'PDX', 'UAO': 'PDX',
+            // Salt Lake City
+            'SLC': 'SLC', 'PVU': 'SLC', 'U42': 'SLC',
+            // Kansas City
+            'MCI': 'MKC', 'JCI': 'MKC', 'OJC': 'MKC', 'MKC': 'MKC',
+            // Nashville
+            'BNA': 'BNA', 'MQY': 'BNA', 'JWN': 'BNA',
+            // Pittsburgh
+            'PIT': 'PIT', 'AGC': 'PIT', 'BTP': 'PIT',
+            // Raleigh / Triangle
+            'RDU': 'RDU', 'TTA': 'RDU', 'RWI': 'RDU',
+            // Columbus OH
+            'CMH': 'CMH', 'OSU': 'CMH', 'LCK': 'CMH',
+            // San Antonio
+            'SAT': 'SAT', 'SSF': 'SAT', 'SKF': 'SAT',
+            // Baltimore (already in WAS but standalone too)
+            // Memphis
+            'MEM': 'MEM', 'NQA': 'MEM',
+            // New Orleans
+            'MSY': 'MSY', 'NEW': 'MSY', 'NBG': 'MSY',
+            // Canada — Toronto area
+            'YYZ': 'YTO', 'YTZ': 'YTO', 'YHM': 'YTO', 'YKZ': 'YTO',
+            // Canada — Vancouver area
+            'YVR': 'YVA', 'YXX': 'YVA', 'ZBB': 'YVA', 'YDT': 'YVA',
+            // Canada — Montreal area
+            'YUL': 'YMT', 'YHU': 'YMT', 'YMX': 'YMT',
+            // Canada — Ottawa / Gatineau
+            'YOW': 'YOT', 'YND': 'YOT',
+            // Canada — Calgary area
+            'YYC': 'YCA', 'YBW': 'YCA',
+            // Canada — Edmonton area
+            'YEG': 'YEA', 'YXD': 'YEA',
         };
         const METRO_LABELS = {
-            'NYC': 'New York Area', 'STL_M': 'St. Louis Area', 'CHI': 'Chicago Area',
-            'LAX': 'LA Area', 'SFB': 'SF Bay Area', 'DFW_M': 'Dallas Area',
-            'PHX': 'Phoenix Area', 'WAS': 'DC Area', 'BOS': 'Boston Area',
-            'MIA': 'Miami Area', 'HOU': 'Houston Area', 'SEA': 'Seattle Area',
+            'NYC': 'New York Area', 'PHL': 'Philadelphia Area', 'STL_M': 'St. Louis Area',
+            'CHI': 'Chicago Area', 'LAX': 'LA Area', 'SFB': 'SF Bay Area',
+            'DFW_M': 'Dallas Area', 'PHX': 'Phoenix Area', 'WAS': 'DC Area',
+            'BOS': 'Boston Area', 'MIA': 'South Florida', 'TPA': 'Tampa Bay Area',
+            'ORL': 'Orlando Area', 'HOU': 'Houston Area', 'SEA': 'Seattle Area',
             'ATL': 'Atlanta Area', 'DEN': 'Denver Area', 'MSP': 'Minneapolis Area',
-            'DTW': 'Detroit Area', 'CVG': 'Cincinnati Area', 'CLT': 'Charlotte Area',
+            'DTW': 'Detroit Area', 'CLE': 'Cleveland Area', 'CVG': 'Cincinnati Area',
+            'CLT': 'Charlotte Area', 'LAS': 'Las Vegas Area', 'SAN': 'San Diego Area',
+            'PDX': 'Portland Area', 'SLC': 'Salt Lake City Area', 'MKC': 'Kansas City Area',
+            'BNA': 'Nashville Area', 'PIT': 'Pittsburgh Area', 'RDU': 'Raleigh Area',
+            'CMH': 'Columbus Area', 'SAT': 'San Antonio Area', 'MEM': 'Memphis Area',
+            'MSY': 'New Orleans Area',
+            'YTO': 'Toronto Area', 'YVA': 'Vancouver Area', 'YMT': 'Montreal Area',
+            'YOT': 'Ottawa Area', 'YCA': 'Calgary Area', 'YEA': 'Edmonton Area',
         };
 
         const PILOT_HOMES   = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX', drew: 'STL' };
@@ -2211,11 +2299,13 @@
         const IATA_TO_CALLSIGN_ENTRIES = Object.entries(IATA_TO_CALLSIGN);
         // Airports that count as "home" — some pilots have two (e.g. Kyle: SUS + STL, same metro)
         const PILOT_HOME_AIRPORTS = { kyle: ['SUS','STL'], adam: ['TUL'], sam: ['STL'], logan: ['PHX'], drew: ['STL'] };
-        // Strip leading K from US ICAO codes so KSUS === SUS, KLGA === LGA, etc.
+        // Normalize ICAO → IATA: strip leading K (US) or C (Canada) from 4-char ICAO codes
+        // KSUS → SUS, KLGA → LGA, CYYZ → YYZ, CYVR → YVR
         function normApt(code) {
             if (!code) return '';
             const u = code.toUpperCase().trim();
-            return (u.length === 4 && u[0] === 'K') ? u.slice(1) : u;
+            if (u.length === 4 && (u[0] === 'K' || u[0] === 'C')) return u.slice(1);
+            return u;
         }
         function sameApt(a, b) { return !!a && !!b && normApt(a) === normApt(b); }
         function isHomeAirport(airport, pilotKey) {
@@ -2543,7 +2633,7 @@
                     if (_pc) _pc.style.display = '';
                 }
             }
-            if (view === 'overlap') computeOverlap();
+            if (view === 'overlap') { switchOverlapTab(_overlapTab || 'crossings'); if (_overlapTab === 'crossings') computeOverlap(); }
             render();
         }
 
@@ -2561,16 +2651,17 @@
             } else {
                 _offDayFilter.add(key);
             }
-            renderCommonOffSection(true);
+            const isTab = _overlapTab === 'offdays';
+            renderCommonOffSection(!isTab, isTab);
         }
 
-        function renderCommonOffSection(preserveOpen) {
+        function renderCommonOffSection(preserveOpen, fullView = false) {
             const visibleCrew = getCrewVisible();
             if (!_offDayFilter) _offDayFilter = new Set(visibleCrew);
             const el = document.getElementById('common-off-section');
             if (!el) return;
 
-            const wasOpen = preserveOpen && !el.querySelector('.off-days-body')?.classList.contains('hidden');
+            const wasOpen = !fullView && preserveOpen && !el.querySelector('.off-days-body')?.classList.contains('hidden');
 
             const now = new Date();
             const _pad = n => String(n).padStart(2, '0');
@@ -2668,6 +2759,22 @@
                 return `<button onclick="toggleOffDayPilot('${k}')" style="background:${active ? color + '22' : 'transparent'};color:${active ? color : '#52525b'};border:1px solid ${active ? color + '55' : '#3f3f46'};border-radius:9999px;padding:6px 14px;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;transition:all 0.15s;-webkit-tap-highlight-color:transparent;min-height:36px;display:inline-flex;align-items:center">${name}</button>`;
             }).join('');
 
+            if (fullView) {
+                // Tab mode — no collapsible wrapper, content always visible
+                el.innerHTML = `<div class="divide-y divide-zinc-800/30">
+                    <div class="px-4 py-2.5 flex items-center gap-2.5">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-zinc-600 shrink-0">Show</span>
+                        <div class="flex items-center gap-1.5 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:2px 0">${filterChips}</div>
+                    </div>
+                    ${stalePilots.length ? `<div class="px-4 py-2.5 flex items-center gap-2 bg-zinc-900/40">
+                        <span style="color:#92400e;font-size:11px">⚠</span>
+                        <span style="font-size:10px;color:#78716c">${stalePilots.map(k => PILOT_NAMES[k].split(' ')[0]).join(', ')} ${stalePilots.length === 1 ? 'has' : 'have'} no upcoming schedule — off days may be incomplete</span>
+                    </div>` : ''}
+                    ${offDayRows || '<div class="px-4 py-3 text-xs text-zinc-600">No common off days found in schedule data.</div>'}
+                </div>`;
+                return;
+            }
+
             const bodyHidden = wasOpen ? '' : ' hidden';
             const arrText = wasOpen ? '‹' : '›';
 
@@ -2692,6 +2799,114 @@
             </div>`;
         }
 
+        let _overlapData = []; // stores all primary overlaps for detail modal
+        let _overlapTab = 'crossings'; // 'crossings' | 'offdays'
+
+        function switchOverlapTab(tab) {
+            _overlapTab = tab;
+            document.getElementById('overlap-content')?.classList.toggle('hidden', tab !== 'crossings');
+            document.getElementById('offdays-content')?.classList.toggle('hidden', tab !== 'offdays');
+            document.getElementById('tab-crossings')?.classList.toggle('overlap-tab-active', tab === 'crossings');
+            document.getElementById('tab-offdays')?.classList.toggle('overlap-tab-active', tab === 'offdays');
+            const refreshBtn = document.getElementById('overlap-refresh-btn');
+            if (refreshBtn) {
+                refreshBtn.onclick = tab === 'offdays' ? computeOffDays : computeOverlap;
+            }
+            if (tab === 'offdays') computeOffDays();
+        }
+
+        async function computeOffDays() {
+            const container = document.getElementById('offdays-content');
+            if (!container) return;
+            container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
+            await Promise.all(PILOT_KEYS.map(async key => {
+                if (!pilotsCache[key]) {
+                    try { pilotsCache[key] = await (await fetch(`${API_BASE}/pilots/${key}`)).json(); }
+                    catch(_) {}
+                }
+            }));
+            container.innerHTML = '<div id="common-off-section"></div>';
+            renderCommonOffSection(false, true);
+        }
+
+        function openOverlapDetail(idx) {
+            const o = _overlapData[idx];
+            if (!o) return;
+            const modal = document.getElementById('overlap-detail-modal');
+            const title = document.getElementById('overlap-detail-title');
+            const body  = document.getElementById('overlap-detail-body');
+
+            const cls      = o.classification;
+            const locLabel = o.airport === o.airportB ? o.airport : (()=>{ const mA = METRO_GROUPS[o.airport], mB = METRO_GROUPS[o.airportB]; return (mA && mA === mB) ? (METRO_LABELS[mA] || `${o.airport} / ${o.airportB}`) : `${o.airport} / ${o.airportB}`; })();
+            const locSub   = o.airport !== o.airportB ? `${o.airport} · ${o.airportB}` : null;
+            title.textContent = locLabel;
+
+            const fmtT = d => d ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '—';
+            const fmtD = d => d ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+            const fmtDurMs = ms => { if (!ms || ms <= 0) return ''; const h = Math.floor(ms/3600000), m = Math.round((ms%3600000)/60000); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
+
+            const refTime = o.directStart || new Date(o.sortKey);
+            const now = new Date();
+            const isNow = o.isDirect && o.directStart <= now && o.directEnd >= now;
+
+            const pilotSections = [{ k: o.kA, p: o.pA }, { k: o.kB, p: o.pB }].map(({ k, p }) => {
+                const color  = PILOT_COLORS[k];
+                const name   = PILOT_NAMES[k];
+                const role   = PILOT_ROLES[k] || '';
+                const isHome = isHomeAirport(p.airport, k);
+                const isBase = pilotsCache[k]?.base && sameApt(p.airport, pilotsCache[k].base);
+                const locCtx = isHome ? 'Home airport' : isBase ? 'Airline base' : 'Layover';
+                const fn     = p.arrFlightNum || '';
+                const dur    = fmtDurMs(p.end - p.start);
+                return `<div class="rounded-xl border border-zinc-800 p-3.5 space-y-1.5">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${color}"></span>
+                        <span class="font-black text-white text-sm">${name}</span>
+                        ${role ? `<span class="text-[10px] text-zinc-600 ml-1">${role}</span>` : ''}
+                    </div>
+                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Airport</span><span class="text-zinc-300 font-mono font-bold">${p.airport}${locSub && p.airport !== o.airport && p.airport !== o.airportB ? '' : ''} <span class="text-zinc-600 font-normal">${locCtx}</span></span></div>
+                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Arrives</span><span class="text-zinc-300 font-mono">${fmtT(p.start)}</span></div>
+                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Departs</span><span class="text-zinc-300 font-mono">${fmtT(p.end)}</span></div>
+                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Ground time</span><span class="text-zinc-300">${dur || '—'}</span></div>
+                    ${fn ? `<div class="flex justify-between text-xs"><span class="text-zinc-500">Arrival flight</span><span class="text-zinc-300 font-mono">${fn}</span></div>` : ''}
+                </div>`;
+            }).join('');
+
+            const overlapSection = o.isDirect ? `
+                <div class="rounded-xl border ${isNow ? 'border-green-800/50 bg-green-950/20' : 'border-zinc-800'} p-3.5">
+                    <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Together</div>
+                    <div class="text-2xl font-black ${isNow ? 'text-green-400' : 'text-white'}">${fmtDurMs(o.directEnd - o.directStart)}</div>
+                    <div class="text-xs text-zinc-500 mt-1">${fmtT(o.directStart)} – ${fmtT(o.directEnd)} · ${fmtD(o.directStart)}</div>
+                </div>` : o.gapMs > 0 ? `
+                <div class="rounded-xl border border-amber-900/40 bg-amber-950/10 p-3.5">
+                    <div class="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-1">Near Miss</div>
+                    <div class="text-sm text-amber-400">${fmtDurMs(o.gapMs)} apart in time</div>
+                    <div class="text-xs text-zinc-600 mt-1">${[{k:o.kA,p:o.pA},{k:o.kB,p:o.pB}].map(({k,p})=>`${PILOT_NAMES[k].split(' ')[0]}: ${fmtT(p.start)}–${fmtT(p.end)}`).join(' · ')}</div>
+                </div>` : '';
+
+            const classSection = cls ? `
+                <div class="text-[10px] text-zinc-600 flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded-full font-black uppercase tracking-wide" style="background:${cls.color}22;color:${cls.color}">${cls.label}</span>
+                    ${o.distMi > 0 ? `<span>${o.distMi} mi between airports</span>` : ''}
+                    ${cls.transitNote ? `<span>${cls.transitNote}</span>` : ''}
+                </div>` : '';
+
+            const annoSection = cls?.type === 'HOME_VISIT'
+                ? `<div class="text-xs text-emerald-400/80">✈ ${PILOT_NAMES[cls.visitorPilot]?.split(' ')[0]} visiting ${PILOT_NAMES[cls.homePilot]?.split(' ')[0]}'s home city</div>`
+                : cls?.cityMeetup
+                ? `<div class="text-xs text-orange-400/80">Both in city — potential meetup outside the airport</div>`
+                : '';
+
+            body.innerHTML = `
+                <div class="text-xs text-zinc-500 -mt-1">${fmtD(refTime)}${locSub ? ` · <span class="font-mono">${locSub}</span>` : ''}</div>
+                ${classSection}
+                ${annoSection ? `<div>${annoSection}</div>` : ''}
+                ${overlapSection}
+                <div class="space-y-2">${pilotSections}</div>
+            `;
+            modal.classList.remove('hidden');
+        }
+
         async function computeOverlap() {
             const container = document.getElementById('overlap-content');
             container.innerHTML = '<div class="text-center py-8 text-zinc-500 text-sm">Loading schedules…</div>';
@@ -2707,36 +2922,36 @@
             }));
 
             function buildGroundPeriods(segments, homeBase, homeCity) {
-                const home = homeBase ? homeBase.toUpperCase() : null;
-                const homeC = homeCity ? homeCity.toUpperCase() : null;
+                // Normalize all airport codes so KLGA === LGA, CYYZ === YYZ, etc.
+                const home  = homeBase  ? normApt(homeBase)  : null;
+                const homeC = homeCity  ? normApt(homeCity)  : null;
                 const flights = segments
                     .filter(s => (s.type === 'flight' || s.type === 'ground') && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport)
                     .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
                 const periods = [];
 
                 flights.forEach((f, i) => {
-                    const dep = f.departure_airport.toUpperCase();
-                    const arr = f.arrival_airport.toUpperCase();
+                    const dep = normApt(f.departure_airport);
+                    const arr = normApt(f.arrival_airport);
                     const depT = new Date(f.departure_time);
                     const arrT = new Date(f.arrival_time);
 
                     const recentArr = flights.slice(0, i)
-                        .filter(p => p.arrival_airport?.toUpperCase() === dep)
+                        .filter(p => normApt(p.arrival_airport) === dep)
                         .sort((a, b) => new Date(b.arrival_time) - new Date(a.arrival_time))[0];
                     const useRecentArr = recentArr && (dep !== home || (depT - new Date(recentArr.arrival_time)) < 24 * 3600000);
                     const groundStart = useRecentArr ? new Date(recentArr.arrival_time)
                         : new Date(depT.getTime() - 2 * 3600000);
                     const alreadyCovered = periods.some(p => p.airport === dep &&
                         p.start.getTime() <= groundStart.getTime() && p.end.getTime() >= depT.getTime());
-                    // Tag with flight_number for same-flight detection
                     if (!alreadyCovered) periods.push({ airport: dep, start: groundStart, end: depT, flightNum: f.flight_number || null });
 
                     if (home && arr === home) return;
-                    const nextFromArr = flights.slice(i + 1).find(n => n.departure_airport?.toUpperCase() === arr);
+                    const nextFromArr = flights.slice(i + 1).find(n => normApt(n.departure_airport) === arr);
                     let groundEnd;
                     if (homeC && arr === homeC) {
                         const nextFromBase = home ? flights.slice(i + 1).find(n =>
-                            n.departure_airport?.toUpperCase() === home &&
+                            normApt(n.departure_airport) === home &&
                             (!nextFromArr || new Date(n.departure_time) < new Date(nextFromArr.departure_time))
                         ) : null;
                         const cap = nextFromArr
@@ -2783,7 +2998,7 @@
             //   3 = coincidence — different airports in same metro with one just transiting, or haversine-only
             function classifyOverlap(kA, kB, pA, pB, isDirect, directStart, directEnd) {
                 const locA = pA.airport, locB = pB.airport;
-                const homeA = PILOT_HOME[kA], homeB = PILOT_HOME[kB];
+                const homeA = normApt(PILOT_HOME[kA] || ''), homeB = normApt(PILOT_HOME[kB] || '');
                 const durA = pA.end - pA.start, durB = pB.end - pB.start;
                 const aHasTime = durA >= LAYOVER_MS, bHasTime = durB >= LAYOVER_MS;
                 const inSameMetro = sameMetro(locA, locB);
@@ -2869,7 +3084,7 @@
                     for (const pA of pilotPeriods[kA]) {
                         for (const pB of pilotPeriods[kB]) {
                             if (!airportsNear(pA.airport, pB.airport)) continue;
-                            const homeA = PILOT_HOME[kA], homeB = PILOT_HOME[kB];
+                            const homeA = normApt(PILOT_HOME[kA] || ''), homeB = normApt(PILOT_HOME[kB] || '');
                             if (homeA && homeB && airportsNear(pA.airport, homeA) && airportsNear(pB.airport, homeB)) continue;
                             const _ca = getCoords(pA.airport), _cb = getCoords(pB.airport);
                             const distMi = (pA.airport !== pB.airport && _ca && _cb)
@@ -2994,7 +3209,7 @@
                     } else if (cls?.cityMeetup) {
                         const city = METRO_LABELS[METRO_GROUPS[o.airport]] || locationLabel(o.airport, o.airportB);
                         annotation = `<div class="px-4 pb-2 text-[11px] text-orange-400/80">Both in ${city} — could meet outside the airport</div>`;
-                    } else if (cls?.transitNote && tier === 2) {
+                    } else if (cls?.transitNote) {
                         annotation = `<div class="px-4 pb-2 text-[11px] text-blue-400/60">${cls.transitNote}</div>`;
                     }
                 }
@@ -3004,13 +3219,18 @@
                 const distTag  = o.distMi > 0 ? `<span class="text-sm font-normal text-zinc-500 ml-1.5">${o.distMi} mi apart</span>` : '';
 
                 const pilotRows = [{ k: o.kA, p: o.pA }, { k: o.kB, p: o.pB }].map(({ k, p }) => {
-                    const color = PILOT_COLORS[k];
-                    const name  = PILOT_NAMES[k].split(' ')[0];
-                    const dur   = fmtDur(p.end - p.start);
+                    const color    = PILOT_COLORS[k];
+                    const name     = PILOT_NAMES[k].split(' ')[0];
+                    const dur      = fmtDur(p.end - p.start);
+                    const isBase   = pilotsCache[k]?.base && sameApt(p.airport, pilotsCache[k].base);
+                    const isHome   = isHomeAirport(p.airport, k);
+                    const locTag   = isHome ? `<span class="text-[9px] text-zinc-600 ml-1">home</span>`
+                                   : isBase ? `<span class="text-[9px] text-zinc-600 ml-1">base</span>` : '';
+                    const fnTag    = p.arrFlightNum ? `<span class="text-[9px] text-zinc-700 font-mono ml-1">${p.arrFlightNum}</span>` : '';
                     return `<div class="flex items-center gap-2.5">
                         <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
                         <span class="text-xs font-black w-10 shrink-0" style="color:${color}">${name}</span>
-                        <span class="text-xs text-zinc-400 font-mono flex-1">${fmtTimeRange(p.start, p.end)}</span>
+                        <span class="text-xs text-zinc-400 font-mono flex-1">${fmtTimeRange(p.start, p.end)}${locTag}${fnTag}</span>
                         ${dur ? `<span class="text-[10px] text-zinc-600 shrink-0">${dur}</span>` : ''}
                     </div>`;
                 }).join('');
@@ -3067,9 +3287,9 @@
                 const bg      = tier === 2 ? 'bg-zinc-900/20' : (isNow ? 'bg-green-950/20' : isToday ? 'bg-sky-950/15' : 'bg-zinc-900/40');
                 const opacity = isPast ? 'opacity-40' : '';
 
-                return `<div${scrollId} class="border ${border} rounded-2xl overflow-hidden ${bg} ${opacity}">
+                return `<div${scrollId} onclick="openOverlapDetail(${idx})" class="border ${border} rounded-2xl overflow-hidden ${bg} ${opacity} cursor-pointer active:scale-[0.99] transition-transform">
                     <div class="px-4 pt-3.5 pb-3">
-                        <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5 flex items-center flex-wrap gap-1">${pulseDot}${dateLabel}${typeBadge}</div>
+                        <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5 flex items-center flex-wrap gap-1">${pulseDot}${dateLabel}${typeBadge}<span class="ml-auto text-zinc-700 text-[9px] font-normal">tap for details</span></div>
                         <div class="text-2xl font-black ${tier === 2 ? 'text-zinc-300' : 'text-white'} leading-none">${locLabel}${distTag}</div>
                         ${locSub ? `<div class="text-xs text-zinc-400 mt-1 font-mono tracking-wider">${locSub}</div>` : ''}
                     </div>
@@ -3099,51 +3319,51 @@
                 const noteStr  = cls?.transitNote || distStr || cls?.label || '';
                 const rowId    = `also-detail-${idx}`;
 
-                // Detail section (hidden until expanded)
-                const pilotDetail = [{ k: o.kA, p: o.pA }, { k: o.kB, p: o.pB }].map(({ k, p }) => {
-                    const color = PILOT_COLORS[k];
-                    const name  = PILOT_NAMES[k].split(' ')[0];
-                    const dur   = fmtDur(p.end - p.start);
-                    return `<div class="flex items-center gap-2">
-                        <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${color}"></span>
-                        <span class="text-[11px] font-black w-8 shrink-0" style="color:${color}">${name}</span>
-                        <span class="text-[10px] text-zinc-500 font-mono flex-1">${fmtTimeRange(p.start, p.end)}</span>
-                        ${dur ? `<span class="text-[10px] text-zinc-600">${dur}</span>` : ''}
-                    </div>`;
-                }).join('');
-                const gapOrOverlap = o.isDirect
-                    ? `<div class="text-[10px] text-zinc-600 mt-1">${fmtDur(o.directEnd - o.directStart)} overlap window</div>`
-                    : (o.gapMs > 0 ? `<div class="text-[10px] text-zinc-600 mt-1">${fmtDur(o.gapMs)} apart in time</div>` : '');
 
                 return `<div class="border-b border-zinc-800/30 last:border-0 ${isPast ? 'opacity-30' : 'opacity-60'}">
                     <button onclick="document.getElementById('${rowId}').classList.toggle('hidden');this.querySelector('.sec-chevron').classList.toggle('rotate-180')" class="w-full flex items-center gap-3 py-2.5 text-left">
                         <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-1.5">
+                            <div class="flex items-center gap-1.5 flex-wrap">
                                 <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${colorA}"></span>
                                 <span class="text-[11px] font-black" style="color:${colorA}">${nameA}</span>
                                 <span class="text-[10px] text-zinc-600">+</span>
                                 <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${colorB}"></span>
                                 <span class="text-[11px] font-black" style="color:${colorB}">${nameB}</span>
                                 <span class="text-[10px] text-zinc-600 ml-1">·</span>
-                                <span class="text-[11px] text-zinc-500 truncate">${locLabel}${locSub ? ` <span class="font-mono">(${locSub})</span>` : ''}</span>
+                                <span class="text-[11px] text-zinc-400 font-black truncate">${locLabel}${locSub ? ` <span class="text-zinc-600 font-mono font-normal">(${locSub})</span>` : ''}</span>
                             </div>
-                            ${noteStr ? `<div class="text-[10px] text-zinc-600 mt-0.5">${noteStr}</div>` : ''}
+                            <div class="mt-1 space-y-0.5">
+                                ${[{k: o.kA, p: o.pA, color: colorA, name: nameA}, {k: o.kB, p: o.pB, color: colorB, name: nameB}].map(({color, name, p}) =>
+                                    `<div class="flex items-center gap-1.5">
+                                        <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${color}"></span>
+                                        <span class="text-[10px] font-black w-7 shrink-0" style="color:${color}">${name}</span>
+                                        <span class="text-[10px] text-zinc-500 font-mono">${fmtTimeRange(p.start, p.end)}</span>
+                                        ${fmtDur(p.end - p.start) ? `<span class="text-[10px] text-zinc-700 ml-1">${fmtDur(p.end - p.start)}</span>` : ''}
+                                    </div>`
+                                ).join('')}
+                                ${o.isDirect ? `<div class="text-[10px] text-zinc-600 pl-3">${fmtDur(o.directEnd - o.directStart)} overlap</div>` : o.gapMs > 0 ? `<div class="text-[10px] text-zinc-600 pl-3">${fmtDur(o.gapMs)} apart</div>` : ''}
+                                ${noteStr ? `<div class="text-[10px] text-zinc-600 pl-3">${noteStr}</div>` : ''}
+                            </div>
                         </div>
-                        <div class="flex items-center gap-2 shrink-0">
+                        <div class="flex items-center gap-2 shrink-0 self-start pt-0.5">
                             <span class="text-[10px] text-zinc-600">${dayLabel}</span>
                             <svg class="sec-chevron w-3 h-3 text-zinc-600 transition-transform duration-150" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
                         </div>
                     </button>
-                    <div id="${rowId}" class="hidden pb-3 space-y-1.5">
-                        ${pilotDetail}
-                        ${gapOrOverlap}
+                    <div id="${rowId}" class="hidden pb-2 pt-1 pl-3 border-t border-zinc-800/20 space-y-1">
+                        ${cls?.type ? `<div class="text-[10px] text-zinc-600 font-black uppercase tracking-widest">${cls.label}</div>` : ''}
+                        ${cls?.transitNote ? `<div class="text-[10px] text-zinc-600">${cls.transitNote}</div>` : ''}
+                        ${o.distMi > 0 ? `<div class="text-[10px] text-zinc-600">${o.distMi} mi apart</div>` : ''}
+                        ${o.isDirect ? `<div class="text-[10px] text-zinc-600">${fmtDur(o.directEnd - o.directStart)} direct window · ${fmtH(o.directStart)}–${fmtH(o.directEnd)}</div>` : o.gapMs > 0 ? `<div class="text-[10px] text-zinc-600">${fmtDur(o.gapMs)} apart in time</div>` : ''}
                     </div>
                 </div>`;
             }
 
             const recentSec = secondary.filter(o => {
-                if (!o.isDirect) return false;
-                return (o.directEnd?.getTime() ?? 0) >= now.getTime() - 86400000;
+                const endTime = o.isDirect
+                    ? (o.directEnd?.getTime() ?? 0)
+                    : Math.max(o.pA.end.getTime(), o.pB.end.getTime());
+                return endTime >= now.getTime() - 72 * 3600000; // show up to 3 days past
             });
 
             // When signed in, split into "Your Crossings" and "Other Crew Crossings"
@@ -3163,14 +3383,15 @@
 
             const myHeader = myPilot && myPrimary.length > 0
                 ? `<div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1 mb-2">Your Crossings</div>` : '';
+            _overlapData = [...myPrimary, ...otherPrimary];
             const myCards     = myHeader + myPrimary.map((o, idx) => renderPrimaryCard(o, idx, idx === scrollTargetIdx)).join('');
             const otherCards  = otherPrimary.map((o, idx) => renderPrimaryCard(o, myPrimary.length + idx, false)).join('');
 
             const mySecHtml = mySec.length > 0
                 ? `<div class="mt-4 rounded-xl border border-zinc-800/40 overflow-hidden">
-                    <div class="px-4 py-2.5 border-b border-zinc-800/40">
-                        <span class="text-[10px] font-black uppercase tracking-widest text-zinc-600">Also Nearby</span>
-                        <span class="text-[10px] text-zinc-700 ml-2">— tap for details</span>
+                    <div class="px-4 py-2.5 border-b border-zinc-800/40 flex items-center gap-2">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Also Nearby</span>
+                        <span class="text-[10px] text-zinc-700">geographic coincidences · tap to expand</span>
                     </div>
                     <div class="px-4">${mySec.map((o, i) => renderSecondaryRow(o, i)).join('')}</div>
                 </div>` : '';
@@ -3199,8 +3420,7 @@
                 : myCards + mySecHtml;
             const secondaryHtml = myPilot ? otherCrewHtml : '';
 
-            container.innerHTML = noneMsg + '<div id="common-off-section"></div>' + primaryHtml + secondaryHtml;
-            renderCommonOffSection(false);
+            container.innerHTML = noneMsg + primaryHtml + secondaryHtml;
 
             if (scrollTargetIdx >= 0) {
                 requestAnimationFrame(() => scrollToOverlapCard(scrollTargetIdx));
@@ -4562,6 +4782,8 @@
             // Here-now pins for all crew — only meaningful when viewing today
             if (mapDayDate === _localToday()) {
                 const now2 = new Date();
+                const hereNowEntries = [];
+
                 visiblePilots.forEach(pilotKey => {
                     if (hiddenPilots.has(pilotKey)) return;
                     const segs = allPilotSegments[pilotKey];
@@ -4577,76 +4799,130 @@
                         return !cs || !_landedEarly.has(cs);
                     });
 
-                    let locationCode, popupExtra, isAtHome = false;
+                    if (isAirborne) return;
+
+                    let locationCode, popupExtra;
                     const pilotName = (PILOT_NAMES[pilotKey] || pilotKey).split(' ')[0];
                     const pilotColor = PILOT_COLORS[pilotKey] || '#94a3b8';
-                    const home = PILOT_HOME[pilotKey] || null;
 
-                    if (isAirborne) {
-                        return; // active flight arc already shown on the map
-                    } else {
-                        const completedFlights = pilotFlights.filter(f => {
-                            const cs = deriveCallsign(f, pilotKey);
-                            if (cs && _landedEarly.has(cs)) return true;
-                            const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                            return a && a <= now2;
-                        });
-                        const lastFlight = completedFlights[completedFlights.length - 1] || null;
-                        const lastArrival = lastFlight?.arrivalAirport || null;
+                    const completedFlights = pilotFlights.filter(f => {
+                        const cs = deriveCallsign(f, pilotKey);
+                        if (cs && _landedEarly.has(cs)) return true;
+                        const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                        return a && a <= now2;
+                    });
+                    const lastFlight = completedFlights[completedFlights.length - 1] || null;
+                    const lastArrival = lastFlight?.arrivalAirport || null;
 
-                        const activeAway = segs
-                            .filter(s => s.type === 'away' && s.arrivalAirport && !isHomeOrBase(s.arrivalAirport, pilotKey))
-                            .sort((a, b) => new Date(b.departureTime) - new Date(a.departureTime))
-                            .find(s => {
-                                const start = new Date(s.departureTime);
-                                if (isNaN(start) || start > now2) return false;
-                                if (s.arrivalTime) { const end = new Date(s.arrivalTime); if (isNaN(end) || end <= now2) return false; }
-                                else { const dayEnd = new Date(start); dayEnd.setDate(dayEnd.getDate() + 1); if (now2 >= dayEnd) return false; }
-                                const awayApt = s.arrivalAirport.toUpperCase();
-                                return !pilotFlights.some(f => {
-                                    if (!f.departureAirport || f.departureAirport.toUpperCase() !== awayApt) return false;
-                                    const depTime = flightUTCTime(f.departureTime, f.departureAirport);
-                                    return depTime && depTime > start && depTime <= now2;
-                                });
+                    const activeAway = segs
+                        .filter(s => s.type === 'away' && s.arrivalAirport && !isHomeOrBase(s.arrivalAirport, pilotKey))
+                        .sort((a, b) => new Date(b.departureTime) - new Date(a.departureTime))
+                        .find(s => {
+                            const start = new Date(s.departureTime);
+                            if (isNaN(start) || start > now2) return false;
+                            if (s.arrivalTime) { const end = new Date(s.arrivalTime); if (isNaN(end) || end <= now2) return false; }
+                            else { const dayEnd = new Date(start); dayEnd.setDate(dayEnd.getDate() + 1); if (now2 >= dayEnd) return false; }
+                            const awayApt = s.arrivalAirport.toUpperCase();
+                            return !pilotFlights.some(f => {
+                                if (!f.departureAirport || f.departureAirport.toUpperCase() !== awayApt) return false;
+                                const depTime = flightUTCTime(f.departureTime, f.departureAirport);
+                                return depTime && depTime > start && depTime <= now2;
                             });
+                        });
 
-                        if (activeAway) {
-                            locationCode = activeAway.arrivalAirport;
-                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Overnight</div>`;
-                        } else {
-                            const recentEnough = lastFlight && (now2 - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
-                            const homeCode = PILOT_HOME[pilotKey] || PILOT_HOMES[pilotKey] || null;
-                            const atHome = isHomeAirport(lastArrival, pilotKey);
-                            isAtHome = !recentEnough || !lastArrival || atHome;
-                            locationCode = (recentEnough && lastArrival && !atHome) ? lastArrival : homeCode;
-                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Overnight'}</div>`;
-                        }
+                    if (activeAway) {
+                        locationCode = activeAway.arrivalAirport;
+                        popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Overnight</div>`;
+                    } else {
+                        const recentEnough = lastFlight && (now2 - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
+                        const homeCode = PILOT_HOME[pilotKey] || PILOT_HOMES[pilotKey] || null;
+                        const atHome = isHomeAirport(lastArrival, pilotKey);
+                        const isAtHome = !recentEnough || !lastArrival || atHome;
+                        locationCode = (recentEnough && lastArrival && !atHome) ? lastArrival : homeCode;
+                        popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Overnight'}</div>`;
                     }
 
                     const locationCoords = locationCode ? resolveAirport(locationCode) : null;
                     if (!locationCoords) return;
 
-                    const pc  = hexToRgba(pilotColor, 0.7);
-                    const pc0 = hexToRgba(pilotColor, 0);
-                    const herePopup = `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${pilotName} is here</div>${popupExtra}`;
+                    hereNowEntries.push({ pilotName, pilotColor, locationCoords, popupExtra });
+                });
+
+                // Group by exact coordinates so co-located pilots render as a cluster
+                const byLocation = {};
+                hereNowEntries.forEach(e => {
+                    const key = `${e.locationCoords[0]},${e.locationCoords[1]}`;
+                    if (!byLocation[key]) byLocation[key] = [];
+                    byLocation[key].push(e);
+                });
+
+                Object.values(byLocation).forEach(group => {
+                    const { locationCoords } = group[0];
                     WORLD_OFFSETS.forEach(w => {
                         const wCoords = [locationCoords[0], locationCoords[1] + w * 360];
-                        const dotHtml = `<div style="width:14px;height:14px;border-radius:50%;background:${pilotColor};border:2px solid #fff;--pc:${pc};--pc0:${pc0};animation:here-pulse-plane 2s ease-out infinite"></div>`;
-                        const pin = L.marker(wCoords, {
-                            icon: L.divIcon({ className: '', html: dotHtml, iconSize: [14, 14], iconAnchor: [7, 7] }),
-                            zIndexOffset: 2000
-                        });
-                        pin.bindPopup(herePopup, { className: 'dark-popup' });
-                        pin.addTo(map);
-                        const nameLabel = L.marker(wCoords, {
-                            icon: L.divIcon({
-                                className: '',
-                                html: `<div style="color:${pilotColor};font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,8px);white-space:nowrap">${pilotName}</div>`,
-                                iconAnchor: [0, 0]
-                            }),
-                            interactive: false
-                        }).addTo(map);
-                        mapLayers.active.push(pin, nameLabel);
+
+                        if (group.length === 1) {
+                            const { pilotName, pilotColor, popupExtra } = group[0];
+                            const pc  = hexToRgba(pilotColor, 0.7);
+                            const pc0 = hexToRgba(pilotColor, 0);
+                            const herePopup = `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${pilotName} is here</div>${popupExtra}`;
+                            const dotHtml = `<div style="width:16px;height:16px;border-radius:50%;background:${pilotColor};border:2px solid #fff;--pc:${pc};--pc0:${pc0};animation:here-pulse-plane 2s ease-out infinite"></div>`;
+                            const pin = L.marker(wCoords, {
+                                // iconAnchor y=20 on a 16px icon places the dot so its bottom sits 4px above the coord,
+                                // keeping the airport code label visible beneath it
+                                icon: L.divIcon({ className: '', html: dotHtml, iconSize: [16, 16], iconAnchor: [8, 20] }),
+                                zIndexOffset: 2000
+                            });
+                            pin.bindPopup(herePopup, { className: 'dark-popup' });
+                            pin.addTo(map);
+                            const nameLabel = L.marker(wCoords, {
+                                icon: L.divIcon({
+                                    className: '',
+                                    html: `<div style="color:${pilotColor};font-size:11px;font-weight:800;text-shadow:0 1px 6px rgba(0,0,0,1),0 1px 6px rgba(0,0,0,1);background:rgba(0,0,0,0.45);border-radius:4px;padding:0 3px;transform:translate(-50%,8px);white-space:nowrap">${pilotName}</div>`,
+                                    iconAnchor: [0, 0]
+                                }),
+                                interactive: false
+                            }).addTo(map);
+                            mapLayers.active.push(pin, nameLabel);
+                        } else {
+                            // Multiple pilots at the same airport — render side-by-side dots
+                            const dotSize = 16, gap = 5;
+                            const totalW = group.length * dotSize + (group.length - 1) * gap;
+                            const dotsHtml = group.map(({ pilotColor: c }) => {
+                                const pc  = hexToRgba(c, 0.7);
+                                const pc0 = hexToRgba(c, 0);
+                                return `<div style="width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${c};border:2px solid #fff;--pc:${pc};--pc0:${pc0};animation:here-pulse-plane 2s ease-out infinite;flex-shrink:0"></div>`;
+                            }).join('');
+                            const clusterHtml = `<div style="display:flex;gap:${gap}px">${dotsHtml}</div>`;
+
+                            const allNames = group.map(e => e.pilotName);
+                            const headlineNames = allNames.length === 2
+                                ? `${allNames[0]} & ${allNames[1]}`
+                                : `${allNames.slice(0, -1).join(', ')} & ${allNames[allNames.length - 1]}`;
+                            const herePopup = `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:6px">${headlineNames} are here</div>` +
+                                group.map(e => `<div style="margin-top:3px"><span style="font-size:12px;font-weight:700;color:${e.pilotColor}">${e.pilotName}</span>${e.popupExtra}</div>`).join('');
+
+                            const pin = L.marker(wCoords, {
+                                // Same upward offset: bottom of cluster sits 4px above the coord
+                                icon: L.divIcon({ className: '', html: clusterHtml, iconSize: [totalW, dotSize], iconAnchor: [Math.round(totalW / 2), dotSize + 4] }),
+                                zIndexOffset: 2000
+                            });
+                            pin.bindPopup(herePopup, { className: 'dark-popup' });
+                            pin.addTo(map);
+
+                            const nameParts = group.map(e =>
+                                `<span style="color:${e.pilotColor};font-size:11px;font-weight:800">${e.pilotName}</span>`
+                            ).join('<span style="color:#94a3b8;font-size:11px"> & </span>');
+                            const nameLabel = L.marker(wCoords, {
+                                icon: L.divIcon({
+                                    className: '',
+                                    html: `<div style="display:flex;gap:3px;background:rgba(0,0,0,0.45);border-radius:4px;padding:0 4px;transform:translate(-50%,8px);white-space:nowrap;text-shadow:0 1px 6px rgba(0,0,0,1)">${nameParts}</div>`,
+                                    iconAnchor: [0, 0]
+                                }),
+                                interactive: false
+                            }).addTo(map);
+                            mapLayers.active.push(pin, nameLabel);
+                        }
                     });
                 });
             }
