@@ -70,6 +70,16 @@ function initDB() {
         db.run(`ALTER TABLE pilots ADD COLUMN airline_code TEXT DEFAULT ''`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN home_airport TEXT DEFAULT ''`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN last_active TEXT`, () => {});
+
+        // Backfill home_airport for known pilots where it hasn't been explicitly set.
+        // home_airport = where the pilot LIVES; base = airline domicile (may differ for commuters).
+        const knownHomes = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX', drew: 'STL' };
+        Object.entries(knownHomes).forEach(([key, home]) => {
+            db.run(
+                `UPDATE pilots SET home_airport=? WHERE pilot_key=? AND (home_airport IS NULL OR home_airport='')`,
+                [home, key]
+            );
+        });
         db.run(`ALTER TABLE pilots ADD COLUMN token TEXT`, () => {
             // Backfill tokens for any pilot that doesn't have one
             db.all(`SELECT id, pilot_key FROM pilots WHERE token IS NULL`, (err, rows) => {
@@ -82,14 +92,14 @@ function initDB() {
 
         // Seed initial pilots if not exists
         db.run(`
-            INSERT OR IGNORE INTO pilots (pilot_key, name, base)
+            INSERT OR IGNORE INTO pilots (pilot_key, name, base, home_airport)
             VALUES
-                ('admin', 'Admin', ''),
-                ('kyle', 'Kyle Kaestner', 'KSUS'),
-                ('adam', 'Adam Burke', 'LGA'),
-                ('sam', 'Sam Byrne', 'LGA'),
-                ('logan', 'Logan Hine', 'SFO'),
-                ('drew', 'Drew Sinelli', 'STL')
+                ('admin', 'Admin', '', ''),
+                ('kyle',  'Kyle Kaestner', 'SUS', 'SUS'),
+                ('adam',  'Adam Burke',    'LGA', 'TUL'),
+                ('sam',   'Sam Byrne',     'LGA', 'STL'),
+                ('logan', 'Logan Hine',    'PHX', 'PHX'),
+                ('drew',  'Drew Sinelli',  'STL', 'STL')
         `, (err) => {
             if (err) {
                 console.error('Error seeding pilots:', err);

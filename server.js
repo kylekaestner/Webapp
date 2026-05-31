@@ -1018,7 +1018,7 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
 
-    db.get('SELECT id, pilot_key, name, base, role, parser_type, airline_code FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
+    db.get('SELECT id, pilot_key, name, base, home_airport, role, parser_type, airline_code FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
@@ -1097,8 +1097,8 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
             return res.status(400).json({ error: `Parse error: ${parseError.message}` });
         }
 
-        // Fill reserve location from pilot base if parser didn't provide it
-        const pilotBase = pilot.home_airport || pilot.base || '';
+        // Fill reserve location from pilot's airline base (where they report for duty)
+        const pilotBase = pilot.base || pilot.home_airport || '';
         if (pilotBase) {
             events.forEach(ev => {
                 if (ev.type === 'reserve' && !ev.departureAirport) {
@@ -1708,14 +1708,19 @@ async function _doSeedTrail(hex, sinceUnixSec, alreadySeeded) {
 
         if (!coords) { if (!alreadySeeded) _trailSeeded.delete(hex); return; }
 
-        // Merge: take adsb.lol points (dense, slightly delayed) and append any locally-polled
-        // points that are NEWER than the last adsb.lol timestamp. adsb.lol CDN lags ~1–2 min,
-        // so local polling always has the freshest tail.
+        // Merge adsb.lol points with ALL local polling points chronologically.
+        // Previously we only kept local points newer than the last adsb.lol timestamp,
+        // which discarded locally-polled points that filled adsb.lol coverage gaps mid-flight.
         const existing = _posTrail[hex] || [];
-        const lastAdsbTs = coords[coords.length - 1][2] || 0;
-        const localNewer = existing.filter(pt => (pt[2] || 0) > lastAdsbTs);
-        const merged = [...coords, ...localNewer];
-        // merged is already chronological (coords sorted by trace order, localNewer appended)
+        const combined = [...coords, ...existing];
+        combined.sort((a, b) => (a[2] || 0) - (b[2] || 0));
+        // Deduplicate: drop any point within 4s of the previous one (adsb.lol preferred since coords comes first)
+        const merged = [combined[0]];
+        for (let i = 1; i < combined.length; i++) {
+            if ((combined[i][2] || 0) - (merged[merged.length - 1][2] || 0) >= 4000) {
+                merged.push(combined[i]);
+            }
+        }
 
         const currentLen = existing.length;
         if (merged.length > currentLen) {
@@ -2290,7 +2295,7 @@ app.post('/api/join', async (req, res) => {
     const safeRole    = (role || '').trim();
     const safeParser  = (parserType || 'other').trim();
     const safeCode    = (airlineCode || '').trim().toUpperCase();
-    const safeHome    = (homeAirport || base || '').toUpperCase().trim();
+    const safeHome    = (homeAirport || '').toUpperCase().trim();
 
     const tryInsert = (key, attempt) => {
         const finalKey = attempt === 0 ? key : `${key}${attempt}`;

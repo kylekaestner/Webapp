@@ -367,7 +367,7 @@
             <button onclick="switchView('map')" id="btn-map" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🗺️ Route Map</button>
             <div id="map-mode-nav" class="hidden flex-col gap-1.5 px-1 pb-1 pt-0.5">
                 <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-                    <button onclick="setMapMode('mine')" id="mapmode-mine" class="map-sub-header-btn map-mode-active">
+                    <button onclick="setMapMode('mine')" id="mapmode-mine" class="map-sub-header-btn">
                         <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
                         <span id="mapmode-mine-label">My Routes</span>
                     </button>
@@ -377,7 +377,7 @@
                         <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
                         <span class="text-[9px] font-black uppercase tracking-widest text-zinc-400">All Crew</span>
                     </div>
-                    <button onclick="setMapMode('day')" id="mapmode-day" class="map-sub-item-crew">Day</button>
+                    <button onclick="setMapMode('day')" id="mapmode-day" class="map-sub-item-crew map-mode-active">Day</button>
                     <button onclick="setMapMode('month')" id="mapmode-month" class="map-sub-item-crew">Month</button>
                 </div>
             </div>
@@ -560,7 +560,7 @@
                 <!-- Mobile mode bar — sits below map tiles, above fixed bottom nav -->
                 <div class="md:hidden flex flex-col shrink-0 border-t border-zinc-800/70 bg-zinc-950/98 backdrop-blur-sm">
                     <div class="flex">
-                        <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill map-mode-active flex-1 flex flex-col items-center justify-center gap-1" style="padding:8px 4px">
+                        <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill flex-1 flex flex-col items-center justify-center gap-1" style="padding:8px 4px">
                             <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
                             <span id="mapmode-bar-mine-label">My Routes</span>
                         </button>
@@ -570,7 +570,7 @@
                                 <span class="text-[8px] font-black uppercase tracking-widest text-zinc-400">All Crew</span>
                             </div>
                             <div class="flex flex-1">
-                                <button onclick="setMapMode('day')" id="mapmode-bar-day" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Day</button>
+                                <button onclick="setMapMode('day')" id="mapmode-bar-day" class="map-mode-bar-pill map-mode-active flex-1" style="padding-top:5px;padding-bottom:8px">Day</button>
                                 <div class="w-px bg-zinc-800/60 self-stretch my-1.5"></div>
                                 <button onclick="setMapMode('month')" id="mapmode-bar-month" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Month</button>
                             </div>
@@ -1723,22 +1723,13 @@
         const _landedEarly  = new Set(); // callsigns confirmed landed before scheduledArrUTC
         let   _deoverlapTimer = null;
         const _calListPollers = {}; // callsign -> intervalId for calendar/list live badges
-        const _delayedFlights = new Map();   // callsign → delayMins (pre-departure / taxi)
-        const _departureDelays = new Map(); // callsign → delayMins captured at takeoff, persists through flight
 
-        // Returns delay in minutes rounded up to the nearest 5, or 0 if < 10 min past dep.
-        function computeDelayMins(scheduledDepUTC) {
-            if (!scheduledDepUTC) return 0;
-            const diffMs = Date.now() - scheduledDepUTC.getTime();
-            if (diffMs < 10 * 60000) return 0;
-            return Math.ceil(diffMs / 60000 / 5) * 5;
-        }
         let radarLayer = null, radarOn = false;
         let showPast = true, showFuture = true;
         let airportVisibilityMap = {}, airportFlightTypes = {};
         // mapDayMode: show all pilots on a single chosen day
         // mapAllMode: show all pilots for the current month
-        let mapDayMode = false;
+        let mapDayMode = true;
         let mapAllMode = false;
         let mapRenderGen = 0; // incremented before every async render; stale renders check this
         const _localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -1818,7 +1809,7 @@
                             const firstName = (data.name || myPilot).split(' ')[0];
                             PILOT_KEYS.push(myPilot);
                             PILOT_NAMES[myPilot] = data.name || myPilot;
-                            PILOT_HOME[myPilot]  = data.home_airport || data.base || '';
+                            PILOT_HOME[myPilot]  = data.home_airport || '';
                             PILOT_ROLES[myPilot] = data.base || '';
                             PILOT_COLORS[myPilot] = '#6366f1';
                             // Add pill buttons to DOM
@@ -2220,10 +2211,24 @@
         const IATA_TO_CALLSIGN_ENTRIES = Object.entries(IATA_TO_CALLSIGN);
         // Airports that count as "home" — some pilots have two (e.g. Kyle: SUS + STL, same metro)
         const PILOT_HOME_AIRPORTS = { kyle: ['SUS','STL'], adam: ['TUL'], sam: ['STL'], logan: ['PHX'], drew: ['STL'] };
+        // Strip leading K from US ICAO codes so KSUS === SUS, KLGA === LGA, etc.
+        function normApt(code) {
+            if (!code) return '';
+            const u = code.toUpperCase().trim();
+            return (u.length === 4 && u[0] === 'K') ? u.slice(1) : u;
+        }
+        function sameApt(a, b) { return !!a && !!b && normApt(a) === normApt(b); }
         function isHomeAirport(airport, pilotKey) {
             if (!airport) return false;
-            const homes = PILOT_HOME_AIRPORTS[pilotKey] || [PILOT_HOMES[pilotKey]];
-            return homes.some(h => h && h.toUpperCase() === airport.toUpperCase());
+            const homes = PILOT_HOME_AIRPORTS[pilotKey] || (PILOT_HOME[pilotKey] ? [PILOT_HOME[pilotKey]] : null) || (PILOT_HOMES[pilotKey] ? [PILOT_HOMES[pilotKey]] : []);
+            return homes.some(h => sameApt(h, airport));
+        }
+        function isBaseAirport(airport, pilotKey) {
+            const base = pilotsCache[pilotKey]?.base;
+            return !!base && sameApt(base, airport);
+        }
+        function isHomeOrBase(airport, pilotKey) {
+            return isHomeAirport(airport, pilotKey) || isBaseAirport(airport, pilotKey);
         }
 
         function loadAirportDB() {
@@ -2352,7 +2357,7 @@
                 if (!current.arrivalAirport) continue;
                 if (!next.departureTime) continue;
                 // Never generate away events when the pilot is at their airline base or home city
-                if (base && current.arrivalAirport?.toUpperCase() === base.toUpperCase()) continue;
+                if (sameApt(current.arrivalAirport, base)) continue;
                 if (isHomeAirport(current.arrivalAirport, currentPilot)) continue;
 
                 try {
@@ -2426,7 +2431,7 @@
                 // Sync dynamic pilot metadata from DB (role, name) — handles newly joined pilots
                 if (data.name)  PILOT_NAMES[pilot] = data.name;
                 if (data.role)  PILOT_ROLES[pilot] = data.role;
-                PILOT_HOME[pilot] = data.home_airport || data.base || PILOT_HOME[pilot] || '';
+                if (data.home_airport) PILOT_HOME[pilot] = data.home_airport;
 
                 // Re-evaluate upload vs sync button now that parser_type is known
                 if (pilot === myPilot) updateUploadSyncButtons(pilot);
@@ -2489,7 +2494,6 @@
                     const isOwn = myPilot && myPilot === pilot && !isDemo;
                     emptyBanner.classList.toggle('hidden', !(isOwn && segmentData.length === 0));
                 }
-                if (currentView === 'overlap') computeOverlap();
                 dismissSplash();
             });
         }
@@ -2522,7 +2526,23 @@
             if (mbtn) mbtn.classList.add('mbtn-active');
             const modeNav = document.getElementById('map-mode-nav');
             if (modeNav) { if (view === 'map') modeNav.classList.replace('hidden', 'flex'); else modeNav.classList.replace('flex', 'hidden'); }
-            if (view === 'map') initMap();
+            if (view === 'map') {
+                initMap();
+                // Sync day nav / pilot controls visibility with the current mode
+                const _dn = document.getElementById('day-nav');
+                const _mdn = document.getElementById('mobile-day-nav-bar');
+                const _pc = document.getElementById('map-pilot-controls');
+                if (mapDayMode) {
+                    _dn?.classList.replace('hidden', 'flex');
+                    _mdn?.classList.replace('hidden', 'flex');
+                    if (_pc) _pc.style.display = 'none';
+                    updateDayNavLabel();
+                } else if (!mapAllMode) {
+                    _dn?.classList.replace('flex', 'hidden');
+                    _mdn?.classList.replace('flex', 'hidden');
+                    if (_pc) _pc.style.display = '';
+                }
+            }
             if (view === 'overlap') computeOverlap();
             render();
         }
@@ -2736,7 +2756,7 @@
             }
 
             const pilotPeriods = {};
-            const overlapKeys = getCrewVisible(); // respect crew visibility
+            const overlapKeys = [...VALID_PILOTS]; // always compute across full crew
             overlapKeys.forEach(key => {
                 const data = pilotsCache[key];
                 pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base, PILOT_HOME[key]) : [];
@@ -2923,11 +2943,8 @@
                 return `${day(start)} ${fmtH(start)} – ${day(end)} ${fmtH(end)}`;
             };
 
-            // Split overlaps by tier; for admin also filter to selected pilot's view
-            const involvesMe = o => o.kA === currentPilot || o.kB === currentPilot;
-            const viewFilter = myPilot ? (o => true) : involvesMe;
-            const primary   = filtered.filter(o => (o.classification?.tier || 3) <= 2 && viewFilter(o));
-            const secondary = filtered.filter(o => (o.classification?.tier || 3) >= 3 && viewFilter(o));
+            const primary   = filtered.filter(o => (o.classification?.tier || 3) <= 2);
+            const secondary = filtered.filter(o => (o.classification?.tier || 3) >= 3);
 
 
             const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -3383,9 +3400,7 @@
                         const a = flightUTCTime(f.arrival_time, f.arrival_airport);
                         const cs = deriveCallsign(f, key);
                         if (_landedEarly.has(cs)) return false;
-                        const depDelay = _departureDelays.get(cs) || 0;
-                        const estArr = a ? new Date(a.getTime() + depDelay * 60000) : null;
-                        return d && estArr && d <= now && now <= new Date(estArr.getTime() + 20 * 60000);
+                        return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
                     });
                     const hasFuture = !hasActive && legs.some(f => {
                         const a = flightUTCTime(f.arrival_time, f.arrival_airport);
@@ -3511,7 +3526,7 @@
                 if (!f.arrivalAirport || !f.arrivalTime) return;
                 if (!f.arrivalTime.startsWith(monthPrefix)) return;
                 const upper = f.arrivalAirport.toUpperCase();
-                if (upper === pilotBase || isHomeAirport(upper, currentPilot)) return;
+                if (isHomeOrBase(upper, currentPilot)) return;
                 const nextDep = allFlights.filter(s => s.departureAirport === f.arrivalAirport && s.departureTime > f.arrivalTime)
                     .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                 if (!nextDep) return;
@@ -3545,9 +3560,7 @@
                     const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                     const cs = deriveCallsign(f, currentPilot);
                     if (_landedEarly.has(cs)) return false;
-                    const depDelay = _departureDelays.get(cs) || 0;
-                    const estArr = a ? new Date(a.getTime() + depDelay * 60000) : null;
-                    return d && estArr && d <= now && now <= new Date(estArr.getTime() + 20 * 60000);
+                    return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
                 });
                 const hasFuture = !hasActive && legs.some(f => {
                     const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
@@ -3576,9 +3589,8 @@
                     const _ld = flightUTCTime(f.departureTime, f.departureAirport);
                     const _la = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                     const isLegActive = _ld && _la && _ld <= now && now <= new Date(_la.getTime() + 20 * 60000);
-                    const legDelayMins = isLegActive ? computeDelayMins(_ld) : 0;
-                    const legColor = isLegActive ? (legDelayMins > 0 ? '#f97316' : '#22c55e') : '#94a3b8';
-                    const legStatus = legDelayMins > 0 ? ` ⏱ +${legDelayMins}min` : (isLegActive ? ' ▶' : '');
+                    const legColor = isLegActive ? '#22c55e' : '#94a3b8';
+                    const legStatus = isLegActive ? ' ▶' : '';
                     const depTz = tzAbbr(f.departureAirport, f.departureTime);
                     const arrTz = tzAbbr(f.arrivalAirport, f.arrivalTime);
                     return `<div style="font-size:11px;color:${legColor};margin-top:3px">
@@ -3703,7 +3715,7 @@
                     // Guards against turns: if a departure from the away airport already occurred
                     // after the away block started, the pilot has left and we skip it.
                     const activeAway = segments
-                        .filter(s => s.type === 'away' && s.arrivalAirport && !isHomeAirport(s.arrivalAirport, currentPilot))
+                        .filter(s => s.type === 'away' && s.arrivalAirport && !isHomeOrBase(s.arrivalAirport, currentPilot))
                         .sort((a, b) => new Date(b.departureTime) - new Date(a.departureTime))
                         .find(s => {
                             const start = new Date(s.departureTime);
@@ -3733,10 +3745,9 @@
                     } else {
                         // Only trust lastArrival if it landed within the last 36 hours; older = assume pilot went home
                         const recentEnough = lastFlight && (now - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
-                        const atBase = lastArrival && pilotBase && lastArrival.toUpperCase() === pilotBase.toUpperCase();
                         const atHome = isHomeAirport(lastArrival, currentPilot);
-                        isAtHome = !recentEnough || !lastArrival || atBase || atHome || (home && lastArrival && lastArrival.toUpperCase() === home?.toUpperCase());
-                        locationCode = (recentEnough && lastArrival && !atBase && !atHome) ? lastArrival : home;
+                        isAtHome = !recentEnough || !lastArrival || atHome;
+                        locationCode = (recentEnough && lastArrival && !atHome) ? lastArrival : home;
                         label = isAtHome ? 'Home' : locationCode;
                         popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Overnight'}</div>`;
                     }
@@ -3934,7 +3945,6 @@
             for (const k in _livePollers) delete _livePollers[k];
             _liveLabels.clear();
             _landedEarly.clear();
-            _departureDelays.clear();
             stopCalListPollers();
             removeRadarLayer();
             document.getElementById('btn-radar')?.classList.add('hidden');
@@ -3961,41 +3971,9 @@
                             const alt = d.altFt >= 18000 ? `FL${Math.round(d.altFt / 100)}` : `${Math.round(d.altFt).toLocaleString()} ft`;
                             const kts = d.speedKts ? ` · ${Math.round(d.speedKts)} kts` : '';
                             txt = `${alt}${kts}`;
-                            if (_delayedFlights.has(cs)) {
-                                _delayedFlights.delete(cs);
-                                // Swap flight row border: orange → green
-                                el.classList.remove('border-orange-500/80', 'ring-orange-500/30');
-                                el.classList.add('border-green-500/80', 'ring-green-500/30');
-                                // Fix live slot border color
-                                if (liveEl) liveEl.style.borderTopColor = 'rgba(34,197,94,0.15)';
-                                // Update the day container label + colors
-                                const dayDiv = el.parentElement?.parentElement;
-                                if (dayDiv) {
-                                    ['bg-orange-950/40','border-orange-600/60'].forEach(c => dayDiv.classList.remove(c));
-                                    ['bg-emerald-950/40','border-emerald-600/60'].forEach(c => dayDiv.classList.add(c));
-                                    const labelDiv = dayDiv.querySelector('.w-16 .tracking-widest');
-                                    if (labelDiv) { labelDiv.textContent = '▶ IN THE AIR'; labelDiv.className = 'text-[8px] font-bold uppercase text-emerald-300 mt-1 tracking-widest'; }
-                                }
-                            }
-                            _delayedFlights.delete(cs);
-                        } else {
-                            // No airborne signal — only show delay if takeoff hasn't been confirmed yet
-                            if (!_departureDelays.has(cs) && !_landedEarly.has(cs)) {
-                                const depTimeAttr = el.dataset.depTime;
-                                const depAptAttr  = el.dataset.depApt;
-                                if (depTimeAttr) {
-                                    const scheduledDep = flightUTCTime(depTimeAttr, depAptAttr || '');
-                                    const delayMins = computeDelayMins(scheduledDep);
-                                    if (delayMins > 0) {
-                                        _delayedFlights.set(cs, delayMins);
-                                        txt = `DELAYED · +${delayMins} min`;
-                                        txtColor = '#f97316';
-                                    }
-                                }
-                            }
                         }
                         liveEl.style.color = txtColor;
-                        liveEl.textContent = txt ? (txtColor === '#f97316' ? `⏱ ${txt}` : `✈ ${txt}`) : '';
+                        liveEl.textContent = txt ? `✈ ${txt}` : '';
                         liveEl.style.display = txt ? '' : 'none';
                     } catch (_) {}
                 };
@@ -4006,67 +3984,15 @@
 
         function smoothTrail(rawPoints) {
             if (!rawPoints || rawPoints.length < 2) return rawPoints || [];
-
-            // Step 1: deduplicate — skip points closer than ~0.35 mi to avoid GPS chatter
-            let pts = [rawPoints[0]];
+            // Deduplicate only — drop points closer than ~0.35 mi to suppress GPS chatter
+            const pts = [rawPoints[0]];
             for (let i = 1; i < rawPoints.length; i++) {
                 const prev = pts[pts.length - 1];
                 const dlat = rawPoints[i][0] - prev[0];
                 const dlon = rawPoints[i][1] - prev[1];
-                if (Math.sqrt(dlat * dlat + dlon * dlon) > 0.005) pts.push(rawPoints[i]);
+                if (dlat * dlat + dlon * dlon > 0.000025) pts.push(rawPoints[i]);
             }
-            if (pts.length < 2) return rawPoints;
-
-            // Step 2: outlier rejection — drop points that spike far from the line between neighbors
-            if (pts.length >= 3) {
-                const clean = [pts[0]];
-                for (let i = 1; i < pts.length - 1; i++) {
-                    const prev = clean[clean.length - 1];
-                    const next = pts[i + 1];
-                    const midLat = (prev[0] + next[0]) / 2;
-                    const midLon = (prev[1] + next[1]) / 2;
-                    const d = Math.sqrt((pts[i][0] - midLat) ** 2 + (pts[i][1] - midLon) ** 2);
-                    if (d < 0.4) clean.push(pts[i]);
-                }
-                clean.push(pts[pts.length - 1]);
-                pts = clean;
-            }
-
-            // Step 3: interpolate gaps — insert intermediate waypoints on segments > ~2 mi
-            // so the moving average has enough density to round turns from sparse polling.
-            const INTERP_GAP = 0.03;  // ~2 mi threshold
-            const INTERP_STEP = 0.015; // ~1 mi intermediate spacing
-            const interped = [pts[0]];
-            for (let i = 1; i < pts.length; i++) {
-                const [la0, lo0] = interped[interped.length - 1];
-                const [la1, lo1] = pts[i];
-                const gap = Math.sqrt((la1 - la0) ** 2 + (lo1 - lo0) ** 2);
-                if (gap > INTERP_GAP) {
-                    const steps = Math.ceil(gap / INTERP_STEP);
-                    for (let j = 1; j < steps; j++) {
-                        const t = j / steps;
-                        interped.push([la0 + t * (la1 - la0), lo0 + t * (lo1 - lo0)]);
-                    }
-                }
-                interped.push(pts[i]);
-            }
-            pts = interped;
-
-            // Step 4: weighted moving average, 3 passes — keeps endpoints anchored
-            for (let pass = 0; pass < 3; pass++) {
-                if (pts.length < 3) break;
-                const s = [pts[0]];
-                for (let i = 1; i < pts.length - 1; i++) {
-                    s.push([
-                        0.25 * pts[i - 1][0] + 0.5 * pts[i][0] + 0.25 * pts[i + 1][0],
-                        0.25 * pts[i - 1][1] + 0.5 * pts[i][1] + 0.25 * pts[i + 1][1]
-                    ]);
-                }
-                s.push(pts[pts.length - 1]);
-                pts = s;
-            }
-
-            return pts;
+            return pts.length >= 2 ? pts : rawPoints;
         }
 
 
@@ -4172,14 +4098,6 @@
             };
 
             const _arcLines = () => Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
-            const setArcDelayStyle = () => {
-                _arcLines().forEach(rl => {
-                    try {
-                        rl.setStyle({ color: '#f97316', opacity: 0.7 });
-                        rl.getElement?.()?.classList.remove('active-route');
-                    } catch (_) {}
-                });
-            };
             const updateHitPopupStatus = (html) => {
                 if (!hitLines) return;
                 hitLines.forEach(h => {
@@ -4188,15 +4106,12 @@
                         if (!p) return;
                         const cur = typeof p.getContent() === 'string' ? p.getContent() : '';
                         const updated = cur
-                            .replace(/<div[^>]*>▶ In the air now<\/div>/, `<div style="font-size:11px;font-weight:700;margin-top:6px">${html}</div>`)
-                            .replace(/<div[^>]*>(?:<span[^>]*>)?⏱[^<]*(?:<\/span>)?<\/div>/, `<div style="font-size:11px;font-weight:700;margin-top:6px">${html}</div>`);
+                            .replace(/<div[^>]*>▶ In the air now<\/div>/, `<div style="font-size:11px;font-weight:700;margin-top:6px">${html}</div>`);
                         h.setPopupContent(updated);
                     } catch (_) {}
                 });
             };
 
-            // Delay style is applied only after ADS-B confirms no signal >10 min past departure.
-            // Never pre-apply orange — wait for real data.
             const removeArc = () => {
                 if (arcRemoved) return;
                 _arcLines().forEach(rl => {
@@ -4253,7 +4168,6 @@
                         // Was airborne + server's trail is gone (parked detected server-side) → done
                         if (hasBeenAirborne && !d.hadTrail && missCount >= 3) {
                             _landedEarly.add(callsign);
-                            _departureDelays.delete(callsign);
                             clearInterval(_livePollers[callsign]);
                             delete _livePollers[callsign];
                             _liveLabels.delete(callsign);
@@ -4263,31 +4177,15 @@
                         // Safety valve: if we've been airborne but lost signal for 2+ min, stop polling
                         if (hasBeenAirborne && missCount >= 15) {
                             _landedEarly.add(callsign);
-                            _departureDelays.delete(callsign);
                             clearInterval(_livePollers[callsign]);
                             delete _livePollers[callsign];
                             _liveLabels.delete(callsign);
                             renderMap();
                             return;
                         }
-                        // Delay detection: only when no ADS-B and >10 min past scheduled departure.
-                        // Freeze the number on first detection — don't grow it every poll.
-                        if (!hasBeenAirborne && scheduledDepUTC) {
-                            const delayMins = computeDelayMins(scheduledDepUTC);
-                            if (delayMins > 10 && !_delayedFlights.has(callsign)) {
-                                _delayedFlights.set(callsign, delayMins);
-                                if (!arcRemoved) setArcDelayStyle();
-                                updateHitPopupStatus(`<span style="color:#f97316">⏱ DELAYED · +${Math.round(delayMins)} min</span>`);
-                                setAllTooltip(baseTooltip + `<br><span style="font-size:9px;color:#f97316;font-weight:700">DELAYED · +${Math.round(delayMins)} min</span>`);
-                                if (depCoords) setAllLatLng(depCoords[0], depCoords[1]);
-                            }
-                        }
                         if (scheduledArrUTC) {
-                            const depDelay = _departureDelays.get(callsign) || 0;
-                            const estArrUTC = new Date(scheduledArrUTC.getTime() + depDelay * 60000);
-                            const pastArr = new Date() > estArrUTC;
-                            if (pastArr && (missCount >= 3 || new Date() > new Date(estArrUTC.getTime() + 30 * 60000))) {
-                                _departureDelays.delete(callsign);
+                            const pastArr = new Date() > scheduledArrUTC;
+                            if (pastArr && (missCount >= 3 || new Date() > new Date(scheduledArrUTC.getTime() + 30 * 60000))) {
                                 clearInterval(_livePollers[callsign]);
                                 delete _livePollers[callsign];
                                 _liveLabels.delete(callsign);
@@ -4298,13 +4196,6 @@
                     }
 
                     missCount = 0;
-
-                    // ADS-B found — immediately clear any pending delay state. Once we have live
-                    // data the orange arc is never appropriate regardless of departure time math.
-                    if (_delayedFlights.has(callsign) && !hasBeenAirborne) {
-                        _delayedFlights.delete(callsign);
-                        if (!arcRemoved) _arcLines().forEach(rl => { try { rl.setStyle({ color, opacity: 0.7 }); } catch (_) {} });
-                    }
 
                     // Taxiing — show the plane moving on the ground
                     if (d.onGround) {
@@ -4336,25 +4227,11 @@
                         showIcon();
                         let groundLabel, groundLabelColor;
                         if (hasBeenAirborne) {
-                            // Post-landing — never show delay, show arrived state
                             groundLabel = isTaxiing ? `Taxiing in · ${kts} kts` : 'Arrived';
                             groundLabelColor = '#22c55e';
                         } else {
                             groundLabel = isTaxiing ? `Taxiing for departure` : 'On ground';
                             groundLabelColor = '#71717a';
-                            // Pre-departure delay: only when on ground, not moving, >10 min past dep
-                            if (!isTaxiing && scheduledDepUTC) {
-                                const delayMins = computeDelayMins(scheduledDepUTC);
-                                if (delayMins > 10 && !_delayedFlights.has(callsign)) {
-                                    _delayedFlights.set(callsign, delayMins);
-                                    if (!arcRemoved) setArcDelayStyle();
-                                    groundLabel = `DELAYED · +${Math.round(delayMins)} min`;
-                                    groundLabelColor = '#f97316';
-                                } else if (_delayedFlights.has(callsign)) {
-                                    groundLabel = `DELAYED · +${Math.round(_delayedFlights.get(callsign))} min`;
-                                    groundLabelColor = '#f97316';
-                                }
-                            }
                         }
                         setAllTooltip(baseTooltip + `<br><span style="font-size:9px;color:${groundLabelColor};font-weight:700">${groundLabel}</span>`);
                         // Draw taxi breadcrumb trail (taxi-out and taxi-in) only when moving
@@ -4383,10 +4260,6 @@
                         hereNowMarkers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
                         hereNowMarkers.length = 0;
                         removeArc();
-                        // Capture departure delay before clearing it — used to extend arrival window
-                        const depDelay = _delayedFlights.get(callsign) || 0;
-                        if (depDelay > 0) _departureDelays.set(callsign, depDelay);
-                        _delayedFlights.delete(callsign);
                         updateHitPopupStatus(`<span style="color:#22c55e">▶ In the air now</span>`);
                     }
                     showIcon();
@@ -4565,6 +4438,7 @@
             // Flatten all day flights with pilot key attached
             const allDayFlights = [];
             visiblePilots.forEach(pilotKey => {
+                if (hiddenPilots.has(pilotKey)) return;
                 const segs = allPilotSegments[pilotKey];
                 if (!segs) return;
                 segs.filter(s => s.type === 'flight' && s.departureTime && flightLocalDate(s.departureTime, s.departureAirport) === mapDayDate)
@@ -4600,10 +4474,8 @@
                 const depTime = flightUTCTime(f.departureTime, f.departureAirport) || new Date(f.departureTime);
                 const arrTime = flightUTCTime(f.arrivalTime || f.departureTime, f.arrivalAirport) || new Date(f.arrivalTime || f.departureTime);
                 const _cs = deriveCallsign(f, f.pilotKey);
-                const _depDelay = _departureDelays.get(_cs) || 0;
-                const _estArr  = new Date(arrTime.getTime() + _depDelay * 60000);
-                const isActive = !_landedEarly.has(_cs) && depTime <= now && now <= new Date(_estArr.getTime() + 20 * 60000);
-                const isPast   = !isActive && _estArr < now;
+                const isActive = !_landedEarly.has(_cs) && depTime <= now && now <= new Date(arrTime.getTime() + 20 * 60000);
+                const isPast   = !isActive && arrTime < now;
                 const color = PILOT_COLORS[f.pilotKey];
 
                 // Offset index within pair group
@@ -4624,14 +4496,17 @@
                 const dayHits = worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' });
 
                 const blockMins = calcBlockMins(f);
+                const _pilotFirst = PILOT_NAMES[f.pilotKey].split(' ')[0];
+                const _statusLine = isActive
+                    ? `<div style="font-size:10px;color:#22c55e;font-weight:800;letter-spacing:.04em;margin-top:6px">▶ IN THE AIR</div>`
+                    : isPast
+                    ? `<div style="font-size:10px;color:#3f3f46;font-weight:800;letter-spacing:.04em;margin-top:6px">✓ COMPLETED</div>`
+                    : `<div style="font-size:10px;color:#3b82f6;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTS IN ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>`;
                 const dayPopup = `
-                    <div style="font-weight:900;font-size:13px;color:${color};margin-bottom:3px">${PILOT_NAMES[f.pilotKey]}</div>
-                    <div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${f.departureAirport} → ${f.arrivalAirport}</div>
-                    <div style="font-size:12px;color:#cbd5e1">${formatTimeISO(f.departureTime, f.departureAirport)}<span style="font-size:10px;opacity:.55;margin-left:3px">${tzAbbr(f.departureAirport, f.departureTime)}</span> → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}<span style="font-size:10px;opacity:.55;margin-left:3px">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span></div>
-                    <div style="font-size:12px;color:#94a3b8">Block ${blockMins ? formatDurationMinutes(blockMins) : '—'}${f.tail ? ' · ' + f.tail : ''}</div>
-                    ${isActive ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:6px">▶ In the air now</div>` : ''}
-                    ${isPast   ? `<div style="font-size:11px;color:#52525b;font-weight:700;margin-top:6px">✓ Completed</div>` : ''}
-                    ${!isActive && !isPast ? `<div style="font-size:11px;color:#60a5fa;font-weight:700;margin-top:6px">◷ Departs in ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>` : ''}
+                    <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:3px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
+                    <div style="font-size:11px;font-weight:700;margin-bottom:5px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${_cs}</span>` : ''}</div>
+                    <div style="font-size:11px;color:#94a3b8">${formatTimeISO(f.departureTime, f.departureAirport)} – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
+                    ${_statusLine}
                 `;
                 dayHits.forEach(h => { h.bindPopup(dayPopup, { className: 'dark-popup' }); h.addTo(map); });
                 dayLines.forEach(l => mapLayers.future.push(l));
@@ -4682,6 +4557,98 @@
             if (bounds.length > 0) {
                 const nb = bounds.map(p => [p[0], ((p[1] % 360) + 360) % 360]);
                 map.fitBounds(L.latLngBounds(nb).pad(0.25));
+            }
+
+            // Here-now pins for all crew — only meaningful when viewing today
+            if (mapDayDate === _localToday()) {
+                const now2 = new Date();
+                visiblePilots.forEach(pilotKey => {
+                    if (hiddenPilots.has(pilotKey)) return;
+                    const segs = allPilotSegments[pilotKey];
+                    if (!segs) return;
+                    const pilotFlights = segs.filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime)
+                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+
+                    const isAirborne = pilotFlights.some(f => {
+                        const d = flightUTCTime(f.departureTime, f.departureAirport);
+                        const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                        if (!(d && a && d <= now2 && now2 <= new Date(a.getTime() + 20 * 60000))) return false;
+                        const cs = deriveCallsign(f, pilotKey);
+                        return !cs || !_landedEarly.has(cs);
+                    });
+
+                    let locationCode, popupExtra, isAtHome = false;
+                    const pilotName = (PILOT_NAMES[pilotKey] || pilotKey).split(' ')[0];
+                    const pilotColor = PILOT_COLORS[pilotKey] || '#94a3b8';
+                    const home = PILOT_HOME[pilotKey] || null;
+
+                    if (isAirborne) {
+                        return; // active flight arc already shown on the map
+                    } else {
+                        const completedFlights = pilotFlights.filter(f => {
+                            const cs = deriveCallsign(f, pilotKey);
+                            if (cs && _landedEarly.has(cs)) return true;
+                            const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                            return a && a <= now2;
+                        });
+                        const lastFlight = completedFlights[completedFlights.length - 1] || null;
+                        const lastArrival = lastFlight?.arrivalAirport || null;
+
+                        const activeAway = segs
+                            .filter(s => s.type === 'away' && s.arrivalAirport && !isHomeOrBase(s.arrivalAirport, pilotKey))
+                            .sort((a, b) => new Date(b.departureTime) - new Date(a.departureTime))
+                            .find(s => {
+                                const start = new Date(s.departureTime);
+                                if (isNaN(start) || start > now2) return false;
+                                if (s.arrivalTime) { const end = new Date(s.arrivalTime); if (isNaN(end) || end <= now2) return false; }
+                                else { const dayEnd = new Date(start); dayEnd.setDate(dayEnd.getDate() + 1); if (now2 >= dayEnd) return false; }
+                                const awayApt = s.arrivalAirport.toUpperCase();
+                                return !pilotFlights.some(f => {
+                                    if (!f.departureAirport || f.departureAirport.toUpperCase() !== awayApt) return false;
+                                    const depTime = flightUTCTime(f.departureTime, f.departureAirport);
+                                    return depTime && depTime > start && depTime <= now2;
+                                });
+                            });
+
+                        if (activeAway) {
+                            locationCode = activeAway.arrivalAirport;
+                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Overnight</div>`;
+                        } else {
+                            const recentEnough = lastFlight && (now2 - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
+                            const homeCode = PILOT_HOME[pilotKey] || PILOT_HOMES[pilotKey] || null;
+                            const atHome = isHomeAirport(lastArrival, pilotKey);
+                            isAtHome = !recentEnough || !lastArrival || atHome;
+                            locationCode = (recentEnough && lastArrival && !atHome) ? lastArrival : homeCode;
+                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Overnight'}</div>`;
+                        }
+                    }
+
+                    const locationCoords = locationCode ? resolveAirport(locationCode) : null;
+                    if (!locationCoords) return;
+
+                    const pc  = hexToRgba(pilotColor, 0.7);
+                    const pc0 = hexToRgba(pilotColor, 0);
+                    const herePopup = `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${pilotName} is here</div>${popupExtra}`;
+                    WORLD_OFFSETS.forEach(w => {
+                        const wCoords = [locationCoords[0], locationCoords[1] + w * 360];
+                        const dotHtml = `<div style="width:14px;height:14px;border-radius:50%;background:${pilotColor};border:2px solid #fff;--pc:${pc};--pc0:${pc0};animation:here-pulse-plane 2s ease-out infinite"></div>`;
+                        const pin = L.marker(wCoords, {
+                            icon: L.divIcon({ className: '', html: dotHtml, iconSize: [14, 14], iconAnchor: [7, 7] }),
+                            zIndexOffset: 2000
+                        });
+                        pin.bindPopup(herePopup, { className: 'dark-popup' });
+                        pin.addTo(map);
+                        const nameLabel = L.marker(wCoords, {
+                            icon: L.divIcon({
+                                className: '',
+                                html: `<div style="color:${pilotColor};font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,8px);white-space:nowrap">${pilotName}</div>`,
+                                iconAnchor: [0, 0]
+                            }),
+                            interactive: false
+                        }).addTo(map);
+                        mapLayers.active.push(pin, nameLabel);
+                    });
+                });
             }
         }
 
@@ -4782,7 +4749,7 @@
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - arrDate) / 60000;
-                                const atHome = pilotBase && arrApt === pilotBase;
+                                const atHome = groundMins > 2160 && isHomeOrBase(arrApt, currentPilot);
                                 if (groundMins > 0) {
                                     if (!atHome) {
                                         const label = groundMins < 240 ? 'Turn' : 'Overnight';
@@ -4867,7 +4834,7 @@
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
                                 const gm = (new Date(nextLeg.departureTime) - new Date(arrTime)) / 60000;
-                                const atHome = pilotBase && arrApt === pilotBase;
+                                const atHome = gm > 2160 && isHomeOrBase(arrApt, currentPilot);
                                 if (gm > 0 && !atHome) layoverText = gm < 240 ? `Turn ${formatDurationMinutes(gm)}` : `Overnight ${formatDurationMinutes(gm)}`;
                             }
                         }
@@ -4949,7 +4916,7 @@
                     const isFlying = dayEvents.some(e => e.type === 'flight' || e.type === 'ground');
                     const isReserve = dayEvents.some(e => e.type === 'reserve');
                     let away = dayEvents.find(e => e.type === 'away');
-                    if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
+                    if (away && isHomeOrBase(away.arrivalAirport, currentPilot)) away = null;
 
                     const allPilotsCached = PILOT_KEYS.every(k => pilotsCache[k] && typeof pilotsCache[k] === 'object');
                     const isAllCrewOff = false; /* reserved — highlight lives in overlap view common days off
@@ -4992,7 +4959,7 @@
                                 ? segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === f.arrivalAirport && s.departureTime > f.arrivalTime)
                                     .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0]
                                 : null;
-                            const gOvr = gNext ? (() => { const gm = (new Date(gNext.departureTime) - new Date(f.arrivalTime)) / 60000; return (gm > 240 && !(pilotBase && f.arrivalAirport === pilotBase)) ? `Overnight ${formatDurationMinutes(gm)}` : ''; })() : '';
+                            const gOvr = gNext ? (() => { const gm = (new Date(gNext.departureTime) - new Date(f.arrivalTime)) / 60000; return (gm > 240 && !(gm > 2160 && isHomeOrBase(f.arrivalAirport, currentPilot))) ? `Overnight ${formatDurationMinutes(gm)}` : ''; })() : '';
                             html += `<div class="rounded-lg px-2 py-[4px] ground-item" data-dep-apt="${f.departureAirport||''}" data-arr-apt="${f.arrivalAirport||''}" data-dep-time="${f.departureTime||''}" data-arr-time="${f.arrivalTime||''}" data-flight="${gCode}" style="font-size:9px;font-weight:700;color:#52525b;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
                                 <div>GND ${f.departureAirport}→${f.arrivalAirport}</div>
                                 <div style="font-weight:500;font-size:8.5px;margin-top:1px">${gDepFmt}${gCode ? ` · ${gCode}` : ''}</div>
@@ -5023,7 +4990,7 @@
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                const atHome = pilotBase && arrApt.toUpperCase() === pilotBase.toUpperCase();
+                                const atHome = groundMins > 2160 && isHomeOrBase(arrApt, currentPilot);
                                 if (groundMins > 0) {
                                     if (!atHome) {
                                         const lbl = groundMins < 240 ? 'Turn' : 'Overnight';
@@ -5038,13 +5005,9 @@
                         const depMs = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                         const arrMs = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                         const csig = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                        const _calDepDelay = _departureDelays.get(csig) || 0;
-                        const _calEstArr  = arrMs ? arrMs + _calDepDelay * 60000 : null;
-                        const isActiveLeg = depMs && _calEstArr && depMs <= nowMs && nowMs <= _calEstArr;
-                        const isCalDelayed = isActiveLeg && _delayedFlights.has(csig);
-                        const _activeBorder = isCalDelayed ? 'rgba(249,115,22,0.85)' : 'rgba(34,197,94,0.85)';
+                        const isActiveLeg = depMs && arrMs && depMs <= nowMs && nowMs <= arrMs;
                         const cellBg = isActiveLeg
-                            ? (isPersonal ? `background:rgba(109,40,217,0.15);border:2px solid ${_activeBorder}` : isCommute ? `background:rgba(120,53,15,0.2);border:2px solid ${_activeBorder}` : `background:rgba(0,0,0,0.4);border:2px solid ${_activeBorder}`)
+                            ? (isPersonal ? `background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)` : isCommute ? `background:rgba(120,53,15,0.2);border:2px solid rgba(34,197,94,0.85)` : `background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)`)
                             : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : isCommute ? 'background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.25)' : 'background:rgba(0,0,0,0.4)');
                         html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}"${isActiveLeg && csig ? ` data-live-callsign="${csig}"` : ''}>`;
                         const cellFlightLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
@@ -5091,24 +5054,16 @@
                     const isToday = dateObj.getTime() === today.getTime();
                     const isHard = dayEvents.some(e => e.type === 'hard');
                     let away = dayEvents.find(e => e.type === 'away');
-                    if (away && away.arrivalAirport === pilotBase) away = null;
+                    if (away && isHomeOrBase(away.arrivalAirport, currentPilot)) away = null;
                     const flights = dayEvents.filter(e => e.type === 'flight');
                     const reserves = dayEvents.filter(e => e.type === 'reserve');
                     const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
                     const _listNow = Date.now();
-                    const _listAnyDelayed = flights.some(f => {
+                    const _listAnyLive = flights.some(f => {
                         const cs = deriveCallsign(f, currentPilot) || '';
                         const dMs = f.departureTime ? flightUTCTime(f.departureTime, f.departureAirport)?.getTime() : null;
                         const rawAMs = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport)?.getTime() : null;
-                        const estAMs = rawAMs ? rawAMs + (_departureDelays.get(cs) || 0) * 60000 : null;
-                        return dMs && estAMs && dMs <= _listNow && _listNow <= estAMs && _delayedFlights.has(cs);
-                    });
-                    const _listAnyLive = !_listAnyDelayed && flights.some(f => {
-                        const cs = deriveCallsign(f, currentPilot) || '';
-                        const dMs = f.departureTime ? flightUTCTime(f.departureTime, f.departureAirport)?.getTime() : null;
-                        const rawAMs = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport)?.getTime() : null;
-                        const estAMs = rawAMs ? rawAMs + (_departureDelays.get(cs) || 0) * 60000 : null;
-                        return dMs && estAMs && dMs <= _listNow && _listNow <= estAMs && !_landedEarly.has(cs);
+                        return dMs && rawAMs && dMs <= _listNow && _listNow <= rawAMs && !_landedEarly.has(cs);
                     });
                     let bgColor, labelColor, sidebarColor, sidebarBorder, label = currentPilot === 'kyle' ? "ON CALL" : "OFF";
                     if (isHard) {
@@ -5117,8 +5072,6 @@
                         bgColor = "bg-amber-950/30 border-amber-500/30"; labelColor = "text-amber-400"; sidebarColor = "text-amber-400"; sidebarBorder = "border-amber-700/40"; label = "ON CALL";
                     } else if (away) {
                         bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${away.arrivalAirport}`;
-                    } else if (_listAnyDelayed) {
-                        bgColor = "bg-orange-950/40 border-orange-600/60"; labelColor = "text-orange-300"; sidebarColor = "text-orange-300"; sidebarBorder = "border-orange-700/60"; label = "DELAYED";
                     } else if (_listAnyLive) {
                         bgColor = "bg-emerald-950/40 border-emerald-600/60"; labelColor = "text-emerald-300"; sidebarColor = "text-emerald-300"; sidebarBorder = "border-emerald-700/60"; label = "▶ IN THE AIR";
                     } else if (flights.length > 0) {
@@ -5150,7 +5103,7 @@
                                 let grndLayover = '';
                                 if (nextFromGrnd) {
                                     const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
-                                    const atHome = pilotBase && g.arrivalAirport === pilotBase;
+                                    const atHome = gm > 2160 && isHomeOrBase(g.arrivalAirport, currentPilot);
                                     if (gm > 240 && !atHome) grndLayover = `<span class="text-amber-400 font-semibold ml-2 text-[10px]">Overnight ${formatDurationMinutes(gm)}</span>`;
                                 }
                                 const gDepFmt2 = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
@@ -5199,7 +5152,7 @@
                                         .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                                     if (nextLeg) {
                                         const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                        const atHome = pilotBase && arrApt === pilotBase;
+                                        const atHome = groundMins > 2160 && isHomeOrBase(arrApt, currentPilot);
                                         if (groundMins > 0) {
                                             if (!atHome) {
                                                 const label = groundMins < 240 ? 'Turn' : 'Overnight';
@@ -5214,16 +5167,13 @@
                                 const depMs2 = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                                 const arrMs2 = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                                 const csig2 = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                                const _listDepDelay = _departureDelays.get(csig2) || 0;
-                                const _listEstArr  = arrMs2 ? arrMs2 + _listDepDelay * 60000 : null;
-                                const isActiveLeg2 = depMs2 && _listEstArr && depMs2 <= nowMs2 && nowMs2 <= _listEstArr;
-                                const isListDelayed = isActiveLeg2 && _delayedFlights.has(csig2);
+                                const isActiveLeg2 = depMs2 && arrMs2 && depMs2 <= nowMs2 && nowMs2 <= arrMs2;
                                 const rowBorder = isActiveLeg2
-                                    ? (isListDelayed ? 'border-orange-500/80 ring-1 ring-orange-500/30' : 'border-green-500/80 ring-1 ring-green-500/30')
+                                    ? 'border-green-500/80 ring-1 ring-green-500/30'
                                     : (isPersonal ? 'border-violet-900/50' : isCommute ? 'border-amber-900/50' : 'border-blue-900/30');
                                 const rowBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : 'bg-black/30';
                                 const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
-                                const _liveSlotBorder = isListDelayed ? 'rgba(249,115,22,0.15)' : 'rgba(34,197,94,0.15)';
+                                const _liveSlotBorder = 'rgba(34,197,94,0.15)';
                                 const liveSlot = isActiveLeg2 && csig2 ? `<div id="live-${csig2}" style="font-size:11px;color:#4ade80;font-weight:700;margin-top:8px;padding-top:6px;border-top:1px solid ${_liveSlotBorder};display:none"></div>` : '';
                                 return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}" data-dep-time="${depAttr}" data-dep-apt="${depApt}"` : ''}><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}${commuteBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div>${liveSlot}</div>`;
                             }
@@ -5526,7 +5476,7 @@
 
             const isHard = dayEvents.some(e => e.type === 'hard');
             let away = dayEvents.find(e => e.type === 'away');
-            if (away && pilotBase && away.arrivalAirport === pilotBase) away = null;
+            if (away && isHomeAirport(away.arrivalAirport, currentPilot)) away = null;
             const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
             const reserves = dayEvents.filter(e => e.type === 'reserve').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
             const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
@@ -5536,18 +5486,13 @@
                 const cs = deriveCallsign(f, currentPilot) || '';
                 const dMs = f.departureTime ? flightUTCTime(f.departureTime, f.departureAirport)?.getTime() : null;
                 const rawAMs = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport)?.getTime() : null;
-                const depDelay = _departureDelays.get(cs) || 0;
-                const aMs = rawAMs ? rawAMs + depDelay * 60000 : null;
-                return { dMs, aMs, cs };
+                return { dMs, aMs: rawAMs, cs };
             });
-            const anyActiveWindow = flightMs.some(({dMs, aMs}) => dMs && aMs && dMs <= nowMs && nowMs <= aMs);
-            const anyDelayedActive = anyActiveWindow && flightMs.some(({dMs, aMs, cs}) => dMs && aMs && dMs <= nowMs && nowMs <= aMs && _delayedFlights.has(cs));
-            const anyLive = anyActiveWindow && !anyDelayedActive;
+            const anyLive = flightMs.some(({dMs, aMs}) => dMs && aMs && dMs <= nowMs && nowMs <= aMs);
             let label = currentPilot === 'kyle' ? 'ON CALL' : 'DAY OFF';
             let labelColor = 'text-zinc-400';
             if (isHard) { label = 'HARD OFF'; labelColor = 'text-red-400'; }
             else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
-            else if (anyDelayedActive) { label = '⏱ DELAYED'; labelColor = 'text-orange-400'; }
             else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
             else if (flights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
             else if (reserves.length > 0) { label = 'ON CALL'; labelColor = 'text-amber-400'; }
@@ -5577,7 +5522,7 @@
                 let grndLayover = '';
                 if (nextFromGrnd) {
                     const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
-                    if (gm > 240 && !(pilotBase && g.arrivalAirport === pilotBase))
+                    if (gm > 240 && !(gm > 2160 && isHomeOrBase(g.arrivalAirport, currentPilot)))
                         grndLayover = `<div class="text-amber-300 text-xs font-semibold mt-1">Overnight ${formatDurationMinutes(gm)}</div>`;
                 }
                 const gDep = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
@@ -5626,7 +5571,7 @@
                         .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                     if (nextLeg) {
                         const gm = (new Date(nextLeg.departureTime) - new Date(f.arrivalTime)) / 60000;
-                        const atHome = pilotBase && arr === pilotBase;
+                        const atHome = gm > 2160 && isHomeOrBase(arr, currentPilot);
                         if (gm > 0) {
                             if (!atHome) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Overnight'} ${formatDurationMinutes(gm)}</div>`;
                             else if (flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">Turn ${formatDurationMinutes(gm)}</div>`;
@@ -5634,15 +5579,12 @@
                     }
                 }
                 const isActiveLeg = dMs && aMs && dMs <= nowMs && nowMs <= aMs;
-                const isDayCardDelayed = isActiveLeg && _delayedFlights.has(_dayCs);
                 const cardBorder = isActiveLeg
-                    ? (isDayCardDelayed ? 'border-orange-500/80' : 'border-emerald-500/80')
+                    ? 'border-emerald-500/80'
                     : (isPersonal ? 'border-violet-500/30' : isCommute ? 'border-amber-500/30' : 'border-white/10');
                 const cardBg = isPersonal ? 'bg-violet-950/30' : isCommute ? 'bg-amber-950/30' : 'bg-black/40';
                 const liveBadge = isActiveLeg
-                    ? (isDayCardDelayed
-                        ? `<span class="text-[9px] font-black text-orange-400 tracking-widest">⏱ DELAYED</span>`
-                        : `<span class="text-[9px] font-black text-emerald-400 tracking-widest">▶ LIVE</span>`)
+                    ? `<span class="text-[9px] font-black text-emerald-400 tracking-widest">▶ LIVE</span>`
                     : '';
                 const editActions = (f.id && canEdit()) ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${f.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
