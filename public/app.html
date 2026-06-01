@@ -1730,7 +1730,7 @@
     END:VCALENDAR`;
         // ── App state ─────────────────────────────────────────────────────
         let segments = [];          // currently loaded pilot's segments (camelCase)
-        let viewDate = new Date(2026, 4, 1); // month shown in grid/list/map
+        let viewDate = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })(); // month shown in grid/list/map
         let currentPilot = 'kyle'; // whose schedule is displayed
         let currentView = 'grid';  // 'grid' | 'list' | 'map' | 'overlap'
         let map, mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
@@ -4827,6 +4827,50 @@
                     const pilotName = (PILOT_NAMES[pilotKey] || pilotKey).split(' ')[0];
                     const pilotColor = PILOT_COLORS[pilotKey] || '#94a3b8';
 
+                    // Active reserve: on call at a specific airport right now
+                    const activeReserve = segs.find(s => {
+                        if (s.type !== 'reserve' || !s.departureAirport) return false;
+                        const start = flightUTCTime(s.departureTime, s.departureAirport);
+                        const end = s.arrivalTime ? flightUTCTime(s.arrivalTime, s.arrivalAirport || s.departureAirport) : null;
+                        return start && start <= now2 && (!end || now2 <= end);
+                    });
+                    if (activeReserve) {
+                        locationCode = activeReserve.departureAirport;
+                        popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Reserve</div>`;
+                        const locationCoords = resolveAirport(locationCode);
+                        if (locationCoords) hereNowEntries.push({ pilotName, pilotColor, locationCoords, popupExtra });
+                        return;
+                    }
+
+                    // Reserve ended today — still overnight at that airport if a trip departs from there
+                    const recentReserve = segs.find(s => {
+                        if (s.type !== 'reserve' || !s.departureAirport) return false;
+                        const end = s.arrivalTime ? flightUTCTime(s.arrivalTime, s.arrivalAirport || s.departureAirport) : null;
+                        if (!end || end > now2) return false;
+                        const endLocalDate = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
+                        return endLocalDate >= _localToday();
+                    });
+                    if (recentReserve) {
+                        const resApt = recentReserve.departureAirport.toUpperCase();
+                        const hasFutureFromReserve =
+                            pilotFlights.some(f => {
+                                const depTime = flightUTCTime(f.departureTime, f.departureAirport);
+                                return f.departureAirport?.toUpperCase() === resApt && depTime && depTime > now2;
+                            }) ||
+                            segs.some(s => {
+                                if (s.type !== 'reserve' || !s.departureAirport) return false;
+                                const start = flightUTCTime(s.departureTime, s.departureAirport);
+                                return s.departureAirport.toUpperCase() === resApt && start && start > now2;
+                            });
+                        if (hasFutureFromReserve) {
+                            locationCode = recentReserve.departureAirport;
+                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Overnight</div>`;
+                            const locationCoords = resolveAirport(locationCode);
+                            if (locationCoords) hereNowEntries.push({ pilotName, pilotColor, locationCoords, popupExtra });
+                            return;
+                        }
+                    }
+
                     const completedFlights = pilotFlights.filter(f => {
                         const cs = deriveCallsign(f, pilotKey);
                         if (cs && _landedEarly.has(cs)) return true;
@@ -4845,23 +4889,68 @@
                             if (s.arrivalTime) { const end = new Date(s.arrivalTime); if (isNaN(end) || end <= now2) return false; }
                             else { const dayEnd = new Date(start); dayEnd.setDate(dayEnd.getDate() + 1); if (now2 >= dayEnd) return false; }
                             const awayApt = s.arrivalAirport.toUpperCase();
-                            return !pilotFlights.some(f => {
+                            if (pilotFlights.some(f => {
                                 if (!f.departureAirport || f.departureAirport.toUpperCase() !== awayApt) return false;
                                 const depTime = flightUTCTime(f.departureTime, f.departureAirport);
                                 return depTime && depTime > start && depTime <= now2;
+                            })) return false;
+                            // Commute prediction: even if the AWAY segment hasn't officially ended,
+                            // if the flying portion is done and enough time has passed, the pilot is home.
+                            const hasFutureFlightsFromAway = pilotFlights.some(f => {
+                                const depTime = flightUTCTime(f.departureTime, f.departureAirport);
+                                return f.departureAirport?.toUpperCase() === awayApt && depTime && depTime > now2;
                             });
+                            if (!hasFutureFlightsFromAway) {
+                                const lastArrHere = pilotFlights
+                                    .filter(f => {
+                                        const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                                        return f.arrivalAirport?.toUpperCase() === awayApt && a && a <= now2;
+                                    })
+                                    .slice(-1)[0];
+                                const lastArrUTC = lastArrHere ? flightUTCTime(lastArrHere.arrivalTime, lastArrHere.arrivalAirport) : null;
+                                if (!lastArrUTC) return false;
+                                const lastArrDate = `${lastArrUTC.getFullYear()}-${String(lastArrUTC.getMonth()+1).padStart(2,'0')}-${String(lastArrUTC.getDate()).padStart(2,'0')}`;
+                                if (lastArrDate < _localToday() || (now2 - lastArrUTC) >= 3 * 60 * 60 * 1000) return false;
+                            }
+                            return true;
                         });
 
                     if (activeAway) {
                         locationCode = activeAway.arrivalAirport;
                         popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Overnight</div>`;
                     } else {
-                        const recentEnough = lastFlight && (now2 - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
                         const homeCode = PILOT_HOME[pilotKey] || PILOT_HOMES[pilotKey] || null;
                         const atHome = isHomeAirport(lastArrival, pilotKey);
-                        const isAtHome = !recentEnough || !lastArrival || atHome;
-                        locationCode = (recentEnough && lastArrival && !atHome) ? lastArrival : homeCode;
-                        popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Overnight'}</div>`;
+                        const atBase = isBaseAirport(lastArrival, pilotKey);
+
+                        const tripEndUTC = lastFlight ? flightUTCTime(lastFlight.arrivalTime, lastFlight.arrivalAirport) : null;
+                        const tripEndLocalDate = tripEndUTC
+                            ? `${tripEndUTC.getFullYear()}-${String(tripEndUTC.getMonth()+1).padStart(2,'0')}-${String(tripEndUTC.getDate()).padStart(2,'0')}`
+                            : null;
+                        // Commute window has passed: landed on a previous calendar day, or 3+ hours ago today
+                        const commuteWindowPassed = tripEndUTC && (
+                            tripEndLocalDate < _localToday() ||
+                            (now2 - tripEndUTC) >= 3 * 60 * 60 * 1000
+                        );
+
+                        // Mid-trip layover: non-home AND non-base airport with future flights still scheduled.
+                        // Base airports (e.g. LGA for Adam) don't count — pilots always commute home between trips.
+                        const midTrip = lastArrival && !atHome && !atBase && pilotFlights.some(f => {
+                            const depTime = flightUTCTime(f.departureTime, f.departureAirport);
+                            return f.departureAirport?.toUpperCase() === lastArrival.toUpperCase() && depTime && depTime > now2;
+                        });
+
+                        if (!lastArrival || atHome || commuteWindowPassed) {
+                            locationCode = homeCode;
+                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${homeCode} · Home</div>`;
+                        } else if (midTrip) {
+                            locationCode = lastArrival;
+                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${lastArrival} · Overnight</div>`;
+                        } else {
+                            // Just landed (at base or elsewhere) — within 3-hour commute window
+                            locationCode = lastArrival;
+                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${lastArrival} · Heading home</div>`;
+                        }
                     }
 
                     const locationCoords = locationCode ? resolveAirport(locationCode) : null;
@@ -4890,9 +4979,7 @@
                             const herePopup = `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${pilotName} is here</div>${popupExtra}`;
                             const dotHtml = `<div style="width:16px;height:16px;border-radius:50%;background:${pilotColor};border:2px solid #fff;--pc:${pc};--pc0:${pc0};animation:here-pulse-plane 2s ease-out infinite"></div>`;
                             const pin = L.marker(wCoords, {
-                                // iconAnchor y=20 on a 16px icon places the dot so its bottom sits 4px above the coord,
-                                // keeping the airport code label visible beneath it
-                                icon: L.divIcon({ className: '', html: dotHtml, iconSize: [16, 16], iconAnchor: [8, 20] }),
+                                icon: L.divIcon({ className: '', html: dotHtml, iconSize: [16, 16], iconAnchor: [8, 8] }),
                                 zIndexOffset: 2000
                             });
                             pin.bindPopup(herePopup, { className: 'dark-popup' });
@@ -4900,7 +4987,7 @@
                             const nameLabel = L.marker(wCoords, {
                                 icon: L.divIcon({
                                     className: '',
-                                    html: `<div style="color:${pilotColor};font-size:11px;font-weight:800;text-shadow:0 1px 6px rgba(0,0,0,1),0 1px 6px rgba(0,0,0,1);background:rgba(0,0,0,0.45);border-radius:4px;padding:0 3px;transform:translate(-50%,8px);white-space:nowrap">${pilotName}</div>`,
+                                    html: `<div style="color:${pilotColor};font-size:11px;font-weight:800;text-shadow:0 1px 6px rgba(0,0,0,1),0 1px 6px rgba(0,0,0,1);background:rgba(0,0,0,0.45);border-radius:4px;padding:0 3px;transform:translate(-50%,10px);white-space:nowrap">${pilotName}</div>`,
                                     iconAnchor: [0, 0]
                                 }),
                                 interactive: false
