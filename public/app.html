@@ -4810,9 +4810,26 @@
                     if (hiddenPilots.has(pilotKey)) return;
                     const segs = allPilotSegments[pilotKey];
                     if (!segs) return;
-                    const pilotFlights = segs.filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime)
+
+                    const pilotName = (PILOT_NAMES[pilotKey] || pilotKey).split(' ')[0];
+                    const pilotColor = PILOT_COLORS[pilotKey] || '#94a3b8';
+                    const homeCode   = PILOT_HOME[pilotKey] || PILOT_HOMES[pilotKey] || null;
+
+                    const pilotFlights = segs
+                        .filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime)
                         .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
 
+                    // Helper — resolve airport and push a pin entry
+                    const pushPin = (code, label) => {
+                        const coords = resolveAirport(code);
+                        if (!coords) return;
+                        hereNowEntries.push({
+                            pilotName, pilotColor, locationCoords: coords,
+                            popupExtra: `<div style="font-size:12px;color:#c4b5fd">${code} · ${label}</div>`
+                        });
+                    };
+
+                    // ── 1. Airborne — live tracking handles position, no static dot ──
                     const isAirborne = pilotFlights.some(f => {
                         const d = flightUTCTime(f.departureTime, f.departureAirport);
                         const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
@@ -4820,143 +4837,108 @@
                         const cs = deriveCallsign(f, pilotKey);
                         return !cs || !_landedEarly.has(cs);
                     });
-
                     if (isAirborne) return;
 
-                    let locationCode, popupExtra;
-                    const pilotName = (PILOT_NAMES[pilotKey] || pilotKey).split(' ')[0];
-                    const pilotColor = PILOT_COLORS[pilotKey] || '#94a3b8';
-
-                    // Active reserve: on call at a specific airport right now
+                    // ── 2. Active reserve period ──
                     const activeReserve = segs.find(s => {
                         if (s.type !== 'reserve' || !s.departureAirport) return false;
                         const start = flightUTCTime(s.departureTime, s.departureAirport);
-                        const end = s.arrivalTime ? flightUTCTime(s.arrivalTime, s.arrivalAirport || s.departureAirport) : null;
+                        const end   = s.arrivalTime ? flightUTCTime(s.arrivalTime, s.arrivalAirport || s.departureAirport) : null;
                         return start && start <= now2 && (!end || now2 <= end);
                     });
-                    if (activeReserve) {
-                        locationCode = activeReserve.departureAirport;
-                        popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Reserve</div>`;
-                        const locationCoords = resolveAirport(locationCode);
-                        if (locationCoords) hereNowEntries.push({ pilotName, pilotColor, locationCoords, popupExtra });
-                        return;
-                    }
+                    if (activeReserve) { pushPin(activeReserve.departureAirport, 'Reserve'); return; }
 
-                    // Reserve ended today — still overnight at that airport if a trip departs from there
-                    const recentReserve = segs.find(s => {
+                    // ── 3. Reserve ended today — overnight if more work at same airport ──
+                    const todayEndedReserve = segs.find(s => {
                         if (s.type !== 'reserve' || !s.departureAirport) return false;
                         const end = s.arrivalTime ? flightUTCTime(s.arrivalTime, s.arrivalAirport || s.departureAirport) : null;
                         if (!end || end > now2) return false;
-                        const endLocalDate = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
-                        return endLocalDate >= _localToday();
+                        const d = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
+                        return d >= _localToday();
                     });
-                    if (recentReserve) {
-                        const resApt = recentReserve.departureAirport.toUpperCase();
-                        const hasFutureFromReserve =
-                            pilotFlights.some(f => {
-                                const depTime = flightUTCTime(f.departureTime, f.departureAirport);
-                                return f.departureAirport?.toUpperCase() === resApt && depTime && depTime > now2;
-                            }) ||
-                            segs.some(s => {
-                                if (s.type !== 'reserve' || !s.departureAirport) return false;
-                                const start = flightUTCTime(s.departureTime, s.departureAirport);
-                                return s.departureAirport.toUpperCase() === resApt && start && start > now2;
-                            });
-                        if (hasFutureFromReserve) {
-                            locationCode = recentReserve.departureAirport;
-                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Overnight</div>`;
-                            const locationCoords = resolveAirport(locationCode);
-                            if (locationCoords) hereNowEntries.push({ pilotName, pilotColor, locationCoords, popupExtra });
-                            return;
-                        }
+                    if (todayEndedReserve) {
+                        const apt = todayEndedReserve.departureAirport.toUpperCase();
+                        const moreWork = segs.some(s => {
+                            if (s.type !== 'flight' && s.type !== 'reserve') return false;
+                            if (s.departureAirport?.toUpperCase() !== apt) return false;
+                            const dep = flightUTCTime(s.departureTime, s.departureAirport);
+                            return dep && dep > now2;
+                        });
+                        if (moreWork) { pushPin(todayEndedReserve.departureAirport, 'Overnight'); return; }
                     }
 
-                    const completedFlights = pilotFlights.filter(f => {
-                        const cs = deriveCallsign(f, pilotKey);
-                        if (cs && _landedEarly.has(cs)) return true;
-                        const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                        return a && a <= now2;
-                    });
-                    const lastFlight = completedFlights[completedFlights.length - 1] || null;
-                    const lastArrival = lastFlight?.arrivalAirport || null;
-
+                    // ── 4. Active AWAY segment (manually entered — trusted as authoritative) ──
+                    // Used by corporate pilots for multi-day trips; also airline pilots who enter them.
                     const activeAway = segs
                         .filter(s => s.type === 'away' && s.arrivalAirport && !isHomeOrBase(s.arrivalAirport, pilotKey))
                         .sort((a, b) => new Date(b.departureTime) - new Date(a.departureTime))
                         .find(s => {
                             const start = new Date(s.departureTime);
                             if (isNaN(start) || start > now2) return false;
-                            if (s.arrivalTime) { const end = new Date(s.arrivalTime); if (isNaN(end) || end <= now2) return false; }
-                            else { const dayEnd = new Date(start); dayEnd.setDate(dayEnd.getDate() + 1); if (now2 >= dayEnd) return false; }
-                            const awayApt = s.arrivalAirport.toUpperCase();
-                            if (pilotFlights.some(f => {
-                                if (!f.departureAirport || f.departureAirport.toUpperCase() !== awayApt) return false;
-                                const depTime = flightUTCTime(f.departureTime, f.departureAirport);
-                                return depTime && depTime > start && depTime <= now2;
-                            })) return false;
-                            // Commute prediction: even if the AWAY segment hasn't officially ended,
-                            // if the flying portion is done and enough time has passed, the pilot is home.
-                            const hasFutureFlightsFromAway = pilotFlights.some(f => {
-                                const depTime = flightUTCTime(f.departureTime, f.departureAirport);
-                                return f.departureAirport?.toUpperCase() === awayApt && depTime && depTime > now2;
-                            });
-                            if (!hasFutureFlightsFromAway) {
-                                const lastArrHere = pilotFlights
-                                    .filter(f => {
-                                        const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                                        return f.arrivalAirport?.toUpperCase() === awayApt && a && a <= now2;
-                                    })
-                                    .slice(-1)[0];
-                                const lastArrUTC = lastArrHere ? flightUTCTime(lastArrHere.arrivalTime, lastArrHere.arrivalAirport) : null;
-                                if (!lastArrUTC) return false;
-                                const lastArrDate = `${lastArrUTC.getFullYear()}-${String(lastArrUTC.getMonth()+1).padStart(2,'0')}-${String(lastArrUTC.getDate()).padStart(2,'0')}`;
-                                if (lastArrDate < _localToday() || (now2 - lastArrUTC) >= 3 * 60 * 60 * 1000) return false;
+                            if (s.arrivalTime) {
+                                const end = new Date(s.arrivalTime);
+                                if (isNaN(end) || end <= now2) return false;
+                            } else {
+                                const dayEnd = new Date(start);
+                                dayEnd.setDate(dayEnd.getDate() + 1);
+                                if (now2 >= dayEnd) return false;
                             }
-                            return true;
+                            // Skip if a scheduled flight already departed from this airport during the away period
+                            const awayApt = s.arrivalAirport.toUpperCase();
+                            return !pilotFlights.some(f => {
+                                if (f.departureAirport?.toUpperCase() !== awayApt) return false;
+                                const dep = flightUTCTime(f.departureTime, f.departureAirport);
+                                return dep && dep > start && dep <= now2;
+                            });
                         });
+                    if (activeAway) { pushPin(activeAway.arrivalAirport, 'Overnight'); return; }
 
-                    if (activeAway) {
-                        locationCode = activeAway.arrivalAirport;
-                        popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Overnight</div>`;
+                    // ── 5. Infer location from flight history ──
+                    const completedFlights = pilotFlights.filter(f => {
+                        const cs = deriveCallsign(f, pilotKey);
+                        if (cs && _landedEarly.has(cs)) return true;
+                        const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                        return a && a <= now2;
+                    });
+                    const lastFlight  = completedFlights[completedFlights.length - 1] || null;
+                    const lastArrival = lastFlight?.arrivalAirport?.toUpperCase() || null;
+                    const lastArrUTC  = lastFlight ? flightUTCTime(lastFlight.arrivalTime, lastFlight.arrivalAirport) : null;
+
+                    const atHome = isHomeAirport(lastArrival, pilotKey);
+                    const atBase = isBaseAirport(lastArrival, pilotKey);
+
+                    // Future departures from the last arrival airport
+                    const nextDepFromHere = lastArrival ? pilotFlights.find(f => {
+                        const dep = flightUTCTime(f.departureTime, f.departureAirport);
+                        return f.departureAirport?.toUpperCase() === lastArrival && dep && dep > now2;
+                    }) : null;
+                    const nextDepUTC = nextDepFromHere ? flightUTCTime(nextDepFromHere.departureTime, nextDepFromHere.departureAirport) : null;
+
+                    // Mid-trip overnight: pilot is at a non-home airport with a future departure from there.
+                    // Includes turns at base — if the next leg departs within 12 h, the pilot hasn't gone home.
+                    const midTrip = lastArrival && !atHome && nextDepFromHere && (
+                        !atBase || (nextDepUTC - now2) < 12 * 60 * 60 * 1000
+                    );
+                    if (midTrip) { pushPin(lastArrival, 'Overnight'); return; }
+
+                    // ── 6. Commute prediction ──
+                    // Commuting only applies to pilots whose home ≠ base (e.g. Adam: base=LGA, home=TUL).
+                    // For home=base pilots (Drew, Kyle) landing at their base IS landing at home — no commute window.
+                    const isCommuter = atBase && !atHome;
+                    const lastArrDate = lastArrUTC
+                        ? `${lastArrUTC.getFullYear()}-${String(lastArrUTC.getMonth()+1).padStart(2,'0')}-${String(lastArrUTC.getDate()).padStart(2,'0')}`
+                        : null;
+                    const commuteWindowPassed = lastArrUTC && (
+                        lastArrDate < _localToday() ||
+                        (now2 - lastArrUTC) >= 3 * 60 * 60 * 1000
+                    );
+
+                    if (isCommuter && !commuteWindowPassed) {
+                        // Commuter pilot just landed at their airline base — heading home but not there yet
+                        pushPin(lastArrival, 'Heading home');
                     } else {
-                        const homeCode = PILOT_HOME[pilotKey] || PILOT_HOMES[pilotKey] || null;
-                        const atHome = isHomeAirport(lastArrival, pilotKey);
-                        const atBase = isBaseAirport(lastArrival, pilotKey);
-
-                        const tripEndUTC = lastFlight ? flightUTCTime(lastFlight.arrivalTime, lastFlight.arrivalAirport) : null;
-                        const tripEndLocalDate = tripEndUTC
-                            ? `${tripEndUTC.getFullYear()}-${String(tripEndUTC.getMonth()+1).padStart(2,'0')}-${String(tripEndUTC.getDate()).padStart(2,'0')}`
-                            : null;
-                        // Commute window has passed: landed on a previous calendar day, or 3+ hours ago today
-                        const commuteWindowPassed = tripEndUTC && (
-                            tripEndLocalDate < _localToday() ||
-                            (now2 - tripEndUTC) >= 3 * 60 * 60 * 1000
-                        );
-
-                        // Mid-trip layover: non-home AND non-base airport with future flights still scheduled.
-                        // Base airports (e.g. LGA for Adam) don't count — pilots always commute home between trips.
-                        const midTrip = lastArrival && !atHome && !atBase && pilotFlights.some(f => {
-                            const depTime = flightUTCTime(f.departureTime, f.departureAirport);
-                            return f.departureAirport?.toUpperCase() === lastArrival.toUpperCase() && depTime && depTime > now2;
-                        });
-
-                        if (!lastArrival || atHome || commuteWindowPassed) {
-                            locationCode = homeCode;
-                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${homeCode} · Home</div>`;
-                        } else if (midTrip) {
-                            locationCode = lastArrival;
-                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${lastArrival} · Overnight</div>`;
-                        } else {
-                            // Just landed (at base or elsewhere) — within 3-hour commute window
-                            locationCode = lastArrival;
-                            popupExtra = `<div style="font-size:12px;color:#c4b5fd">${lastArrival} · Heading home</div>`;
-                        }
+                        if (homeCode) pushPin(homeCode, 'Home');
                     }
-
-                    const locationCoords = locationCode ? resolveAirport(locationCode) : null;
-                    if (!locationCoords) return;
-
-                    hereNowEntries.push({ pilotName, pilotColor, locationCoords, popupExtra });
                 });
 
                 // Group by exact coordinates so co-located pilots render as a cluster
