@@ -551,7 +551,7 @@
                                 <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Upcoming</button>
                             </div>
                         </div>
-                        <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill hidden">⛈ Radar</button>
+                        <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
                         <div id="day-nav" class="hidden items-center gap-1 relative">
                             <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
                             <span id="day-nav-label" onclick="openDayPicker()" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center cursor-pointer hover:text-white transition-colors select-none" title="Pick a date"></span>
@@ -4184,7 +4184,6 @@
             _liveLabels.clear();
             stopCalListPollers();
             removeRadarLayer();
-            document.getElementById('btn-radar')?.classList.add('hidden');
         }
         function stopCalListPollers() {
             Object.values(_calListPollers).forEach(id => clearInterval(id));
@@ -4292,8 +4291,6 @@
             if (_livePollers[callsign]) return; // already polling
             if (_landedEarly.has(callsign)) return; // confirmed landed before scheduled arrival
 
-            const radarBtn = document.getElementById('btn-radar');
-            if (radarBtn) radarBtn.classList.remove('hidden');
             if (radarOn && !radarLayer) addRadarLayer();
 
             const tooltipOpts = { permanent: true, className: 'live-label', direction: 'right', offset: [14, 0] };
