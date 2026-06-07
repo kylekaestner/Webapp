@@ -3971,6 +3971,24 @@
                         locationCode = (recentEnough && lastArrival && !atHome) ? lastArrival : home;
                         label = isAtHome ? 'Home' : locationCode;
                         popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode}${isAtHome ? ' · Home' : ' · Overnight'}</div>`;
+
+                        // Reserve at a non-home airport means the pilot is at their base, not home.
+                        // The away-block logic skips base airports, so handle it here.
+                        if (isAtHome) {
+                            const recentReserve = segments
+                                .filter(s => s.type === 'reserve' && s.departureAirport)
+                                .sort((a, b) => new Date(b.departureTime) - new Date(a.departureTime))
+                                .find(s => {
+                                    const start = new Date(s.departureTime);
+                                    return !isNaN(start) && start <= now && (now - start) < 48 * 60 * 60 * 1000;
+                                });
+                            if (recentReserve && !isHomeAirport(recentReserve.departureAirport, currentPilot)) {
+                                locationCode = normApt(recentReserve.departureAirport);
+                                isAtHome = false;
+                                label = locationCode;
+                                popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · At base</div>`;
+                            }
+                        }
                     }
                 }
 
@@ -4845,13 +4863,13 @@
                     });
                     if (activeReserve) { pushPin(activeReserve.departureAirport, 'Reserve'); return; }
 
-                    // ── 3. Reserve ended today — overnight if more work at same airport ──
+                    // ── 3. Reserve ended recently — overnight if more work at same airport ──
+                    // Use a 36h window instead of date comparison to avoid UTC-vs-local timezone skew.
                     const todayEndedReserve = segs.find(s => {
                         if (s.type !== 'reserve' || !s.departureAirport) return false;
                         const end = s.arrivalTime ? flightUTCTime(s.arrivalTime, s.arrivalAirport || s.departureAirport) : null;
                         if (!end || end > now2) return false;
-                        const d = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
-                        return d >= _localToday();
+                        return (now2 - end) < 36 * 60 * 60 * 1000;
                     });
                     if (todayEndedReserve) {
                         const apt = todayEndedReserve.departureAirport.toUpperCase();
@@ -5113,7 +5131,7 @@
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - arrDate) / 60000;
-                                const atHome = groundMins > 2160 && isHomeOrBase(arrApt, currentPilot);
+                                const atHome = isHomeOrBase(arrApt, currentPilot);
                                 if (groundMins > 0) {
                                     if (!atHome) {
                                         const label = groundMins < 240 ? 'Turn' : 'Overnight';
@@ -5354,10 +5372,11 @@
                                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                const atHome = groundMins > 2160 && isHomeOrBase(arrApt, currentPilot);
+                                const atHome = isHomeOrBase(arrApt, currentPilot);
                                 if (groundMins > 0) {
                                     if (!atHome) {
-                                        const lbl = groundMins < 240 ? 'Turn' : 'Overnight';
+                                        const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
+                                        const lbl = (groundMins < 240 || sameDay) ? 'Turn' : 'Overnight';
                                         groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
                                     } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
                                         groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">Turn ${formatDurationMinutes(groundMins)}</div>`;
@@ -5467,7 +5486,7 @@
                                 let grndLayover = '';
                                 if (nextFromGrnd) {
                                     const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
-                                    const atHome = gm > 2160 && isHomeOrBase(g.arrivalAirport, currentPilot);
+                                    const atHome = isHomeOrBase(g.arrivalAirport, currentPilot);
                                     if (gm > 240 && !atHome) grndLayover = `<span class="text-amber-400 font-semibold ml-2 text-[10px]">Overnight ${formatDurationMinutes(gm)}</span>`;
                                 }
                                 const gDepFmt2 = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
@@ -5516,10 +5535,11 @@
                                         .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                                     if (nextLeg) {
                                         const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                        const atHome = groundMins > 2160 && isHomeOrBase(arrApt, currentPilot);
+                                        const atHome = isHomeOrBase(arrApt, currentPilot);
                                         if (groundMins > 0) {
                                             if (!atHome) {
-                                                const label = groundMins < 240 ? 'Turn' : 'Overnight';
+                                                const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
+                                                const label = (groundMins < 240 || sameDay) ? 'Turn' : 'Overnight';
                                                 layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
                                             } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
                                                 layoverText = `Turn ${formatDurationMinutes(groundMins)}`;
@@ -5886,7 +5906,7 @@
                 let grndLayover = '';
                 if (nextFromGrnd) {
                     const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
-                    if (gm > 240 && !(gm > 2160 && isHomeOrBase(g.arrivalAirport, currentPilot)))
+                    if (gm > 240 && !(isHomeOrBase(g.arrivalAirport, currentPilot)))
                         grndLayover = `<div class="text-amber-300 text-xs font-semibold mt-1">Overnight ${formatDurationMinutes(gm)}</div>`;
                 }
                 const gDep = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
@@ -5935,10 +5955,14 @@
                         .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
                     if (nextLeg) {
                         const gm = (new Date(nextLeg.departureTime) - new Date(f.arrivalTime)) / 60000;
-                        const atHome = gm > 2160 && isHomeOrBase(arr, currentPilot);
+                        const atHome = isHomeOrBase(arr, currentPilot);
                         if (gm > 0) {
-                            if (!atHome) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${gm < 240 ? 'Turn' : 'Overnight'} ${formatDurationMinutes(gm)}</div>`;
-                            else if (flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">Turn ${formatDurationMinutes(gm)}</div>`;
+                            if (!atHome) {
+                                const sameDay = flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, arr);
+                                groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${(gm < 240 || sameDay) ? 'Turn' : 'Overnight'} ${formatDurationMinutes(gm)}</div>`;
+                            } else if (flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
+                                groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">Turn ${formatDurationMinutes(gm)}</div>`;
+                            }
                         }
                     }
                 }
