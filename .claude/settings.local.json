@@ -18,7 +18,8 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(a.get\\('hex'\\), a.get\\('flight',''\\).strip\\(\\)\\) for a in \\(d.get\\('ac'\\) or []\\)]\")",
       "Bash(Get-ChildItem -Path \"e:\\\\Webapp\" -Recurse -Depth 2)",
       "Bash(Select-Object FullName, PSIsContainer)",
-      "Bash(Format-Table -AutoSize)"
+      "Bash(Format-Table -AutoSize)",
+      "Bash(awk 'NR>100 && NR<150')"
     ]
   }
 }

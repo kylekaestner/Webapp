@@ -2703,7 +2703,7 @@
                   })
                 : [];
 
-            const kyleAvail = dateStr => kyleHardOffDates.has(dateStr) ? 'certain' : 'no';
+            const kyleAvail = dateStr => (kyleHardOffDates.has(dateStr) && !pilotFlyingDates['kyle']?.has(dateStr)) ? 'certain' : 'no';
 
             const commonOffDays = [];
             const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -5110,7 +5110,15 @@
             if (h > 0) return `${h}h ${m}m`;
             return `${m}m`;
         }
-        // Returns YYYY-MM-DD in the airport's local timezone (handles both UTC 'Z' and local-time stored ISO strings)
+        function getNextLegFrom(airport, afterTimeStr) {
+            return segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === airport && s.departureTime > afterTimeStr)
+                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+        }
+        function layoverLabel(groundMins, atHome, sameDay) {
+            if (groundMins <= 0) return '';
+            if (atHome) return sameDay ? `Turn ${formatDurationMinutes(groundMins)}` : '';
+            return (groundMins < 240 || sameDay) ? `Turn ${formatDurationMinutes(groundMins)}` : `Overnight ${formatDurationMinutes(groundMins)}`;
+        }
         function attachTooltips() {
             document.querySelectorAll('.flight-item').forEach(el => {
                 function onEnter(e) {
@@ -5122,24 +5130,15 @@
                     const blockStored = el.dataset.block !== '' ? parseInt(el.dataset.block, 10) : NaN;
                     const blockMins = !isNaN(blockStored) ? blockStored : ((depDate && arrDate && !isNaN(depDate.getTime()) && !isNaN(arrDate.getTime())) ? (arrDate - depDate) / 60000 : null);
 
-                    // compute ground time to next connecting leg
                     let layoverText = '';
                     try {
-                        const pilotBase = pilotsCache[currentPilot]?.base || null;
-                        if (arrDate && arrApt) {
-                            const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arrApt && new Date(s.departureTime) > arrDate)
-                                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                        if (arr && arrApt) {
+                            const nextLeg = getNextLegFrom(arrApt, arr);
                             if (nextLeg) {
-                                const groundMins = (new Date(nextLeg.departureTime) - arrDate) / 60000;
+                                const groundMins = (new Date(nextLeg.departureTime) - new Date(arr)) / 60000;
                                 const atHome = isHomeOrBase(arrApt, currentPilot);
-                                if (groundMins > 0) {
-                                    if (!atHome) {
-                                        const label = groundMins < 240 ? 'Turn' : 'Overnight';
-                                        layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
-                                    } else if (flightLocalDate(arrDate.toISOString(), arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
-                                        layoverText = `Turn ${formatDurationMinutes(groundMins)}`;
-                                    }
-                                }
+                                const sameDay = flightLocalDate(arr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
+                                layoverText = layoverLabel(groundMins, atHome, sameDay);
                             }
                         }
                     } catch (er) { layoverText = ''; }
@@ -5208,16 +5207,15 @@
                     const depTime  = el.dataset.depTime || '';
                     const arrTime  = el.dataset.arrTime || '';
                     const code     = el.dataset.flight || '';
-                    const pilotBase = pilotsCache[currentPilot]?.base || null;
                     let layoverText = '';
                     try {
                         if (arrApt && arrTime) {
-                            const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arrApt && s.departureTime > arrTime)
-                                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                            const nextLeg = getNextLegFrom(arrApt, arrTime);
                             if (nextLeg) {
                                 const gm = (new Date(nextLeg.departureTime) - new Date(arrTime)) / 60000;
-                                const atHome = gm > 2160 && isHomeOrBase(arrApt, currentPilot);
-                                if (gm > 0 && !atHome) layoverText = gm < 240 ? `Turn ${formatDurationMinutes(gm)}` : `Overnight ${formatDurationMinutes(gm)}`;
+                                const atHome = isHomeOrBase(arrApt, currentPilot);
+                                const sameDay = flightLocalDate(arrTime, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
+                                layoverText = layoverLabel(gm, atHome, sameDay);
                             }
                         }
                     } catch (_) {}
@@ -5259,7 +5257,6 @@
 
             const year = viewDate.getFullYear();
             const month = viewDate.getMonth();
-            const pilotBase = pilotsCache[currentPilot]?.base || null;
             const monthLabel = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
             document.getElementById('current-month-display').textContent = monthLabel;
             const mobileMonth = document.getElementById('current-month-display-mobile');
@@ -5316,9 +5313,11 @@
                         });
                     }); */
 
+                    const isOT = isHard && isFlying;
                     let style = "border-zinc-800 bg-zinc-900/20";
                     let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
-                    if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
+                    if (isOT) { style = "border-orange-500/50 bg-orange-900/30 text-orange-100"; tag = "OT"; }
+                    else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (isReserve) { style = "border-amber-400/30 bg-amber-400/5"; tag = "ON CALL"; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
@@ -5337,11 +5336,14 @@
                         if (f.type === 'ground') {
                             const gDepFmt = f.departureTime ? formatTimeISO(f.departureTime, f.departureAirport) : '';
                             const gCode   = f.flightNumber || '';
-                            const gNext   = f.arrivalAirport && f.arrivalTime
-                                ? segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === f.arrivalAirport && s.departureTime > f.arrivalTime)
-                                    .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0]
-                                : null;
-                            const gOvr = gNext ? (() => { const gm = (new Date(gNext.departureTime) - new Date(f.arrivalTime)) / 60000; return (gm > 240 && !(gm > 2160 && isHomeOrBase(f.arrivalAirport, currentPilot))) ? `Overnight ${formatDurationMinutes(gm)}` : ''; })() : '';
+                            const gNext = (f.arrivalAirport && f.arrivalTime) ? getNextLegFrom(f.arrivalAirport, f.arrivalTime) : null;
+                            let gOvr = '';
+                            if (gNext) {
+                                const gm = (new Date(gNext.departureTime) - new Date(f.arrivalTime)) / 60000;
+                                const atHome = isHomeOrBase(f.arrivalAirport, currentPilot);
+                                const sameDay = flightLocalDate(f.arrivalTime, f.arrivalAirport) === flightLocalDate(gNext.departureTime, f.arrivalAirport);
+                                gOvr = layoverLabel(gm, atHome, sameDay);
+                            }
                             html += `<div class="rounded-lg px-2 py-[4px] ground-item" data-dep-apt="${f.departureAirport||''}" data-arr-apt="${f.arrivalAirport||''}" data-dep-time="${f.departureTime||''}" data-arr-time="${f.arrivalTime||''}" data-flight="${gCode}" style="font-size:9px;font-weight:700;color:#52525b;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
                                 <div>GND ${f.departureAirport}→${f.arrivalAirport}</div>
                                 <div style="font-weight:500;font-size:8.5px;margin-top:1px">${gDepFmt}${gCode ? ` · ${gCode}` : ''}</div>
@@ -5368,20 +5370,13 @@
                         const tzSpan = (lbl) => lbl ? `<span style="font-size:7.5px;color:#52525b;font-weight:700;margin-left:1px">${lbl}</span>` : '';
                         let groundLine = '';
                         if (!isPersonal && arrApt && arrAttr) {
-                            const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arrApt && s.departureTime > arrAttr)
-                                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                            const nextLeg = getNextLegFrom(arrApt, arrAttr);
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
                                 const atHome = isHomeOrBase(arrApt, currentPilot);
-                                if (groundMins > 0) {
-                                    if (!atHome) {
-                                        const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
-                                        const lbl = (groundMins < 240 || sameDay) ? 'Turn' : 'Overnight';
-                                        groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl} ${formatDurationMinutes(groundMins)}</div>`;
-                                    } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
-                                        groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">Turn ${formatDurationMinutes(groundMins)}</div>`;
-                                    }
-                                }
+                                const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
+                                const lbl = layoverLabel(groundMins, atHome, sameDay);
+                                if (lbl) groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl}</div>`;
                             }
                         }
                         const nowMs = Date.now();
@@ -5448,8 +5443,11 @@
                         const rawAMs = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport)?.getTime() : null;
                         return dMs && rawAMs && dMs <= _listNow && _listNow <= rawAMs && !_landedEarly.has(cs);
                     });
+                    const isOT = isHard && flights.length > 0;
                     let bgColor, labelColor, sidebarColor, sidebarBorder, label = currentPilot === 'kyle' ? "ON CALL" : "OFF";
-                    if (isHard) {
+                    if (isOT) {
+                        bgColor = "bg-orange-950/40 border-orange-500/50"; labelColor = "text-orange-300"; sidebarColor = "text-orange-300"; sidebarBorder = "border-orange-700/50"; label = "OT";
+                    } else if (isHard) {
                         bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = "HARD OFF";
                     } else if (reserves.length > 0 && flights.length === 0) {
                         bgColor = "bg-amber-950/30 border-amber-500/30"; labelColor = "text-amber-400"; sidebarColor = "text-amber-400"; sidebarBorder = "border-amber-700/40"; label = "ON CALL";
@@ -5479,15 +5477,14 @@
                         contentHtml = allLegs.map(leg => {
                             if (leg.type === 'ground') {
                                 const g = leg;
-                                const nextFromGrnd = g.arrivalAirport && g.arrivalTime
-                                    ? segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === g.arrivalAirport && s.departureTime > g.arrivalTime)
-                                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0]
-                                    : null;
+                                const nextFromGrnd = (g.arrivalAirport && g.arrivalTime) ? getNextLegFrom(g.arrivalAirport, g.arrivalTime) : null;
                                 let grndLayover = '';
                                 if (nextFromGrnd) {
                                     const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
                                     const atHome = isHomeOrBase(g.arrivalAirport, currentPilot);
-                                    if (gm > 240 && !atHome) grndLayover = `<span class="text-amber-400 font-semibold ml-2 text-[10px]">Overnight ${formatDurationMinutes(gm)}</span>`;
+                                    const sameDay = flightLocalDate(g.arrivalTime, g.arrivalAirport) === flightLocalDate(nextFromGrnd.departureTime, g.arrivalAirport);
+                                    const lbl = layoverLabel(gm, atHome, sameDay);
+                                    if (lbl) grndLayover = `<span class="text-amber-400 font-semibold ml-2 text-[10px]">${lbl}</span>`;
                                 }
                                 const gDepFmt2 = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
                                 const gArrFmt2 = g.arrivalTime   ? formatTimeISO(g.arrivalTime,   g.arrivalAirport)  : '';
@@ -5531,20 +5528,12 @@
                                 const tripLabel = _flLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_flLabel}</span>` : '';
                                 let layoverText = '';
                                 if (!isPersonal && arrApt && arrAttr) {
-                                    const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arrApt && s.departureTime > arrAttr)
-                                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                                    const nextLeg = getNextLegFrom(arrApt, arrAttr);
                                     if (nextLeg) {
                                         const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
                                         const atHome = isHomeOrBase(arrApt, currentPilot);
-                                        if (groundMins > 0) {
-                                            if (!atHome) {
-                                                const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
-                                                const label = (groundMins < 240 || sameDay) ? 'Turn' : 'Overnight';
-                                                layoverText = `${label} ${formatDurationMinutes(groundMins)}`;
-                                            } else if (flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
-                                                layoverText = `Turn ${formatDurationMinutes(groundMins)}`;
-                                            }
-                                        }
+                                        const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
+                                        layoverText = layoverLabel(groundMins, atHome, sameDay);
                                     }
                                 }
                                 const nowMs2 = Date.now();
@@ -5852,7 +5841,6 @@
         }
 
         function showDayDetail(dateKey) {
-            const pilotBase = pilotsCache[currentPilot]?.base || null;
             const dayEvents = segments.filter(s => s.departureTime && flightLocalDate(s.departureTime, s.departureAirport) === dateKey);
             const [yr, mo, dy] = dateKey.split('-');
             const dateObj = new Date(parseInt(yr), parseInt(mo) - 1, parseInt(dy));
@@ -5873,9 +5861,11 @@
                 return { dMs, aMs: rawAMs, cs };
             });
             const anyLive = flightMs.some(({dMs, aMs}) => dMs && aMs && dMs <= nowMs && nowMs <= aMs);
+            const isOT = isHard && flights.length > 0;
             let label = currentPilot === 'kyle' ? 'ON CALL' : 'DAY OFF';
             let labelColor = 'text-zinc-400';
-            if (isHard) { label = 'HARD OFF'; labelColor = 'text-red-400'; }
+            if (isOT) { label = anyLive ? '▶ OT' : 'OT'; labelColor = 'text-orange-400'; }
+            else if (isHard) { label = 'HARD OFF'; labelColor = 'text-red-400'; }
             else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
             else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
             else if (flights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
@@ -5899,15 +5889,14 @@
             allDayLegs.forEach(leg => {
             if (leg.type === 'ground') {
                 const g = leg;
-                const nextFromGrnd = g.arrivalAirport && g.arrivalTime
-                    ? segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === g.arrivalAirport && s.departureTime > g.arrivalTime)
-                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0]
-                    : null;
+                const nextFromGrnd = (g.arrivalAirport && g.arrivalTime) ? getNextLegFrom(g.arrivalAirport, g.arrivalTime) : null;
                 let grndLayover = '';
                 if (nextFromGrnd) {
                     const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
-                    if (gm > 240 && !(isHomeOrBase(g.arrivalAirport, currentPilot)))
-                        grndLayover = `<div class="text-amber-300 text-xs font-semibold mt-1">Overnight ${formatDurationMinutes(gm)}</div>`;
+                    const atHome = isHomeOrBase(g.arrivalAirport, currentPilot);
+                    const sameDay = flightLocalDate(g.arrivalTime, g.arrivalAirport) === flightLocalDate(nextFromGrnd.departureTime, g.arrivalAirport);
+                    const lbl = layoverLabel(gm, atHome, sameDay);
+                    if (lbl) grndLayover = `<div class="text-amber-300 text-xs font-semibold mt-1">${lbl}</div>`;
                 }
                 const gDep = g.departureTime ? formatTimeISO(g.departureTime, g.departureAirport) : '';
                 const gArr = g.arrivalTime   ? formatTimeISO(g.arrivalTime,   g.arrivalAirport)  : '';
@@ -5951,19 +5940,13 @@
                 const flightNum = _dayFlLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_dayFlLabel}</span>` : '';
                 let groundBadge = '';
                 if (!isPersonal && arr && f.arrivalTime) {
-                    const nextLeg = segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === arr && s.departureTime > f.arrivalTime)
-                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                    const nextLeg = getNextLegFrom(arr, f.arrivalTime);
                     if (nextLeg) {
                         const gm = (new Date(nextLeg.departureTime) - new Date(f.arrivalTime)) / 60000;
                         const atHome = isHomeOrBase(arr, currentPilot);
-                        if (gm > 0) {
-                            if (!atHome) {
-                                const sameDay = flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, arr);
-                                groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${(gm < 240 || sameDay) ? 'Turn' : 'Overnight'} ${formatDurationMinutes(gm)}</div>`;
-                            } else if (flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, nextLeg.departureAirport)) {
-                                groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">Turn ${formatDurationMinutes(gm)}</div>`;
-                            }
-                        }
+                        const sameDay = flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, arr);
+                        const lbl = layoverLabel(gm, atHome, sameDay);
+                        if (lbl) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${lbl}</div>`;
                     }
                 }
                 const isActiveLeg = dMs && aMs && dMs <= nowMs && nowMs <= aMs;
