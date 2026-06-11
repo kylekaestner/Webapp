@@ -2703,7 +2703,7 @@
                   })
                 : [];
 
-            const kyleAvail = dateStr => (kyleHardOffDates.has(dateStr) && !pilotFlyingDates['kyle']?.has(dateStr)) ? 'certain' : 'no';
+            const kyleAvail = dateStr => kyleHardOffDates.has(dateStr) ? 'certain' : 'no';
 
             const commonOffDays = [];
             const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -5292,6 +5292,7 @@
                         return arrLocal === dateKey && arrLocal !== depLocal;
                     });
                     const isHard = dayEvents.some(e => e.type === 'hard');
+                    const isVacation = dayEvents.some(e => e.type === 'vacation');
                     const isFlying = dayEvents.some(e => e.type === 'flight' || e.type === 'ground');
                     const isReserve = dayEvents.some(e => e.type === 'reserve');
                     let away = dayEvents.find(e => e.type === 'away');
@@ -5313,10 +5314,9 @@
                         });
                     }); */
 
-                    const isOT = isHard && isFlying;
                     let style = "border-zinc-800 bg-zinc-900/20";
                     let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
-                    if (isOT) { style = "border-orange-500/50 bg-orange-900/30 text-orange-100"; tag = "OT"; }
+                    if (isVacation) { style = "border-teal-500/50 bg-teal-900/30 text-teal-100"; tag = "VAC"; }
                     else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (isReserve) { style = "border-amber-400/30 bg-amber-400/5"; tag = "ON CALL"; }
@@ -5431,6 +5431,7 @@
                     const isPastDay = dateObj < today;
                     const isToday = dateObj.getTime() === today.getTime();
                     const isHard = dayEvents.some(e => e.type === 'hard');
+                    const isVacation = dayEvents.some(e => e.type === 'vacation');
                     let away = dayEvents.find(e => e.type === 'away');
                     if (away && isHomeOrBase(away.arrivalAirport, currentPilot)) away = null;
                     const flights = dayEvents.filter(e => e.type === 'flight');
@@ -5443,10 +5444,9 @@
                         const rawAMs = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport)?.getTime() : null;
                         return dMs && rawAMs && dMs <= _listNow && _listNow <= rawAMs && !_landedEarly.has(cs);
                     });
-                    const isOT = isHard && flights.length > 0;
                     let bgColor, labelColor, sidebarColor, sidebarBorder, label = currentPilot === 'kyle' ? "ON CALL" : "OFF";
-                    if (isOT) {
-                        bgColor = "bg-orange-950/40 border-orange-500/50"; labelColor = "text-orange-300"; sidebarColor = "text-orange-300"; sidebarBorder = "border-orange-700/50"; label = "OT";
+                    if (isVacation) {
+                        bgColor = "bg-teal-950/40 border-teal-500/40"; labelColor = "text-teal-300"; sidebarColor = "text-teal-300"; sidebarBorder = "border-teal-700/50"; label = "VAC";
                     } else if (isHard) {
                         bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = "HARD OFF";
                     } else if (reserves.length > 0 && flights.length === 0) {
@@ -5847,6 +5847,7 @@
             const dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
             const isHard = dayEvents.some(e => e.type === 'hard');
+            const isVacation = dayEvents.some(e => e.type === 'vacation');
             let away = dayEvents.find(e => e.type === 'away');
             if (away && isHomeAirport(away.arrivalAirport, currentPilot)) away = null;
             const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
@@ -5861,10 +5862,9 @@
                 return { dMs, aMs: rawAMs, cs };
             });
             const anyLive = flightMs.some(({dMs, aMs}) => dMs && aMs && dMs <= nowMs && nowMs <= aMs);
-            const isOT = isHard && flights.length > 0;
             let label = currentPilot === 'kyle' ? 'ON CALL' : 'DAY OFF';
             let labelColor = 'text-zinc-400';
-            if (isOT) { label = anyLive ? '▶ OT' : 'OT'; labelColor = 'text-orange-400'; }
+            if (isVacation) { label = 'VACATION'; labelColor = 'text-teal-400'; }
             else if (isHard) { label = 'HARD OFF'; labelColor = 'text-red-400'; }
             else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
             else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
@@ -5880,8 +5880,8 @@
             </div>`;
 
             if (flights.length === 0 && reserves.length === 0 && groundLegs.length === 0) {
-                const icon = isHard ? '🔴' : away ? '🏨' : currentPilot === 'kyle' ? '📟' : '😴';
-                const msg = isHard ? 'Hard Day Off' : away ? `Away at ${away.arrivalAirport}` : currentPilot === 'kyle' ? 'On Call' : 'Day Off';
+                const icon = isVacation ? '🌴' : isHard ? '🔴' : away ? '🏨' : currentPilot === 'kyle' ? '📟' : '😴';
+                const msg = isVacation ? 'Vacation' : isHard ? 'Hard Day Off' : away ? `Away at ${away.arrivalAirport}` : currentPilot === 'kyle' ? 'On Call' : 'Day Off';
                 html += `<div class="text-center py-8"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>`;
             }
 

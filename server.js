@@ -16,7 +16,7 @@ app.use(cors());
 app.use(bodyParser.json());
 // Prevent browsers (especially iOS PWA) from caching HTML pages
 app.use((req, res, next) => {
-    if (req.path.endsWith('.html') || req.path === '/') {
+    if (req.path.endsWith('.html') || req.path === '/' || req.path === '/app' || req.path === '/landing' || req.path === '/join') {
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.setHeader('Pragma', 'no-cache');
         res.setHeader('Expires', '0');
@@ -780,13 +780,26 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
     }
 
     for (const evt of (crew.events || [])) {
-        if (evt.text !== 'HARD') continue;
-        if (filterMonth && filterYear) {
-            const d = new Date(asUtcIso(evt.startDate));
-            if (d.getMonth() + 1 !== filterMonth || d.getFullYear() !== filterYear) continue;
+        const text = (evt.text || '').trim().toUpperCase();
+        if (text === 'HARD') {
+            if (filterMonth && filterYear) {
+                const d = new Date(asUtcIso(evt.startDate));
+                if (d.getMonth() + 1 !== filterMonth || d.getFullYear() !== filterYear) continue;
+            }
+            const date = evt.startDate.substring(0, 10);
+            events.push({ type: 'hard', departureTime: `${date}T00:00:00` });
+        } else if (text.startsWith('VAC')) {
+            const start = new Date((evt.startDate || '').substring(0, 10) + 'T12:00:00Z');
+            const end   = new Date((evt.endDate || evt.end || evt.startDate || '').substring(0, 10) + 'T12:00:00Z');
+            if (isNaN(start)) continue;
+            for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+                if (filterMonth && filterYear) {
+                    if (d.getUTCMonth() + 1 !== filterMonth || d.getUTCFullYear() !== filterYear) continue;
+                }
+                const dateStr = d.toISOString().substring(0, 10);
+                events.push({ type: 'vacation', departureTime: `${dateStr}T00:00:00` });
+            }
         }
-        const date = evt.startDate.substring(0, 10);
-        events.push({ type: 'hard', departureTime: `${date}T00:00:00` });
     }
 
     return events;
