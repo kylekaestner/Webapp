@@ -7308,7 +7308,7 @@ let _blockUserEdited = false;
 
         window.addEventListener('DOMContentLoaded', async () => {
             setupMobileGestures();
-            initServiceWorker(); // non-blocking
+            await initServiceWorker();
 
             // Rebuild pilot pills + sidebar buttons from PILOT_KEYS (handles demo mode)
             if (_isDemo) _rebuildPilotUI();
