@@ -11,6 +11,16 @@ const { DEMO_PILOTS, DEMO_SEGMENTS } = require('./demo-data');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Airport city lookup — loaded once at startup from OurAirports data
+let _airportCities = {};
+try {
+    const raw = fs.readFileSync(path.join(__dirname, 'data', 'airports.json'), 'utf8');
+    _airportCities = JSON.parse(raw);
+    console.log(`Airport lookup loaded: ${Object.keys(_airportCities).length} entries`);
+} catch (e) {
+    console.warn('Airport lookup not available — run scripts/fetch-airports.js to enable');
+}
+
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
@@ -966,7 +976,7 @@ const pilotParsers = {
     kyle: 'schedaero',
     adam: 'csv',
     sam: 'csv',
-    logan: 'csv_skywest',
+    logan: 'vcs_skywest',
     drew: 'ics_rosterbuster'
 };
 
@@ -1146,6 +1156,7 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                     if (completed === events.length) {
                         if (errors.length > 0)
                             return res.status(500).json({ error: 'Some segments failed', details: errors });
+                        logEvent(pilotKey, 'upload:schedule');
                         res.json({ success: true, segmentsAdded: events.length, parser: parserType });
                     }
                 };
@@ -2509,6 +2520,150 @@ app.post('/api/settings/:key', (req, res) => {
         [req.params.key, JSON.stringify(req.body)],
         err => err ? res.status(500).json({ error: err.message }) : res.json({ success: true })
     );
+});
+
+// ── Crew Intel ────────────────────────────────────────────────────────────────
+app.get('/api/intel', (req, res) => {
+    const db = getDB();
+    const { airport } = req.query;
+    const sql = airport
+        ? `SELECT * FROM crew_intel WHERE airport_code=? ORDER BY category, created_at DESC`
+        : `SELECT * FROM crew_intel ORDER BY airport_code, category, created_at DESC`;
+    const params = airport ? [airport.toUpperCase()] : [];
+    db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows || []);
+    });
+});
+
+app.post('/api/intel', (req, res) => {
+    const db = getDB();
+    const { airport_code, category, title, body, pilot_key } = req.body;
+    if (!airport_code || !category || !title || !pilot_key)
+        return res.status(400).json({ error: 'Missing required fields' });
+    db.run(
+        `INSERT INTO crew_intel (airport_code, category, title, body, added_by) VALUES (?,?,?,?,?)`,
+        [airport_code.toUpperCase(), category, title, body || '', pilot_key],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            logEvent(pilot_key === 'admin' ? null : pilot_key, 'intel:add');
+            db.get(`SELECT * FROM crew_intel WHERE id=?`, [this.lastID], (e, row) => res.json(row || {}));
+        }
+    );
+});
+
+app.put('/api/intel/:id', (req, res) => {
+    const db = getDB();
+    const { category, title, body, pilot_key } = req.body;
+    db.run(
+        `UPDATE crew_intel SET category=?, title=?, body=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND added_by=?`,
+        [category, title, body || '', req.params.id, pilot_key],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(403).json({ error: 'Not authorized' });
+            res.json({ success: true });
+        }
+    );
+});
+
+app.delete('/api/intel/:id', (req, res) => {
+    const db = getDB();
+    const { pilot_key } = req.body;
+    const isAdminKey = pilot_key === 'admin';
+    const sql = isAdminKey ? `DELETE FROM crew_intel WHERE id=?` : `DELETE FROM crew_intel WHERE id=? AND added_by=?`;
+    const params = isAdminKey ? [req.params.id] : [req.params.id, pilot_key];
+    db.run(sql, params, function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(403).json({ error: 'Not authorized' });
+        res.json({ success: true });
+    });
+});
+
+// Airport city batch lookup
+app.get('/api/airports/cities', (req, res) => {
+    const codes = (req.query.codes || '').split(',').map(c => c.trim().toUpperCase()).filter(Boolean).slice(0, 100);
+    const result = {};
+    codes.forEach(code => {
+        const city = _airportCities[code] || _airportCities['K' + code] || null;
+        if (city) result[code] = city;
+    });
+    res.json(result);
+});
+
+// Analytics event ingestion
+app.post('/api/analytics', (req, res) => {
+    const { pilot_key, event } = req.body;
+    if (!pilot_key || !event) return res.status(400).json({ error: 'Missing fields' });
+    const db = getDB();
+    db.run('INSERT INTO usage_events (pilot_key, event) VALUES (?, ?)', [pilot_key, event], err => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ ok: true });
+    });
+});
+
+// Internal helper — log an event server-side (fire and forget)
+function logEvent(pilotKey, event) {
+    if (!pilotKey || pilotKey === 'admin') return;
+    const db = getDB();
+    db.run('INSERT INTO usage_events (pilot_key, event) VALUES (?, ?)', [pilotKey, event], () => {});
+}
+
+// Admin dashboard stats
+app.get('/api/admin/stats', (req, res) => {
+    const db = getDB();
+    const q  = (sql, p = []) => new Promise((ok, fail) => db.all(sql, p, (e, r) => e ? fail(e) : ok(r)));
+    const q1 = (sql, p = []) => new Promise((ok, fail) => db.get(sql, p,  (e, r) => e ? fail(e) : ok(r)));
+
+    Promise.all([
+        // Segment counts by type
+        q(`SELECT type, COUNT(*) as count FROM segments GROUP BY type ORDER BY count DESC`),
+        // Total non-admin pilots
+        q1(`SELECT COUNT(*) as count FROM pilots WHERE pilot_key != 'admin'`),
+        // Pilots with at least one future flight
+        q1(`SELECT COUNT(DISTINCT pilot_id) as count FROM segments WHERE type='flight' AND departure_time >= datetime('now')`),
+        // Pilots who uploaded in last 30 days
+        q1(`SELECT COUNT(DISTINCT pilot_id) as count FROM segments WHERE created_at >= datetime('now', '-30 days')`),
+        // Schedule date range
+        q1(`SELECT MIN(departure_time) as earliest, MAX(departure_time) as latest FROM segments WHERE type='flight'`),
+        // Unique airports across all flight segments
+        q1(`SELECT COUNT(DISTINCT departure_airport) as count FROM segments WHERE type='flight' AND departure_airport != ''`),
+        // Top departure airports
+        q(`SELECT departure_airport as airport, COUNT(*) as count FROM segments WHERE type='flight' AND departure_airport != '' GROUP BY departure_airport ORDER BY count DESC LIMIT 8`),
+        // Manual entries
+        q1(`SELECT COUNT(*) as count FROM segments WHERE is_manual = 1`),
+        // Crew intel by category
+        q(`SELECT category, COUNT(*) as count FROM crew_intel GROUP BY category ORDER BY count DESC`),
+        // Pilots who contributed to crew intel
+        q1(`SELECT COUNT(DISTINCT added_by) as count FROM crew_intel`),
+        // Push subscriptions (distinct pilots)
+        q1(`SELECT COUNT(DISTINCT pilot_key) as count FROM push_subscriptions`),
+        // Total crossings found (notifications)
+        q1(`SELECT COUNT(*) as count FROM notifications`),
+        // Upload events last 8 weeks (one "upload" = distinct pilot+day in segments.created_at)
+        q(`SELECT strftime('%Y-%W', d) as week, COUNT(*) as uploads FROM (SELECT pilot_id, date(created_at) as d FROM segments GROUP BY pilot_id, date(created_at)) GROUP BY week ORDER BY week DESC LIMIT 8`),
+        // View usage — how often each view is opened (last 90 days)
+        q(`SELECT event, COUNT(*) as count FROM usage_events WHERE event LIKE 'view:%' AND created_at >= datetime('now', '-90 days') GROUP BY event ORDER BY count DESC`),
+        // Daily active usage (distinct pilots with any event per day, last 30 days)
+        q(`SELECT date(created_at) as day, COUNT(DISTINCT pilot_key) as pilots FROM usage_events WHERE created_at >= datetime('now', '-30 days') GROUP BY day ORDER BY day`),
+        // Total app opens
+        q1(`SELECT COUNT(*) as count FROM usage_events WHERE event = 'app:open'`),
+        // Active pilots last 7 days
+        q1(`SELECT COUNT(DISTINCT pilot_key) as count FROM usage_events WHERE created_at >= datetime('now', '-7 days')`),
+    ]).then(([segsByType, totalPilots, pilotsWithFuture, recentUploaders, schedRange, uniqueAirports, topAirports, manualSegs, intelByCat, intelContribs, pushPilots, crossingsFound, weeklyUploads, viewUsage, dailyActive, totalOpens, activeLast7]) => {
+        const totalSegs = segsByType.reduce((s, r) => s + r.count, 0);
+        const intelTotal = intelByCat.reduce((s, r) => s + r.count, 0);
+        res.json({
+            pilots:         { total: totalPilots?.count || 0, withFutureSchedule: pilotsWithFuture?.count || 0, recentUploaders: recentUploaders?.count || 0, activeLast7: activeLast7?.count || 0 },
+            segments:       { total: totalSegs, byType: segsByType, manual: manualSegs?.count || 0 },
+            schedule:       { earliest: schedRange?.earliest, latest: schedRange?.latest, uniqueAirports: uniqueAirports?.count || 0 },
+            topAirports,
+            intel:          { total: intelTotal, byCategory: intelByCat, contributors: intelContribs?.count || 0 },
+            push:           { pilots: pushPilots?.count || 0 },
+            crossings:      { total: crossingsFound?.count || 0 },
+            weeklyUploads:  weeklyUploads.reverse(),
+            usage:          { viewCounts: viewUsage, dailyActive, totalOpens: totalOpens?.count || 0 },
+        });
+    }).catch(err => res.status(500).json({ error: err.message }));
 });
 
 // Start server

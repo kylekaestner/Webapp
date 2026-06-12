@@ -83,6 +83,26 @@ function initDB() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
+        // Usage analytics — lightweight event log for feature adoption tracking
+        db.run(`CREATE TABLE IF NOT EXISTS usage_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pilot_key TEXT NOT NULL,
+            event TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // Crew Intel — shared airport knowledge base (hotels, food, activities, tips)
+        db.run(`CREATE TABLE IF NOT EXISTS crew_intel (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            airport_code TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'tip',
+            title TEXT NOT NULL,
+            body TEXT DEFAULT '',
+            added_by TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
         // Migrations: add columns if they don't exist yet
         db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE segments ADD COLUMN block_minutes INTEGER`, () => {});

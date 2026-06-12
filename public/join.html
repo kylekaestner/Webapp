@@ -161,7 +161,14 @@
                         <button type="button" onclick="selectParser('csv')" data-parser="csv" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Republic</button>
                         <button type="button" onclick="selectParser('ics_rosterbuster')" data-parser="ics_rosterbuster" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">GoJet</button>
                         <button type="button" onclick="selectParser('schedaero')" data-parser="schedaero" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SpiritJets</button>
-                        <button type="button" onclick="selectParser('csv_skywest')" data-parser="csv_skywest" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SkyWest</button>
+                        <button type="button" onclick="selectSkywest()" data-parser="skywest_parent" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SkyWest</button>
+                        <div id="skywest-format" style="display:none;grid-column:1/-1;background:#0d0d0f;border:1.5px solid #27272a;border-radius:10px;padding:10px 10px 8px;">
+                            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#3f3f46;margin-bottom:7px;">SkyWest — Schedule Format</div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                                <button type="button" id="skw-vcs-btn" onclick="selectParser('vcs_skywest')" class="parser-pill" style="padding:9px 8px;border-radius:8px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;text-align:left;">VCS File<span style="display:block;font-size:9px;font-weight:500;margin-top:2px;color:#3f3f46;">SkedPlus+ · Recommended</span></button>
+                                <button type="button" id="skw-csv-btn" onclick="selectParser('csv_skywest')" class="parser-pill" style="padding:9px 8px;border-radius:8px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;text-align:left;">CSV File<span style="display:block;font-size:9px;font-weight:500;margin-top:2px;color:#3f3f46;">SkedPlus legacy</span></button>
+                            </div>
+                        </div>
                         <button type="button" onclick="selectParser('ics_scx')" data-parser="ics_scx" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Sun Country</button>
                         <button type="button" onclick="selectParser('ics_ecrew')" data-parser="ics_ecrew" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Atlas Air</button>
                         <button type="button" onclick="selectParser('other')" data-parser="other" class="parser-pill" style="grid-column:1/-1;padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Other Airline / Operation</button>
@@ -189,8 +196,8 @@
 
             <div class="space-y-4">
                 <div>
-                    <label class="field-label">Schedule File <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">(CSV, PDF, or ICS)</span></label>
-                    <input class="field-input" type="file" id="scheduleFile" accept=".csv,.pdf,.ics">
+                    <label class="field-label">Schedule File <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">(CSV, PDF, ICS, or VCS)</span></label>
+                    <input class="field-input" type="file" id="scheduleFile" accept=".csv,.pdf,.ics,.vcs">
                 </div>
 
                 <div class="flex items-center gap-3">
@@ -248,17 +255,31 @@
             'ics_rosterbuster': { airline: 'GoJet Airlines',      code: 'GJS', needsIcs: true  },
             'schedaero':        { airline: 'SpiritJets',          code: 'SJJ', needsIcs: false },
             'csv_skywest':      { airline: 'SkyWest Airlines',    code: 'SKW', needsIcs: false },
+            'vcs_skywest':      { airline: 'SkyWest Airlines',    code: 'SKW', needsIcs: false },
             'ics_scx':          { airline: 'Sun Country Airlines', code: 'SCX', needsIcs: true  },
             'ics_ecrew':        { airline: 'Atlas Air',            code: 'GTI', needsIcs: true  },
         };
 
         function selectParser(type) {
             document.getElementById('parserType').value = type;
+            const isSkywest = type === 'csv_skywest' || type === 'vcs_skywest';
             document.querySelectorAll('.parser-pill').forEach(btn => {
-                const active = btn.dataset.parser === type;
-                btn.style.borderColor  = active ? '#3b82f6' : '#27272a';
-                btn.style.background   = active ? 'rgba(59,130,246,0.1)' : '#111113';
-                btn.style.color        = active ? '#93c5fd' : '#52525b';
+                const id = btn.id;
+                if (id === 'skw-vcs-btn' || id === 'skw-csv-btn') return; // sub-pills handled separately
+                const active = isSkywest ? btn.dataset.parser === 'skywest_parent' : btn.dataset.parser === type;
+                btn.style.borderColor = active ? '#3b82f6' : '#27272a';
+                btn.style.background  = active ? 'rgba(59,130,246,0.1)' : '#111113';
+                btn.style.color       = active ? '#93c5fd' : '#52525b';
+            });
+            // Sub-pills
+            ['skw-vcs-btn', 'skw-csv-btn'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                const subParser = id === 'skw-vcs-btn' ? 'vcs_skywest' : 'csv_skywest';
+                const active = type === subParser;
+                btn.style.borderColor = active ? '#3b82f6' : '#27272a';
+                btn.style.background  = active ? 'rgba(59,130,246,0.1)' : '#111113';
+                btn.style.color       = active ? '#93c5fd' : '#52525b';
             });
             const otherNote = document.getElementById('parser-other-note');
             const codeRow   = document.getElementById('airline-code-row');
@@ -274,6 +295,11 @@
                 document.getElementById('airlineCode').value = info.code;
             }
             codeRow.style.display = (info && info.code) ? 'block' : 'none';
+        }
+
+        function selectSkywest() {
+            document.getElementById('skywest-format').style.display = 'block';
+            selectParser('vcs_skywest');
         }
 
         function goStep(n) {

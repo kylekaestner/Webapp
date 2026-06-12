@@ -173,6 +173,12 @@
         .xbadge { position:absolute; min-width:14px; height:14px; background:#f59e0b; border-radius:99px; font-size:8px; font-weight:900; color:#000; display:flex; align-items:center; justify-content:center; padding:0 3px; line-height:1; pointer-events:none; border:1.5px solid #09090b; }
         @keyframes modal-in { from { opacity:0; transform:scale(0.95) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
         .modal-in { animation:modal-in 0.18s cubic-bezier(.2,.8,.3,1) forwards; }
+        .intel-cat-btn { flex-shrink:0; padding:4px 10px; border-radius:99px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; border:1px solid #3f3f46; color:#71717a; transition:all 0.15s; cursor:pointer; background:transparent; }
+        .intel-cat-btn.intel-cat-active { border-color:#3b82f6; color:#93c5fd; background:rgba(30,58,95,0.25); }
+        .intel-cat-btn:hover:not(.intel-cat-active) { border-color:#52525b; color:#a1a1aa; }
+        .intel-form-cat { flex-shrink:0; padding:4px 10px; border-radius:99px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; border:1px solid #3f3f46; color:#71717a; transition:all 0.15s; cursor:pointer; background:transparent; }
+        .intel-form-cat.intel-form-cat-active { border-color:#3b82f6; color:#93c5fd; background:rgba(30,58,95,0.25); }
+        .intel-badge { display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; background:#1d4ed8; border-radius:99px; font-size:8px; font-weight:900; color:#bfdbfe; padding:0 3px; line-height:1; }
         #toast-container { position:fixed; top:max(16px, calc(env(safe-area-inset-top) + 12px)); left:50%; transform:translateX(-50%); z-index:99999; display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
         .toast { pointer-events:auto; display:flex; align-items:center; gap:10px; padding:11px 18px; border-radius:14px; font-size:13px; font-weight:600; line-height:1.3; max-width:380px; white-space:pre-wrap; box-shadow:0 8px 32px rgba(0,0,0,0.5); backdrop-filter:blur(12px); animation:toast-in 0.22s cubic-bezier(.2,.8,.3,1) forwards; }
         .toast.out { animation:toast-out 0.18s ease-in forwards; }
@@ -398,6 +404,7 @@
                 </div>
             </div>
             <button onclick="switchView('overlap')" id="btn-overlap" class="relative w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">🤝 Location Overlap<span id="crossing-badge-desktop" class="xbadge hidden" style="top:8px;right:8px"></span></button>
+            <button onclick="switchView('intel')" id="btn-intel" class="w-full text-left p-3 rounded-xl border border-zinc-800 transition-all text-sm font-bold text-zinc-400 hover:text-white">📖 Crew Intel</button>
         </div>
 
         <div id="sidebar-pilot-list" class="p-4 space-y-1 mt-4">
@@ -633,6 +640,14 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Crew Intel view — header is fully dynamic via renderIntelHeader() -->
+            <div id="view-intel" class="view-section overflow-y-auto">
+                <div class="max-w-2xl mx-auto pb-20">
+                    <div id="intel-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm border-b border-zinc-800/60"></div>
+                    <div id="intel-content" class="px-4 pt-4"></div>
+                </div>
+            </div>
         </main>
 
         <!-- Mobile bottom nav -->
@@ -653,6 +668,10 @@
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="12" r="6.5"/><circle cx="15" cy="12" r="6.5"/></svg>
                 <span class="text-[8px] font-black uppercase tracking-wide leading-none">Overlap</span>
                 <span id="crossing-badge-mobile" class="xbadge hidden" style="top:6px;right:calc(50% - 18px)"></span>
+            </button>
+            <button onclick="switchView('intel')" id="mbtn-intel" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Intel</span>
             </button>
             <button id="btn-upload-nav" onclick="openMobileUpload()" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
                 <svg id="mbtn-upload-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -676,6 +695,47 @@
             <div class="px-5 pb-5 flex gap-2.5">
                 <button onclick="dismissCrossingAlert()" class="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 text-xs font-black uppercase tracking-wide transition-colors hover:border-zinc-500">Dismiss</button>
                 <button onclick="goToCrossings()" class="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wide transition-colors">View Crossings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Crew Intel Modal -->
+    <div id="intel-modal" class="hidden fixed inset-0 z-[2000] flex items-center justify-center px-5" onclick="if(event.target===this)closeIntelModal()">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+        <div class="modal-in relative bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div class="px-5 pt-5 pb-4 border-b border-zinc-800 flex items-center justify-between">
+                <span id="intel-modal-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Add Intel</span>
+                <button onclick="closeIntelModal()" class="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 text-lg leading-none">×</button>
+            </div>
+            <div class="px-5 py-4 space-y-3">
+                <div>
+                    <label class="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Airport</label>
+                    <input id="intel-form-airport" type="text" maxlength="4" placeholder="KLAX"
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono uppercase text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 tracking-widest" />
+                </div>
+                <div>
+                    <label class="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Category</label>
+                    <div class="flex gap-1.5 flex-wrap">
+                        <button onclick="selectIntelCat('hotel')" id="form-icat-hotel" class="intel-form-cat">Hotel</button>
+                        <button onclick="selectIntelCat('food')" id="form-icat-food" class="intel-form-cat">Food</button>
+                        <button onclick="selectIntelCat('activity')" id="form-icat-activity" class="intel-form-cat">Activity</button>
+                        <button onclick="selectIntelCat('tip')" id="form-icat-tip" class="intel-form-cat intel-form-cat-active">Tip</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Title</label>
+                    <input id="intel-form-title" type="text" maxlength="80" placeholder="e.g. Marriott Courtyard is great"
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500" />
+                </div>
+                <div>
+                    <label class="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Notes <span class="text-zinc-600 normal-case font-normal">(optional)</span></label>
+                    <textarea id="intel-form-body" rows="3" maxlength="400" placeholder="Details, address, price range…"
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 resize-none"></textarea>
+                </div>
+            </div>
+            <div class="px-5 pb-5 flex gap-2.5">
+                <button onclick="closeIntelModal()" class="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 text-xs font-black uppercase tracking-wide transition-colors hover:border-zinc-500">Cancel</button>
+                <button onclick="saveIntelTip()" class="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-wide transition-colors">Save</button>
             </div>
         </div>
     </div>
@@ -984,6 +1044,62 @@
         </div>
     </div>
 
+    <!-- Crew Intel Help Modal -->
+    <div id="intel-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
+                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Crew Intel</h3>
+                <button onclick="document.getElementById('intel-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
+                <p>Crew Intel is a shared knowledge base for the crew. Any pilot can add hotels, food spots, activities, and general tips for airports they've been to — and everyone benefits.</p>
+
+                <div class="space-y-3">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Categories</p>
+                    <div class="space-y-2.5">
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0 mt-0.5" style="background:rgba(59,130,246,0.15);color:#60a5fa">Hotel</span>
+                            <span>Where to stay — crew-friendly spots, quiet rooms, easy transport to the airport.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0 mt-0.5" style="background:rgba(245,158,11,0.15);color:#fbbf24">Food</span>
+                            <span>Good eats nearby — late-night options, delivery that actually works, places worth the walk.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0 mt-0.5" style="background:rgba(34,197,94,0.15);color:#4ade80">Activity</span>
+                            <span>Things to do on a long layover — gyms, trails, things worth seeing if you have time.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0 mt-0.5" style="background:rgba(167,139,250,0.15);color:#c4b5fd">Tip</span>
+                            <span>Anything else — parking, transport tricks, heads-up about the FBO, stuff that doesn't fit elsewhere.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Browsing</p>
+                    <p>The main screen shows airport cards for every location that has intel. <strong class="text-zinc-300">Tap a card</strong> to see all entries for that airport. Use the <strong class="text-zinc-300">search bar</strong> to filter by airport code or city. On the detail view, use the <strong class="text-zinc-300">category pills</strong> at the top to filter by type. <strong class="text-zinc-300">Tap any entry</strong> to expand the full description.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Adding an Entry</p>
+                    <p>Tap <strong class="text-zinc-300">+ Add</strong> in the top right. Pick the airport, select a category, give it a short title, and optionally add a description. Your entry is visible to the whole crew immediately.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Editing & Deleting</p>
+                    <p>You can edit or delete your own entries. Admin can manage all entries. Tap the <strong class="text-zinc-300">pencil</strong> or <strong class="text-zinc-300">trash</strong> icons that appear on entries you own.</p>
+                </div>
+
+                <div class="p-3 rounded-xl space-y-1" style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.2)">
+                    <p class="text-[10px] font-black uppercase tracking-widest" style="color:#ca8a04">Beta Feature</p>
+                    <p class="text-[11px]" style="color:#a16207">Crew Intel is new and actively being improved. If something feels off or you have ideas, let Kyle know.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Grid/Calendar Help Modal -->
     <div id="grid-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
@@ -1252,9 +1368,10 @@
                 </div>
             </div>
 
-            <!-- Admin: manage users -->
-            <div id="admin-manage-section" class="hidden border-t border-zinc-800 pt-4">
-                <button onclick="closeProfile();openAdminPanel()" class="w-full py-2.5 border border-indigo-800/60 text-indigo-400 hover:text-indigo-300 hover:border-indigo-600 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">★ Manage Users</button>
+            <!-- Admin: manage users + dashboard -->
+            <div id="admin-manage-section" class="hidden border-t border-zinc-800 pt-4 flex gap-2">
+                <button onclick="closeProfile();openAdminPanel('users')" class="flex-1 py-2.5 border border-indigo-800/60 text-indigo-400 hover:text-indigo-300 hover:border-indigo-600 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">★ Manage Users</button>
+                <button onclick="closeProfile();openAdminPanel('dashboard')" class="flex-1 py-2.5 border border-indigo-800/60 text-indigo-400 hover:text-indigo-300 hover:border-indigo-600 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">↗ Dashboard</button>
             </div>
 
             <button onclick="closeProfile()" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Done</button>
@@ -1268,13 +1385,14 @@
     <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
     <div class="relative w-full md:max-w-2xl bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl flex flex-col" style="max-height:90vh" onclick="event.stopPropagation()">
         <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-800 shrink-0">
-            <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Manage Users</h3>
-            <div class="flex items-center gap-3">
-                <button onclick="openEditUserModal(null)" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-black uppercase text-[10px] tracking-wide transition-colors">+ Add User</button>
+            <h3 id="admin-panel-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Manage Users</h3>
+            <div class="flex items-center gap-2">
+                <button id="admin-add-user-btn" onclick="openEditUserModal(null)" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-black uppercase text-[10px] tracking-wide transition-colors">+ Add User</button>
                 <button onclick="closeAdminPanel()" class="text-zinc-500 hover:text-zinc-300 text-xl leading-none">✕</button>
             </div>
         </div>
         <div id="admin-user-list" class="overflow-y-auto p-4 space-y-2 flex-1 min-h-0"></div>
+        <div id="admin-dashboard-pane" class="hidden overflow-y-auto p-4 flex-1 min-h-0 space-y-5"></div>
     </div>
 </div>
 
@@ -1862,6 +1980,11 @@
         const PILOT_NAMES = _isDemo
             ? { alex: 'Alex Rivera', morgan: 'Morgan Tate', casey: 'Casey Walsh', jordan: 'Jordan Ellis' }
             : { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine', drew: 'Drew Sinelli' };
+        function shortName(full) {
+            if (!full) return full;
+            const parts = String(full).trim().split(/\s+/);
+            return parts.length < 2 ? parts[0] : parts[0] + ' ' + parts[parts.length - 1][0] + '.';
+        }
         const PILOT_ROLES = _isDemo
             ? { alex: 'Major · ORD', morgan: 'Major · ATL', casey: 'Low-Cost · DEN', jordan: 'Major · JFK' }
             : { kyle: 'Corporate · SUS', adam: 'Regional · TUL', sam: 'Regional · STL', logan: 'Regional · PHX', drew: 'Regional · STL' };
@@ -2112,7 +2235,7 @@
                 return `<label class="flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-colors ${on ? '' : 'opacity-50'}" style="background:${on ? c+'14' : 'transparent'};border:1px solid ${on ? c+'50' : '#3f3f46'}">
                     <div class="flex items-center gap-2.5">
                         <div class="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black" style="background:${c}22;color:${c}">${PILOT_NAMES[p][0]}</div>
-                        <span class="text-sm font-black text-white">${PILOT_NAMES[p]}</span>
+                        <span class="text-sm font-black text-white">${shortName(PILOT_NAMES[p])}</span>
                     </div>
                     <div onclick="setCrewVisible('${p}', ${!on})" class="w-11 h-6 rounded-full flex items-center transition-all cursor-pointer px-0.5 ${on ? '' : ''}" style="background:${on ? c+'cc' : '#3f3f46'}">
                         <div class="w-5 h-5 rounded-full bg-white shadow transition-transform" style="transform:translateX(${on ? '20px' : '0px'})"></div>
@@ -2747,19 +2870,31 @@
                 list: 'list-help-modal',
                 map: 'map-help-modal',
                 overlap: 'overlap-help-modal',
+                intel: 'intel-help-modal',
             }[currentView];
             if (modalId) document.getElementById(modalId).classList.remove('hidden');
         }
 
+        function trackEvent(event) {
+            if (!myPilot && !myViewer) return; // skip admin
+            const key = myPilot || myViewerKey || 'unknown';
+            fetch(`${API_BASE}/analytics`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pilot_key: key, event })
+            }).catch(() => {});
+        }
+
         function switchView(view) {
             haptic('tap');
+            trackEvent('view:' + view);
             currentView = view;
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('view-active'));
             const viewEl = document.getElementById(`view-${view}`);
             viewEl.classList.add('view-active');
             viewEl.scrollTop = 0;
             // Desktop nav
-            ['grid','list','map','overlap'].forEach(v => {
+            ['grid','list','map','overlap','intel'].forEach(v => {
                 const btn = document.getElementById(`btn-${v}`);
                 if (btn) btn.classList.toggle('nav-active', v === view);
             });
@@ -2792,6 +2927,7 @@
                 // Clear notification badge when user opens the overlap view
                 markAllNotifRead();
             }
+            if (view === 'intel') loadIntel();
             render();
         }
 
@@ -3013,7 +3149,7 @@
 
             const pilotSections = [{ k: o.kA, p: o.pA }, { k: o.kB, p: o.pB }].map(({ k, p }) => {
                 const color   = PILOT_COLORS[k];
-                const name    = PILOT_NAMES[k];
+                const name    = shortName(PILOT_NAMES[k]);
                 const role    = PILOT_ROLES[k] || '';
                 const isHome  = isHomeAirport(p.airport, k);
                 const isBase  = pilotsCache[k]?.base && sameApt(p.airport, pilotsCache[k].base);
@@ -3514,6 +3650,10 @@
                 const bg      = tier === 2 ? 'bg-zinc-900/20' : (isNow ? 'bg-green-950/20' : isToday ? 'bg-sky-950/15' : 'bg-zinc-900/40');
                 const opacity = isPast ? 'opacity-40' : '';
 
+                const _intelCnt = (_intelCounts[o.airport] || 0) + (o.airportB && o.airportB !== o.airport ? (_intelCounts[o.airportB] || 0) : 0);
+                const intelBadge = _intelCnt > 0
+                    ? `<button onclick="event.stopPropagation();openIntelForAirport('${o.airport}')" class="mx-4 mb-2.5 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300 transition-colors"><span class="intel-badge">${_intelCnt}</span><span>${_intelCnt === 1 ? 'crew tip' : 'crew tips'} for this area</span></button>`
+                    : '';
                 return `<div${scrollId} onclick="openOverlapDetail(${idx})" class="border ${border} rounded-2xl overflow-hidden ${bg} ${opacity} cursor-pointer active:scale-[0.99] transition-transform">
                     <div class="px-4 pt-3.5 pb-3">
                         <div class="text-[10px] font-black uppercase tracking-widest ${badgeCls} mb-1.5 flex items-center flex-wrap gap-1">${pulseDot}${dateLabel}${typeBadge}<span class="ml-auto text-zinc-700 text-[9px] font-normal">tap for details</span></div>
@@ -3525,6 +3665,7 @@
                         ${pilotRows}
                     </div>
                     ${durationBar}
+                    ${intelBadge}
                     ${stripe}
                 </div>`;
             }
@@ -3873,7 +4014,7 @@
                     lines.forEach(l => { l.addTo(map); mapLayers.future.push(l); });
                     const [line] = lines;
                     const monthHits = worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' });
-                    const monthPopup = `<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${PILOT_NAMES[key].split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${dep} → ${arr}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`;
+                    const monthPopup = `<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${(PILOT_NAMES[key] || '').split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${dep} → ${arr}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`;
                     monthHits.forEach(h => { h.bindPopup(monthPopup, { className: 'dark-popup' }); h.addTo(map); mapLayers.future.push(h); });
 
                     if (hasActive) {
@@ -3891,7 +4032,7 @@
                             const dots = worldPlaneMarkers(arcCoords[idx], makePlaneIcon(bearing, pilotColor, null, true));
                             dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(al, key);
-                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, PILOT_NAMES[key]?.split(' ')[0], alArrUTC, [], weight, monthHits, alDepUTC);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], alArrUTC, [], weight, monthHits, alDepUTC);
                         }
                     }
 
@@ -4087,7 +4228,7 @@
                         dots[2].bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                         dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(activeLeg, currentPilot);
-                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, PILOT_NAMES[currentPilot]?.split(' ')[0], arrTime, hereNowMarkers, weight, hitLines, depTime);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], arrTime, hereNowMarkers, weight, hitLines, depTime);
                     }
                 }
 
@@ -4145,7 +4286,7 @@
             });
             {
                 let locationCode, label, popupExtra, isAtHome = false;
-                const pilotName = pilotsCache[currentPilot]?.name?.split(' ')[0] || currentPilot;
+                const pilotName = (pilotsCache[currentPilot]?.name || currentPilot).split(' ')[0];
 
                 if (isAirborne) {
                     // Show dot at departure airport until ADSB overrides with a plane icon
@@ -4990,7 +5131,7 @@
                 const dayHits = worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' });
 
                 const blockMins = calcBlockMins(f);
-                const _pilotFirst = PILOT_NAMES[f.pilotKey].split(' ')[0];
+                const _pilotFirst = (PILOT_NAMES[f.pilotKey] || '').split(' ')[0];
                 const _statusLine = isActive
                     ? `<div style="font-size:10px;color:#22c55e;font-weight:800;letter-spacing:.04em;margin-top:6px">▶ IN THE AIR</div>`
                     : isPast
@@ -5014,10 +5155,10 @@
                     const nextPos = arcCoords[dotIdx + 1] || arcCoords[dotIdx];
                     const bearing = computeBearing(dotPos, nextPos);
                     const dots = worldPlaneMarkers(dotPos, makePlaneIcon(bearing, color, null, true));
-                    dots[2].bindTooltip(`✈ ${PILOT_NAMES[f.pilotKey]} — in the air`, { permanent: false, className: 'dark-popup' });
+                    dots[2].bindTooltip(`✈ ${(PILOT_NAMES[f.pilotKey] || '').split(' ')[0]} — in the air`, { permanent: false, className: 'dark-popup' });
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
-                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, PILOT_NAMES[f.pilotKey]?.split(' ')[0], arrTime, [], weight, dayHits, depTime);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime);
                 }
             });
 
@@ -5039,7 +5180,7 @@
                 // Popup: which pilots, which flights (primary circle only)
                 const flightLines = data.flights.map(f =>
                     `<div style="font-size:11px;color:${PILOT_COLORS[f.pilotKey]};margin-top:3px">` +
-                    `${PILOT_NAMES[f.pilotKey].split(' ')[0]}: ${f.departureAirport}→${f.arrivalAirport} ${formatTimeISO(f.departureTime, f.departureAirport)}</div>`
+                    `${(PILOT_NAMES[f.pilotKey] || '').split(' ')[0]}: ${f.departureAirport}→${f.arrivalAirport} ${formatTimeISO(f.departureTime, f.departureAirport)}</div>`
                 ).join('');
                 circle.bindPopup(`<div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${apt}</div>${flightLines}`, { className: 'dark-popup' });
 
@@ -6924,12 +7065,18 @@ let _blockUserEdited = false;
         // Safety fallback — dismiss after 4s no matter what
         setTimeout(dismissSplash, 4000);
 
-        // ── Admin User Management ─────────────────────────────────────────
+        // ── Admin Panel ───────────────────────────────────────────────────
         let _adminUsers = [];
 
-        async function openAdminPanel() {
+        async function openAdminPanel(tab = 'users') {
+            const isUsers = tab === 'users';
             document.getElementById('admin-panel').classList.remove('hidden');
-            await loadAdminUsers();
+            document.getElementById('admin-panel-title').textContent = isUsers ? 'Manage Users' : 'App Dashboard';
+            document.getElementById('admin-user-list').classList.toggle('hidden', !isUsers);
+            document.getElementById('admin-dashboard-pane').classList.toggle('hidden', isUsers);
+            document.getElementById('admin-add-user-btn').classList.toggle('hidden', !isUsers);
+            if (isUsers) await loadAdminUsers();
+            else await loadAdminDashboard();
         }
 
         function closeAdminPanel() {
@@ -6983,6 +7130,211 @@ let _blockUserEdited = false;
                     </div>
                 </div>`;
             }).join('');
+        }
+
+        // ── Admin Dashboard ───────────────────────────────────────────────
+        async function loadAdminDashboard() {
+            const pane = document.getElementById('admin-dashboard-pane');
+            pane.innerHTML = '<div class="flex items-center justify-center gap-2 py-8 text-zinc-500 text-xs font-bold"><div class="spinner"></div><span>Loading…</span></div>';
+            try {
+                const s = await fetch(`${API_BASE}/admin/stats`).then(r => r.json());
+                renderAdminDashboard(s);
+            } catch (e) {
+                pane.innerHTML = '<div class="text-red-400 text-xs font-bold py-6 text-center">Failed to load stats</div>';
+            }
+        }
+
+        function renderAdminDashboard(s) {
+            const pane = document.getElementById('admin-dashboard-pane');
+            const totalPilots = s.pilots.total;
+            const totalFlights = (s.segments.byType.find(t => t.type === 'flight')?.count) || 0;
+
+            // Feature adoption rows
+            const features = [
+                { label: 'Schedule loaded', active: s.pilots.withFutureSchedule, total: totalPilots, icon: '📅', note: 'pilots with upcoming flights' },
+                { label: 'Uploaded recently', active: s.pilots.recentUploaders, total: totalPilots, icon: '⬆', note: 'uploads in last 30 days' },
+                { label: 'Crew Intel', active: s.intel.contributors, total: totalPilots, icon: '📖', note: `of ${totalPilots} pilots contributed` },
+                { label: 'Push notifications', active: s.push.pilots, total: totalPilots, icon: '🔔', note: 'pilots subscribed' },
+            ];
+
+            const featureRows = features.map(f => {
+                const pct = totalPilots ? Math.round((f.active / totalPilots) * 100) : 0;
+                const barColor = pct >= 60 ? '#22c55e' : pct >= 30 ? '#f59e0b' : '#ef4444';
+                return `<div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-[11px] font-black text-zinc-300">${f.icon} ${f.label}</span>
+                        <span class="text-[11px] font-black" style="color:${barColor}">${f.active} / ${totalPilots}</span>
+                    </div>
+                    <div class="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                        <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${barColor}"></div>
+                    </div>
+                    <div class="text-[9px] text-zinc-600 mt-1">${f.note}</div>
+                </div>`;
+            }).join('');
+
+            // Segment type breakdown
+            const typeColors = { flight: '#3b82f6', reserve: '#f59e0b', off: '#22c55e', layover: '#a78bfa', duty: '#fb923c' };
+            const segRows = s.segments.byType.map(t => {
+                const pct = s.segments.total ? Math.round((t.count / s.segments.total) * 100) : 0;
+                const color = typeColors[t.type] || '#52525b';
+                return `<div class="flex items-center gap-3">
+                    <span class="w-16 text-[10px] font-black text-zinc-400 uppercase">${t.type}</span>
+                    <div class="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                        <div class="h-full rounded-full" style="width:${pct}%;background:${color}"></div>
+                    </div>
+                    <span class="text-[10px] font-black text-zinc-500 w-8 text-right">${t.count}</span>
+                </div>`;
+            }).join('');
+
+            // Crew intel category
+            const intelColors = { hotel: '#3b82f6', food: '#f59e0b', activity: '#22c55e', tip: '#a78bfa' };
+            const intelRows = s.intel.byCategory.length
+                ? s.intel.byCategory.map(c => {
+                    const pct = s.intel.total ? Math.round((c.count / s.intel.total) * 100) : 0;
+                    const color = intelColors[c.category] || '#52525b';
+                    return `<div class="flex items-center gap-2">
+                        <span class="w-16 text-[10px] font-black capitalize" style="color:${color}">${c.category}</span>
+                        <div class="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                            <div class="h-full rounded-full" style="width:${pct}%;background:${color}"></div>
+                        </div>
+                        <span class="text-[10px] font-black text-zinc-500 w-6 text-right">${c.count}</span>
+                    </div>`;
+                }).join('')
+                : '<div class="text-[10px] text-zinc-600">No entries yet</div>';
+
+            // Top airports
+            const maxAptCount = s.topAirports[0]?.count || 1;
+            const airportRows = s.topAirports.map((a, i) => {
+                const pct = Math.round((a.count / maxAptCount) * 100);
+                return `<div class="flex items-center gap-3">
+                    <span class="text-[10px] font-black text-zinc-500 w-4 text-right">${i + 1}</span>
+                    <span class="text-[11px] font-black text-white w-10">${a.airport}</span>
+                    <div class="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                        <div class="h-full rounded-full bg-blue-600" style="width:${pct}%"></div>
+                    </div>
+                    <span class="text-[10px] text-zinc-500 w-6 text-right">${a.count}</span>
+                </div>`;
+            }).join('');
+
+            // Schedule range display
+            const fmtD = iso => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+            const schedStr = s.schedule.earliest && s.schedule.latest
+                ? `${fmtD(s.schedule.earliest)} → ${fmtD(s.schedule.latest)}`
+                : 'No schedule data';
+
+            // Weekly upload activity (sparkline-style text)
+            const uploadBar = s.weeklyUploads.map(w => {
+                const n = Math.min(w.uploads, 5);
+                const blocks = ['▁','▂','▃','▄','▅'];
+                return `<span title="Week ${w.week}: ${w.uploads} upload${w.uploads !== 1 ? 's' : ''}" style="color:${n > 2 ? '#3b82f6' : n > 0 ? '#1d4ed8' : '#27272a'};font-size:14px;line-height:1">${blocks[n - 1] || '▁'}</span>`;
+            }).join('');
+
+            pane.innerHTML = `
+                <!-- Stat cards -->
+                <div class="grid grid-cols-2 gap-2.5">
+                    ${[
+                        { label: 'Total Flights', val: totalFlights.toLocaleString(), sub: `${s.segments.manual} manual`, color: '#3b82f6' },
+                        { label: 'Airports Covered', val: s.schedule.uniqueAirports, sub: 'across all schedules', color: '#a78bfa' },
+                        { label: 'Crossings Found', val: s.crossings.total, sub: 'crossing alerts generated', color: '#f59e0b' },
+                        { label: 'Crew Intel Tips', val: s.intel.total, sub: `across ${s.topAirports.length ? s.intel.byCategory.length : 0} categories`, color: '#22c55e' },
+                    ].map(c => `<div class="rounded-xl p-3.5" style="background:#111113;border:1px solid #1c1c1f">
+                        <div class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:${c.color}">${c.label}</div>
+                        <div class="text-2xl font-black text-white leading-none">${c.val}</div>
+                        <div class="text-[9px] text-zinc-600 mt-1">${c.sub}</div>
+                    </div>`).join('')}
+                </div>
+
+                <!-- Feature adoption -->
+                <div class="rounded-xl p-4 space-y-4" style="background:#111113;border:1px solid #1c1c1f">
+                    <div class="text-[9px] font-black uppercase tracking-widest text-zinc-500">Feature Adoption</div>
+                    ${featureRows}
+                </div>
+
+                <!-- Upload activity -->
+                <div class="rounded-xl p-4" style="background:#111113;border:1px solid #1c1c1f">
+                    <div class="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-3">Upload Activity · Last 8 Weeks</div>
+                    <div class="flex items-end gap-1 h-6">${uploadBar || '<span class="text-[10px] text-zinc-600">No data</span>'}</div>
+                    <div class="text-[9px] text-zinc-600 mt-2">Schedule coverage: ${schedStr}</div>
+                </div>
+
+                <!-- Two-column: segments + crew intel -->
+                <div class="grid grid-cols-2 gap-2.5">
+                    <div class="rounded-xl p-4 space-y-2.5" style="background:#111113;border:1px solid #1c1c1f">
+                        <div class="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">Segments by Type</div>
+                        ${segRows || '<div class="text-[10px] text-zinc-600">No data</div>'}
+                    </div>
+                    <div class="rounded-xl p-4 space-y-2.5" style="background:#111113;border:1px solid #1c1c1f">
+                        <div class="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">Crew Intel</div>
+                        ${intelRows}
+                    </div>
+                </div>
+
+                <!-- Top airports -->
+                ${s.topAirports.length ? `<div class="rounded-xl p-4 space-y-2.5" style="background:#111113;border:1px solid #1c1c1f">
+                    <div class="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">Top Departure Airports</div>
+                    ${airportRows}
+                </div>` : ''}
+
+                <!-- View usage -->
+                ${renderUsageSection(s)}
+            `;
+        }
+
+        function renderUsageSection(s) {
+            const u = s.usage;
+            if (!u) return '';
+
+            const viewLabels = { 'view:grid': 'Grid', 'view:list': 'List', 'view:map': 'Map', 'view:overlap': 'Crossings', 'view:intel': 'Crew Intel' };
+            const viewColors = { 'view:grid': '#3b82f6', 'view:list': '#a78bfa', 'view:map': '#22c55e', 'view:overlap': '#f59e0b', 'view:intel': '#f472b6' };
+            const maxViewCount = u.viewCounts[0]?.count || 1;
+
+            const viewRows = Object.keys(viewLabels).map(key => {
+                const row = u.viewCounts.find(r => r.event === key);
+                const count = row?.count || 0;
+                const pct = Math.round((count / maxViewCount) * 100);
+                const color = viewColors[key] || '#52525b';
+                return `<div class="flex items-center gap-3">
+                    <span class="text-[10px] font-black w-16" style="color:${color}">${viewLabels[key]}</span>
+                    <div class="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                        <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${color}"></div>
+                    </div>
+                    <span class="text-[10px] font-black text-zinc-500 w-8 text-right">${count}</span>
+                </div>`;
+            }).join('');
+
+            // Daily active sparkline — last 30 days
+            const days30 = [];
+            const today = new Date();
+            for (let i = 29; i >= 0; i--) {
+                const d = new Date(today); d.setDate(today.getDate() - i);
+                const key = d.toISOString().slice(0, 10);
+                const row = u.dailyActive.find(r => r.day === key);
+                days30.push(row?.pilots || 0);
+            }
+            const maxDay = Math.max(...days30, 1);
+            const sparkBars = days30.map(v => {
+                const h = Math.max(2, Math.round((v / maxDay) * 20));
+                const color = v > 0 ? '#3b82f6' : '#1c1c1f';
+                return `<div style="width:6px;height:${h}px;background:${color};border-radius:2px;flex-shrink:0" title="${v} pilot${v !== 1 ? 's' : ''}"></div>`;
+            }).join('');
+
+            const hasData = u.viewCounts.length > 0 || u.totalOpens > 0;
+            if (!hasData) return `<div class="rounded-xl p-4" style="background:#111113;border:1px solid #1c1c1f">
+                <div class="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2">Feature Usage</div>
+                <div class="text-[10px] text-zinc-600">No usage data yet — pilots will start appearing here once they open the app.</div>
+            </div>`;
+
+            return `<div class="rounded-xl p-4 space-y-4" style="background:#111113;border:1px solid #1c1c1f">
+                <div class="flex items-center justify-between">
+                    <div class="text-[9px] font-black uppercase tracking-widest text-zinc-500">Feature Usage · Last 90 Days</div>
+                    <div class="text-[9px] text-zinc-600">${s.pilots.activeLast7} active last 7d · ${u.totalOpens} total opens</div>
+                </div>
+                <div class="space-y-2.5">${viewRows}</div>
+                <div>
+                    <div class="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-2">Daily Active Pilots · Last 30 Days</div>
+                    <div class="flex items-end gap-0.5 h-5">${sparkBars}</div>
+                </div>
+            </div>`;
         }
 
         let _editUserIsViewer = false;
@@ -7409,6 +7761,508 @@ let _blockUserEdited = false;
             switchView('overlap');
         }
 
+        // ── Crew Intel ───────────────────────────────────────────────────────────────
+        let _intelCounts = {};           // { AIRPORT_CODE: count } — for crossing card badges
+        let _intelAll    = null;         // full entry list
+        let _intelFilter = { category: 'all' };
+        let _intelView   = 'airports';   // 'airports' | 'detail'
+        let _intelDetailAirport = null;  // code when in detail view
+        let _intelSearch = '';           // search string on airport index
+        let _intelEditId  = null;
+        let _intelFormCat = 'tip';
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        // City names for standalone airports not covered by METRO_GROUPS
+        const AIRPORT_CITIES = {
+            'APC':'Napa, CA', 'KAPC':'Napa, CA',
+            'STS':'Santa Rosa, CA', 'KSTS':'Santa Rosa, CA',
+            'SMF':'Sacramento, CA', 'KSMF':'Sacramento, CA',
+            'FAT':'Fresno, CA', 'KFAT':'Fresno, CA',
+            'SBP':'San Luis Obispo, CA', 'KSBP':'San Luis Obispo, CA',
+            'SBA':'Santa Barbara, CA', 'KSBA':'Santa Barbara, CA',
+            'SMX':'Santa Maria, CA', 'KSMX':'Santa Maria, CA',
+            'MRY':'Monterey, CA', 'KMRY':'Monterey, CA',
+            'SNA':'Orange County, CA', 'KSNA':'Orange County, CA',
+            'ONT':'Ontario, CA', 'KONT':'Ontario, CA',
+            'BUR':'Burbank, CA', 'KBUR':'Burbank, CA',
+            'LGB':'Long Beach, CA', 'KLGB':'Long Beach, CA',
+            'TUS':'Tucson, AZ', 'KTUS':'Tucson, AZ',
+            'FLG':'Flagstaff, AZ', 'KFLG':'Flagstaff, AZ',
+            'GJT':'Grand Junction, CO', 'KGJT':'Grand Junction, CO',
+            'COS':'Colorado Springs, CO', 'KCOS':'Colorado Springs, CO',
+            'ABQ':'Albuquerque, NM', 'KABQ':'Albuquerque, NM',
+            'SAF':'Santa Fe, NM', 'KSAF':'Santa Fe, NM',
+            'ELP':'El Paso, TX', 'KELP':'El Paso, TX',
+            'ABI':'Abilene, TX', 'KABI':'Abilene, TX',
+            'AMA':'Amarillo, TX', 'KAMA':'Amarillo, TX',
+            'LBB':'Lubbock, TX', 'KLBB':'Lubbock, TX',
+            'MAF':'Midland, TX', 'KMAF':'Midland, TX',
+            'TYR':'Tyler, TX', 'KTYR':'Tyler, TX',
+            'SHV':'Shreveport, LA', 'KSHV':'Shreveport, LA',
+            'BRO':'Brownsville, TX', 'KBRO':'Brownsville, TX',
+            'CRP':'Corpus Christi, TX', 'KCRP':'Corpus Christi, TX',
+            'ACT':'Waco, TX', 'KACT':'Waco, TX',
+            'OKC':'Oklahoma City, OK', 'KOKC':'Oklahoma City, OK',
+            'TUL':'Tulsa, OK', 'KTUL':'Tulsa, OK',
+            'ICT':'Wichita, KS', 'KICT':'Wichita, KS',
+            'LNK':'Lincoln, NE', 'KLNK':'Lincoln, NE',
+            'OMA':'Omaha, NE', 'KOMA':'Omaha, NE',
+            'FSD':'Sioux Falls, SD', 'KFSD':'Sioux Falls, SD',
+            'BIS':'Bismarck, ND', 'KBIS':'Bismarck, ND',
+            'GFK':'Grand Forks, ND', 'KGFK':'Grand Forks, ND',
+            'RAP':'Rapid City, SD', 'KRAP':'Rapid City, SD',
+            'BZN':'Bozeman, MT', 'KBZN':'Bozeman, MT',
+            'MSO':'Missoula, MT', 'KMSO':'Missoula, MT',
+            'GTF':'Great Falls, MT', 'KGTF':'Great Falls, MT',
+            'BIL':'Billings, MT', 'KBIL':'Billings, MT',
+            'JAC':'Jackson, WY', 'KJAC':'Jackson, WY',
+            'CPR':'Casper, WY', 'KCPR':'Casper, WY',
+            'BOI':'Boise, ID', 'KBOI':'Boise, ID',
+            'TWF':'Twin Falls, ID', 'KTWF':'Twin Falls, ID',
+            'IDA':'Idaho Falls, ID', 'KIDA':'Idaho Falls, ID',
+            'RNO':'Reno, NV', 'KRNO':'Reno, NV',
+            'EKO':'Elko, NV', 'KEKO':'Elko, NV',
+            'MFR':'Medford, OR', 'KMFR':'Medford, OR',
+            'RDM':'Bend, OR', 'KRDM':'Bend, OR',
+            'EUG':'Eugene, OR', 'KEUG':'Eugene, OR',
+            'YKM':'Yakima, WA', 'KYKM':'Yakima, WA',
+            'PSC':'Pasco, WA', 'KPSC':'Pasco, WA',
+            'GEG':'Spokane, WA', 'KGEG':'Spokane, WA',
+            'BLI':'Bellingham, WA', 'KBLI':'Bellingham, WA',
+            'BTV':'Burlington, VT', 'KBTV':'Burlington, VT',
+            'PWM':'Portland, ME', 'KPWM':'Portland, ME',
+            'BGR':'Bangor, ME', 'KBGR':'Bangor, ME',
+            'MHT':'Manchester, NH', 'KMHT':'Manchester, NH',
+            'PVD':'Providence, RI', 'KPVD':'Providence, RI',
+            'HYA':'Hyannis, MA', 'KHYA':'Hyannis, MA',
+            'ACK':'Nantucket, MA', 'KACK':'Nantucket, MA',
+            'MVY':'Martha\'s Vineyard, MA', 'KMVY':'Martha\'s Vineyard, MA',
+            'ALB':'Albany, NY', 'KALB':'Albany, NY',
+            'ROC':'Rochester, NY', 'KROC':'Rochester, NY',
+            'SYR':'Syracuse, NY', 'KSYR':'Syracuse, NY',
+            'BUF':'Buffalo, NY', 'KBUF':'Buffalo, NY',
+            'ITH':'Ithaca, NY', 'KITH':'Ithaca, NY',
+            'EWB':'New Bedford, MA', 'KEWB':'New Bedford, MA',
+            'ABE':'Allentown, PA', 'KABE':'Allentown, PA',
+            'MDT':'Harrisburg, PA', 'KMDT':'Harrisburg, PA',
+            'AVP':'Scranton, PA', 'KAVP':'Scranton, PA',
+            'AGC':'Pittsburgh South', 'KAGC':'Pittsburgh South',
+            'RIC':'Richmond, VA', 'KRIC':'Richmond, VA',
+            'ROA':'Roanoke, VA', 'KROA':'Roanoke, VA',
+            'CHO':'Charlottesville, VA', 'KCHO':'Charlottesville, VA',
+            'ORF':'Norfolk, VA', 'KORF':'Norfolk, VA',
+            'PHF':'Newport News, VA', 'KPHF':'Newport News, VA',
+            'OAJ':'Jacksonville, NC', 'KOAJ':'Jacksonville, NC',
+            'ILM':'Wilmington, NC', 'KILM':'Wilmington, NC',
+            'FAY':'Fayetteville, NC', 'KFAY':'Fayetteville, NC',
+            'GSO':'Greensboro, NC', 'KGSO':'Greensboro, NC',
+            'GSP':'Greenville, SC', 'KGSP':'Greenville, SC',
+            'CAE':'Columbia, SC', 'KCAE':'Columbia, SC',
+            'CHS':'Charleston, SC', 'KCHS':'Charleston, SC',
+            'SAV':'Savannah, GA', 'KSAV':'Savannah, GA',
+            'VLD':'Valdosta, GA', 'KVLD':'Valdosta, GA',
+            'AGS':'Augusta, GA', 'KAGS':'Augusta, GA',
+            'CSG':'Columbus, GA', 'KCSG':'Columbus, GA',
+            'DHN':'Dothan, AL', 'KDHN':'Dothan, AL',
+            'MOB':'Mobile, AL', 'KMOB':'Mobile, AL',
+            'HSV':'Huntsville, AL', 'KHSV':'Huntsville, AL',
+            'BHM':'Birmingham, AL', 'KBHM':'Birmingham, AL',
+            'MGM':'Montgomery, AL', 'KMGM':'Montgomery, AL',
+            'GPT':'Gulfport, MS', 'KGPT':'Gulfport, MS',
+            'JAN':'Jackson, MS', 'KJAN':'Jackson, MS',
+            'BTR':'Baton Rouge, LA', 'KBTR':'Baton Rouge, LA',
+            'LFT':'Lafayette, LA', 'KLFT':'Lafayette, LA',
+            'LCH':'Lake Charles, LA', 'KLCH':'Lake Charles, LA',
+            'AEX':'Alexandria, LA', 'KAEX':'Alexandria, LA',
+            'MEI':'Meridian, MS', 'KMEI':'Meridian, MS',
+            'TRI':'Tri-Cities, TN', 'KTRI':'Tri-Cities, TN',
+            'TYS':'Knoxville, TN', 'KTYS':'Knoxville, TN',
+            'CHA':'Chattanooga, TN', 'KCHA':'Chattanooga, TN',
+            'MKL':'Jackson, TN', 'KMKL':'Jackson, TN',
+            'EVV':'Evansville, IN', 'KEVV':'Evansville, IN',
+            'SBN':'South Bend, IN', 'KSBN':'South Bend, IN',
+            'FWA':'Fort Wayne, IN', 'KFWA':'Fort Wayne, IN',
+            'TOL':'Toledo, OH', 'KTOL':'Toledo, OH',
+            'CAK':'Akron, OH', 'KCAK':'Akron, OH',
+            'MFD':'Mansfield, OH', 'KMFD':'Mansfield, OH',
+            'GRR':'Grand Rapids, MI', 'KGRR':'Grand Rapids, MI',
+            'LAN':'Lansing, MI', 'KLAN':'Lansing, MI',
+            'FNT':'Flint, MI', 'KFNT':'Flint, MI',
+            'MBS':'Saginaw, MI', 'KMBS':'Saginaw, MI',
+            'TVC':'Traverse City, MI', 'KTVC':'Traverse City, MI',
+            'MKE':'Milwaukee, WI', 'KMKE':'Milwaukee, WI',
+            'GRB':'Green Bay, WI', 'KGRB':'Green Bay, WI',
+            'LSE':'La Crosse, WI', 'KLSE':'La Crosse, WI',
+            'AUS':'Austin, TX', 'KAUS':'Austin, TX',
+            'SUS':'St. Louis Executive', 'KSUS':'St. Louis Executive',
+            'STL':'St. Louis, MO', 'KSTL':'St. Louis, MO',
+            'SGF':'Springfield, MO', 'KSGF':'Springfield, MO',
+            'JLN':'Joplin, MO', 'KJLN':'Joplin, MO',
+            'COU':'Columbia, MO', 'KCOU':'Columbia, MO',
+            'FOE':'Topeka, KS', 'KFOE':'Topeka, KS',
+            'MCI':'Kansas City, MO', 'KMCI':'Kansas City, MO',
+            'DSM':'Des Moines, IA', 'KDSM':'Des Moines, IA',
+            'CID':'Cedar Rapids, IA', 'KCID':'Cedar Rapids, IA',
+            'DBQ':'Dubuque, IA', 'KDBQ':'Dubuque, IA',
+            'MLI':'Moline, IL', 'KMLI':'Moline, IL',
+            'BMI':'Bloomington, IL', 'KBMI':'Bloomington, IL',
+            'SPI':'Springfield, IL', 'KSPI':'Springfield, IL',
+            'MDW':'Chicago Midway', 'KMDW':'Chicago Midway',
+            'SBY':'Salisbury, MD', 'KSBY':'Salisbury, MD',
+            'HGR':'Hagerstown, MD', 'KHGR':'Hagerstown, MD',
+            'ACY':'Atlantic City, NJ', 'KACY':'Atlantic City, NJ',
+            'TTN':'Trenton, NJ', 'KTTN':'Trenton, NJ',
+            'HPN':'White Plains, NY', 'KHPN':'White Plains, NY',
+            'ISP':'Long Island, NY', 'KISP':'Long Island, NY',
+            'SWF':'Newburgh, NY', 'KSWF':'Newburgh, NY',
+            'BGM':'Binghamton, NY', 'KBGM':'Binghamton, NY',
+            'ELM':'Elmira, NY', 'KELM':'Elmira, NY',
+            'OGS':'Ogdensburg, NY', 'KOGS':'Ogdensburg, NY',
+            'PBG':'Plattsburgh, NY', 'KPBG':'Plattsburgh, NY',
+            'SLK':'Saranac Lake, NY', 'KSLK':'Saranac Lake, NY',
+            'ASE':'Aspen, CO', 'KASE':'Aspen, CO',
+            'EGE':'Eagle/Vail, CO', 'KEGE':'Eagle/Vail, CO',
+            'HDN':'Steamboat Springs, CO', 'KHDN':'Steamboat Springs, CO',
+            'MTJ':'Montrose, CO', 'KMTJ':'Montrose, CO',
+            'DRO':'Durango, CO', 'KDRO':'Durango, CO',
+            'PUB':'Pueblo, CO', 'KPUB':'Pueblo, CO',
+            'TEX':'Telluride, CO', 'KTEX':'Telluride, CO',
+            'ALS':'Alamosa, CO', 'KALS':'Alamosa, CO',
+        };
+
+        function _intelAreaLabel(code) {
+            const norm = normApt(code);
+            const metro = METRO_GROUPS[norm];
+            if (metro && METRO_LABELS[metro]) return METRO_LABELS[metro];
+            return AIRPORT_CITIES[code.toUpperCase()] || AIRPORT_CITIES[norm] || null;
+        }
+
+        function _rebuildIntelCounts() {
+            _intelCounts = {};
+            if (!Array.isArray(_intelAll)) return;
+            _intelAll.forEach(x => { _intelCounts[x.airport_code] = (_intelCounts[x.airport_code] || 0) + 1; });
+        }
+
+        async function loadIntel() {
+            renderIntelHeader();
+            const el = document.getElementById('intel-content');
+            if (!el) return;
+            el.innerHTML = `<div class="flex items-center justify-center gap-2.5 py-10 text-zinc-500 text-sm"><div class="spinner"></div><span>Loading intel…</span></div>`;
+            try {
+                _intelAll = await fetch('/api/intel').then(r => r.json());
+                _rebuildIntelCounts();
+                renderIntel();
+            } catch {
+                el.innerHTML = `<div class="text-center py-10 text-zinc-600 text-sm">Failed to load intel.</div>`;
+            }
+        }
+
+        async function loadIntelCounts() {
+            try {
+                const rows = await fetch('/api/intel').then(r => r.json());
+                if (!Array.isArray(rows)) return;
+                _intelAll = rows;
+                _rebuildIntelCounts();
+            } catch {}
+        }
+
+        function renderIntel() {
+            renderIntelHeader();
+            if (_intelView === 'detail' && _intelDetailAirport) {
+                renderIntelDetail();
+            } else {
+                renderIntelAirports();
+            }
+        }
+
+        function renderIntelHeader() {
+            const header = document.getElementById('intel-header');
+            if (!header) return;
+            if (_intelView === 'airports') {
+                const clearBtn = _intelSearch
+                    ? `<button id="intel-search-clear" onclick="clearIntelSearch()" class="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-sm leading-none">×</button>`
+                    : `<span id="intel-search-clear" class="hidden"></span>`;
+                header.innerHTML = `
+                    <div class="px-5 pt-5 pb-3 flex items-center justify-between gap-4">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-base font-black text-white uppercase tracking-tight">Crew Intel</h2>
+                                <span class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest" style="background:rgba(234,179,8,0.15);color:#ca8a04;border:1px solid rgba(234,179,8,0.3)">Beta</span>
+                            </div>
+                            <p class="text-[10px] text-zinc-500 mt-0.5">Shared airport knowledge</p>
+                        </div>
+                        <button onclick="openAddIntel()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">+ Add</button>
+                    </div>
+                    <div class="px-5 pb-3">
+                        <div class="relative">
+                            <input id="intel-search-input" type="text" placeholder="Search airports…"
+                                oninput="setIntelSearch(this.value)"
+                                value="${escapeHtml(_intelSearch)}"
+                                class="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-3 pr-7 py-1.5 text-xs font-mono uppercase text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 tracking-widest" />
+                            ${clearBtn}
+                        </div>
+                    </div>`;
+            } else {
+                const ap = _intelDetailAirport || '';
+                const areaLabel = _intelAreaLabel(ap);
+                const cats = ['all','hotel','food','activity','tip'];
+                const catPills = cats.map(c => {
+                    const label = c === 'all' ? 'All' : c.charAt(0).toUpperCase() + c.slice(1);
+                    return `<button onclick="setIntelCat('${c}')" class="intel-cat-btn ${_intelFilter.category === c ? 'intel-cat-active' : ''}">${label}</button>`;
+                }).join('');
+                header.innerHTML = `
+                    <div class="px-4 pt-4 pb-2.5 flex items-center gap-3">
+                        <button onclick="setIntelView('airports')" class="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-700/80 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors flex-shrink-0">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-base font-black text-white uppercase tracking-tight font-mono">${escapeHtml(ap)}</div>
+                            ${areaLabel ? `<div class="text-[10px] text-zinc-500 truncate">${escapeHtml(areaLabel)}</div>` : ''}
+                        </div>
+                        <button onclick="openAddIntel('${escapeHtml(ap)}')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors flex-shrink-0">+ Add</button>
+                    </div>
+                    <div class="flex gap-1.5 px-4 pb-3 overflow-x-auto">${catPills}</div>`;
+            }
+        }
+
+        function renderIntelAirports() {
+            const el = document.getElementById('intel-content');
+            if (!el) return;
+            const items = Array.isArray(_intelAll) ? _intelAll : [];
+            const byAirport = {};
+            items.forEach(x => { (byAirport[x.airport_code] = byAirport[x.airport_code] || []).push(x); });
+            let airports = Object.keys(byAirport).sort();
+            if (_intelSearch) {
+                const q = _intelSearch.toUpperCase();
+                airports = airports.filter(ap => ap.includes(q) || (_intelAreaLabel(ap) || '').toUpperCase().includes(q));
+            }
+            if (airports.length === 0) {
+                el.innerHTML = _intelSearch
+                    ? `<div class="text-center py-12 text-zinc-500 text-sm">No airports match "${escapeHtml(_intelSearch)}"</div>`
+                    : `<div class="text-center py-12 text-zinc-500 text-sm">No crew intel yet.<br><span class="text-zinc-600 text-xs mt-1.5 block">Tap + Add to share your first tip.</span></div>`;
+                return;
+            }
+            const catColors = { hotel:'#60a5fa', food:'#fbbf24', activity:'#4ade80', tip:'#c4b5fd' };
+            const catBg     = { hotel:'rgba(59,130,246,0.12)', food:'rgba(245,158,11,0.12)', activity:'rgba(34,197,94,0.12)', tip:'rgba(167,139,250,0.12)' };
+            el.innerHTML = `<div class="grid grid-cols-2 gap-3 pb-4">${airports.map(ap => {
+                const entries = byAirport[ap];
+                const areaLabel = _intelAreaLabel(ap);
+                const counts = {};
+                entries.forEach(e => { counts[e.category] = (counts[e.category] || 0) + 1; });
+                const catDots = ['hotel','food','activity','tip'].filter(c => counts[c])
+                    .map(c => `<span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${catColors[c]}" title="${c}"></span>`)
+                    .join('');
+                const catPills = ['hotel','food','activity','tip'].filter(c => counts[c])
+                    .map(c => `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold capitalize" style="color:${catColors[c]};background:${catBg[c]}">${c[0].toUpperCase()+c.slice(1)}</span>`)
+                    .join('');
+                return `<button onclick="openIntelAirport('${ap}')" class="w-full text-left rounded-2xl border border-zinc-800 bg-zinc-900/40 hover:border-zinc-600 hover:bg-zinc-900/60 transition-all active:scale-[0.99] p-4 flex flex-col gap-3">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="font-black text-white tracking-tight font-mono text-xl leading-none">${escapeHtml(ap)}</div>
+                        <span class="text-[10px] font-bold text-zinc-600 shrink-0 pt-0.5">${entries.length}</span>
+                    </div>
+                    ${areaLabel ? `<div class="text-xs text-zinc-500 -mt-2 leading-tight">${escapeHtml(areaLabel)}</div>` : ''}
+                    <div class="flex items-center gap-1.5 flex-wrap mt-auto">${catPills}</div>
+                </button>`;
+            }).join('')}</div>`;
+        }
+
+        function renderIntelDetail() {
+            const el = document.getElementById('intel-content');
+            if (!el) return;
+            const ap = _intelDetailAirport;
+            let items = Array.isArray(_intelAll) ? _intelAll.filter(x => x.airport_code === ap) : [];
+            if (_intelFilter.category !== 'all') items = items.filter(x => x.category === _intelFilter.category);
+            if (items.length === 0) {
+                const catMsg = _intelFilter.category !== 'all' ? `${_intelFilter.category} tips` : 'tips';
+                el.innerHTML = `<div class="text-center py-12 text-zinc-500 text-sm">No ${catMsg} for ${escapeHtml(ap)} yet.<br><span class="text-zinc-600 text-xs mt-1.5 block">Tap + Add to share what you know.</span></div>`;
+                return;
+            }
+            const catOrder = ['hotel','food','activity','tip'];
+            const catStyle = {
+                hotel:    { label:'Hotel',    color:'#60a5fa', border:'rgba(59,130,246,0.25)'  },
+                food:     { label:'Food',     color:'#fbbf24', border:'rgba(245,158,11,0.25)'  },
+                activity: { label:'Activity', color:'#4ade80', border:'rgba(34,197,94,0.25)'   },
+                tip:      { label:'Tip',      color:'#c4b5fd', border:'rgba(167,139,250,0.25)' },
+            };
+            const fmtDate = s => new Date(s).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+            const byCategory = {};
+            items.forEach(x => { (byCategory[x.category] = byCategory[x.category] || []).push(x); });
+            const usedCats = _intelFilter.category !== 'all' ? [_intelFilter.category] : catOrder.filter(c => byCategory[c]);
+            const ownBtns = (e) => `<div class="flex items-center gap-1">
+                <button onclick="event.stopPropagation();openEditIntel(${e.id})" class="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-300 transition-colors px-2 py-1 rounded">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit
+                </button>
+                <button onclick="event.stopPropagation();deleteIntelTip(${e.id})" class="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-red-400 transition-colors px-2 py-1 rounded">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>Delete
+                </button>
+            </div>`;
+            el.innerHTML = `<div class="space-y-6 pb-4">${usedCats.map(cat => {
+                const cs = catStyle[cat] || catStyle.tip;
+                const catEntries = byCategory[cat] || [];
+                const entriesHtml = catEntries.map(e => {
+                    const isOwn = !myViewer && (myPilot === null || e.added_by === myPilot);
+                    const name = (PILOT_NAMES[e.added_by] || e.added_by || '').split(' ')[0];
+                    const hasBody = !!(e.body && e.body.trim());
+                    return `<div class="rounded-xl border border-zinc-800/60 bg-zinc-900/40 overflow-hidden" style="border-left:3px solid ${cs.border}">
+                        <button onclick="toggleIntelEntry(${e.id})" class="w-full text-left px-4 py-4 flex items-start gap-3">
+                            <div class="flex-1 min-w-0">
+                                <div class="text-base font-bold text-white leading-snug">${escapeHtml(e.title)}</div>
+                                <div class="text-xs text-zinc-500 mt-1">${escapeHtml(name)} · ${fmtDate(e.created_at)}</div>
+                            </div>
+                            ${hasBody ? `<svg id="intel-arr-${e.id}" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-zinc-600 flex-shrink-0 mt-0.5 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>` : ''}
+                        </button>
+                        <div id="intel-body-${e.id}" class="hidden border-t border-zinc-800/50 px-4 pb-4 pt-3">
+                            ${hasBody ? `<p class="text-sm text-zinc-400 leading-relaxed mb-3">${escapeHtml(e.body)}</p>` : ''}
+                            ${isOwn ? ownBtns(e) : ''}
+                        </div>
+                        ${!hasBody && isOwn ? `<div class="border-t border-zinc-800/40 px-3 py-2">${ownBtns(e)}</div>` : ''}
+                    </div>`;
+                }).join('');
+                return `<div class="space-y-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black uppercase tracking-widest" style="color:${cs.color}">${cs.label}</span>
+                        <span class="text-[10px] text-zinc-600">${catEntries.length}</span>
+                    </div>
+                    ${entriesHtml}
+                </div>`;
+            }).join('')}</div>`;
+        }
+
+        function toggleIntelEntry(id) {
+            const body = document.getElementById(`intel-body-${id}`);
+            const arr  = document.getElementById(`intel-arr-${id}`);
+            if (!body) return;
+            const opening = body.classList.contains('hidden');
+            body.classList.toggle('hidden', !opening);
+            if (arr) arr.style.transform = opening ? 'rotate(180deg)' : '';
+        }
+
+        function setIntelView(view) {
+            _intelView = view;
+            if (view === 'airports') { _intelDetailAirport = null; _intelFilter.category = 'all'; }
+            renderIntel();
+            document.getElementById('view-intel')?.scrollTo(0, 0);
+        }
+
+        function openIntelAirport(code) {
+            _intelDetailAirport = code;
+            _intelView = 'detail';
+            _intelFilter.category = 'all';
+            renderIntel();
+            document.getElementById('view-intel')?.scrollTo(0, 0);
+        }
+
+        function setIntelSearch(val) {
+            _intelSearch = val.toUpperCase().trim();
+            const clear = document.getElementById('intel-search-clear');
+            if (clear) clear.classList.toggle('hidden', !val);
+            renderIntelAirports();
+        }
+
+        function clearIntelSearch() {
+            _intelSearch = '';
+            const input = document.getElementById('intel-search-input');
+            if (input) { input.value = ''; input.focus(); }
+            const clear = document.getElementById('intel-search-clear');
+            if (clear) clear.classList.add('hidden');
+            renderIntelAirports();
+        }
+
+        function setIntelCat(cat) {
+            _intelFilter.category = cat;
+            renderIntelHeader();
+            renderIntelDetail();
+        }
+
+        function openAddIntel(prefilledAirport) {
+            _intelEditId = null;
+            document.getElementById('intel-modal-title').textContent = 'Add Intel';
+            document.getElementById('intel-form-airport').value = prefilledAirport || _intelDetailAirport || '';
+            document.getElementById('intel-form-title').value = '';
+            document.getElementById('intel-form-body').value = '';
+            selectIntelCat('tip');
+            document.getElementById('intel-modal').classList.remove('hidden');
+        }
+
+        function openEditIntel(id) {
+            if (!Array.isArray(_intelAll)) return;
+            const e = _intelAll.find(x => x.id === id);
+            if (!e) return;
+            _intelEditId = id;
+            document.getElementById('intel-modal-title').textContent = 'Edit Intel';
+            document.getElementById('intel-form-airport').value = e.airport_code;
+            document.getElementById('intel-form-title').value = e.title;
+            document.getElementById('intel-form-body').value = e.body || '';
+            selectIntelCat(e.category);
+            document.getElementById('intel-modal').classList.remove('hidden');
+        }
+
+        function closeIntelModal() {
+            document.getElementById('intel-modal').classList.add('hidden');
+        }
+
+        function selectIntelCat(cat) {
+            _intelFormCat = cat;
+            document.querySelectorAll('.intel-form-cat').forEach(b => b.classList.remove('intel-form-cat-active'));
+            document.getElementById(`form-icat-${cat}`)?.classList.add('intel-form-cat-active');
+        }
+
+        async function saveIntelTip() {
+            const airport = document.getElementById('intel-form-airport').value.toUpperCase().trim();
+            const title   = document.getElementById('intel-form-title').value.trim();
+            const body    = document.getElementById('intel-form-body').value.trim();
+            if (airport.length < 3) { alert('Enter a valid airport code (e.g. KLAX)'); return; }
+            if (!title) { alert('Title is required'); return; }
+            const payload = { airport_code: airport, category: _intelFormCat, title, body, pilot_key: myPilot || 'admin' };
+            try {
+                let res;
+                if (_intelEditId) {
+                    res = await fetch(`/api/intel/${_intelEditId}`, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                } else {
+                    res = await fetch('/api/intel', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                }
+                if (!res.ok) {
+                    const errBody = await res.json().catch(() => ({}));
+                    throw new Error(errBody.error || `Server returned ${res.status}`);
+                }
+                closeIntelModal();
+                _intelDetailAirport = airport;
+                _intelView = 'detail';
+                _intelFilter.category = 'all';
+                await loadIntel();
+            } catch (e) { alert('Failed to save: ' + (e.message || 'unknown error')); }
+        }
+
+        async function deleteIntelTip(id) {
+            if (!confirm('Delete this tip?')) return;
+            try {
+                const res = await fetch(`/api/intel/${id}`, {
+                    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pilot_key: myPilot || 'admin' })
+                });
+                if (!res.ok) throw new Error();
+                if (Array.isArray(_intelAll)) _intelAll = _intelAll.filter(x => x.id !== id);
+                _rebuildIntelCounts();
+                renderIntel();
+            } catch { alert('Failed to delete. Please try again.'); }
+        }
+
+        function openIntelForAirport(airport) {
+            _intelDetailAirport = airport;
+            _intelView = 'detail';
+            _intelFilter.category = 'all';
+            switchView('intel');
+        }
+
         // Called after a successful schedule upload to notify the other pilot(s) in any new crossings
         async function broadcastCrossingNotifications(overlaps) {
             if (!myPilot || !myToken || isDemo || !Array.isArray(overlaps)) return;
@@ -7464,6 +8318,8 @@ let _blockUserEdited = false;
             // Background crossing check — populates badge and may show modal
             if (myPilot && !isDemo) {
                 computeOverlap().then(overlaps => updateCrossingAlert(overlaps)).catch(() => {});
+                loadIntelCounts().catch(() => {});
+                trackEvent('app:open');
             }
 
             if (PUSH_ENABLED && myPilot && !isDemo) {
