@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrewSync Manual</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #09090b; color: #e4e4e7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 2px; }
+        .nav-link { display: block; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; color: #71717a; transition: color .15s, background .15s; cursor: pointer; }
+        .nav-link:hover { color: #e4e4e7; background: rgba(255,255,255,0.05); }
+        .nav-link.active { color: #fff; background: rgba(59,130,246,0.15); border-left: 2px solid #3b82f6; padding-left: 10px; }
+        .nav-group-label { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: #3f3f46; padding: 16px 12px 4px; }
+        .prose h2 { font-size: 22px; font-weight: 900; color: #fff; margin: 0 0 12px; letter-spacing: -.02em; }
+        .prose h3 { font-size: 14px; font-weight: 900; color: #e4e4e7; margin: 28px 0 8px; text-transform: uppercase; letter-spacing: .05em; }
+        .prose p { font-size: 14px; line-height: 1.7; color: #a1a1aa; margin: 0 0 14px; }
+        .prose ul { margin: 0 0 14px 0; padding: 0; list-style: none; }
+        .prose ul li { font-size: 14px; line-height: 1.6; color: #a1a1aa; padding: 3px 0 3px 18px; position: relative; }
+        .prose ul li::before { content: '–'; position: absolute; left: 0; color: #52525b; }
+        .prose strong { color: #e4e4e7; font-weight: 700; }
+        .prose a { color: #60a5fa; text-decoration: none; } .prose a:hover { text-decoration: underline; }
+        .callout { border-radius: 12px; padding: 14px 16px; margin: 16px 0; font-size: 13px; line-height: 1.6; }
+        .callout-blue { background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.25); color: #93c5fd; }
+        .callout-amber { background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.2); color: #fcd34d; }
+        .callout-zinc { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); color: #a1a1aa; }
+        .chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+        .chip-blue { background: rgba(59,130,246,.15); color: #60a5fa; }
+        .chip-red { background: rgba(239,68,68,.15); color: #f87171; }
+        .chip-amber { background: rgba(245,158,11,.15); color: #fbbf24; }
+        .chip-teal { background: rgba(20,184,166,.15); color: #2dd4bf; }
+        .chip-green { background: rgba(34,197,94,.15); color: #4ade80; }
+        .chip-zinc { background: rgba(255,255,255,.08); color: #a1a1aa; }
+        .section-divider { border: none; border-top: 1px solid #27272a; margin: 40px 0; }
+        .kbd { display: inline-block; padding: 1px 6px; border-radius: 5px; background: #27272a; border: 1px solid #3f3f46; font-size: 11px; font-family: monospace; color: #d4d4d8; }
+        #search-input:focus { outline: none; border-color: #3b82f6; }
+        .search-highlight { background: rgba(59,130,246,.3); border-radius: 2px; }
+        section[id] { scroll-margin-top: 80px; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+<!-- Top bar -->
+<div class="sticky top-0 z-50 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 flex items-center gap-4 h-14">
+        <a href="/app" class="flex items-center gap-2.5 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            <span class="text-[11px] font-black uppercase tracking-widest">App</span>
+        </a>
+        <div class="w-px h-5 bg-zinc-800 shrink-0"></div>
+        <span class="text-blue-500 font-black italic text-base tracking-tighter uppercase shrink-0">CrewSync</span>
+        <span class="text-zinc-600 text-sm shrink-0">Manual</span>
+        <div class="flex-1"></div>
+        <div class="relative shrink-0">
+            <input id="search-input" type="text" placeholder="Search…" oninput="doSearch(this.value)" class="w-44 md:w-56 px-3 py-1.5 pl-8 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 placeholder-zinc-600 transition-colors" style="outline:none">
+            <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <button id="search-clear" onclick="clearSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-sm leading-none">×</button>
+        </div>
+    </div>
+</div>
+
+<div class="max-w-6xl mx-auto flex">
+
+    <!-- Sidebar nav -->
+    <nav id="sidebar-nav" class="hidden md:flex flex-col w-52 shrink-0 sticky top-14 h-[calc(100vh-56px)] overflow-y-auto border-r border-zinc-800/60 py-4">
+        <div class="nav-group-label">Overview</div>
+        <a class="nav-link" onclick="jumpTo('intro')">What is CrewSync?</a>
+        <a class="nav-link" onclick="jumpTo('getting-started')">Getting Started</a>
+
+        <div class="nav-group-label">Views</div>
+        <a class="nav-link" onclick="jumpTo('calendar')">Calendar Grid</a>
+        <a class="nav-link" onclick="jumpTo('list')">List View</a>
+        <a class="nav-link" onclick="jumpTo('map')">Route Map</a>
+        <a class="nav-link" onclick="jumpTo('crossings')">Location Overlap</a>
+
+        <div class="nav-group-label">Managing Data</div>
+        <a class="nav-link" onclick="jumpTo('upload')">Uploading Schedules</a>
+        <a class="nav-link" onclick="jumpTo('manual-flight')">Adding Flights Manually</a>
+
+        <div class="nav-group-label">Account</div>
+        <a class="nav-link" onclick="jumpTo('notifications')">Notifications</a>
+        <a class="nav-link" onclick="jumpTo('identity')">Your Personal Link</a>
+        <a class="nav-link" onclick="jumpTo('pwa')">Installing the App</a>
+
+        <div class="nav-group-label">Reference</div>
+        <a class="nav-link" onclick="jumpTo('formats')">Schedule Formats</a>
+        <a class="nav-link" onclick="jumpTo('faq')">FAQ</a>
+    </nav>
+
+    <!-- Mobile section picker -->
+    <div class="md:hidden sticky top-14 z-40 w-full border-b border-zinc-800 bg-zinc-950/95 backdrop-blur-md px-4 py-2">
+        <select onchange="jumpTo(this.value)" class="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-bold text-zinc-200">
+            <option value="intro">What is CrewSync?</option>
+            <option value="getting-started">Getting Started</option>
+            <option value="calendar">Calendar Grid</option>
+            <option value="list">List View</option>
+            <option value="map">Route Map</option>
+            <option value="crossings">Location Overlap</option>
+            <option value="upload">Uploading Schedules</option>
+            <option value="manual-flight">Adding Flights Manually</option>
+            <option value="notifications">Notifications</option>
+            <option value="identity">Your Personal Link</option>
+            <option value="pwa">Installing the App</option>
+            <option value="formats">Schedule Formats</option>
+            <option value="faq">FAQ</option>
+        </select>
+    </div>
+
+    <!-- Main content -->
+    <main class="flex-1 min-w-0 px-6 md:px-12 py-10 max-w-3xl">
+        <div id="search-no-results" class="hidden py-12 text-center text-zinc-600 text-sm">No results found</div>
+
+        <!-- INTRO -->
+        <section id="intro" class="prose">
+            <div class="mb-8">
+                <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Overview</p>
+                <h2>What is CrewSync?</h2>
+                <p>CrewSync is a scheduling and coordination app for flight crews. It's built to handle pilots from any airline or flight operation — corporate, regional, charter, or mixed — all in one place. Each pilot uploads their own schedule, and the app handles the rest: tracking where everyone is, finding overlaps, and surfacing meetup opportunities automatically.</p>
+                <p>The core idea: stop texting "hey, are you in ORD this week?" and let the app tell you. Every pilot's schedule — corporate flights, airline trips, reserve windows, days off — feeds into a shared picture that the whole crew can see.</p>
+            </div>
+
+            <h3>What it does</h3>
+            <ul>
+                <li><strong>Calendar Grid</strong> — Your month at a glance, color-coded by day type</li>
+                <li><strong>List View</strong> — A chronological feed of all your flights and events</li>
+                <li><strong>Route Map</strong> — Your flight routes plotted on a live map, plus where the whole crew is today</li>
+                <li><strong>Location Overlap</strong> — Automatically finds when two pilots will be in the same city at the same time</li>
+                <li><strong>Notifications</strong> — Push alerts when a crossing is detected after a schedule upload</li>
+            </ul>
+
+            <h3>What it doesn't do</h3>
+            <ul>
+                <li>It doesn't connect to airline systems directly — schedules are uploaded manually by each pilot</li>
+                <li>It doesn't replace your airline's scheduling app — it's a crew coordination layer on top</li>
+                <li>It's read-only for viewers (guests with view-only access)</li>
+            </ul>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- GETTING STARTED -->
+        <section id="getting-started" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Overview</p>
+            <h2>Getting Started</h2>
+            <p>Access to CrewSync is by personal link. Your link is unique to you — it signs you in automatically without a password.</p>
+
+            <h3>Opening the app</h3>
+            <p>Open your personal link in a browser. You'll land directly in the app signed in as yourself. Bookmark it, or better yet, <a onclick="jumpTo('pwa')" href="#pwa">install it to your home screen</a> so it behaves like a native app.</p>
+
+            <div class="callout callout-amber">
+                <strong>iOS users:</strong> Add the app to your Home Screen via Safari → Share → Add to Home Screen before enabling notifications. Push notifications only work from the installed PWA, not from the browser tab.
+            </div>
+
+            <h3>What you see on first load</h3>
+            <p>The Calendar Grid opens by default, showing the current month for the first pilot in the roster. If you're signed in as yourself, the app loads your schedule automatically. Use the pilot selector (sidebar on desktop, scroll bar on mobile) to switch between crew members.</p>
+
+            <h3>Navigating between views</h3>
+            <p>On desktop, use the left sidebar. On mobile, use the bottom navigation bar:</p>
+            <ul>
+                <li><strong>Grid</strong> — Monthly calendar</li>
+                <li><strong>List</strong> — Chronological flight list</li>
+                <li><strong>Map</strong> — Route and crew map</li>
+                <li><strong>Overlap</strong> — Location crossings</li>
+                <li><strong>Upload</strong> — Upload your schedule (mobile)</li>
+            </ul>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- CALENDAR -->
+        <section id="calendar" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Views</p>
+            <h2>Calendar Grid</h2>
+            <p>The calendar shows a full month of scheduled activity in a color-coded grid. Each day is colored based on the highest-priority event on that day.</p>
+
+            <h3>Day color codes</h3>
+            <ul>
+                <li><span class="chip chip-blue">Blue</span> — Flying day. One or more flights are scheduled.</li>
+                <li><span class="chip chip-amber">Amber</span> — Reserve / on call. Airline pilot has a reserve window on this day.</li>
+                <li><span class="chip" style="background:rgba(234,179,8,.15);color:#ca8a04">Yellow</span> — Away layover. Overnight at a non-home airport.</li>
+                <li><span class="chip chip-red">Red</span> — Hard day off. Scheduled unavailable day.</li>
+                <li><span class="chip chip-teal">Teal</span> — Vacation block.</li>
+                <li><span class="chip chip-zinc">Gray</span> — Open day. No events scheduled. For corporate pilots this typically means available; for airline pilots it means a day off.</li>
+            </ul>
+
+            <h3>Tapping a day</h3>
+            <p>Tap any day to open the detail sheet. It shows every event for that day: flight routes with tail numbers and block times, reserve windows, hard-off reasons, and layover locations. Active flights (currently airborne) are highlighted.</p>
+
+            <h3>Navigating months</h3>
+            <p>Use the <span class="kbd">‹</span> and <span class="kbd">›</span> arrows to move between months. The app loads schedule data for whichever pilot is currently selected.</p>
+
+            <h3>Switching pilots</h3>
+            <p>On desktop: pilot buttons in the left sidebar. On mobile: the scrollable pill bar below the month header. Switching pilots loads that person's schedule for the current month.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- LIST VIEW -->
+        <section id="list" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Views</p>
+            <h2>List View</h2>
+            <p>The list view shows all events for the selected pilot in chronological order. Unlike the calendar grid, it doesn't group by week — it's a flat, scrollable feed of flights, layovers, days off, and reserve windows.</p>
+
+            <h3>What's shown</h3>
+            <ul>
+                <li><strong>Flights</strong> — Route (e.g. STL → LGA), departure and arrival times in local airport time, flight number, tail, block time</li>
+                <li><strong>Ground transport</strong> — Van or bus legs between airports (airline ops)</li>
+                <li><strong>Reserve</strong> — On-call windows with start and end times</li>
+                <li><strong>Hard off</strong> — Scheduled days off</li>
+                <li><strong>Vacation</strong> — Vacation blocks</li>
+                <li><strong>Away</strong> — Multi-day layovers away from base</li>
+            </ul>
+
+            <h3>Deadhead flights</h3>
+            <p>Deadhead (DH) flights are shown with a <span class="chip chip-zinc">DH</span> badge. These are positioning flights where the pilot is a passenger, not flying the aircraft.</p>
+
+            <h3>Live flights</h3>
+            <p>Flights that are currently airborne are highlighted with a green pulse indicator. The app compares the current time against departure and arrival times to determine live status.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- MAP -->
+        <section id="map" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Views</p>
+            <h2>Route Map</h2>
+            <p>The map has three modes, switchable via the sub-menu on desktop or the mode bar on mobile.</p>
+
+            <h3>My Routes</h3>
+            <p>Shows the selected pilot's flight routes for the current month as arcs on the map. Each arc connects a departure airport to an arrival airport. Color corresponds to the pilot's crew color. Clicking an arc shows the flight details.</p>
+
+            <h3>All Crew — Day</h3>
+            <p>Shows where every crew member is on a specific day. Location pins indicate each pilot's current airport — either where they're based for the day, or where they landed most recently. Use the date navigator to step forward or backward by day.</p>
+            <p>This is the most useful mode for planning: you can quickly see who's in what city on any given day.</p>
+            <div class="callout callout-zinc">
+                Pins use each pilot's crew color. The pin label shows the airport code. If a pilot is in the air, their pin shows their most recent departure or destination.
+            </div>
+
+            <h3>All Crew — Month</h3>
+            <p>Shows all flight routes for all pilots for the current month simultaneously. Good for getting a big-picture sense of where the crew is flying this month.</p>
+
+            <h3>Weather Radar</h3>
+            <p>The radar toggle (top-right of the map) overlays live precipitation radar. Useful for checking weather along a route.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- CROSSINGS -->
+        <section id="crossings" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Views</p>
+            <h2>Location Overlap</h2>
+            <p>This is the core coordination feature. The app automatically computes when any two pilots will be in the same city at the same time — based purely on their uploaded schedules. No manual input required.</p>
+
+            <h3>How it works</h3>
+            <p>For each pilot, the app builds a timeline of where they'll be on the ground and for how long. It then compares every pair of pilots and finds windows where they're at the same location (or nearby locations) simultaneously. These are called <strong>crossings</strong>.</p>
+
+            <div class="callout callout-blue">
+                The overlap view is always computed fresh from the latest schedule data. Hit <strong>Refresh</strong> to recompute after an upload.
+            </div>
+
+            <h3>Crossing tiers</h3>
+            <p>Not all crossings are equal. The app classifies them into tiers:</p>
+            <ul>
+                <li><strong>Tier 1 — City Meetup</strong> — Both pilots are in the same metro area. SFO, OAK, SJC, APC are all treated as "Bay Area." STL, SUS, CPS are all treated as "St. Louis." These are real, plannable meetups.</li>
+                <li><strong>Tier 2 — Same Region</strong> — Airports within roughly 50 miles. Still likely plannable with a short drive.</li>
+                <li><strong>Tier 3 — Also Nearby</strong> — Geographic coincidences. Shown in a collapsed section at the bottom. Worth knowing but less actionable.</li>
+            </ul>
+
+            <h3>Reading a crossing card</h3>
+            <p>Each card shows:</p>
+            <ul>
+                <li>The two pilots involved and their respective airports</li>
+                <li>Each pilot's arrival and departure times at that location</li>
+                <li>The <strong>Together</strong> stripe at the bottom — the direct overlap window when both pilots are simultaneously on the ground</li>
+                <li>Duration of the overlap</li>
+            </ul>
+            <p>All times are shown in the <strong>local timezone of the meeting airport</strong> — not your browser's timezone.</p>
+
+            <h3>Opening the detail modal</h3>
+            <p>Tap any crossing card to open the detail view. It shows a full breakdown: exactly when each pilot arrives and departs, the together window with timezone labels, and the distance between airports if they're at different locations in the same metro area.</p>
+
+            <h3>Your crossings only</h3>
+            <p>The crossings view only shows crossings that involve you. You won't see crossings between two other pilots — the view is scoped to what's relevant to you.</p>
+
+            <h3>Reserve days count</h3>
+            <p>Reserve windows are included in the crossing computation. If a pilot is on reserve at SFO from 6 AM to 9 PM, they're considered present at SFO for that entire window — even though they might not be flying.</p>
+
+            <h3>Off Days tab</h3>
+            <p>The second tab in the overlap view shows days where multiple pilots have days off simultaneously. Useful for spotting windows where the crew could plan something together.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- UPLOAD -->
+        <section id="upload" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Managing Data</p>
+            <h2>Uploading Schedules</h2>
+            <p>Each pilot is responsible for uploading their own schedule. The app supports several file formats depending on the airline or scheduling system.</p>
+
+            <h3>How to upload</h3>
+            <p><strong>Desktop:</strong> Use the upload section at the bottom of the left sidebar. Select the pilot from the dropdown (if you're an admin), then click "Upload Schedule" and choose your file.</p>
+            <p><strong>Mobile:</strong> Tap the Upload button in the bottom nav bar. A sheet slides up with your upload options.</p>
+
+            <h3>What happens after upload</h3>
+            <ul>
+                <li>The file is parsed on the server and converted into individual flight segments</li>
+                <li>Segments are stored in the database under your pilot account</li>
+                <li>The app immediately reloads your schedule data</li>
+                <li>Crossing notifications are automatically computed and sent to affected pilots</li>
+            </ul>
+
+            <div class="callout callout-zinc">
+                Uploading a new schedule doesn't delete old data. It adds or updates segments for the period covered by the new file. If a segment already exists with the same flight details, it's updated in place.
+            </div>
+
+            <h3>Direct sync (corporate ops)</h3>
+            <p>Pilots whose schedules are managed in a supported scheduling platform can sync directly without uploading a file. If your account is configured for direct sync, a sync button appears in the upload section. Tap it to pull your latest schedule automatically.</p>
+
+            <h3>Supported formats</h3>
+            <p>See the <a onclick="jumpTo('formats')" href="#formats">Schedule Formats</a> section for a breakdown by airline.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- MANUAL FLIGHT -->
+        <section id="manual-flight" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Managing Data</p>
+            <h2>Adding Flights Manually</h2>
+            <p>If a flight isn't in your uploaded schedule — a personal trip, a charter, a positioning leg — you can add it manually.</p>
+
+            <h3>How to add</h3>
+            <p>Click or tap the <strong>+ Add Flight</strong> button (top-right on desktop, <span class="kbd">+</span> on mobile). Fill in the departure airport, arrival airport, date, and times. Tail number and flight number are optional.</p>
+
+            <h3>Manually added vs. uploaded</h3>
+            <p>Manually added flights are stored separately from uploaded schedule data. They show up in the calendar, list view, map, and crossing computation just like any other flight. They won't be overwritten if you re-upload your schedule.</p>
+
+            <h3>Editing or deleting</h3>
+            <p>Tap a manually added flight in the list view or day detail sheet to edit or delete it. Uploaded segments cannot be individually edited — re-upload the schedule to update them.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- NOTIFICATIONS -->
+        <section id="notifications" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Account</p>
+            <h2>Notifications</h2>
+            <p>CrewSync can send push notifications when a new crossing is detected — so you find out about a potential meetup the moment a schedule is uploaded, without having to check the app.</p>
+
+            <h3>Enabling notifications</h3>
+            <p>When you first open the app as a signed-in pilot, a prompt appears in the sidebar asking to enable crossing alerts. Click <strong>Enable</strong> and allow the browser permission dialog that appears.</p>
+            <p>You can also enable or disable notifications any time from your <strong>Profile</strong> (tap your name/avatar in the top corner). The Notifications section shows the current status and lets you toggle it on or off for the current device.</p>
+
+            <div class="callout callout-amber">
+                <strong>iPhone users:</strong> Notifications only work when the app is installed as a PWA (Add to Home Screen). If you're using it in Safari as a regular webpage, push notifications won't arrive. Once installed from your home screen, it works exactly like a native app notification.
+            </div>
+
+            <h3>What triggers a notification</h3>
+            <ul>
+                <li>Any pilot uploads a schedule that creates a new crossing with you</li>
+                <li>The same crossing won't trigger a second notification — deduplication prevents repeat alerts for the same event</li>
+            </ul>
+
+            <h3>What the notification looks like</h3>
+            <p>The notification appears as a standard OS push notification with the app icon. It shows who you'll be crossing with, the airport or city, the time window, and the date. Tapping it opens the app directly to the Crossings view.</p>
+
+            <h3>The bell icon</h3>
+            <p>The bell icon in the top-right of the app header shows your unread notification count. Tapping it opens a panel with your recent notifications. Opening the Crossings view marks all notifications as read and clears the home screen badge.</p>
+
+            <h3>Multiple devices</h3>
+            <p>If you use the app on both your iPhone and a desktop browser, you can enable notifications on each device separately. Both will receive push alerts independently.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- IDENTITY -->
+        <section id="identity" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Account</p>
+            <h2>Your Personal Link</h2>
+            <p>CrewSync doesn't use passwords. Your personal link is a unique URL that signs you in automatically. It looks like:</p>
+            <div class="callout callout-zinc font-mono text-xs">https://yourapp.com/app?u=abc123xyz456</div>
+            <p>The token at the end (<code class="text-xs bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-300">abc123xyz456</code>) is your credential. Keep it to yourself — anyone with your link can view and upload as you.</p>
+
+            <h3>Finding your link</h3>
+            <p>Tap your name or avatar to open the Profile sheet. Your personal link is shown there with a Copy button.</p>
+
+            <h3>iOS PWA and link persistence</h3>
+            <p>When you install the app to your home screen on iOS, Safari strips the <code class="text-xs bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-300">?u=</code> token from the URL. The app handles this automatically — it saves your token to local storage on your first visit, so opening from the home screen still signs you in.</p>
+
+            <h3>Sharing with viewers</h3>
+            <p>View-only guests have their own links with read-only access. They can see all schedules but can't upload or add flights. Admins can generate viewer links from the Manage Users panel.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- PWA -->
+        <section id="pwa" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Account</p>
+            <h2>Installing the App</h2>
+            <p>CrewSync is a Progressive Web App (PWA) — it can be installed to your home screen and behaves like a native app. This is recommended for all crew members, especially for push notifications.</p>
+
+            <h3>iPhone / iPad (Safari)</h3>
+            <ul>
+                <li>Open your personal link in <strong>Safari</strong> (not Chrome or Firefox)</li>
+                <li>Tap the Share button <span class="kbd">⎙</span> at the bottom of the screen</li>
+                <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
+                <li>Tap <strong>Add</strong> in the top-right corner</li>
+                <li>Open the app from your home screen going forward</li>
+            </ul>
+            <div class="callout callout-amber">
+                Must use Safari. Chrome and Firefox on iOS cannot install PWAs to the home screen.
+            </div>
+
+            <h3>Mac (Safari or Chrome)</h3>
+            <p>In Chrome: click the install icon in the address bar (looks like a screen with a down arrow). In Safari: File → Add to Dock.</p>
+
+            <h3>Desktop Chrome / Edge</h3>
+            <p>Click the install icon in the address bar (right side). The app opens in its own window without browser chrome.</p>
+
+            <h3>Android (Chrome)</h3>
+            <p>Chrome shows an "Add to Home Screen" banner automatically, or use the three-dot menu → Add to Home Screen.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- FORMATS -->
+        <section id="formats" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Reference</p>
+            <h2>Schedule Formats</h2>
+            <p>CrewSync is built to handle schedules from virtually any airline or flight operation. Each pilot's format is detected automatically on first upload and remembered from then on. Pilots from different airlines with different scheduling systems can all coexist in the same crew.</p>
+
+            <h3>Supported formats</h3>
+
+            <div class="overflow-x-auto mb-6">
+                <table class="w-full text-sm border-collapse">
+                    <thead>
+                        <tr class="border-b border-zinc-800">
+                            <th class="text-left py-2.5 pr-4 text-[10px] font-black uppercase tracking-widest text-zinc-500">Format</th>
+                            <th class="text-left py-2.5 pr-4 text-[10px] font-black uppercase tracking-widest text-zinc-500">Used by</th>
+                            <th class="text-left py-2.5 text-[10px] font-black uppercase tracking-widest text-zinc-500">How to export</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-zinc-800/50">
+                        <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-blue">ICS / Calendar</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">Corporate ops, scheduling platforms, RosterBuster</td>
+                            <td class="py-2.5 text-zinc-400">Export from your scheduling platform as .ics</td>
+                        </tr>
+                        <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-green">CSV (SkyWest)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">SkyWest Airlines</td>
+                            <td class="py-2.5 text-zinc-400">Export from CrewPortal as CSV</td>
+                        </tr>
+                        <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-green">CSV (Republic)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">Republic Airways</td>
+                            <td class="py-2.5 text-zinc-400">Export from CrewPortal as CSV</td>
+                        </tr>
+                        <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-amber">PDF (Netline)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">GoJet, and other Netline carriers</td>
+                            <td class="py-2.5 text-zinc-400">Download monthly PDF from Netline</td>
+                        </tr>
+                        <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-purple">VCS (AIMS)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">AIMS-based operations</td>
+                            <td class="py-2.5 text-zinc-400">Export roster from AIMS as .vcs</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="callout callout-blue">
+                <strong>Adding a new airline?</strong> If your scheduling system isn't listed, contact the admin. The app is designed to be extended — new parsers can be added without changing anything for existing pilots.
+            </div>
+
+            <h3>Time zones in uploaded files</h3>
+            <p>Different formats store times differently, and the app handles both automatically:</p>
+            <ul>
+                <li><strong>UTC-based (ICS, direct sync)</strong> — Times have a Z suffix indicating UTC. The app converts to local airport time for display and uses true UTC for crossing computation.</li>
+                <li><strong>Local-time-based (CSV, PDF)</strong> — Times are stored in the local time of the departure or arrival airport with no timezone indicator. The app uses a global airport database to determine the correct timezone for each airport, ensuring crossing windows are computed accurately even across timezone boundaries.</li>
+            </ul>
+
+            <h3>Direct sync (corporate ops)</h3>
+            <p>For pilots whose accounts are configured for direct sync, the app can pull the current schedule without uploading a file. A sync button appears in the upload section and pulls the latest schedule on demand.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- FAQ -->
+        <section id="faq" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Reference</p>
+            <h2>FAQ</h2>
+
+            <div class="space-y-3" id="faq-list">
+
+                <details class="rounded-xl border border-zinc-800 overflow-hidden group">
+                    <summary class="flex items-center justify-between px-4 py-3.5 cursor-pointer text-sm font-bold text-zinc-200 hover:text-white select-none list-none">
+                        Why are my times showing in the wrong timezone?
+                        <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    </summary>
+                    <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
+                        The app always displays times in the <strong class="text-zinc-300">local timezone of the relevant airport</strong>. A flight arriving at SFO shows its arrival time in Pacific time, even if you're viewing it from a different timezone. This is intentional — you want to know what time it is at the airport, not at your current location.
+                    </div>
+                </details>
+
+                <details class="rounded-xl border border-zinc-800 overflow-hidden group">
+                    <summary class="flex items-center justify-between px-4 py-3.5 cursor-pointer text-sm font-bold text-zinc-200 hover:text-white select-none list-none">
+                        How often does the schedule data update?
+                        <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    </summary>
+                    <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
+                        Data only updates when a pilot uploads a new schedule file or triggers a direct sync. There's no automatic background sync — it depends on each pilot uploading when their schedule changes (new bid, trip swap, etc.). Direct sync can be triggered manually with one tap for configured accounts.
+                    </div>
+                </details>
+
+                <details class="rounded-xl border border-zinc-800 overflow-hidden group">
+                    <summary class="flex items-center justify-between px-4 py-3.5 cursor-pointer text-sm font-bold text-zinc-200 hover:text-white select-none list-none">
+                        What airports count as the same city for crossings?
+                        <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    </summary>
+                    <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
+                        The app uses metro groups — clusters of airports treated as the same city for crossing purposes. Key ones:
+                        <ul class="mt-2 space-y-1">
+                            <li><strong class="text-zinc-300">Bay Area:</strong> SFO, OAK, SJC, STS, SQL, APC</li>
+                            <li><strong class="text-zinc-300">St. Louis:</strong> STL, SUS, CPS</li>
+                            <li><strong class="text-zinc-300">New York:</strong> JFK, LGA, EWR, HPN, TEB</li>
+                            <li><strong class="text-zinc-300">Los Angeles:</strong> LAX, BUR, LGB, SNA, ONT, VNY, SMO</li>
+                            <li><strong class="text-zinc-300">Chicago:</strong> ORD, MDW, PWK, DPA</li>
+                        </ul>
+                        Airports within ~50 miles of each other that aren't in the same metro group are treated as Tier 2 crossings.
+                    </div>
+                </details>
+
+                <details class="rounded-xl border border-zinc-800 overflow-hidden group">
+                    <summary class="flex items-center justify-between px-4 py-3.5 cursor-pointer text-sm font-bold text-zinc-200 hover:text-white select-none list-none">
+                        Why doesn't a crossing show up that I know should be there?
+                        <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    </summary>
+                    <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
+                        A few things to check: <strong class="text-zinc-300">(1)</strong> Make sure both pilots have uploaded their current schedule. <strong class="text-zinc-300">(2)</strong> Hit Refresh on the Crossings page to recompute. <strong class="text-zinc-300">(3)</strong> If one pilot's schedule doesn't include that trip yet (trip swap, open time pickup), the app won't know about it. <strong class="text-zinc-300">(4)</strong> Check that the airports involved are in the same metro group or within 50 miles.
+                    </div>
+                </details>
+
+                <details class="rounded-xl border border-zinc-800 overflow-hidden group">
+                    <summary class="flex items-center justify-between px-4 py-3.5 cursor-pointer text-sm font-bold text-zinc-200 hover:text-white select-none list-none">
+                        Can I see another pilot's full schedule?
+                        <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    </summary>
+                    <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
+                        Yes. All crew schedules are visible to all crew members. Use the pilot selector to switch to any pilot and browse their calendar, list view, or map. This is by design — the whole point is coordination, which requires visibility.
+                    </div>
+                </details>
+
+                <details class="rounded-xl border border-zinc-800 overflow-hidden group">
+                    <summary class="flex items-center justify-between px-4 py-3.5 cursor-pointer text-sm font-bold text-zinc-200 hover:text-white select-none list-none">
+                        I got a notification but the crossing is already past — what happened?
+                        <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    </summary>
+                    <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
+                        This can happen if a schedule was uploaded for a period that includes past dates, or if your device was offline when the push was sent and delivered it late. The notification history (bell icon) always reflects when the notification was originally generated, not when it was delivered.
+                    </div>
+                </details>
+
+                <details class="rounded-xl border border-zinc-800 overflow-hidden group">
+                    <summary class="flex items-center justify-between px-4 py-3.5 cursor-pointer text-sm font-bold text-zinc-200 hover:text-white select-none list-none">
+                        How do I get a new personal link if mine stops working?
+                        <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    </summary>
+                    <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
+                        Contact your administrator. They can regenerate your link from the admin panel. Your old link will stop working immediately when a new one is issued, so make sure to update your bookmark.
+                    </div>
+                </details>
+
+            </div>
+        </section>
+
+        <div class="h-20"></div>
+    </main>
+</div>
+
+<script>
+    // Smooth scroll to section
+    function jumpTo(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        history.replaceState(null, '', '#' + id);
+        updateActiveNav(id);
+    }
+
+    // Highlight active nav link on scroll
+    function updateActiveNav(activeId) {
+        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+        document.querySelectorAll('.nav-link').forEach(l => {
+            if (l.getAttribute('onclick')?.includes(`'${activeId}'`)) l.classList.add('active');
+        });
+    }
+
+    const observer = new IntersectionObserver(entries => {
+        entries.forEach(e => { if (e.isIntersecting) updateActiveNav(e.target.id); });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+
+    document.querySelectorAll('section[id]').forEach(s => observer.observe(s));
+
+    // Handle URL hash on load
+    window.addEventListener('DOMContentLoaded', () => {
+        const hash = location.hash.slice(1);
+        if (hash) setTimeout(() => jumpTo(hash), 100);
+    });
+
+    // Search
+    let _originalHTML = {};
+
+    function doSearch(q) {
+        const clear = document.getElementById('search-clear');
+        if (clear) clear.classList.toggle('hidden', !q);
+        const noResults = document.getElementById('search-no-results');
+        const sections = document.querySelectorAll('section[id]');
+        const divider = document.querySelectorAll('.section-divider');
+
+        if (!q.trim()) {
+            sections.forEach(s => { s.style.display = ''; });
+            divider.forEach(d => { d.style.display = ''; });
+            if (noResults) noResults.classList.add('hidden');
+            // Restore original HTML
+            Object.entries(_originalHTML).forEach(([id, html]) => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = html;
+            });
+            _originalHTML = {};
+            return;
+        }
+
+        const term = q.toLowerCase();
+        let anyVisible = false;
+
+        sections.forEach(s => {
+            const text = s.textContent.toLowerCase();
+            if (text.includes(term)) {
+                s.style.display = '';
+                anyVisible = true;
+                // Highlight matches
+                if (!_originalHTML[s.id]) _originalHTML[s.id] = s.innerHTML;
+                const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+                s.innerHTML = _originalHTML[s.id].replace(re, '<mark class="search-highlight">$1</mark>');
+            } else {
+                s.style.display = 'none';
+            }
+        });
+
+        divider.forEach(d => { d.style.display = anyVisible ? '' : 'none'; });
+        if (noResults) noResults.classList.toggle('hidden', anyVisible);
+    }
+
+    function clearSearch() {
+        const input = document.getElementById('search-input');
+        if (input) { input.value = ''; doSearch(''); input.focus(); }
+    }
+</script>
+</body>
+</html>

@@ -2246,6 +2246,127 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'landing.html'));
 });
 
+// ── Web Push (VAPID) ────────────────────────────────────────────────────────
+let webpush = null;
+try {
+    webpush = require('web-push');
+    if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+        webpush.setVapidDetails(
+            process.env.VAPID_SUBJECT || 'mailto:admin@crewsync.app',
+            process.env.VAPID_PUBLIC_KEY,
+            process.env.VAPID_PRIVATE_KEY
+        );
+    } else {
+        console.warn('[Push] VAPID keys not set in .env — push notifications disabled');
+        webpush = null;
+    }
+} catch (e) {
+    console.warn('[Push] web-push not available:', e.message);
+}
+
+function pushToAll(pilotKey, payload) {
+    if (!webpush) return;
+    const db = getDB();
+    db.all('SELECT endpoint, subscription_json FROM push_subscriptions WHERE pilot_key=?', [pilotKey], (err, subs) => {
+        if (err || !subs?.length) return;
+        const str = JSON.stringify(payload);
+        subs.forEach(row => {
+            try {
+                webpush.sendNotification(JSON.parse(row.subscription_json), str).catch(e => {
+                    if (e.statusCode === 410 || e.statusCode === 404) {
+                        db.run('DELETE FROM push_subscriptions WHERE endpoint=?', [row.endpoint]);
+                    }
+                });
+            } catch (_) {}
+        });
+    });
+}
+
+// GET VAPID public key (needed by frontend to subscribe)
+app.get('/api/push/vapid-key', (req, res) => {
+    if (!process.env.VAPID_PUBLIC_KEY) return res.status(503).json({ error: 'Push not configured' });
+    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+});
+
+// POST save a device's push subscription
+app.post('/api/push/subscribe', (req, res) => {
+    const db = getDB();
+    const { token, subscription } = req.body;
+    if (!token || !subscription?.endpoint) return res.status(400).json({ error: 'Missing token or subscription' });
+    db.get('SELECT pilot_key FROM pilots WHERE token=?', [token], (err, pilot) => {
+        if (err || !pilot) return res.status(401).json({ error: 'Invalid token' });
+        db.run(
+            `INSERT INTO push_subscriptions (pilot_key, endpoint, subscription_json) VALUES (?, ?, ?)
+             ON CONFLICT(endpoint) DO UPDATE SET subscription_json=excluded.subscription_json, pilot_key=excluded.pilot_key`,
+            [pilot.pilot_key, subscription.endpoint, JSON.stringify(subscription)],
+            err2 => err2 ? res.status(500).json({ error: err2.message }) : res.json({ ok: true })
+        );
+    });
+});
+
+// DELETE remove a push subscription (user turned off notifications)
+app.delete('/api/push/subscribe', (req, res) => {
+    const { endpoint } = req.body;
+    if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
+    getDB().run('DELETE FROM push_subscriptions WHERE endpoint=?', [endpoint], () => res.json({ ok: true }));
+});
+
+// GET notifications for the authed pilot
+app.get('/api/notifications', (req, res) => {
+    const db = getDB();
+    const token = req.query.token;
+    if (!token) return res.status(401).json({ error: 'No token' });
+    db.get('SELECT pilot_key FROM pilots WHERE token=?', [token], (err, pilot) => {
+        if (err || !pilot) return res.status(401).json({ error: 'Invalid token' });
+        db.all(
+            'SELECT id, title, body, url, is_read, created_at FROM notifications WHERE pilot_key=? ORDER BY created_at DESC LIMIT 50',
+            [pilot.pilot_key],
+            (err2, rows) => err2 ? res.status(500).json({ error: err2.message }) : res.json(rows || [])
+        );
+    });
+});
+
+// PATCH mark all notifications read for the authed pilot
+app.patch('/api/notifications/read', (req, res) => {
+    const db = getDB();
+    const token = req.body.token;
+    if (!token) return res.status(401).json({ error: 'No token' });
+    db.get('SELECT pilot_key FROM pilots WHERE token=?', [token], (err, pilot) => {
+        if (err || !pilot) return res.status(401).json({ error: 'Invalid token' });
+        db.run('UPDATE notifications SET is_read=1 WHERE pilot_key=?', [pilot.pilot_key], () => {
+            res.json({ ok: true });
+            // Clear app badge via next push — badge resets when user opens the app (handled client-side)
+        });
+    });
+});
+
+// POST broadcast crossing notifications (called by frontend after schedule upload)
+// crossings: [{ kA, kB, airport, directStart, title, body }]
+app.post('/api/notifications/crossing', (req, res) => {
+    const db = getDB();
+    const { token, crossings } = req.body;
+    if (!token || !Array.isArray(crossings)) return res.status(400).json({ error: 'Missing params' });
+    db.get('SELECT pilot_key FROM pilots WHERE token=?', [token], (err, sender) => {
+        if (err || !sender) return res.status(401).json({ error: 'Invalid token' });
+        res.json({ ok: true }); // respond immediately, push in background
+        crossings.forEach(c => {
+            const key = [c.kA, c.kB, c.airport, (c.directStart || '').slice(0, 10)].sort().join('|');
+            [c.kA, c.kB].forEach(pilotKey => {
+                db.run(
+                    `INSERT OR IGNORE INTO notifications (pilot_key, title, body, url, crossing_key) VALUES (?, ?, ?, '/app?view=overlap', ?)`,
+                    [pilotKey, c.title, c.body, key],
+                    function() {
+                        if (this.changes === 0) return; // duplicate — already notified
+                        db.get('SELECT COUNT(*) as cnt FROM notifications WHERE pilot_key=? AND is_read=0', [pilotKey], (__, row) => {
+                            pushToAll(pilotKey, { title: c.title, body: c.body, url: '/app?view=overlap', tag: key, unreadCount: row?.cnt || 1 });
+                        });
+                    }
+                );
+            });
+        });
+    });
+});
+
 // Dynamic manifest — embeds ?u=TOKEN into start_url so iOS PWA shortcut preserves auth
 app.get('/manifest.json', (req, res) => {
     const token = req.query.u;
@@ -2269,6 +2390,11 @@ app.get('/manifest.json', (req, res) => {
 // Main app
 app.get('/app', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'app.html'));
+});
+
+// Manual / wiki — public, no auth required
+app.get('/manual', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'manual.html'));
 });
 
 // Join / onboarding

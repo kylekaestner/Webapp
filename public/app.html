@@ -359,6 +359,14 @@
             </button>
         </div>
 
+        <!-- Notification enable prompt (desktop) -->
+        <div id="notif-prompt-sidebar" class="hidden items-center gap-2 px-3 py-2.5 border-b border-amber-900/40 bg-amber-950/30 shrink-0">
+            <svg class="text-amber-500 shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span class="text-[10px] font-bold text-amber-400 flex-1 leading-tight">Enable crossing alerts</span>
+            <button onclick="requestNotifPermission()" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-md text-[9px] font-black transition-colors">Enable</button>
+            <button onclick="dismissNotifPrompt()" class="text-amber-700 hover:text-amber-500 text-sm leading-none">✕</button>
+        </div>
+
         <!-- Sidebar: next trip widget (signed-in users only) -->
         <div id="sidebar-next-trip" class="hidden px-4 pt-3 pb-1 shrink-0"></div>
 
@@ -451,6 +459,10 @@
                 </div>
             </div>
             <div class="flex items-center gap-2">
+                <button id="notif-bell-btn" onclick="toggleNotifPanel()" class="hidden relative w-8 h-8 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 transition-colors" title="Notifications">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span id="notif-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 bg-red-500 rounded-full text-[8px] font-black text-white flex items-center justify-center px-0.5 leading-none pointer-events-none"></span>
+                </button>
                 <button onclick="openViewHelp()" class="w-8 h-8 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 text-xs font-black transition-colors">?</button>
                 <button id="btn-add-flight-desktop" onclick="openAddFlight()" class="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-wide transition-colors">
                     <span class="text-base leading-none">+</span> Add Flight
@@ -473,6 +485,10 @@
             <div class="flex items-center gap-1">
                 <button onclick="changeMonth(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">‹</button>
                 <button onclick="changeMonth(1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">›</button>
+                <button id="notif-bell-btn-mobile" onclick="toggleNotifPanel()" class="hidden relative w-8 h-8 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 transition-colors" title="Notifications">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span id="notif-badge-mobile" class="hidden absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 bg-red-500 rounded-full text-[8px] font-black text-white flex items-center justify-center px-0.5 leading-none pointer-events-none"></span>
+                </button>
                 <button onclick="openViewHelp()" class="w-8 h-8 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 font-black text-xs ml-0.5">?</button>
                 <button id="btn-add-flight-mobile" onclick="openAddFlight()" class="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-600 text-white font-black text-base ml-0.5">+</button>
             </div>
@@ -637,6 +653,23 @@
                 <span id="mbtn-upload-label" class="text-[8px] font-black uppercase tracking-wide leading-none">Upload</span>
             </button>
         </nav>
+    </div>
+
+    <!-- Notification Panel -->
+    <div id="notif-panel" class="hidden fixed inset-0 z-[1500]" onclick="if(event.target===this)closeNotifPanel()">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="absolute top-0 left-0 right-0 md:left-auto md:right-4 md:top-12 md:w-80 bg-zinc-900 border border-zinc-700 md:rounded-2xl shadow-2xl overflow-hidden flex flex-col" style="max-height:min(500px,80vh)">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-zinc-800 shrink-0">
+                <span class="text-xs font-black uppercase tracking-widest text-white">Notifications</span>
+                <div class="flex items-center gap-3">
+                    <button onclick="markAllNotifRead()" class="text-[10px] font-bold text-zinc-500 hover:text-zinc-300 transition-colors">Mark all read</button>
+                    <button onclick="closeNotifPanel()" class="text-zinc-500 hover:text-zinc-300 transition-colors text-xl leading-none">&times;</button>
+                </div>
+            </div>
+            <div id="notif-list" class="overflow-y-auto divide-y divide-zinc-800/50 flex-1">
+                <div class="px-4 py-8 text-center text-xs text-zinc-600">No notifications</div>
+            </div>
+        </div>
     </div>
 
     <!-- Add Flight Modal -->
@@ -920,6 +953,9 @@
                     <p>Calculated from scheduled ground time. Add commute and personal flights manually for best results — especially for positioning to base before a trip.</p>
                 </div>
             </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#crossings" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
+            </div>
         </div>
     </div>
 
@@ -979,6 +1015,9 @@
                     <p>Kyle syncs automatically via Schedaero. Drew syncs via RosterBuster ICS. Adam, Sam, and Logan upload a CSV from their airline app. Use the <strong class="text-zinc-300">Upload</strong> tab on mobile. Uploading a new month's schedule <strong class="text-zinc-300">never deletes existing data</strong> — flights are added or updated in place. If the same flight already exists it gets updated; everything else stays untouched, so uploading June won't wipe out May.</p>
                 </div>
             </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#calendar" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
+            </div>
         </div>
     </div>
 
@@ -1017,6 +1056,9 @@
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Overnight vs. Home</p>
                     <p>Overnight durations are shown when the pilot overnights away from home base. If the gap is more than 30 hours and the destination is home, no overnight tag is shown — the pilot is assumed to have commuted home.</p>
                 </div>
+            </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#list" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
             </div>
         </div>
     </div>
@@ -1069,6 +1111,9 @@
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Dots vs. Arcs</p>
                     <p>A colored dot at an airport means the pilot is on the ground there. An arc with an airplane icon means they're airborne along that route right now.</p>
                 </div>
+            </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#map" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
             </div>
         </div>
     </div>
@@ -1168,6 +1213,18 @@
                 <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Your Crew</label>
                 <p class="text-[10px] text-zinc-500 mb-3 -mt-1">Choose who you want to see in your schedule view.</p>
                 <div class="space-y-2" id="crew-visibility-btns"></div>
+            </div>
+
+            <!-- Notifications toggle -->
+            <div id="profile-notif-section" class="hidden border-t border-zinc-800 pt-4">
+                <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Notifications</label>
+                <div id="profile-notif-row" class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
+                    <div>
+                        <div id="profile-notif-label" class="text-xs font-black text-zinc-200">Crossing alerts</div>
+                        <div id="profile-notif-sub" class="text-[10px] text-zinc-500 mt-0.5">Get notified when you have a crossing</div>
+                    </div>
+                    <button id="profile-notif-btn" onclick="toggleNotifSetting()" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors"></button>
+                </div>
             </div>
 
             <!-- Admin: manage users -->
@@ -1323,6 +1380,16 @@
         // computeOverlap(), renderAllPilotsMap(), and renderDayMap() all read from it
         // to avoid redundant fetches when switching views.
         const pilotsCache = {};
+
+        // True if this pilot's flight times are stored as UTC (Z suffix).
+        // Only flight segments are checked — events like hard/vacation use local midnight without Z.
+        function pilotUsesUtc(k) {
+            const segs = pilotsCache[k]?.segments;
+            if (!segs?.length) return false;
+            const t = (segs.find(s => s.departure_time && s.type === 'flight') || {}).departure_time || '';
+            return t.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(t);
+        }
+
         const _isDemo = window.location.pathname === '/demo';
         const API_BASE = _isDemo ? '/api/demo' : '/api';
 
@@ -2066,7 +2133,55 @@
         function openProfile() {
             haptic('tap');
             _applyIdentityUI();
+            _refreshNotifProfileRow();
             document.getElementById('profile-sheet').classList.remove('hidden');
+        }
+
+        function _refreshNotifProfileRow() {
+            const section = document.getElementById('profile-notif-section');
+            const btn = document.getElementById('profile-notif-btn');
+            const sub = document.getElementById('profile-notif-sub');
+            if (!section || !btn || !myPilot || isDemo) return;
+            section.classList.remove('hidden');
+            const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+            if (perm === 'granted') {
+                btn.textContent = 'On';
+                btn.className = 'px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors bg-blue-600/20 text-blue-400 border border-blue-800/50 hover:bg-red-900/30 hover:text-red-400 hover:border-red-800/50';
+                sub.textContent = 'Tap to disable on this device';
+            } else if (perm === 'denied') {
+                btn.textContent = 'Blocked';
+                btn.className = 'px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide bg-zinc-700/40 text-zinc-500 border border-zinc-700 cursor-default';
+                sub.textContent = 'Enable in your browser / device settings';
+            } else if (perm === 'unsupported') {
+                btn.textContent = 'N/A';
+                btn.className = 'px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide bg-zinc-700/40 text-zinc-500 border border-zinc-700 cursor-default';
+                sub.textContent = 'Not supported on this browser';
+            } else {
+                btn.textContent = 'Enable';
+                btn.className = 'px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors bg-amber-600/20 text-amber-400 border border-amber-800/50 hover:bg-amber-600/40';
+                sub.textContent = 'Get notified when you have a crossing';
+            }
+        }
+
+        async function toggleNotifSetting() {
+            const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+            if (perm === 'denied' || perm === 'unsupported') return;
+            if (perm === 'granted') {
+                // Unsubscribe
+                if (_swRegistration) {
+                    const sub = await _swRegistration.pushManager.getSubscription();
+                    if (sub) {
+                        await fetch('/api/push/subscribe', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {});
+                        await sub.unsubscribe();
+                    }
+                }
+                localStorage.removeItem('notif_prompt_dismissed');
+            } else {
+                // Enable — re-enable prompt and trigger permission request
+                localStorage.removeItem('notif_prompt_dismissed');
+                await requestNotifPermission();
+            }
+            _refreshNotifProfileRow();
         }
         function closeProfile() {
             document.getElementById('profile-sheet').classList.add('hidden');
@@ -2205,7 +2320,7 @@
             // Los Angeles
             'LAX': 'LAX', 'BUR': 'LAX', 'SNA': 'LAX', 'LGB': 'LAX', 'ONT': 'LAX', 'VNY': 'LAX', 'SMO': 'LAX', 'TOA': 'LAX',
             // San Francisco Bay Area
-            'SFO': 'SFB', 'OAK': 'SFB', 'SJC': 'SFB', 'STS': 'SFB', 'SQL': 'SFB',
+            'SFO': 'SFB', 'OAK': 'SFB', 'SJC': 'SFB', 'STS': 'SFB', 'SQL': 'SFB', 'APC': 'SFB',
             // Dallas
             'DFW': 'DFW_M', 'DAL': 'DFW_M', 'ADS': 'DFW_M', 'FTW': 'DFW_M', 'GPM': 'DFW_M', 'RBD': 'DFW_M',
             // Phoenix
@@ -2633,7 +2748,12 @@
                     if (_pc) _pc.style.display = '';
                 }
             }
-            if (view === 'overlap') { switchOverlapTab(_overlapTab || 'crossings'); if (_overlapTab === 'crossings') computeOverlap(); }
+            if (view === 'overlap') {
+                switchOverlapTab(_overlapTab || 'crossings');
+                if (_overlapTab === 'crossings') computeOverlap();
+                // Clear notification badge when user opens the overlap view
+                markAllNotifRead();
+            }
             render();
         }
 
@@ -2841,8 +2961,12 @@
             const locSub   = o.airport !== o.airportB ? `${o.airport} · ${o.airportB}` : null;
             title.textContent = locLabel;
 
-            const fmtT = d => d ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '—';
-            const fmtD = d => d ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+            const _detailTz = (pilotUsesUtc(o.kA) ? airportTz(o.airport) : null)
+                           || (pilotUsesUtc(o.kB) ? airportTz(o.airportB) : null)
+                           || null;
+            const _dtOpts = _detailTz ? { timeZone: _detailTz } : {};
+            const fmtT = d => d ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ..._dtOpts }) : '—';
+            const fmtD = d => d ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ..._dtOpts }) : '';
             const fmtDurMs = ms => { if (!ms || ms <= 0) return ''; const h = Math.floor(ms/3600000), m = Math.round((ms%3600000)/60000); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
 
             const refTime = o.directStart || new Date(o.sortKey);
@@ -2850,38 +2974,44 @@
             const isNow = o.isDirect && o.directStart <= now && o.directEnd >= now;
 
             const pilotSections = [{ k: o.kA, p: o.pA }, { k: o.kB, p: o.pB }].map(({ k, p }) => {
-                const color  = PILOT_COLORS[k];
-                const name   = PILOT_NAMES[k];
-                const role   = PILOT_ROLES[k] || '';
-                const isHome = isHomeAirport(p.airport, k);
-                const isBase = pilotsCache[k]?.base && sameApt(p.airport, pilotsCache[k].base);
-                const locCtx = isHome ? 'Home airport' : isBase ? 'Airline base' : 'Layover';
-                const fn     = p.arrFlightNum || '';
-                const dur    = fmtDurMs(p.end - p.start);
+                const color   = PILOT_COLORS[k];
+                const name    = PILOT_NAMES[k];
+                const role    = PILOT_ROLES[k] || '';
+                const isHome  = isHomeAirport(p.airport, k);
+                const isBase  = pilotsCache[k]?.base && sameApt(p.airport, pilotsCache[k].base);
+                const locCtx  = isHome ? 'Home airport' : isBase ? 'Airline base' : 'Layover';
+                const fn      = p.arrFlightNum || '';
+                const dur     = fmtDurMs(p.end - p.start);
+                const pTz     = pilotUsesUtc(k) ? (airportTz(p.airport) || null) : null;
+                const pTzOpts = pTz ? { timeZone: pTz } : {};
+                const pFmtT   = d => d ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ...pTzOpts }) : '—';
+                const pTzLbl  = tzAbbr(p.airport, p.start.toISOString());
+                const tzSpan  = pTzLbl ? ` <span class="text-zinc-600">${pTzLbl}</span>` : '';
                 return `<div class="rounded-xl border border-zinc-800 p-3.5 space-y-1.5">
                     <div class="flex items-center gap-2 mb-2">
                         <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${color}"></span>
                         <span class="font-black text-white text-sm">${name}</span>
                         ${role ? `<span class="text-[10px] text-zinc-600 ml-1">${role}</span>` : ''}
                     </div>
-                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Airport</span><span class="text-zinc-300 font-mono font-bold">${p.airport}${locSub && p.airport !== o.airport && p.airport !== o.airportB ? '' : ''} <span class="text-zinc-600 font-normal">${locCtx}</span></span></div>
-                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Arrives</span><span class="text-zinc-300 font-mono">${fmtT(p.start)}</span></div>
-                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Departs</span><span class="text-zinc-300 font-mono">${fmtT(p.end)}</span></div>
+                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Airport</span><span class="text-zinc-300 font-mono font-bold">${p.airport} <span class="text-zinc-600 font-normal">${locCtx}</span></span></div>
+                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Arrives</span><span class="text-zinc-300 font-mono">${pFmtT(p.start)}${tzSpan}</span></div>
+                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Departs</span><span class="text-zinc-300 font-mono">${pFmtT(p.end)}${tzSpan}</span></div>
                     <div class="flex justify-between text-xs"><span class="text-zinc-500">Ground time</span><span class="text-zinc-300">${dur || '—'}</span></div>
                     ${fn ? `<div class="flex justify-between text-xs"><span class="text-zinc-500">Arrival flight</span><span class="text-zinc-300 font-mono">${fn}</span></div>` : ''}
                 </div>`;
             }).join('');
 
+            const _togetherTzLbl = tzAbbr(o.airport, o.directStart?.toISOString() || new Date().toISOString());
             const overlapSection = o.isDirect ? `
                 <div class="rounded-xl border ${isNow ? 'border-green-800/50 bg-green-950/20' : 'border-zinc-800'} p-3.5">
                     <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Together</div>
                     <div class="text-2xl font-black ${isNow ? 'text-green-400' : 'text-white'}">${fmtDurMs(o.directEnd - o.directStart)}</div>
-                    <div class="text-xs text-zinc-500 mt-1">${fmtT(o.directStart)} – ${fmtT(o.directEnd)} · ${fmtD(o.directStart)}</div>
+                    <div class="text-xs text-zinc-500 mt-1">${fmtT(o.directStart)} – ${fmtT(o.directEnd)}${_togetherTzLbl ? ` <span class="text-zinc-600">${_togetherTzLbl}</span>` : ''} · ${fmtD(o.directStart)}</div>
                 </div>` : o.gapMs > 0 ? `
                 <div class="rounded-xl border border-amber-900/40 bg-amber-950/10 p-3.5">
                     <div class="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-1">Near Miss</div>
                     <div class="text-sm text-amber-400">${fmtDurMs(o.gapMs)} apart in time</div>
-                    <div class="text-xs text-zinc-600 mt-1">${[{k:o.kA,p:o.pA},{k:o.kB,p:o.pB}].map(({k,p})=>`${PILOT_NAMES[k].split(' ')[0]}: ${fmtT(p.start)}–${fmtT(p.end)}`).join(' · ')}</div>
+                    <div class="text-xs text-zinc-600 mt-1">${[{k:o.kA,p:o.pA},{k:o.kB,p:o.pB}].map(({k,p})=>{const lbl=tzAbbr(p.airport,p.start.toISOString());return`${PILOT_NAMES[k].split(' ')[0]}: ${fmtT(p.start)}–${fmtT(p.end)}${lbl?` ${lbl}`:''}`}).join(' · ')}</div>
                 </div>` : '';
 
             const classSection = cls ? `
@@ -2967,6 +3097,18 @@
                     }
                     periods.push({ airport: arr, start: arrT, end: groundEnd, arrFlightNum: f.flight_number || null, isDH: !!f.is_dh });
                 });
+
+                // Inject reserve windows as ground periods at the reserve base
+                segments.filter(s => s.type === 'reserve' && s.departure_time && s.arrival_time && s.departure_airport)
+                    .forEach(r => {
+                        const airport = normApt(r.departure_airport);
+                        const start = new Date(r.departure_time);
+                        const end   = new Date(r.arrival_time);
+                        if (!airport || isNaN(start) || isNaN(end)) return;
+                        if (!periods.some(p => p.airport === airport && p.start <= start && p.end >= end))
+                            periods.push({ airport, start, end });
+                    });
+
                 return periods;
             }
 
@@ -3077,6 +3219,29 @@
                 return apts.length > 2 ? apts.join(' · ') : null;
             }
 
+            // For non-UTC pilots, their times are stored as local airport time but parsed by the browser
+            // as if they were in the browser's timezone. Shift by the difference so UTC comparisons are correct.
+            const adjustedPeriod = (k, p) => {
+                if (pilotUsesUtc(k)) return p;
+                const tz = airportTz(p.airport);
+                if (!tz) return p;
+                const ref = p.start;
+                const airportOff = (() => {
+                    try {
+                        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' }).formatToParts(ref);
+                        const str = (parts.find(x => x.type === 'timeZoneName') || {}).value || '';
+                        const m = str.match(/GMT([+-])(\d+):(\d{2})/);
+                        if (!m) return null;
+                        return (m[1] === '+' ? 1 : -1) * (parseInt(m[2]) * 60 + parseInt(m[3]));
+                    } catch (e) { return null; }
+                })();
+                const browserOff = -ref.getTimezoneOffset();
+                if (airportOff === null || airportOff === browserOff) return p;
+                // browserOff - airportOff: browser parsed local time as browser-tz; shift to make it airport-tz
+                const diffMs = (browserOff - airportOff) * 60000;
+                return { ...p, start: new Date(p.start.getTime() + diffMs), end: new Date(p.end.getTime() + diffMs) };
+            };
+
             const overlaps = [];
             for (let i = 0; i < overlapKeys.length; i++) {
                 for (let j = i + 1; j < overlapKeys.length; j++) {
@@ -3090,15 +3255,18 @@
                             const distMi = (pA.airport !== pB.airport && _ca && _cb)
                                 ? Math.round(haversineMi(_ca[0], _ca[1], _cb[0], _cb[1]))
                                 : 0;
-                            if (pA.start.getTime() - bufferMs > pB.end.getTime()) continue;
-                            if (pB.start.getTime() - bufferMs > pA.end.getTime()) continue;
+                            // Use timezone-adjusted periods for UTC comparisons only
+                            const adjA = adjustedPeriod(kA, pA);
+                            const adjB = adjustedPeriod(kB, pB);
+                            if (adjA.start.getTime() - bufferMs > adjB.end.getTime()) continue;
+                            if (adjB.start.getTime() - bufferMs > adjA.end.getTime()) continue;
 
-                            const directStart = new Date(Math.max(pA.start.getTime(), pB.start.getTime()));
-                            const directEnd   = new Date(Math.min(pA.end.getTime(),   pB.end.getTime()));
+                            const directStart = new Date(Math.max(adjA.start.getTime(), adjB.start.getTime()));
+                            const directEnd   = new Date(Math.min(adjA.end.getTime(),   adjB.end.getTime()));
                             const isDirect = directStart < directEnd;
                             const gapMs = isDirect ? 0 : Math.max(
-                                pA.start.getTime() - pB.end.getTime(),
-                                pB.start.getTime() - pA.end.getTime()
+                                adjA.start.getTime() - adjB.end.getTime(),
+                                adjB.start.getTime() - adjA.end.getTime()
                             );
                             const classification = classifyOverlap(kA, kB, pA, pB, isDirect, directStart, directEnd);
                             const overlap = {
@@ -3107,7 +3275,7 @@
                                 directStart: isDirect ? directStart : null,
                                 directEnd:   isDirect ? directEnd   : null,
                                 gapMs, classification,
-                                sortKey: isDirect ? directStart.getTime() : Math.max(pA.start.getTime(), pB.start.getTime())
+                                sortKey: isDirect ? directStart.getTime() : Math.max(adjA.start.getTime(), adjB.start.getTime())
                             };
                             overlaps.push(overlap);
                         }
@@ -3140,22 +3308,34 @@
                 const h = Math.floor(ms / 3600000), m = Math.round((ms % 3600000) / 60000);
                 return h > 0 ? `${h}h ${m}m` : `${m}m`;
             };
-            const fmtH = t => t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-            const fmtTimeRange = (start, end) => {
+            const fmtH = (t, tz) => t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ...(tz ? { timeZone: tz } : {}) });
+            const fmtTimeRange = (start, end, tz) => {
                 if (!start || !end) return '';
-                const sDay = localDateStr(start), eDay = localDateStr(end);
+                const tzOpts = tz ? { timeZone: tz } : {};
+                const sDay = start.toLocaleDateString('en-US', tzOpts);
+                const eDay = end.toLocaleDateString('en-US', tzOpts);
                 if (sDay === eDay) {
-                    const sAP = start.getHours() >= 12 ? 'PM' : 'AM';
-                    const eAP = end.getHours() >= 12 ? 'PM' : 'AM';
+                    const hourOf = d => {
+                        if (!tz) return d.getHours();
+                        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).formatToParts(d);
+                        return parseInt(parts.find(p => p.type === 'hour')?.value ?? d.getHours());
+                    };
+                    const minOf = d => {
+                        if (!tz) return d.getMinutes();
+                        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, minute: '2-digit' }).formatToParts(d);
+                        return parseInt(parts.find(p => p.type === 'minute')?.value ?? d.getMinutes());
+                    };
+                    const sH = hourOf(start), eH = hourOf(end);
+                    const sAP = sH >= 12 ? 'PM' : 'AM', eAP = eH >= 12 ? 'PM' : 'AM';
                     if (sAP === eAP) {
-                        const h = start.getHours() % 12 || 12;
-                        const m = String(start.getMinutes()).padStart(2, '0');
-                        return `${h}:${m} – ${fmtH(end)}`;
+                        const h = sH % 12 || 12;
+                        const m = String(minOf(start)).padStart(2, '0');
+                        return `${h}:${m} – ${fmtH(end, tz)}`;
                     }
-                    return `${fmtH(start)} – ${fmtH(end)}`;
+                    return `${fmtH(start, tz)} – ${fmtH(end, tz)}`;
                 }
-                const day = d => d.toLocaleDateString('en-US', { weekday: 'short' });
-                return `${day(start)} ${fmtH(start)} – ${day(end)} ${fmtH(end)}`;
+                const day = d => d.toLocaleDateString('en-US', { weekday: 'short', ...tzOpts });
+                return `${day(start)} ${fmtH(start, tz)} – ${day(end)} ${fmtH(end, tz)}`;
             };
 
             const primary   = filtered.filter(o => (o.classification?.tier || 3) <= 2);
@@ -3169,6 +3349,11 @@
 
             // Render a primary card (tiers 1 & 2)
             function renderPrimaryCard(o, idx, isScrollTarget) {
+                // Use airport timezone only for pilots whose times are stored as UTC.
+                // Local-time pilots (airline CSVs) must not have timezone conversion applied.
+                const tzA = pilotUsesUtc(o.kA) ? (airportTz(o.airport)  || null) : null;
+                const tzB = pilotUsesUtc(o.kB) ? (airportTz(o.airportB) || null) : null;
+                const tz  = tzA || tzB || null; // for shared displays (stripe, bar)
                 const refTime    = o.directStart || new Date(o.sortKey);
                 const refDay     = localDateStr(refTime);
                 const isToday    = refDay === todayStr;
@@ -3219,18 +3404,21 @@
                 const distTag  = o.distMi > 0 ? `<span class="text-sm font-normal text-zinc-500 ml-1.5">${o.distMi} mi apart</span>` : '';
 
                 const pilotRows = [{ k: o.kA, p: o.pA }, { k: o.kB, p: o.pB }].map(({ k, p }) => {
-                    const color    = PILOT_COLORS[k];
-                    const name     = PILOT_NAMES[k].split(' ')[0];
-                    const dur      = fmtDur(p.end - p.start);
-                    const isBase   = pilotsCache[k]?.base && sameApt(p.airport, pilotsCache[k].base);
-                    const isHome   = isHomeAirport(p.airport, k);
-                    const locTag   = isHome ? `<span class="text-[9px] text-zinc-600 ml-1">home</span>`
-                                   : isBase ? `<span class="text-[9px] text-zinc-600 ml-1">base</span>` : '';
-                    const fnTag    = p.arrFlightNum ? `<span class="text-[9px] text-zinc-700 font-mono ml-1">${p.arrFlightNum}</span>` : '';
+                    const color      = PILOT_COLORS[k];
+                    const name       = PILOT_NAMES[k].split(' ')[0];
+                    const dur        = fmtDur(p.end - p.start);
+                    const isBase     = pilotsCache[k]?.base && sameApt(p.airport, pilotsCache[k].base);
+                    const isHome     = isHomeAirport(p.airport, k);
+                    const locTag     = isHome ? `<span class="text-[9px] text-zinc-600 ml-1">home</span>`
+                                     : isBase ? `<span class="text-[9px] text-zinc-600 ml-1">base</span>` : '';
+                    const fnTag      = p.arrFlightNum ? `<span class="text-[9px] text-zinc-700 font-mono ml-1">${p.arrFlightNum}</span>` : '';
+                    const pilotTz    = pilotUsesUtc(k) ? (airportTz(p.airport) || null) : null;
+                    const pilotTzLbl = tzAbbr(p.airport, p.start.toISOString());
+                    const tzTag      = pilotTzLbl ? `<span class="text-[9px] text-zinc-600 ml-1">${pilotTzLbl}</span>` : '';
                     return `<div class="flex items-center gap-2.5">
                         <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
                         <span class="text-xs font-black w-10 shrink-0" style="color:${color}">${name}</span>
-                        <span class="text-xs text-zinc-400 font-mono flex-1">${fmtTimeRange(p.start, p.end)}${locTag}${fnTag}</span>
+                        <span class="text-xs text-zinc-400 font-mono flex-1">${fmtTimeRange(p.start, p.end, pilotTz)}${tzTag}${locTag}${fnTag}</span>
                         ${dur ? `<span class="text-[10px] text-zinc-600 shrink-0">${dur}</span>` : ''}
                     </div>`;
                 }).join('');
@@ -3251,9 +3439,9 @@
                                 <div class="absolute top-0 h-full rounded-full" style="left:${barLeft}%;width:${barWidth}%;background:${barColor};${isNow ? 'box-shadow:0 0 6px ' + barColor : ''}"></div>
                             </div>
                             <div class="flex justify-between mt-1">
-                                <span class="text-[10px] text-zinc-600">${fmtH(new Date(spanStart))}</span>
+                                <span class="text-[10px] text-zinc-600">${fmtH(new Date(spanStart), tz)}</span>
                                 <span class="text-[10px] font-bold" style="color:${barColor}">${dur} overlap</span>
-                                <span class="text-[10px] text-zinc-600">${fmtH(new Date(spanEnd))}</span>
+                                <span class="text-[10px] text-zinc-600">${fmtH(new Date(spanEnd), tz)}</span>
                             </div>
                         </div>`;
                     }
@@ -3261,14 +3449,15 @@
 
                 let stripe = '';
                 if (o.isDirect) {
-                    const dur     = fmtDur(o.directEnd - o.directStart);
-                    const timeStr = fmtTimeRange(o.directStart, o.directEnd);
+                    const dur      = fmtDur(o.directEnd - o.directStart);
+                    const timeStr  = fmtTimeRange(o.directStart, o.directEnd, tz);
+                    const stripeTzLbl = tz ? tzAbbr(o.airport, o.directStart.toISOString()) : '';
                     const sCls    = isNow   ? 'bg-green-950/60 border-green-800/40 text-green-400'
                                   : isToday ? 'bg-sky-950/50 border-sky-800/30 text-sky-400'
                                   : 'bg-zinc-900 border-zinc-800/60 text-zinc-300';
                     stripe = `<div class="px-4 py-2.5 border-t ${sCls} flex items-center justify-between gap-2">
                         <span class="text-[11px] font-black uppercase tracking-wide">${dur} together</span>
-                        <span class="text-[11px] font-mono opacity-60">${timeStr}</span>
+                        <span class="text-[11px] font-mono opacity-60">${timeStr}${stripeTzLbl ? ` <span class="text-[9px] opacity-70">${stripeTzLbl}</span>` : ''}</span>
                     </div>`;
                 } else if (!isPast) {
                     const nameA   = PILOT_NAMES[o.kA].split(' ')[0];
@@ -3304,6 +3493,9 @@
 
             // Render a secondary (tier 3) coincidence as a compact row, expandable for detail
             function renderSecondaryRow(o, idx) {
+                const tzA = pilotUsesUtc(o.kA) ? (airportTz(o.airport)  || null) : null;
+                const tzB = pilotUsesUtc(o.kB) ? (airportTz(o.airportB) || null) : null;
+                const tz  = tzA || tzB || null;
                 const refTime  = o.directStart || new Date(o.sortKey);
                 const isPast   = localDateStr(refTime) < todayStr;
                 const locLabel = locationLabel(o.airport, o.airportB);
@@ -3333,14 +3525,16 @@
                                 <span class="text-[11px] text-zinc-400 font-black truncate">${locLabel}${locSub ? ` <span class="text-zinc-600 font-mono font-normal">(${locSub})</span>` : ''}</span>
                             </div>
                             <div class="mt-1 space-y-0.5">
-                                ${[{k: o.kA, p: o.pA, color: colorA, name: nameA}, {k: o.kB, p: o.pB, color: colorB, name: nameB}].map(({color, name, p}) =>
-                                    `<div class="flex items-center gap-1.5">
+                                ${[{k: o.kA, p: o.pA, color: colorA, name: nameA}, {k: o.kB, p: o.pB, color: colorB, name: nameB}].map(({k, color, name, p}) => {
+                                    const rowTz = pilotUsesUtc(k) ? (airportTz(p.airport) || null) : null;
+                                    const rowTzLbl = tzAbbr(p.airport, p.start.toISOString());
+                                    return `<div class="flex items-center gap-1.5">
                                         <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${color}"></span>
                                         <span class="text-[10px] font-black w-7 shrink-0" style="color:${color}">${name}</span>
-                                        <span class="text-[10px] text-zinc-500 font-mono">${fmtTimeRange(p.start, p.end)}</span>
+                                        <span class="text-[10px] text-zinc-500 font-mono">${fmtTimeRange(p.start, p.end, rowTz)}${rowTzLbl ? ` <span class="text-[9px] text-zinc-600">${rowTzLbl}</span>` : ''}</span>
                                         ${fmtDur(p.end - p.start) ? `<span class="text-[10px] text-zinc-700 ml-1">${fmtDur(p.end - p.start)}</span>` : ''}
-                                    </div>`
-                                ).join('')}
+                                    </div>`;
+                                }).join('')}
                                 ${o.isDirect ? `<div class="text-[10px] text-zinc-600 pl-3">${fmtDur(o.directEnd - o.directStart)} overlap</div>` : o.gapMs > 0 ? `<div class="text-[10px] text-zinc-600 pl-3">${fmtDur(o.gapMs)} apart</div>` : ''}
                                 ${noteStr ? `<div class="text-[10px] text-zinc-600 pl-3">${noteStr}</div>` : ''}
                             </div>
@@ -3354,7 +3548,7 @@
                         ${cls?.type ? `<div class="text-[10px] text-zinc-600 font-black uppercase tracking-widest">${cls.label}</div>` : ''}
                         ${cls?.transitNote ? `<div class="text-[10px] text-zinc-600">${cls.transitNote}</div>` : ''}
                         ${o.distMi > 0 ? `<div class="text-[10px] text-zinc-600">${o.distMi} mi apart</div>` : ''}
-                        ${o.isDirect ? `<div class="text-[10px] text-zinc-600">${fmtDur(o.directEnd - o.directStart)} direct window · ${fmtH(o.directStart)}–${fmtH(o.directEnd)}</div>` : o.gapMs > 0 ? `<div class="text-[10px] text-zinc-600">${fmtDur(o.gapMs)} apart in time</div>` : ''}
+                        ${o.isDirect ? `<div class="text-[10px] text-zinc-600">${fmtDur(o.directEnd - o.directStart)} direct window · ${fmtH(o.directStart, tz)}–${fmtH(o.directEnd, tz)}</div>` : o.gapMs > 0 ? `<div class="text-[10px] text-zinc-600">${fmtDur(o.gapMs)} apart in time</div>` : ''}
                     </div>
                 </div>`;
             }
@@ -3425,6 +3619,8 @@
             if (scrollTargetIdx >= 0) {
                 requestAnimationFrame(() => scrollToOverlapCard(scrollTargetIdx));
             }
+
+            return filtered;
         }
 
         function scrollToOverlapCard(idx) {
@@ -5828,10 +6024,12 @@
                 if (uploadPilot === currentPilot) {
                     loadPilot(currentPilot);
                 }
+                // Compute crossings and notify affected pilots
+                computeOverlap().then(overlaps => broadcastCrossingNotifications(overlaps)).catch(() => {});
             } else {
                 showToast('Upload failed — check the browser console for details.', 'error');
             }
-            
+
             // Reset input
             input.value = '';
         }
@@ -6913,8 +7111,204 @@ let _blockUserEdited = false;
             } catch { showToast('Network error', 'error'); }
         }
 
+        // ── Push Notifications ───────────────────────────────────────────────
+
+        let _swRegistration = null;
+        let _notifList = [];
+
+        async function initServiceWorker() {
+            if (!('serviceWorker' in navigator)) return;
+            try {
+                _swRegistration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+                navigator.serviceWorker.addEventListener('message', e => {
+                    if (e.data?.type === 'OPEN_OVERLAP') switchView('overlap');
+                });
+            } catch (e) { console.warn('[SW] Registration failed:', e); }
+        }
+
+        async function initPushNotifications() {
+            if (!myPilot || isDemo) return;
+            if (!('Notification' in window) || !_swRegistration) return;
+            if (localStorage.getItem('notif_prompt_dismissed') === '1') return;
+            if (Notification.permission === 'granted') {
+                await subscribeToPush();
+            } else if (Notification.permission === 'default') {
+                // Show prompt — iOS requires a user gesture so we can't auto-call requestPermission
+                document.getElementById('notif-prompt-sidebar')?.classList.replace('hidden', 'flex');
+            }
+            // 'denied' — do nothing
+        }
+
+        async function requestNotifPermission() {
+            dismissNotifPrompt();
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') await subscribeToPush();
+        }
+
+        function dismissNotifPrompt() {
+            localStorage.setItem('notif_prompt_dismissed', '1');
+            document.getElementById('notif-prompt-sidebar')?.classList.replace('flex', 'hidden');
+        }
+
+        async function subscribeToPush() {
+            if (!_swRegistration || !myToken) return;
+            try {
+                const keyResp = await fetch('/api/push/vapid-key');
+                if (!keyResp.ok) return;
+                const { publicKey } = await keyResp.json();
+                const existing = await _swRegistration.pushManager.getSubscription();
+                const sub = existing || await _swRegistration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(publicKey)
+                });
+                await fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, subscription: sub.toJSON() })
+                });
+                document.getElementById('notif-bell-btn')?.classList.remove('hidden');
+                document.getElementById('notif-bell-btn-mobile')?.classList.remove('hidden');
+            } catch (e) { console.warn('[Push] Subscribe failed:', e); }
+        }
+
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const raw = atob(base64);
+            return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+        }
+
+        async function loadNotifications() {
+            if (!myPilot || !myToken || isDemo) return;
+            try {
+                const resp = await fetch(`/api/notifications?token=${encodeURIComponent(myToken)}`);
+                if (!resp.ok) return;
+                _notifList = await resp.json();
+                updateNotifBadge();
+            } catch (_) {}
+        }
+
+        function updateNotifBadge() {
+            const unread = _notifList.filter(n => !n.is_read).length;
+            const label = unread > 9 ? '9+' : String(unread);
+            // Desktop bell
+            const badge = document.getElementById('notif-badge');
+            const bell = document.getElementById('notif-bell-btn');
+            if (badge) { badge.textContent = label; badge.classList.toggle('hidden', unread === 0); }
+            if (bell) bell.classList.remove('hidden');
+            // Mobile bell
+            const badgeMobile = document.getElementById('notif-badge-mobile');
+            const bellMobile = document.getElementById('notif-bell-btn-mobile');
+            if (badgeMobile) { badgeMobile.textContent = label; badgeMobile.classList.toggle('hidden', unread === 0); }
+            if (bellMobile) bellMobile.classList.remove('hidden');
+            // App badge (home screen icon)
+            if ('setAppBadge' in navigator) {
+                unread > 0 ? navigator.setAppBadge(unread).catch(() => {}) : navigator.clearAppBadge().catch(() => {});
+            }
+        }
+
+        function toggleNotifPanel() {
+            const panel = document.getElementById('notif-panel');
+            if (!panel) return;
+            if (panel.classList.contains('hidden')) {
+                renderNotifPanel();
+                panel.classList.remove('hidden');
+            } else {
+                closeNotifPanel();
+            }
+        }
+
+        function closeNotifPanel() {
+            document.getElementById('notif-panel')?.classList.add('hidden');
+        }
+
+        function renderNotifPanel() {
+            const list = document.getElementById('notif-list');
+            if (!list) return;
+            if (!_notifList.length) {
+                list.innerHTML = '<div class="px-4 py-8 text-center text-xs text-zinc-600">No notifications</div>';
+                return;
+            }
+            const _rel = t => {
+                const diff = Date.now() - new Date(t).getTime();
+                if (diff < 3600000) return `${Math.max(1, Math.floor(diff / 60000))}m ago`;
+                if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+                return `${Math.floor(diff / 86400000)}d ago`;
+            };
+            list.innerHTML = _notifList.map(n => `
+                <div class="px-4 py-3 flex gap-3 items-start cursor-pointer hover:bg-zinc-800/40 transition-colors ${n.is_read ? 'opacity-50' : ''}" onclick="notifClick(${n.id})">
+                    <div class="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${n.is_read ? 'bg-zinc-700' : 'bg-blue-500'}"></div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-xs font-black text-white leading-tight">${n.title}</div>
+                        <div class="text-[11px] text-zinc-400 mt-0.5 leading-snug">${n.body}</div>
+                    </div>
+                    <span class="text-[9px] text-zinc-600 shrink-0 mt-0.5">${_rel(n.created_at)}</span>
+                </div>
+            `).join('');
+        }
+
+        function notifClick(id) {
+            const n = _notifList.find(x => x.id === id);
+            if (n) n.is_read = true;
+            updateNotifBadge();
+            closeNotifPanel();
+            switchView('overlap');
+            fetch('/api/notifications/read', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: myToken })
+            }).catch(() => {});
+        }
+
+        async function markAllNotifRead() {
+            _notifList.forEach(n => n.is_read = true);
+            updateNotifBadge();
+            renderNotifPanel();
+            if (!myToken) return;
+            await fetch('/api/notifications/read', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: myToken })
+            }).catch(() => {});
+        }
+
+        // Called after a successful schedule upload to notify the other pilot(s) in any new crossings
+        async function broadcastCrossingNotifications(overlaps) {
+            if (!myPilot || !myToken || isDemo || !Array.isArray(overlaps)) return;
+            const now = Date.now();
+            const crossings = overlaps
+                .filter(o => o.isDirect && o.directEnd && o.directEnd.getTime() > now)
+                .map(o => {
+                    const otherKey = o.kA === myPilot ? o.kB : o.kA;
+                    const otherName = (PILOT_NAMES[otherKey] || otherKey).split(' ')[0];
+                    const myName = (PILOT_NAMES[myPilot] || myPilot).split(' ')[0];
+                    const apt = o.airport || o.airportB;
+                    const tz = airportTz(apt) || null;
+                    const fmtT = d => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ...(tz ? { timeZone: tz } : {}) });
+                    const dateStr = o.directStart.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...(tz ? { timeZone: tz } : {}) });
+                    const tzLbl = tz ? tzAbbr(apt, o.directStart.toISOString()) : '';
+                    const timeRange = `${fmtT(o.directStart)} – ${fmtT(o.directEnd)}${tzLbl ? ' ' + tzLbl : ''}`;
+                    return {
+                        kA: o.kA, kB: o.kB,
+                        airport: apt,
+                        directStart: o.directStart.toISOString(),
+                        title: `Crossing with ${otherName}`,
+                        body: `${apt} · ${timeRange} · ${dateStr}`
+                    };
+                });
+            if (!crossings.length) return;
+            await fetch('/api/notifications/crossing', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: myToken, crossings })
+            }).catch(() => {});
+            // Reload our own notification list to show what we just triggered
+            await loadNotifications();
+        }
+
         window.addEventListener('DOMContentLoaded', async () => {
             setupMobileGestures();
+            initServiceWorker(); // non-blocking
 
             // Rebuild pilot pills + sidebar buttons from PILOT_KEYS (handles demo mode)
             if (_isDemo) _rebuildPilotUI();
@@ -6928,6 +7322,14 @@ let _blockUserEdited = false;
 
             // Sync full pilot roster from DB — registers any pilots not in the hardcoded list
             if (!_isDemo) await _syncPilotRoster();
+
+            // Push notifications + badge
+            if (myPilot && !isDemo) {
+                await initPushNotifications();
+                await loadNotifications();
+                document.getElementById('notif-bell-btn')?.classList.remove('hidden');
+                document.getElementById('notif-bell-btn-mobile')?.classList.remove('hidden');
+            }
 
             // Default view: token identity → first pilot
             const defaultPilot = myPilot || PILOT_KEYS[0];

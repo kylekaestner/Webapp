@@ -62,6 +62,27 @@ function initDB() {
         // Settings table — generic key/value for persisting config across devices
         db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
 
+        // Push notification subscriptions — one row per pilot+device
+        db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pilot_key TEXT NOT NULL,
+            endpoint TEXT NOT NULL UNIQUE,
+            subscription_json TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // Notification history — deduped by crossing_key so re-uploads don't spam
+        db.run(`CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pilot_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            url TEXT DEFAULT '/app?view=overlap',
+            crossing_key TEXT UNIQUE,
+            is_read INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
         // Migrations: add columns if they don't exist yet
         db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE segments ADD COLUMN block_minutes INTEGER`, () => {});
