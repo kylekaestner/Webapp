@@ -5531,6 +5531,7 @@
             return (groundMins < 240 || sameDay) ? `Turn ${formatDurationMinutes(groundMins)}` : `Overnight ${formatDurationMinutes(groundMins)}`;
         }
         function attachTooltips() {
+            if ('ontouchstart' in window || navigator.maxTouchPoints > 0) return;
             document.querySelectorAll('.flight-item').forEach(el => {
                 function onEnter(e) {
                     const dep = el.dataset.depTime; const arr = el.dataset.arrTime; const tail = el.dataset.tail || '—'; const trip = el.dataset.trip || ''; const flightNum = el.dataset.flight || '';
