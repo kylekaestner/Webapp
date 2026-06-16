@@ -5705,7 +5705,8 @@
                     });
                     const isHard = dayEvents.some(e => e.type === 'hard');
                     const isVacation = dayEvents.some(e => e.type === 'vacation');
-                    const isFlying = dayEvents.some(e => e.type === 'flight' || e.type === 'ground');
+                    const isPersonalFlight = dayEvents.some(e => e.type === 'flight' && e.trip === 'PERSONAL');
+                    const isFlying = dayEvents.some(e => (e.type === 'flight' || e.type === 'ground') && e.trip !== 'PERSONAL');
                     const isReserve = dayEvents.some(e => e.type === 'reserve');
                     let away = dayEvents.find(e => e.type === 'away');
                     if (away && isHomeOrBase(away.arrivalAirport, currentPilot)) away = null;
@@ -5729,9 +5730,10 @@
                     let style = "border-zinc-800 bg-zinc-900/20";
                     let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
                     if (isVacation) { style = "border-teal-500/50 bg-teal-900/30 text-teal-100"; tag = "VAC"; }
-                    else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = "HARD OFF"; }
+                    else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = isPersonalFlight ? "HARD OFF · AWAY" : "HARD OFF"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (isReserve) { style = "border-amber-400/30 bg-amber-400/5"; tag = "ON CALL"; }
+                    else if (isPersonalFlight) { style = "border-yellow-500/40 bg-yellow-900/20"; tag = "AWAY"; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
                     else if (isAllCrewOff) { style = "border-amber-400/60 bg-amber-950/30"; tag = "✦ ALL OFF"; }
                     const glowStyle = isAllCrewOff ? 'box-shadow:0 0 0 1px rgba(251,191,36,0.45),0 0 18px rgba(251,191,36,0.18);' : '';
@@ -5847,6 +5849,8 @@
                     let away = dayEvents.find(e => e.type === 'away');
                     if (away && isHomeOrBase(away.arrivalAirport, currentPilot)) away = null;
                     const flights = dayEvents.filter(e => e.type === 'flight');
+                    const workFlights = flights.filter(f => f.trip !== 'PERSONAL');
+                    const isPersonalFlight = flights.some(f => f.trip === 'PERSONAL');
                     const reserves = dayEvents.filter(e => e.type === 'reserve');
                     const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
                     const _listNow = Date.now();
@@ -5860,15 +5864,17 @@
                     if (isVacation) {
                         bgColor = "bg-teal-950/40 border-teal-500/40"; labelColor = "text-teal-300"; sidebarColor = "text-teal-300"; sidebarBorder = "border-teal-700/50"; label = "VAC";
                     } else if (isHard) {
-                        bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = "HARD OFF";
-                    } else if (reserves.length > 0 && flights.length === 0) {
+                        bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = isPersonalFlight ? "HARD OFF · AWAY" : "HARD OFF";
+                    } else if (reserves.length > 0 && workFlights.length === 0 && !isPersonalFlight) {
                         bgColor = "bg-amber-950/30 border-amber-500/30"; labelColor = "text-amber-400"; sidebarColor = "text-amber-400"; sidebarBorder = "border-amber-700/40"; label = "ON CALL";
                     } else if (away) {
                         bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${away.arrivalAirport}`;
                     } else if (_listAnyLive) {
                         bgColor = "bg-emerald-950/40 border-emerald-600/60"; labelColor = "text-emerald-300"; sidebarColor = "text-emerald-300"; sidebarBorder = "border-emerald-700/60"; label = "▶ IN THE AIR";
-                    } else if (flights.length > 0) {
+                    } else if (workFlights.length > 0) {
                         bgColor = "bg-blue-900/40 border-blue-500/60"; labelColor = "text-blue-300"; sidebarColor = "text-blue-200"; sidebarBorder = "border-blue-700/60"; label = "FLYING";
+                    } else if (isPersonalFlight) {
+                        bgColor = "bg-yellow-900/20 border-yellow-600/40"; labelColor = "text-yellow-400"; sidebarColor = "text-yellow-400"; sidebarBorder = "border-yellow-700/40"; label = "AWAY";
                     } else {
                         bgColor = "bg-zinc-900/20 border-zinc-700/50"; labelColor = "text-zinc-500"; sidebarColor = "text-zinc-400"; sidebarBorder = "border-zinc-700/50";
                     }
@@ -6271,6 +6277,8 @@
             let away = dayEvents.find(e => e.type === 'away');
             if (away && isHomeAirport(away.arrivalAirport, currentPilot)) away = null;
             const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+            const workFlights = flights.filter(f => f.trip !== 'PERSONAL');
+            const isPersonalFlight = flights.some(f => f.trip === 'PERSONAL');
             const reserves = dayEvents.filter(e => e.type === 'reserve').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
             const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
 
@@ -6285,10 +6293,11 @@
             let label = currentPilot === 'kyle' ? 'ON CALL' : 'DAY OFF';
             let labelColor = 'text-zinc-400';
             if (isVacation) { label = 'VACATION'; labelColor = 'text-teal-400'; }
-            else if (isHard) { label = 'HARD OFF'; labelColor = 'text-red-400'; }
+            else if (isHard) { label = isPersonalFlight ? 'HARD OFF · AWAY' : 'HARD OFF'; labelColor = 'text-red-400'; }
             else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
             else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
-            else if (flights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
+            else if (workFlights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
+            else if (isPersonalFlight) { label = 'AWAY'; labelColor = 'text-yellow-400'; }
             else if (reserves.length > 0) { label = 'ON CALL'; labelColor = 'text-amber-400'; }
 
             let html = `<div class="flex items-start justify-between mb-4">
