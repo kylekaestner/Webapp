@@ -8189,9 +8189,7 @@ let _blockUserEdited = false;
                 L.marker(coords, { icon }).bindPopup(popup, { className: 'dark-popup', maxWidth: 210 }).addTo(_intelMap);
             });
 
-            if (bounds.length > 0) {
-                try { _intelMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 5 }); } catch(_) {}
-            }
+            _intelMap.setView([39.5, -98.35], 4);
             requestAnimationFrame(() => _intelMap?.invalidateSize());
         }
 
