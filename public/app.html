@@ -2467,6 +2467,7 @@
 
         const AIRPORTS = {};  // populated from airports.json on load
         let airportDbReady = false;
+        let _serverCityCache = {};  // populated on schedule load from /api/airports/cities
 
         // Airports in the same metro area — treated as co-located for overlap purposes
         const METRO_GROUPS = {
@@ -2765,7 +2766,7 @@
             loadingOverlay.classList.add('loading-active');
 
             // Fetch from server
-            fetchPilotData(pilot).then((data) => {
+            fetchPilotData(pilot).then(async (data) => {
                 loadingOverlay.classList.remove('loading-active');
                 if (!data) {
                     console.error('Failed to load pilot data');
@@ -2853,6 +2854,7 @@
                 }
                 // Re-apply identity tint to "you" pill (if different from active)
                 _applyPillIdentity();
+                await _prefetchCities(data.segments || []);
                 render();
                 // Show empty-state prompt for newly joined pilots viewing their own blank schedule
                 const emptyBanner = document.getElementById('empty-schedule-banner');
@@ -2979,12 +2981,28 @@
                         return;
                     }
                     if (s.type !== 'flight' && s.type !== 'reserve' && s.type !== 'ground') return;
-                    [s.departure_time, s.arrival_time].forEach(t => {
+                    if (s.type === 'reserve' && s.departure_time && s.arrival_time) {
+                        // Mark every day in the reserve window using local airport dates
+                        const rdStr = flightLocalDate(s.departure_time, s.departure_airport) || s.departure_time.slice(0, 10);
+                        const reStr = flightLocalDate(s.arrival_time,   s.departure_airport) || s.arrival_time.slice(0, 10);
+                        const rd = new Date(rdStr + 'T12:00:00');
+                        const re = new Date(reStr + 'T12:00:00');
+                        for (let dd = new Date(rd); dd <= re; dd.setDate(dd.getDate() + 1)) {
+                            const ds = localDateStr(dd);
+                            flying.add(ds);
+                            if (!allDatesMax || ds > allDatesMax) allDatesMax = ds;
+                            if (!pilotMaxDate[k] || ds > pilotMaxDate[k]) pilotMaxDate[k] = ds;
+                        }
+                    } else {
+                        // Use local departure date — UTC times can roll past midnight into the
+                        // next calendar day, incorrectly marking that day as flying
+                        const t = s.departure_time;
                         if (!t) return;
-                        flying.add(t.slice(0, 10));
-                        if (!allDatesMax || t.slice(0, 10) > allDatesMax) allDatesMax = t.slice(0, 10);
-                        if (!pilotMaxDate[k] || t.slice(0, 10) > pilotMaxDate[k]) pilotMaxDate[k] = t.slice(0, 10);
-                    });
+                        const ds = flightLocalDate(t, s.departure_airport) || t.slice(0, 10);
+                        flying.add(ds);
+                        if (!allDatesMax || ds > allDatesMax) allDatesMax = ds;
+                        if (!pilotMaxDate[k] || ds > pilotMaxDate[k]) pilotMaxDate[k] = ds;
+                    }
                 });
                 pilotFlyingDates[k] = flying;
             });
@@ -5925,7 +5943,10 @@
                                 const editBtns = f.id ? `<div class="flex items-center gap-1 ml-2 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
                                 const _liveSlotBorder = 'rgba(34,197,94,0.15)';
                                 const liveSlot = isActiveLeg2 && csig2 ? `<div id="live-${csig2}" style="font-size:11px;color:#4ade80;font-weight:700;margin-top:8px;padding-top:6px;border-top:1px solid ${_liveSlotBorder};display:none"></div>` : '';
-                                return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}" data-dep-time="${depAttr}" data-dep-apt="${depApt}"` : ''}><div class="flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}${commuteBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div>${liveSlot}</div>`;
+                                const _depCity = _intelAreaLabel(depApt);
+                                const _arrCity = _intelAreaLabel(arrApt);
+                                const _cityLine = (_depCity && _arrCity) ? `<div class="text-[9px] text-zinc-600 mt-0.5">${_depCity} <span class="text-zinc-700">→</span> ${_arrCity}</div>` : '';
+                                return `<div class="flight-row border ${rowBorder} rounded-2xl px-4 py-3 ${rowBg}${isActiveLeg2 ? ' active-leg' : ''} text-sm text-zinc-100"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}" data-dep-time="${depAttr}" data-dep-apt="${depApt}"` : ''}><div class="flex items-center justify-between gap-4"><div class="flex flex-col min-w-0"><div class="flex items-center gap-2"><div class="text-base font-black text-white">${depApt} <span class="text-blue-500/60">→</span> ${arrApt}${dhBadge}${personalBadge}${commuteBadge}</div><div class="text-[10px] uppercase tracking-widest text-zinc-500">${tailAttr}${tripLabel}</div></div>${_cityLine}</div><div class="flex items-center gap-2 shrink-0"><div class="text-right"><div class="font-black text-sm text-zinc-200">${depTime}${tzSup(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzSup(arrTz)}</div><div class="text-[10px] text-zinc-500 mt-0.5">Block ${formatDurationMinutes(blockMins)}${layoverText ? ` · <span class="text-amber-400 font-semibold">${layoverText}</span>` : ''}</div></div>${editBtns}</div></div>${liveSlot}</div>`;
                             }
                         }).join('');
                     }
@@ -6339,6 +6360,9 @@
                 const liveBadge = isActiveLeg
                     ? `<span class="text-[9px] font-black text-emerald-400 tracking-widest">▶ LIVE</span>`
                     : '';
+                const _depCityD = _intelAreaLabel(dep);
+                const _arrCityD = _intelAreaLabel(arr);
+                const _cityLineD = (_depCityD && _arrCityD) ? `<div class="text-[10px] text-zinc-500 mt-0.5 mb-1">${_depCityD} <span class="text-zinc-700">→</span> ${_arrCityD}</div>` : '';
                 const editActions = (f.id && canEdit()) ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${f.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
                     <button onclick="deleteManualFlight(${f.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
@@ -6348,6 +6372,7 @@
                         <div class="text-lg font-black text-white">${dep} <span class="text-blue-500/60">→</span> ${arr}${dhBadge}${personalBadge}${commuteBadge}</div>
                         <div class="flex items-center gap-2">${liveBadge}${flightNum}</div>
                     </div>
+                    ${_cityLineD}
                     <div class="flex items-center justify-between text-sm">
                         <div class="font-bold text-zinc-200">${depTime}${tzTag(depTz)} <span class="text-zinc-600">→</span> ${arrTime}${tzTag(arrTz)}</div>
                         <div class="text-zinc-500">${blockMins !== null ? `Block ${formatDurationMinutes(blockMins)}` : ''}</div>
@@ -7897,7 +7922,7 @@ let _blockUserEdited = false;
             'GRB':'Green Bay, WI', 'KGRB':'Green Bay, WI',
             'LSE':'La Crosse, WI', 'KLSE':'La Crosse, WI',
             'AUS':'Austin, TX', 'KAUS':'Austin, TX',
-            'SUS':'St. Louis Executive', 'KSUS':'St. Louis Executive',
+            'SUS':'Chesterfield, MO', 'KSUS':'Chesterfield, MO',
             'STL':'St. Louis, MO', 'KSTL':'St. Louis, MO',
             'SGF':'Springfield, MO', 'KSGF':'Springfield, MO',
             'JLN':'Joplin, MO', 'KJLN':'Joplin, MO',
@@ -7934,10 +7959,29 @@ let _blockUserEdited = false;
         };
 
         function _intelAreaLabel(code) {
+            if (!code) return null;
+            const upper = code.toUpperCase();
             const norm = normApt(code);
-            const metro = METRO_GROUPS[norm];
-            if (metro && METRO_LABELS[metro]) return METRO_LABELS[metro];
-            return AIRPORT_CITIES[code.toUpperCase()] || AIRPORT_CITIES[norm] || null;
+            return AIRPORT_CITIES[upper] || AIRPORT_CITIES[norm]
+                || _serverCityCache[upper] || _serverCityCache[norm] || null;
+        }
+
+        async function _prefetchCities(segs) {
+            if (!Array.isArray(segs) || segs.length === 0) return;
+            const codes = new Set();
+            segs.forEach(s => {
+                if (s.departure_airport) codes.add(s.departure_airport.toUpperCase());
+                if (s.arrival_airport)   codes.add(s.arrival_airport.toUpperCase());
+            });
+            const needed = [...codes].filter(c => {
+                const n = normApt(c);
+                return !AIRPORT_CITIES[c] && !AIRPORT_CITIES[n] && !_serverCityCache[c] && !_serverCityCache[n];
+            });
+            if (needed.length === 0) return;
+            try {
+                const res = await fetch(`${API_BASE}/airports/cities?codes=${needed.join(',')}`);
+                if (res.ok) Object.assign(_serverCityCache, await res.json());
+            } catch (_) {}
         }
 
         function _rebuildIntelCounts() {
