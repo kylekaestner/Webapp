@@ -186,6 +186,7 @@
         .intel-cat-btn { flex-shrink:0; padding:4px 10px; border-radius:99px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; border:1px solid #3f3f46; color:#71717a; transition:all 0.15s; cursor:pointer; background:transparent; }
         .intel-cat-btn.intel-cat-active { border-color:#3b82f6; color:#93c5fd; background:rgba(30,58,95,0.25); }
         .intel-cat-btn:hover:not(.intel-cat-active) { border-color:#52525b; color:#a1a1aa; }
+        .line-clamp-3 { overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; line-clamp:3; }
         .intel-form-cat { flex-shrink:0; padding:4px 10px; border-radius:99px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; border:1px solid #3f3f46; color:#71717a; transition:all 0.15s; cursor:pointer; background:transparent; }
         .intel-form-cat.intel-form-cat-active { border-color:#3b82f6; color:#93c5fd; background:rgba(30,58,95,0.25); }
         .intel-badge { display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; background:#1d4ed8; border-radius:99px; font-size:8px; font-weight:900; color:#bfdbfe; padding:0 3px; line-height:1; }
@@ -1089,7 +1090,12 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Browsing</p>
-                    <p>The main screen shows airport cards for every location that has intel. <strong class="text-zinc-300">Tap a card</strong> to see all entries for that airport. Use the <strong class="text-zinc-300">search bar</strong> to filter by airport code or city. On the detail view, use the <strong class="text-zinc-300">category pills</strong> at the top to filter by type. <strong class="text-zinc-300">Tap any entry</strong> to expand the full description.</p>
+                    <p>The main screen has two views. <strong class="text-zinc-300">Airports</strong> (default) lists every location with intel as a card, showing category counts and city name. <strong class="text-zinc-300">Tap a card</strong> to open the detail view — use the <strong class="text-zinc-300">category pills</strong> to filter by type, and <strong class="text-zinc-300">tap any entry</strong> to expand it. Use the <strong class="text-zinc-300">search bar</strong> to filter by airport code or city. Switch to the <strong class="text-zinc-300">Map</strong> tab to see all intel locations as pins on a world map.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Intel Map</p>
+                    <p>The <strong class="text-zinc-300">Map</strong> tab plots every airport with intel as a color-coded thumbtack pin. <span style="color:#60a5fa">Blue</span> = hotels, <span style="color:#fbbf24">amber</span> = food, <span style="color:#4ade80">green</span> = activities, <span style="color:#c4b5fd">purple</span> = tips. Airports with intel in multiple categories show a <span style="color:#ef4444">red</span> pin. <strong class="text-zinc-300">Tap any pin</strong> to see a summary of what's there. A legend in the bottom-left shows the color key.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -1099,13 +1105,11 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Editing & Deleting</p>
-                    <p>You can edit or delete your own entries. Admin can manage all entries. Tap the <strong class="text-zinc-300">pencil</strong> or <strong class="text-zinc-300">trash</strong> icons that appear on entries you own.</p>
+                    <p>You can edit or delete your own entries, including changing the airport code. Admin can manage all entries. Tap the <strong class="text-zinc-300">pencil</strong> or <strong class="text-zinc-300">trash</strong> icons that appear on entries you own.</p>
                 </div>
-
-                <div class="p-3 rounded-xl space-y-1" style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.2)">
-                    <p class="text-[10px] font-black uppercase tracking-widest" style="color:#ca8a04">Beta Feature</p>
-                    <p class="text-[11px]" style="color:#a16207">Crew Intel is new and actively being improved. If something feels off or you have ideas, let Kyle know.</p>
-                </div>
+            </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#crew-intel" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
             </div>
         </div>
     </div>
@@ -1153,7 +1157,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Navigation</p>
-                    <p>Use <strong class="text-zinc-300">Prev / Next</strong> to change months. The current day is highlighted. Tap any cell to open a detail sheet with full flight info for that day — the header shows <strong class="text-zinc-300">▶ IN THE AIR</strong> in green if a flight is currently airborne, and each live flight card shows a green border and <strong class="text-zinc-300">▶ LIVE</strong> badge.</p>
+                    <p>Use <strong class="text-zinc-300">Prev / Next</strong> to change months. The current day is highlighted. Tap any cell to open a detail sheet with full flight info for that day — routes include city and state names below each airport pair when available, so you don't need to know every code by heart. The header shows <strong class="text-zinc-300">▶ IN THE AIR</strong> in green if a flight is currently airborne, and each live flight card shows a green border and <strong class="text-zinc-300">▶ LIVE</strong> badge.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -1186,7 +1190,7 @@
                 <div class="space-y-3">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Reading Each Row</p>
                     <div class="space-y-2">
-                        <p><strong class="text-zinc-300">Airport pair</strong> — departure → arrival with local times shown</p>
+                        <p><strong class="text-zinc-300">Airport pair</strong> — departure → arrival with local times shown. City and state appear in smaller text below when both airports resolve to a known city.</p>
                         <p><strong class="text-zinc-300">Block time</strong> — actual block-to-block flight duration in hours and minutes</p>
                         <p><strong class="text-zinc-300">Overnight badge</strong> — shown between legs when ground time exceeds a few hours, includes duration</p>
                         <p><strong class="text-zinc-300">Flight number / tail</strong> — shown when available from the schedule file</p>
@@ -1337,7 +1341,7 @@
     <!-- Profile / Identity Sheet -->
     <div id="profile-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:items-center md:justify-center" onclick="if(event.target===this)closeProfile()">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-        <div class="relative w-full md:max-w-md bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl p-6 space-y-5" style="padding-bottom: max(1.5rem, env(safe-area-inset-bottom))" onclick="event.stopPropagation()">
+        <div class="relative w-full md:max-w-md bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl p-6 space-y-5 overflow-y-auto" style="max-height:90dvh;padding-bottom: max(1.5rem, env(safe-area-inset-bottom))" onclick="event.stopPropagation()">
             <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto -mt-1 mb-1"></div>
 
             <!-- Identity display -->
@@ -3494,8 +3498,10 @@
                 return endTime >= now.getTime();
             });
 
-            // Regular pilots only see overlaps involving themselves
-            const filtered = myPilot ? unique.filter(o => o.kA === myPilot || o.kB === myPilot) : unique;
+            // Regular pilots only see overlaps involving themselves; everyone respects crew visibility
+            const visibleCrew = new Set(getCrewVisible());
+            const byPilot = myPilot ? unique.filter(o => o.kA === myPilot || o.kB === myPilot) : unique;
+            const filtered = byPilot.filter(o => visibleCrew.has(o.kA) && visibleCrew.has(o.kB));
 
             filtered.sort((a, b) => a.sortKey - b.sortKey);
 
@@ -8039,55 +8045,58 @@ let _blockUserEdited = false;
             const header = document.getElementById('intel-header');
             if (!header) return;
             if (_intelView === 'airports' || _intelView === 'map') {
-                const clearBtn = _intelSearch
-                    ? `<button id="intel-search-clear" onclick="clearIntelSearch()" class="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-sm leading-none">×</button>`
-                    : `<span id="intel-search-clear" class="hidden"></span>`;
                 const isMap = _intelView === 'map';
-                const listBtn = `<button onclick="setIntelView('airports')" title="List" style="padding:5px 8px;border-radius:7px;border:1px solid ${!isMap ? '#3b82f6' : '#3f3f46'};background:${!isMap ? 'rgba(59,130,246,0.15)' : 'transparent'};color:${!isMap ? '#93c5fd' : '#71717a'};transition:all 0.15s;cursor:pointer">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-                </button>`;
-                const mapBtn = `<button onclick="setIntelView('map')" title="Map" style="padding:5px 8px;border-radius:7px;border:1px solid ${isMap ? '#3b82f6' : '#3f3f46'};background:${isMap ? 'rgba(59,130,246,0.15)' : 'transparent'};color:${isMap ? '#93c5fd' : '#71717a'};transition:all 0.15s;cursor:pointer">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
-                </button>`;
+                const totalEntries = Array.isArray(_intelAll) ? _intelAll.length : 0;
+                const totalAirports = Array.isArray(_intelAll) ? new Set(_intelAll.map(x => x.airport_code)).size : 0;
+                const clearBtn = _intelSearch
+                    ? `<button id="intel-search-clear" onclick="clearIntelSearch()" class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-base leading-none transition-colors">×</button>`
+                    : '';
                 header.innerHTML = `
-                    <div class="px-5 pt-5 pb-3 flex items-center justify-between gap-4">
+                    <div class="px-5 pt-5 pb-3 flex items-center justify-between gap-3">
                         <div>
-                            <div class="flex items-center gap-2">
-                                <h2 class="text-base font-black text-white uppercase tracking-tight">Crew Intel</h2>
-                                <span class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest" style="background:rgba(234,179,8,0.15);color:#ca8a04;border:1px solid rgba(234,179,8,0.3)">Beta</span>
-                            </div>
-                            <p class="text-[10px] text-zinc-500 mt-0.5">Shared airport knowledge</p>
+                            <h2 class="text-base font-black text-white uppercase tracking-tight">Crew Intel</h2>
+                            <p class="text-[10px] text-zinc-600 mt-0.5">${totalEntries > 0 ? `${totalEntries} tip${totalEntries !== 1 ? 's' : ''} · ${totalAirports} airport${totalAirports !== 1 ? 's' : ''}` : 'Shared airport knowledge'}</p>
                         </div>
                         <div class="flex items-center gap-2">
-                            <div class="flex items-center gap-1">${listBtn}${mapBtn}</div>
-                            <button onclick="openAddIntel()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">+ Add</button>
+                            <div class="flex rounded-lg overflow-hidden border border-zinc-800 shrink-0">
+                                <button onclick="setIntelView('airports')" class="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${!isMap ? 'bg-zinc-700 text-white' : 'bg-transparent text-zinc-500 hover:text-zinc-300'}">List</button>
+                                <button onclick="setIntelView('map')" class="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest border-l border-zinc-800 transition-all ${isMap ? 'bg-zinc-700 text-white' : 'bg-transparent text-zinc-500 hover:text-zinc-300'}">Map</button>
+                            </div>
+                            <button onclick="openAddIntel()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest transition-colors">+ Add</button>
                         </div>
                     </div>
                     ${isMap ? '' : `<div class="px-5 pb-3"><div class="relative">
-                        <input id="intel-search-input" type="text" placeholder="Search airports…"
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input id="intel-search-input" type="text" placeholder="Search airports or cities…"
                             oninput="setIntelSearch(this.value)"
                             value="${escapeHtml(_intelSearch)}"
-                            class="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-3 pr-7 py-1.5 text-xs font-mono uppercase text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 tracking-widest" />
+                            class="w-full bg-zinc-900/60 border border-zinc-800 focus:border-zinc-600 rounded-lg pl-8 pr-8 py-2 text-xs text-zinc-300 placeholder-zinc-600 outline-none transition-colors" />
                         ${clearBtn}
                     </div></div>`}`;
             } else {
                 const ap = _intelDetailAirport || '';
                 const areaLabel = _intelAreaLabel(ap);
+                const allEntries = Array.isArray(_intelAll) ? _intelAll.filter(x => x.airport_code === ap) : [];
+                const catCounts = {};
+                allEntries.forEach(e => { catCounts[e.category] = (catCounts[e.category] || 0) + 1; });
                 const cats = ['all','hotel','food','activity','tip'];
                 const catPills = cats.map(c => {
+                    const n = c === 'all' ? allEntries.length : (catCounts[c] || 0);
+                    if (c !== 'all' && n === 0) return '';
                     const label = c === 'all' ? 'All' : c.charAt(0).toUpperCase() + c.slice(1);
-                    return `<button onclick="setIntelCat('${c}')" class="intel-cat-btn ${_intelFilter.category === c ? 'intel-cat-active' : ''}">${label}</button>`;
+                    const isActive = _intelFilter.category === c;
+                    return `<button onclick="setIntelCat('${c}')" class="intel-cat-btn ${isActive ? 'intel-cat-active' : ''}">${label}${c !== 'all' ? ` <span style="opacity:0.6">${n}</span>` : ''}</button>`;
                 }).join('');
                 header.innerHTML = `
-                    <div class="px-4 pt-4 pb-2.5 flex items-center gap-3">
-                        <button onclick="setIntelView('airports')" class="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-700/80 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors flex-shrink-0">
+                    <div class="px-4 pt-4 pb-2 flex items-center gap-3">
+                        <button onclick="setIntelView('airports')" class="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors flex-shrink-0">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                         </button>
                         <div class="flex-1 min-w-0">
-                            <div class="text-base font-black text-white uppercase tracking-tight font-mono">${escapeHtml(ap)}</div>
-                            ${areaLabel ? `<div class="text-[10px] text-zinc-500 truncate">${escapeHtml(areaLabel)}</div>` : ''}
+                            <div class="font-black text-white uppercase tracking-tight font-mono text-base leading-none">${escapeHtml(ap)}</div>
+                            ${areaLabel ? `<div class="text-[10px] text-zinc-500 mt-0.5 truncate">${escapeHtml(areaLabel)}</div>` : ''}
                         </div>
-                        <button onclick="openAddIntel('${escapeHtml(ap)}')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors flex-shrink-0">+ Add</button>
+                        <button onclick="openAddIntel('${escapeHtml(ap)}')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest transition-colors flex-shrink-0">+ Add</button>
                     </div>
                     <div class="flex gap-1.5 px-4 pb-3 overflow-x-auto">${catPills}</div>`;
             }
@@ -8191,7 +8200,11 @@ let _blockUserEdited = false;
             const items = Array.isArray(_intelAll) ? _intelAll : [];
             const byAirport = {};
             items.forEach(x => { (byAirport[x.airport_code] = byAirport[x.airport_code] || []).push(x); });
-            let airports = Object.keys(byAirport).sort();
+            let airports = Object.keys(byAirport).sort((a, b) => {
+                const la = _intelAreaLabel(a) || a;
+                const lb = _intelAreaLabel(b) || b;
+                return la.localeCompare(lb);
+            });
             if (_intelSearch) {
                 const q = _intelSearch.toUpperCase();
                 airports = airports.filter(ap => ap.includes(q) || (_intelAreaLabel(ap) || '').toUpperCase().includes(q));
@@ -8203,25 +8216,32 @@ let _blockUserEdited = false;
                 return;
             }
             const catColors = { hotel:'#60a5fa', food:'#fbbf24', activity:'#4ade80', tip:'#c4b5fd' };
-            const catBg     = { hotel:'rgba(59,130,246,0.12)', food:'rgba(245,158,11,0.12)', activity:'rgba(34,197,94,0.12)', tip:'rgba(167,139,250,0.12)' };
-            el.innerHTML = `<div class="grid grid-cols-2 gap-3 pb-4">${airports.map(ap => {
+            const catOrder  = ['hotel','food','activity','tip'];
+            el.innerHTML = `<div class="flex flex-col gap-2 pb-4">${airports.map(ap => {
                 const entries = byAirport[ap];
                 const areaLabel = _intelAreaLabel(ap);
                 const counts = {};
                 entries.forEach(e => { counts[e.category] = (counts[e.category] || 0) + 1; });
-                const catDots = ['hotel','food','activity','tip'].filter(c => counts[c])
-                    .map(c => `<span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${catColors[c]}" title="${c}"></span>`)
-                    .join('');
-                const catPills = ['hotel','food','activity','tip'].filter(c => counts[c])
-                    .map(c => `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold capitalize" style="color:${catColors[c]};background:${catBg[c]}">${c[0].toUpperCase()+c.slice(1)}</span>`)
-                    .join('');
-                return `<button onclick="openIntelAirport('${ap}')" class="w-full text-left rounded-2xl border border-zinc-800 bg-zinc-900/40 hover:border-zinc-600 hover:bg-zinc-900/60 transition-all active:scale-[0.99] p-4 flex flex-col gap-3">
-                    <div class="flex items-start justify-between gap-2">
-                        <div class="font-black text-white tracking-tight font-mono text-xl leading-none">${escapeHtml(ap)}</div>
-                        <span class="text-[10px] font-bold text-zinc-600 shrink-0 pt-0.5">${entries.length}</span>
+                const dominant = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0]?.[0] || 'tip';
+                const accentColor = catColors[dominant];
+                const catRow = catOrder.filter(c => counts[c]).map(c =>
+                    `<span class="text-[10px] font-bold" style="color:${catColors[c]}">${c.charAt(0).toUpperCase()+c.slice(1)}${counts[c] > 1 ? ` ${counts[c]}` : ''}</span>`
+                ).join(`<span class="text-zinc-700 mx-1">·</span>`);
+                return `<button onclick="openIntelAirport('${ap}')" class="w-full text-left rounded-xl border border-zinc-800/80 bg-zinc-900/30 hover:bg-zinc-900/70 hover:border-zinc-700 transition-all active:scale-[0.99] flex overflow-hidden group">
+                    <div class="w-[3px] self-stretch shrink-0" style="background:${accentColor};opacity:0.65"></div>
+                    <div class="flex-1 min-w-0 px-4 py-3.5 flex items-center gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-baseline gap-2.5 min-w-0">
+                                <span class="font-black text-white font-mono text-[15px] leading-none tracking-wide shrink-0">${escapeHtml(ap)}</span>
+                                ${areaLabel ? `<span class="text-xs text-zinc-500 truncate leading-none">${escapeHtml(areaLabel)}</span>` : ''}
+                            </div>
+                            <div class="flex items-center gap-0.5 mt-1.5 flex-wrap">${catRow}</div>
+                        </div>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <span class="text-[12px] font-black" style="color:${accentColor}">${entries.length}</span>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="text-zinc-700 group-hover:text-zinc-500 transition-colors"><polyline points="9 18 15 12 9 6"/></svg>
+                        </div>
                     </div>
-                    ${areaLabel ? `<div class="text-xs text-zinc-500 -mt-2 leading-tight">${escapeHtml(areaLabel)}</div>` : ''}
-                    <div class="flex items-center gap-1.5 flex-wrap mt-auto">${catPills}</div>
                 </button>`;
             }).join('')}</div>`;
         }
@@ -8238,53 +8258,43 @@ let _blockUserEdited = false;
                 el.innerHTML = `<div class="text-center py-12 text-zinc-500 text-sm">No ${catMsg} for ${escapeHtml(ap)} yet.<br><span class="text-zinc-600 text-xs mt-1.5 block">Tap + Add to share what you know.</span></div>`;
                 return;
             }
-            const catOrder = ['hotel','food','activity','tip'];
-            const catStyle = {
-                hotel:    { label:'Hotel',    color:'#60a5fa', border:'rgba(59,130,246,0.25)'  },
-                food:     { label:'Food',     color:'#fbbf24', border:'rgba(245,158,11,0.25)'  },
-                activity: { label:'Activity', color:'#4ade80', border:'rgba(34,197,94,0.25)'   },
-                tip:      { label:'Tip',      color:'#c4b5fd', border:'rgba(167,139,250,0.25)' },
-            };
-            const fmtDate = s => new Date(s).toLocaleDateString('en-US', { month:'short', day:'numeric' });
-            const byCategory = {};
-            items.forEach(x => { (byCategory[x.category] = byCategory[x.category] || []).push(x); });
-            const usedCats = _intelFilter.category !== 'all' ? [_intelFilter.category] : catOrder.filter(c => byCategory[c]);
-            const ownBtns = (e) => `<div class="flex items-center gap-1">
-                <button onclick="event.stopPropagation();openEditIntel(${e.id})" class="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-300 transition-colors px-2 py-1 rounded">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit
-                </button>
-                <button onclick="event.stopPropagation();deleteIntelTip(${e.id})" class="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-red-400 transition-colors px-2 py-1 rounded">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>Delete
-                </button>
-            </div>`;
-            el.innerHTML = `<div class="space-y-6 pb-4">${usedCats.map(cat => {
-                const cs = catStyle[cat] || catStyle.tip;
-                const catEntries = byCategory[cat] || [];
-                const entriesHtml = catEntries.map(e => {
-                    const isOwn = !myViewer && (myPilot === null || e.added_by === myPilot);
-                    const name = (PILOT_NAMES[e.added_by] || e.added_by || '').split(' ')[0];
-                    const hasBody = !!(e.body && e.body.trim());
-                    return `<div class="rounded-xl border border-zinc-800/60 bg-zinc-900/40 overflow-hidden" style="border-left:3px solid ${cs.border}">
-                        <button onclick="toggleIntelEntry(${e.id})" class="w-full text-left px-4 py-4 flex items-start gap-3">
-                            <div class="flex-1 min-w-0">
-                                <div class="text-base font-bold text-white leading-snug">${escapeHtml(e.title)}</div>
-                                <div class="text-xs text-zinc-500 mt-1">${escapeHtml(name)} · ${fmtDate(e.created_at)}</div>
-                            </div>
-                            ${hasBody ? `<svg id="intel-arr-${e.id}" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-zinc-600 flex-shrink-0 mt-0.5 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>` : ''}
-                        </button>
-                        <div id="intel-body-${e.id}" class="hidden border-t border-zinc-800/50 px-4 pb-4 pt-3">
-                            ${hasBody ? `<p class="text-sm text-zinc-400 leading-relaxed mb-3">${escapeHtml(e.body)}</p>` : ''}
-                            ${isOwn ? ownBtns(e) : ''}
-                        </div>
-                        ${!hasBody && isOwn ? `<div class="border-t border-zinc-800/40 px-3 py-2">${ownBtns(e)}</div>` : ''}
-                    </div>`;
-                }).join('');
-                return `<div class="space-y-2.5">
-                    <div class="flex items-center gap-2">
-                        <span class="text-[10px] font-black uppercase tracking-widest" style="color:${cs.color}">${cs.label}</span>
-                        <span class="text-[10px] text-zinc-600">${catEntries.length}</span>
+            const catOrder  = ['hotel','food','activity','tip'];
+            const catColors = { hotel:'#60a5fa', food:'#fbbf24', activity:'#4ade80', tip:'#c4b5fd' };
+            const catBg     = { hotel:'rgba(59,130,246,0.12)', food:'rgba(245,158,11,0.12)', activity:'rgba(34,197,94,0.12)', tip:'rgba(167,139,250,0.12)' };
+            const fmtDate   = s => new Date(s).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+            items.sort((a, b) => catOrder.indexOf(a.category) - catOrder.indexOf(b.category));
+            el.innerHTML = `<div class="flex flex-col gap-2.5 pb-4">${items.map(e => {
+                const isOwn = !myViewer && (myPilot === null || e.added_by === myPilot);
+                const firstName = (PILOT_NAMES[e.added_by] || e.added_by || '').split(' ')[0];
+                const pilotColor = PILOT_COLORS[e.added_by] || '#52525b';
+                const color  = catColors[e.category] || '#94a3b8';
+                const bg     = catBg[e.category]     || 'rgba(255,255,255,0.05)';
+                const catLabel = e.category.charAt(0).toUpperCase() + e.category.slice(1);
+                const bodyText = (e.body || '').trim();
+                const hasBody  = !!bodyText;
+                const isLong   = bodyText.length > 180;
+                const ownBtns = isOwn ? `<div class="flex items-center gap-0.5 ml-auto">
+                    <button onclick="event.stopPropagation();openEditIntel(${e.id})" class="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-300 transition-colors px-2 py-1 rounded">
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit
+                    </button>
+                    <button onclick="event.stopPropagation();deleteIntelTip(${e.id})" class="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-red-400 transition-colors px-2 py-1 rounded">
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>Delete
+                    </button>
+                </div>` : '';
+                return `<div class="rounded-xl border border-zinc-800/70 bg-zinc-900/50 overflow-hidden">
+                    <div class="px-4 pt-3.5 pb-3">
+                        <span class="inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest mb-2.5" style="background:${bg};color:${color}">${catLabel}</span>
+                        <div class="text-[15px] font-bold text-white leading-snug">${escapeHtml(e.title)}</div>
+                        ${hasBody ? `<p id="intel-bp-${e.id}" class="text-sm text-zinc-400 leading-relaxed mt-2${isLong ? ' line-clamp-3' : ''}">${escapeHtml(bodyText)}</p>
+                        ${isLong ? `<button onclick="const p=document.getElementById('intel-bp-${e.id}');const cl=p.classList.toggle('line-clamp-3');this.textContent=cl?'Show more':'Show less'" class="text-[10px] font-bold text-zinc-500 hover:text-zinc-300 mt-1 transition-colors">Show more</button>` : ''}` : ''}
                     </div>
-                    ${entriesHtml}
+                    <div class="border-t border-zinc-800/50 px-4 py-2 flex items-center gap-2">
+                        <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${pilotColor}"></span>
+                        <span class="text-[10px] font-bold text-zinc-500">${escapeHtml(firstName)}</span>
+                        <span class="text-zinc-700">·</span>
+                        <span class="text-[10px] text-zinc-600">${fmtDate(e.created_at)}</span>
+                        ${ownBtns}
+                    </div>
                 </div>`;
             }).join('')}</div>`;
         }

@@ -72,6 +72,7 @@
         <a class="nav-link" onclick="jumpTo('list')">List View</a>
         <a class="nav-link" onclick="jumpTo('map')">Route Map</a>
         <a class="nav-link" onclick="jumpTo('crossings')">Location Overlap</a>
+        <a class="nav-link" onclick="jumpTo('crew-intel')">Crew Intel</a>
 
         <div class="nav-group-label">Managing Data</div>
         <a class="nav-link" onclick="jumpTo('upload')">Uploading Schedules</a>
@@ -96,6 +97,7 @@
             <option value="list">List View</option>
             <option value="map">Route Map</option>
             <option value="crossings">Location Overlap</option>
+            <option value="crew-intel">Crew Intel</option>
             <option value="upload">Uploading Schedules</option>
             <option value="manual-flight">Adding Flights Manually</option>
             <option value="notifications">Notifications</option>
@@ -121,10 +123,11 @@
 
             <h3>What it does</h3>
             <ul>
-                <li><strong>Calendar Grid</strong> — Your month at a glance, color-coded by day type</li>
+                <li><strong>Calendar Grid</strong> — Your month at a glance, color-coded by day type, with city names on each flight leg</li>
                 <li><strong>List View</strong> — A chronological feed of all your flights and events</li>
                 <li><strong>Route Map</strong> — Your flight routes plotted on a live map, plus where the whole crew is today</li>
                 <li><strong>Location Overlap</strong> — Automatically finds when two pilots will be in the same city at the same time</li>
+                <li><strong>Crew Intel</strong> — A shared knowledge base of hotels, food, activities, and tips for airports the crew has visited</li>
                 <li><strong>Notifications</strong> — Push alerts when a crossing is detected after a schedule upload</li>
             </ul>
 
@@ -184,7 +187,7 @@
             </ul>
 
             <h3>Tapping a day</h3>
-            <p>Tap any day to open the detail sheet. It shows every event for that day: flight routes with tail numbers and block times, reserve windows, hard-off reasons, and layover locations. Active flights (currently airborne) are highlighted.</p>
+            <p>Tap any day to open the detail sheet. It shows every event for that day: flight routes with city/state names, tail numbers and block times, reserve windows, hard-off reasons, and layover locations. City and state appear below each airport pair when the airport is in the database — useful for airports you don't recognize by code. Active flights (currently airborne) are highlighted.</p>
 
             <h3>Navigating months</h3>
             <p>Use the <span class="kbd">‹</span> and <span class="kbd">›</span> arrows to move between months. The app loads schedule data for whichever pilot is currently selected.</p>
@@ -203,7 +206,7 @@
 
             <h3>What's shown</h3>
             <ul>
-                <li><strong>Flights</strong> — Route (e.g. STL → LGA), departure and arrival times in local airport time, flight number, tail, block time</li>
+                <li><strong>Flights</strong> — Route (e.g. STL → LGA) with city names in smaller text below when both airports are recognized, departure and arrival times in local airport time, flight number, tail, block time</li>
                 <li><strong>Ground transport</strong> — Van or bus legs between airports (airline ops)</li>
                 <li><strong>Reserve</strong> — On-call windows with start and end times</li>
                 <li><strong>Hard off</strong> — Scheduled days off</li>
@@ -287,6 +290,50 @@
 
             <h3>Off Days tab</h3>
             <p>The second tab in the overlap view shows days where multiple pilots have days off simultaneously. Useful for spotting windows where the crew could plan something together.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- CREW INTEL -->
+        <section id="crew-intel" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Views</p>
+            <h2>Crew Intel</h2>
+            <p>Crew Intel is a shared knowledge base for the crew. Any pilot can add hotels, food spots, activities, and tips for airports they've visited — and everyone benefits. It's the crew's collective answer to "where should I stay in ORD?" or "is there anything good to eat near TEB?"</p>
+
+            <h3>Browsing airports</h3>
+            <p>The default view lists every airport with intel as a card. Each card shows the airport code, city name, and a count of entries by category. Use the <strong>search bar</strong> at the top to filter by airport code or city name. Tap any card to open the detail view for that airport.</p>
+
+            <h3>Detail view</h3>
+            <p>The detail view shows all entries for a single airport. Use the <strong>category pills</strong> at the top to filter — tap <em>All</em>, <em>Hotels</em>, <em>Food</em>, <em>Activities</em>, or <em>Tips</em>. Tap any entry to expand the full description.</p>
+
+            <h3>Intel Map</h3>
+            <p>Switch to the <strong>Map</strong> tab to see all intel locations plotted as thumbtack pins on a world map. Pins are color-coded by category:</p>
+            <ul>
+                <li><span class="chip chip-blue">Blue</span> — Hotels</li>
+                <li><span class="chip chip-amber">Amber</span> — Food</li>
+                <li><span class="chip chip-green">Green</span> — Activities</li>
+                <li><span class="chip" style="background:rgba(167,139,250,0.15);color:#c4b5fd">Purple</span> — Tips</li>
+                <li><span class="chip chip-red">Red</span> — Mixed (multiple categories at one airport)</li>
+            </ul>
+            <p>Tap any pin to see a summary of what intel exists at that airport. A legend in the bottom-left corner shows the color key. The map fits all pins in view on load.</p>
+
+            <h3>Categories</h3>
+            <ul>
+                <li><strong>Hotel</strong> — Where to stay. Crew-friendly spots, quiet rooms, easy transport to the airport.</li>
+                <li><strong>Food</strong> — Good eats nearby. Late-night options, delivery that works, places worth the walk.</li>
+                <li><strong>Activity</strong> — Things to do on a long layover. Gyms, trails, sights if you have time.</li>
+                <li><strong>Tip</strong> — Anything else. Parking, transport tricks, FBO notes, heads-up about the hotel van — stuff that doesn't fit elsewhere.</li>
+            </ul>
+
+            <h3>Adding an entry</h3>
+            <p>Tap <strong>+ Add</strong> in the top right. Enter the airport code, pick a category, write a short title, and optionally add a longer description. Your entry appears immediately for the whole crew.</p>
+
+            <h3>Editing and deleting</h3>
+            <p>You can edit or delete any entry you added. Tap the <strong>pencil icon</strong> to edit — you can update the airport code, category, title, or description. Tap the <strong>trash icon</strong> to delete. Admin accounts can edit or delete any entry in the database.</p>
+
+            <div class="callout callout-zinc">
+                City and state names are shown on each airport card and in the detail view header — pulled from the same global airport database the rest of the app uses, so they work for international airports too.
+            </div>
         </section>
 
         <hr class="section-divider">
