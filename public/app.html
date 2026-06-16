@@ -5727,9 +5727,10 @@
                     const isVacation = dayEvents.some(e => e.type === 'vacation');
                     const isPersonalFlight = dayEvents.some(e => e.type === 'flight' && e.trip === 'PERSONAL');
                     const personallyAwayApt = isPersonalFlight ? null : isPersonallyAway(dateKey);
-                    const personalFlightApt = isPersonalFlight
+                    const _rawPersonalApt = isPersonalFlight
                         ? (dayEvents.filter(e => e.type === 'flight' && e.trip === 'PERSONAL').slice(-1)[0] || {}).arrivalAirport || null
                         : null;
+                    const personalFlightApt = (_rawPersonalApt && !isHomeOrBase(normApt(_rawPersonalApt), currentPilot)) ? _rawPersonalApt : null;
                     const awayApt = personalFlightApt || personallyAwayApt;
                     const isFlying = dayEvents.some(e => (e.type === 'flight' || e.type === 'ground') && e.trip !== 'PERSONAL');
                     const isReserve = dayEvents.some(e => e.type === 'reserve');
@@ -5877,9 +5878,10 @@
                     const workFlights = flights.filter(f => f.trip !== 'PERSONAL');
                     const isPersonalFlight = flights.some(f => f.trip === 'PERSONAL');
                     const _listPersonallyAwayApt = isPersonalFlight ? null : isPersonallyAway(dateKey);
-                    const _listPersonalFlightApt = isPersonalFlight
+                    const _listRawPersonalApt = isPersonalFlight
                         ? (flights.filter(f => f.trip === 'PERSONAL').slice(-1)[0] || {}).arrivalAirport || null
                         : null;
+                    const _listPersonalFlightApt = (_listRawPersonalApt && !isHomeOrBase(normApt(_listRawPersonalApt), currentPilot)) ? _listRawPersonalApt : null;
                     const awayApt = _listPersonalFlightApt || _listPersonallyAwayApt;
                     const reserves = dayEvents.filter(e => e.type === 'reserve');
                     const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
@@ -6310,9 +6312,10 @@
             const workFlights = flights.filter(f => f.trip !== 'PERSONAL');
             const isPersonalFlight = flights.some(f => f.trip === 'PERSONAL');
             const _detailPersonallyAwayApt = isPersonalFlight ? null : isPersonallyAway(dateKey);
-            const _detailPersonalFlightApt = isPersonalFlight
+            const _detailRawPersonalApt = isPersonalFlight
                 ? (flights.filter(f => f.trip === 'PERSONAL').slice(-1)[0] || {}).arrivalAirport || null
                 : null;
+            const _detailPersonalFlightApt = (_detailRawPersonalApt && !isHomeOrBase(normApt(_detailRawPersonalApt), currentPilot)) ? _detailRawPersonalApt : null;
             const awayApt = _detailPersonalFlightApt || _detailPersonallyAwayApt;
             const reserves = dayEvents.filter(e => e.type === 'reserve').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
             const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
