@@ -2555,15 +2555,19 @@ app.post('/api/intel', (req, res) => {
 app.put('/api/intel/:id', (req, res) => {
     const db = getDB();
     const { category, title, body, pilot_key } = req.body;
-    db.run(
-        `UPDATE crew_intel SET category=?, title=?, body=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND added_by=?`,
-        [category, title, body || '', req.params.id, pilot_key],
-        function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            if (this.changes === 0) return res.status(403).json({ error: 'Not authorized' });
-            res.json({ success: true });
-        }
-    );
+    const isAdminKey = pilot_key === 'admin';
+    const { airport_code } = req.body;
+    const sql = isAdminKey
+        ? `UPDATE crew_intel SET airport_code=?, category=?, title=?, body=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`
+        : `UPDATE crew_intel SET airport_code=?, category=?, title=?, body=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND added_by=?`;
+    const params = isAdminKey
+        ? [airport_code?.toUpperCase() || '', category, title, body || '', req.params.id]
+        : [airport_code?.toUpperCase() || '', category, title, body || '', req.params.id, pilot_key];
+    db.run(sql, params, function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(403).json({ error: 'Not authorized' });
+        res.json({ success: true });
+    });
 });
 
 app.delete('/api/intel/:id', (req, res) => {

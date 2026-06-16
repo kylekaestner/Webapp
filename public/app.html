@@ -40,6 +40,16 @@
             #map { flex: 1 1 0 !important; height: auto !important; min-height: 0; }
         }
 
+        /* Intel map full-width mode */
+        #view-intel.intel-map-mode { overflow: hidden !important; display: flex !important; flex-direction: column; }
+        #view-intel.intel-map-mode #intel-inner { max-width: none !important; width: 100% !important; flex: 1 1 0; display: flex; flex-direction: column; padding-bottom: 0 !important; margin: 0 !important; }
+        #view-intel.intel-map-mode #intel-header { position: relative; flex-shrink: 0; }
+        #view-intel.intel-map-mode #intel-content { flex: 1 1 0; padding: 0 !important; min-height: 0; }
+        #intel-map-el { height: 100% !important; width: 100% !important; }
+        @media (max-width: 767px) {
+            #view-intel.intel-map-mode { padding-bottom: calc(50px + env(safe-area-inset-bottom)); }
+        }
+
         /* Desktop: calendar grid — fixed-height cells, internal scroll per day */
         @media (min-width: 768px) {
             #view-grid.view-active { display: block !important; }
@@ -643,7 +653,7 @@
 
             <!-- Crew Intel view — header is fully dynamic via renderIntelHeader() -->
             <div id="view-intel" class="view-section overflow-y-auto">
-                <div class="max-w-2xl mx-auto pb-20">
+                <div id="intel-inner" class="max-w-2xl mx-auto pb-20">
                     <div id="intel-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm border-b border-zinc-800/60"></div>
                     <div id="intel-content" class="px-4 pt-4"></div>
                 </div>
@@ -7790,11 +7800,12 @@ let _blockUserEdited = false;
         let _intelCounts = {};           // { AIRPORT_CODE: count } — for crossing card badges
         let _intelAll    = null;         // full entry list
         let _intelFilter = { category: 'all' };
-        let _intelView   = 'airports';   // 'airports' | 'detail'
+        let _intelView   = 'airports';   // 'airports' | 'map' | 'detail'
         let _intelDetailAirport = null;  // code when in detail view
         let _intelSearch = '';           // search string on airport index
         let _intelEditId  = null;
         let _intelFormCat = 'tip';
+        let _intelMap    = null;         // Leaflet map instance for intel map view
 
         function escapeHtml(s) {
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -7966,14 +7977,13 @@ let _blockUserEdited = false;
                 || _serverCityCache[upper] || _serverCityCache[norm] || null;
         }
 
-        async function _prefetchCities(segs) {
-            if (!Array.isArray(segs) || segs.length === 0) return;
-            const codes = new Set();
-            segs.forEach(s => {
-                if (s.departure_airport) codes.add(s.departure_airport.toUpperCase());
-                if (s.arrival_airport)   codes.add(s.arrival_airport.toUpperCase());
-            });
-            const needed = [...codes].filter(c => {
+        async function _prefetchCities(input) {
+            if (!input || !input.length) return;
+            // Accept either raw code strings or segment objects {departure_airport, arrival_airport}
+            const raw = typeof input[0] === 'string'
+                ? input
+                : input.flatMap(s => [s.departure_airport, s.arrival_airport]).filter(Boolean);
+            const needed = [...new Set(raw.map(c => c.toUpperCase()))].filter(c => {
                 const n = normApt(c);
                 return !AIRPORT_CITIES[c] && !AIRPORT_CITIES[n] && !_serverCityCache[c] && !_serverCityCache[n];
             });
@@ -7998,6 +8008,7 @@ let _blockUserEdited = false;
             try {
                 _intelAll = await fetch('/api/intel').then(r => r.json());
                 _rebuildIntelCounts();
+                await _prefetchCities((_intelAll || []).map(x => x.airport_code).filter(Boolean));
                 renderIntel();
             } catch {
                 el.innerHTML = `<div class="text-center py-10 text-zinc-600 text-sm">Failed to load intel.</div>`;
@@ -8017,6 +8028,8 @@ let _blockUserEdited = false;
             renderIntelHeader();
             if (_intelView === 'detail' && _intelDetailAirport) {
                 renderIntelDetail();
+            } else if (_intelView === 'map') {
+                renderIntelMap();
             } else {
                 renderIntelAirports();
             }
@@ -8025,10 +8038,17 @@ let _blockUserEdited = false;
         function renderIntelHeader() {
             const header = document.getElementById('intel-header');
             if (!header) return;
-            if (_intelView === 'airports') {
+            if (_intelView === 'airports' || _intelView === 'map') {
                 const clearBtn = _intelSearch
                     ? `<button id="intel-search-clear" onclick="clearIntelSearch()" class="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-sm leading-none">×</button>`
                     : `<span id="intel-search-clear" class="hidden"></span>`;
+                const isMap = _intelView === 'map';
+                const listBtn = `<button onclick="setIntelView('airports')" title="List" style="padding:5px 8px;border-radius:7px;border:1px solid ${!isMap ? '#3b82f6' : '#3f3f46'};background:${!isMap ? 'rgba(59,130,246,0.15)' : 'transparent'};color:${!isMap ? '#93c5fd' : '#71717a'};transition:all 0.15s;cursor:pointer">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                </button>`;
+                const mapBtn = `<button onclick="setIntelView('map')" title="Map" style="padding:5px 8px;border-radius:7px;border:1px solid ${isMap ? '#3b82f6' : '#3f3f46'};background:${isMap ? 'rgba(59,130,246,0.15)' : 'transparent'};color:${isMap ? '#93c5fd' : '#71717a'};transition:all 0.15s;cursor:pointer">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                </button>`;
                 header.innerHTML = `
                     <div class="px-5 pt-5 pb-3 flex items-center justify-between gap-4">
                         <div>
@@ -8038,17 +8058,18 @@ let _blockUserEdited = false;
                             </div>
                             <p class="text-[10px] text-zinc-500 mt-0.5">Shared airport knowledge</p>
                         </div>
-                        <button onclick="openAddIntel()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">+ Add</button>
-                    </div>
-                    <div class="px-5 pb-3">
-                        <div class="relative">
-                            <input id="intel-search-input" type="text" placeholder="Search airports…"
-                                oninput="setIntelSearch(this.value)"
-                                value="${escapeHtml(_intelSearch)}"
-                                class="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-3 pr-7 py-1.5 text-xs font-mono uppercase text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 tracking-widest" />
-                            ${clearBtn}
+                        <div class="flex items-center gap-2">
+                            <div class="flex items-center gap-1">${listBtn}${mapBtn}</div>
+                            <button onclick="openAddIntel()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">+ Add</button>
                         </div>
-                    </div>`;
+                    </div>
+                    ${isMap ? '' : `<div class="px-5 pb-3"><div class="relative">
+                        <input id="intel-search-input" type="text" placeholder="Search airports…"
+                            oninput="setIntelSearch(this.value)"
+                            value="${escapeHtml(_intelSearch)}"
+                            class="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-3 pr-7 py-1.5 text-xs font-mono uppercase text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 tracking-widest" />
+                        ${clearBtn}
+                    </div></div>`}`;
             } else {
                 const ap = _intelDetailAirport || '';
                 const areaLabel = _intelAreaLabel(ap);
@@ -8072,9 +8093,101 @@ let _blockUserEdited = false;
             }
         }
 
+        function renderIntelMap() {
+            const el = document.getElementById('intel-content');
+            if (!el) return;
+            const items = Array.isArray(_intelAll) ? _intelAll : [];
+
+            document.getElementById('view-intel').classList.add('intel-map-mode');
+            el.innerHTML = `<div id="intel-map-el"></div>`;
+
+            if (items.length === 0) return;
+
+            const byAirport = {};
+            items.forEach(x => { (byAirport[x.airport_code] = byAirport[x.airport_code] || []).push(x); });
+
+            if (_intelMap) { _intelMap.remove(); _intelMap = null; }
+            _intelMap = L.map('intel-map-el', { zoomControl: true, attributionControl: false });
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(_intelMap);
+
+            // Legend
+            const legendItems = [
+                { color: '#ef4444', label: 'Mixed' },
+                { color: '#fbbf24', label: 'Food' },
+                { color: '#4ade80', label: 'Activity' },
+                { color: '#60a5fa', label: 'Hotel' },
+                { color: '#c4b5fd', label: 'Tip' },
+            ];
+            const pinIcon = c => `<svg width="12" height="17" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg"><line x1="15" y1="24" x2="15" y2="40" stroke="#999" stroke-width="2" stroke-linecap="round"/><circle cx="15" cy="13" r="12" fill="${c}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/><circle cx="10.5" cy="8.5" r="3.5" fill="rgba(255,255,255,0.2)"/></svg>`;
+            const legendHtml = legendItems.map(({ color, label }) =>
+                `<div style="display:flex;align-items:center;gap:5px">${pinIcon(color)}<span style="color:#71717a;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em">${label}</span></div>`
+            ).join('');
+            const legend = L.control({ position: 'bottomleft' });
+            legend.onAdd = () => {
+                const d = L.DomUtil.create('div');
+                d.style.cssText = 'background:rgba(9,9,11,0.85);border:1px solid rgba(63,63,70,0.7);border-radius:8px;padding:8px 10px;backdrop-filter:blur(6px);display:flex;flex-direction:column;gap:5px;pointer-events:none';
+                d.innerHTML = legendHtml;
+                return d;
+            };
+            legend.addTo(_intelMap);
+
+            const catColors = { hotel:'#60a5fa', food:'#fbbf24', activity:'#4ade80', tip:'#c4b5fd' };
+            const bounds = [];
+
+            Object.entries(byAirport).forEach(([ap, entries]) => {
+                const coords = resolveAirport(ap);
+                if (!coords) return;
+                bounds.push(coords);
+
+                const count = entries.length;
+                const cats = [...new Set(entries.map(e => e.category))];
+                // pick dominant color: most frequent category, or red for mixed
+                const catFreq = {};
+                entries.forEach(e => { catFreq[e.category] = (catFreq[e.category] || 0) + 1; });
+                const topCat = Object.entries(catFreq).sort((a,b) => b[1]-a[1])[0]?.[0];
+                const pinColor = cats.length === 1 ? (catColors[cats[0]] || '#ef4444') : '#ef4444';
+                const areaLabel = _intelAreaLabel(ap) || '';
+
+                // SVG thumbtack: round head + thin needle
+                const pinSvg = `<svg width="30" height="42" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,0.7));display:block">
+                    <ellipse cx="15" cy="41" rx="3.5" ry="1.2" fill="rgba(0,0,0,0.35)"/>
+                    <line x1="15" y1="24" x2="15" y2="40" stroke="#bbb" stroke-width="1.5" stroke-linecap="round"/>
+                    <circle cx="15" cy="13" r="12" fill="${pinColor}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+                    <circle cx="10.5" cy="8.5" r="3.5" fill="rgba(255,255,255,0.22)"/>
+                    <text x="15" y="17.5" text-anchor="middle" font-size="11" font-weight="900" fill="white" font-family="system-ui,sans-serif" style="text-shadow:0 1px 2px rgba(0,0,0,0.6)">${count}</text>
+                </svg>`;
+
+                const catDots = cats.map(c =>
+                    `<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:${catColors[c]||'#94a3b8'}">${c.charAt(0).toUpperCase()+c.slice(1)}</span>`
+                ).join('<span style="color:#52525b;margin:0 2px">·</span>');
+
+                const icon = L.divIcon({
+                    className: '',
+                    iconSize: [30, 42],
+                    iconAnchor: [15, 41],
+                    popupAnchor: [0, -42],
+                    html: `<div style="cursor:pointer;user-select:none">${pinSvg}</div>`
+                });
+
+                const popup = `<div style="font-family:system-ui,sans-serif;min-width:150px">
+                    <div style="font-size:15px;font-weight:900;color:#f8fafc;letter-spacing:0.05em;font-family:monospace">${escapeHtml(ap)}</div>
+                    ${areaLabel ? `<div style="font-size:10px;color:#94a3b8;margin-bottom:5px;line-height:1.3">${escapeHtml(areaLabel)}</div>` : '<div style="margin-bottom:5px"></div>'}
+                    <div style="font-size:10px;margin-bottom:8px;line-height:1.6">${catDots}</div>
+                    <button onclick="_intelMap.closePopup();openIntelAirport('${ap}')" style="width:100%;padding:7px;border-radius:7px;background:#3b82f6;color:#fff;font-size:11px;font-weight:900;border:none;cursor:pointer;letter-spacing:0.05em">VIEW ${count} TIP${count===1?'':'S'} →</button>
+                </div>`;
+
+                L.marker(coords, { icon }).bindPopup(popup, { className: 'dark-popup', maxWidth: 210 }).addTo(_intelMap);
+            });
+
+            if (bounds.length > 0) {
+                try { _intelMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 5 }); } catch(_) {}
+            }
+        }
+
         function renderIntelAirports() {
             const el = document.getElementById('intel-content');
             if (!el) return;
+            document.getElementById('view-intel').classList.remove('intel-map-mode');
             const items = Array.isArray(_intelAll) ? _intelAll : [];
             const byAirport = {};
             items.forEach(x => { (byAirport[x.airport_code] = byAirport[x.airport_code] || []).push(x); });
@@ -8116,6 +8229,7 @@ let _blockUserEdited = false;
         function renderIntelDetail() {
             const el = document.getElementById('intel-content');
             if (!el) return;
+            document.getElementById('view-intel').classList.remove('intel-map-mode');
             const ap = _intelDetailAirport;
             let items = Array.isArray(_intelAll) ? _intelAll.filter(x => x.airport_code === ap) : [];
             if (_intelFilter.category !== 'all') items = items.filter(x => x.category === _intelFilter.category);
@@ -8185,10 +8299,13 @@ let _blockUserEdited = false;
         }
 
         function setIntelView(view) {
+            if (_intelView === 'map' && view !== 'map' && _intelMap) {
+                _intelMap.remove(); _intelMap = null;
+            }
             _intelView = view;
-            if (view === 'airports') { _intelDetailAirport = null; _intelFilter.category = 'all'; }
+            if (view === 'airports' || view === 'map') { _intelDetailAirport = null; _intelFilter.category = 'all'; }
             renderIntel();
-            document.getElementById('view-intel')?.scrollTo(0, 0);
+            if (view !== 'map') document.getElementById('view-intel')?.scrollTo(0, 0);
         }
 
         function openIntelAirport(code) {
