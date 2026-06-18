@@ -719,12 +719,27 @@ function parseVCS_skywest(text) {
                 continue;
             }
 
-            // Flight leg: "2. 5508  ER7   SFO  CLD  18:37  20:27  Block: 1:50"
-            const legM = line.match(/^\s*\d+\.\s+(\S+)\s+(\S+)\s+([A-Z]{3,4})\s+([A-Z]{3,4})\s+(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})(?:.*?Block:\s*([\d:]+))?/);
-            if (!legM || !currentDate) continue;
+            // New format (with tail#): "2. 5508  ER7  N84378  SFO  CLD  18:28  21:07  Block: 2:39"
+            // acType identified by containing a digit (e.g. ER7); tail follows before airports
+            const fullLegM = line.match(/^\s*\d+\.\s+(\*?\S+)\s+\S*\d\S*\s+(\S+)\s+([A-Z]{3,4})\s+([A-Z]{3,4})\s+(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})(?:.*?Block:\s*([\d:]+))?/);
+            // Old format (no tail#): "2. 5508  ER7    SFO  CLD  18:37  20:27  Block: 1:50"
+            const midLegM = !fullLegM && line.match(/^\s*\d+\.\s+(\*?\S+)\s+\S*\d\S*\s+([A-Z]{3,4})\s+([A-Z]{3,4})\s+(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})(?:.*?Block:\s*([\d:]+))?/);
+            // DH/codeshare (no acType/tail): "3. 469  LAX  SFO  13:25  14:53"
+            const shortLegM = !fullLegM && !midLegM && line.match(/^\s*\d+\.\s+(\S+)\s+([A-Z]{3,4})\s+([A-Z]{3,4})\s+(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})(?:.*?Block:\s*([\d:]+))?/);
+            if ((!fullLegM && !midLegM && !shortLegM) || !currentDate) continue;
 
-            const [, fltNum, tail, dep, arr, depT, arrT, blockStr] = legM;
-            if (dep === arr) continue;  // skip LCO/ground events
+            let fltNum, tail, dep, arr, depT, arrT, blockStr;
+            if (fullLegM) {
+                [, fltNum, tail, dep, arr, depT, arrT, blockStr] = fullLegM;
+            } else if (midLegM) {
+                [, fltNum, dep, arr, depT, arrT, blockStr] = midLegM;
+                tail = defaultTail;
+            } else {
+                [, fltNum, dep, arr, depT, arrT, blockStr] = shortLegM;
+                tail = defaultTail;
+            }
+            fltNum = fltNum.replace(/^\*/, '');  // strip asterisk from amended flights
+            if (dep === arr) continue;  // skip LCO/SHO/SBY/ground events
 
             const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
             const depMin = toMin(depT);
@@ -746,7 +761,7 @@ function parseVCS_skywest(text) {
                 departureAirport: dep,
                 arrivalAirport:   arr,
                 flightNumber:     fltNum,
-                tail:             tail !== dep && tail !== arr ? tail : defaultTail,
+                tail:             tail || defaultTail,
                 trip:             tripName,
                 dh:               false,
                 blockMinutes

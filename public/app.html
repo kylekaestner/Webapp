@@ -5836,8 +5836,8 @@
                         if (isActiveLeg && csig) html += `<div id="live-${csig}" style="font-size:9px;color:#4ade80;font-weight:700;margin-top:2px;display:none"></div>`;
                         html += `</div>`;
                     });
-                    // Reserve slots (on-call duty)
-                    dayEvents.filter(e => e.type === 'reserve').forEach(r => {
+                    // Reserve slots — hide if pilot has work flights (reserve was converted to a trip)
+                    dayEvents.filter(e => e.type === 'reserve' && !isFlying).forEach(r => {
                         const subType = r.flightNumber || 'RES';
                         const depFmt = r.departureTime ? formatTimeISO(r.departureTime, r.departureAirport) : '';
                         const arrFmt = r.arrivalTime  ? formatTimeISO(r.arrivalTime,  r.arrivalAirport)  : '';
@@ -6448,7 +6448,8 @@
             } // end flight block
             }); // end allDayLegs.forEach
 
-            reserves.forEach(r => {
+            // Don't show reserve blocks when work flights exist (reserve was converted to a trip)
+            reserves.filter(() => workFlights.length === 0).forEach(r => {
                 const resType = r.flightNumber || 'RES';
                 const typeLabels = { RESR: 'Red-Eye Reserve', RESP: 'PM Reserve', RESA: 'AM Reserve' };
                 const typeLabel = typeLabels[resType] || 'On-Call Reserve';
@@ -7430,7 +7431,7 @@ let _blockUserEdited = false;
 
         const AIRLINE_OPTIONS = [
             { icao: 'GJS',   dbCode: 'GJS', parser: 'csv',             needsIcs: false },
-            { icao: 'SKW',   dbCode: 'SKW', parser: 'csv_skywest',      needsIcs: false },
+            { icao: 'SKW',   dbCode: 'SKW', parser: 'vcs_skywest',      needsIcs: false },
             { icao: 'RPA',   dbCode: 'RPA', parser: 'csv',              needsIcs: false },
             { icao: 'SCX',   dbCode: 'SCX', parser: 'ics_scx',          needsIcs: true  },
             { icao: 'GTI',   dbCode: 'GTI', parser: 'ics_ecrew',         needsIcs: true  },
