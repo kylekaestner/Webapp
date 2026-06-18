@@ -571,6 +571,11 @@
                      so children with position:absolute are anchored to the map tiles area
                      only — not the mode bar below it. -->
                 <div id="map">
+                    <!-- Zoom controls — top-left -->
+                    <div class="absolute top-3 left-3 z-[1000] flex flex-col">
+                        <button onclick="map.zoomIn()" class="map-ctrl-pill" style="border-radius:8px 8px 0 0;border-bottom:none;padding:5px 11px;font-size:15px;line-height:1;font-weight:900">+</button>
+                        <button onclick="map.zoomOut()" class="map-ctrl-pill" style="border-radius:0 0 8px 8px;padding:5px 11px;font-size:15px;line-height:1;font-weight:900">−</button>
+                    </div>
                     <!-- Legend inside #map so bottom-4 is relative to tile area, not the whole view -->
                     <div id="map-legend" class="absolute bottom-4 left-3 z-[1000] bg-zinc-950/85 border border-zinc-800/70 rounded-lg px-2.5 py-2 text-[9px] font-black uppercase tracking-wide space-y-1 backdrop-blur-sm pointer-events-none">
                         <div id="legend-single" class="space-y-1">
@@ -596,10 +601,6 @@
                             </div>
                         </div>
                         <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
-                        <div class="flex gap-1">
-                            <button onclick="map.zoomIn()" class="map-ctrl-pill px-2.5 font-black text-base leading-none">+</button>
-                            <button onclick="map.zoomOut()" class="map-ctrl-pill px-2.5 font-black text-base leading-none">−</button>
-                        </div>
                         <div id="day-nav" class="hidden items-center gap-1 relative">
                             <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
                             <span id="day-nav-label" onclick="openDayPicker()" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center cursor-pointer hover:text-white transition-colors select-none" title="Pick a date"></span>
@@ -1678,6 +1679,24 @@
                     }
                 }, { passive: true });
             }
+        }
+
+        // ── Double-tap to zoom (iOS suppresses dblclick when user-scalable=no) ─
+        function setupDoubleTapZoom(leafletMap) {
+            let lastTap = 0, lastX = 0, lastY = 0;
+            leafletMap.getContainer().addEventListener('touchstart', e => {
+                if (e.touches.length !== 1) return;
+                const t = e.touches[0];
+                const now = Date.now();
+                if (now - lastTap < 350 && Math.abs(t.clientX - lastX) < 30 && Math.abs(t.clientY - lastY) < 30) {
+                    leafletMap.zoomIn();
+                    lastTap = 0;
+                } else {
+                    lastTap = now;
+                    lastX = t.clientX;
+                    lastY = t.clientY;
+                }
+            }, { passive: true });
         }
 
         // ── Swipe-to-dismiss for bottom sheets ──────────────────────────────
@@ -3966,6 +3985,7 @@
             if (map) return;
             map = L.map('map', { zoomControl: false, doubleClickZoom: true }).setView([39.8283, -98.5795], 4);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+            setupDoubleTapZoom(map);
             map.on('zoomend', deoverlapLiveLabels);
             map.on('moveend', deoverlapLiveLabels);
         }
@@ -8319,6 +8339,7 @@ let _blockUserEdited = false;
             }
             _intelMap = L.map('intel-map-el', { zoomControl: true, attributionControl: false, worldCopyJump: true, doubleClickZoom: true });
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(_intelMap);
+            setupDoubleTapZoom(_intelMap);
 
             // Legend
             const legendItems = [
