@@ -7948,6 +7948,7 @@ let _blockUserEdited = false;
         let _intelView   = 'map';         // 'airports' | 'map' | 'detail'
         let _intelPrevView = 'map';      // view to return to when closing detail
         let _intelDetailAirport = null;  // code when in detail view
+        let _intelListScrollY = 0;       // saved scroll position for airports list
         let _intelSearch = '';           // search string on airport index
         let _intelEditId  = null;
         let _intelFormCat = 'tip';
@@ -8482,11 +8483,16 @@ let _blockUserEdited = false;
             _intelView = view;
             if (view === 'airports' || view === 'map') { _intelDetailAirport = null; _intelFilter.category = 'all'; }
             renderIntel();
-            if (view !== 'map') document.getElementById('view-intel')?.scrollTo(0, 0);
+            if (view === 'airports') {
+                requestAnimationFrame(() => document.getElementById('view-intel')?.scrollTo(0, _intelListScrollY));
+            } else if (view !== 'map') {
+                document.getElementById('view-intel')?.scrollTo(0, 0);
+            }
         }
 
         function openIntelAirport(code) {
             _intelPrevView = _intelView === 'detail' ? _intelPrevView : _intelView;
+            if (_intelView === 'airports') _intelListScrollY = document.getElementById('view-intel')?.scrollTop || 0;
             _intelDetailAirport = code;
             _intelView = 'detail';
             _intelFilter.category = 'all';
