@@ -5152,6 +5152,11 @@
                     .forEach(f => allDayFlights.push({ ...f, pilotKey }));
             });
 
+            // Prefetch city names for all airports appearing today
+            const _dayAptCodes = [...new Set(allDayFlights.flatMap(f => [f.departureAirport, f.arrivalAirport]).filter(Boolean))];
+            await _prefetchCities(_dayAptCodes);
+            if (gen !== mapRenderGen) return;
+
             // Group by city pair (sorted) to detect overlapping routes
             const pairGroups = {};
             allDayFlights.forEach(f => {
@@ -5209,8 +5214,12 @@
                     : isPast
                     ? `<div style="font-size:10px;color:#3f3f46;font-weight:800;letter-spacing:.04em;margin-top:6px">✓ COMPLETED</div>`
                     : `<div style="font-size:10px;color:#3b82f6;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTS IN ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>`;
+                const _depCity = _intelAreaLabel(f.departureAirport) || f.departureAirport;
+                const _arrCity = _intelAreaLabel(f.arrivalAirport) || f.arrivalAirport;
+                const _cityLine = `<div style="font-size:10px;color:#52525b;font-weight:600;margin-bottom:5px">${_depCity} → ${_arrCity}</div>`;
                 const dayPopup = `
-                    <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:3px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
+                    <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:2px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
+                    ${_cityLine}
                     <div style="font-size:11px;font-weight:700;margin-bottom:5px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${_cs}</span>` : ''}</div>
                     <div style="font-size:11px;color:#94a3b8">${formatTimeISO(f.departureTime, f.departureAirport)} – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
                     ${_statusLine}
