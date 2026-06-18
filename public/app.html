@@ -2395,6 +2395,7 @@
 
         // Sidebar + mobile strip widget: shows signed-in pilot's next upcoming flight
         let _nextFlightDate = null; // UTC date of next flight — used by _jumpToNextFlight
+        let _nextFlightDismissed = false;
         function _updateNextTripWidget(pilot, segs) {
             const el   = document.getElementById('sidebar-next-trip');
             const mob  = document.getElementById('mobile-next-trip');
@@ -2430,26 +2431,29 @@
                     ? formatTimeISO(next.departureTime, next.departureAirport) : '';
                 const tzStr = next.departureAirport && next.departureTime
                     ? tzAbbr(next.departureAirport, next.departureTime) : '';
-                mob.classList.remove('hidden');
+                _nextFlightDismissed = false;
                 mob.style.background = `${color}0d`;
-                mob.innerHTML = `<div class="flex items-center gap-2 px-4 py-2" style="border-left:3px solid ${color}50">
+                mob.innerHTML = `<div class="flex items-center gap-3 px-4 py-3" style="border-left:3px solid ${color}50">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="color:${color};opacity:0.7;flex-shrink:0"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
-                    <span class="text-xs font-black text-white">${next.departureAirport} → ${next.arrivalAirport}</span>
-                    <span style="color:${color};opacity:0.8" class="text-[10px] font-bold">${dayLabel}</span>
-                    ${timeStr ? `<span class="text-[10px] text-zinc-500">${timeStr}${tzStr ? ' ' + tzStr : ''}</span>` : ''}
-                    <span class="ml-auto text-[9px] font-black uppercase tracking-widest text-zinc-600">Next Flight</span>
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-zinc-700 shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                    <div class="flex flex-col min-w-0">
+                        <span class="text-xs font-black text-white leading-tight">${next.departureAirport} → ${next.arrivalAirport}</span>
+                        <span class="text-[10px] leading-tight" style="color:${color};opacity:0.8">${dayLabel}${timeStr ? ' · ' + timeStr + (tzStr ? ' ' + tzStr : '') : ''}</span>
+                    </div>
+                    <button onclick="event.stopPropagation();_dismissNextFlight()" class="ml-auto flex items-center justify-center w-8 h-8 rounded-full text-zinc-600 hover:text-zinc-400 text-lg leading-none shrink-0" style="-webkit-tap-highlight-color:transparent">×</button>
                 </div>`;
+                mob.classList.toggle('hidden', currentView !== 'grid');
             }
+        }
+
+        function _dismissNextFlight() {
+            _nextFlightDismissed = true;
+            document.getElementById('mobile-next-trip')?.classList.add('hidden');
         }
 
         function _jumpToNextFlight() {
             if (!_nextFlightDate || !myPilot) return;
-            const y = _nextFlightDate.getFullYear();
-            const m = _nextFlightDate.getMonth();
-            // Navigate to that pilot + month in grid view
-            if (currentPilot !== myPilot) loadPilot(myPilot);
-            currentYear = y; currentMonth = m;
+            viewDate = new Date(_nextFlightDate.getFullYear(), _nextFlightDate.getMonth(), 1);
+            if (currentPilot !== myPilot) { loadPilot(myPilot); return; } // loadPilot calls render()
             switchView('grid');
             render();
         }
@@ -2995,6 +2999,9 @@
             if (mbtn) mbtn.classList.add('mbtn-active');
             const modeNav = document.getElementById('map-mode-nav');
             if (modeNav) { if (view === 'map') modeNav.classList.replace('hidden', 'flex'); else modeNav.classList.replace('flex', 'hidden'); }
+            // Next flight strip only on grid
+            const nfStrip = document.getElementById('mobile-next-trip');
+            if (nfStrip) nfStrip.classList.toggle('hidden', view !== 'grid' || _nextFlightDismissed || nfStrip.innerHTML === '');
             if (view === 'map') {
                 initMap();
                 // Sync day nav / pilot controls visibility with the current mode
@@ -8262,7 +8269,12 @@ let _blockUserEdited = false;
             const byAirport = {};
             items.forEach(x => { (byAirport[x.airport_code] = byAirport[x.airport_code] || []).push(x); });
 
-            if (_intelMap) { _intelMap.remove(); _intelMap = null; }
+            let _savedCenter = null, _savedZoom = null;
+            if (_intelMap) {
+                _savedCenter = _intelMap.getCenter();
+                _savedZoom   = _intelMap.getZoom();
+                _intelMap.remove(); _intelMap = null;
+            }
             _intelMap = L.map('intel-map-el', { zoomControl: true, attributionControl: false, worldCopyJump: true });
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(_intelMap);
 
@@ -8340,7 +8352,11 @@ let _blockUserEdited = false;
                 });
             });
 
-            _intelMap.setView([15, -85], 2);
+            if (_savedCenter && _savedZoom != null) {
+                _intelMap.setView(_savedCenter, _savedZoom);
+            } else {
+                _intelMap.setView([15, -85], 2);
+            }
             requestAnimationFrame(() => _intelMap?.invalidateSize());
         }
 
