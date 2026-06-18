@@ -7859,6 +7859,7 @@ let _blockUserEdited = false;
         let _intelAll    = null;         // full entry list
         let _intelFilter = { category: 'all' };
         let _intelView   = 'map';         // 'airports' | 'map' | 'detail'
+        let _intelPrevView = 'map';      // view to return to when closing detail
         let _intelDetailAirport = null;  // code when in detail view
         let _intelSearch = '';           // search string on airport index
         let _intelEditId  = null;
@@ -8154,7 +8155,7 @@ let _blockUserEdited = false;
                 }).join('');
                 header.innerHTML = `
                     <div class="px-4 pt-4 pb-2 flex items-center gap-3">
-                        <button onclick="setIntelView('airports')" class="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors flex-shrink-0">
+                        <button onclick="setIntelView(_intelPrevView)" class="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors flex-shrink-0">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                         </button>
                         <div class="flex-1 min-w-0">
@@ -8389,6 +8390,7 @@ let _blockUserEdited = false;
         }
 
         function openIntelAirport(code) {
+            _intelPrevView = _intelView === 'detail' ? _intelPrevView : _intelView;
             _intelDetailAirport = code;
             _intelView = 'detail';
             _intelFilter.category = 'all';
