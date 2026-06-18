@@ -2561,8 +2561,8 @@ app.get('/api/intel', (req, res) => {
     const db = getDB();
     const { airport } = req.query;
     const sql = airport
-        ? `SELECT * FROM crew_intel WHERE airport_code=? ORDER BY category, created_at DESC`
-        : `SELECT * FROM crew_intel ORDER BY airport_code, category, created_at DESC`;
+        ? `SELECT ci.*, p.name AS added_by_name FROM crew_intel ci LEFT JOIN pilots p ON p.pilot_key=ci.added_by WHERE ci.airport_code=? ORDER BY ci.category, ci.created_at DESC`
+        : `SELECT ci.*, p.name AS added_by_name FROM crew_intel ci LEFT JOIN pilots p ON p.pilot_key=ci.added_by ORDER BY ci.airport_code, ci.category, ci.created_at DESC`;
     const params = airport ? [airport.toUpperCase()] : [];
     db.all(sql, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });

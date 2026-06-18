@@ -8334,7 +8334,8 @@ let _blockUserEdited = false;
             items.sort((a, b) => catOrder.indexOf(a.category) - catOrder.indexOf(b.category));
             el.innerHTML = `<div class="flex flex-col gap-2.5 pb-4">${items.map(e => {
                 const isOwn = !isDemo && (myPilot === null || (myPilot && e.added_by === myPilot) || (myViewer && e.added_by === myViewerKey));
-                const firstName = (PILOT_NAMES[e.added_by] || e.added_by || '').split(' ')[0];
+                const _rawName = (e.added_by_name || PILOT_NAMES[e.added_by] || e.added_by || '').split(' ')[0];
+                const firstName = _rawName.charAt(0).toUpperCase() + _rawName.slice(1);
                 const pilotColor = PILOT_COLORS[e.added_by] || '#52525b';
                 const color  = catColors[e.category] || '#94a3b8';
                 const bg     = catBg[e.category]     || 'rgba(255,255,255,0.05)';
