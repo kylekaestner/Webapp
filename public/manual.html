@@ -644,6 +644,8 @@
         document.querySelectorAll('.nav-link').forEach(l => {
             if (l.getAttribute('onclick')?.includes(`'${activeId}'`)) l.classList.add('active');
         });
+        const sel = document.querySelector('.md\\:hidden select');
+        if (sel && sel.querySelector(`option[value="${activeId}"]`)) sel.value = activeId;
     }
 
     const observer = new IntersectionObserver(entries => {
