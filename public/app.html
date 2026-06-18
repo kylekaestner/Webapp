@@ -572,9 +572,9 @@
                      only — not the mode bar below it. -->
                 <div id="map">
                     <!-- Zoom controls — top-left -->
-                    <div class="absolute top-3 left-3 z-[1000] flex flex-col">
-                        <button onclick="map.zoomIn()" class="map-ctrl-pill" style="border-radius:8px 8px 0 0;border-bottom:none;padding:5px 11px;font-size:15px;line-height:1;font-weight:900">+</button>
-                        <button onclick="map.zoomOut()" class="map-ctrl-pill" style="border-radius:0 0 8px 8px;padding:5px 11px;font-size:15px;line-height:1;font-weight:900">−</button>
+                    <div class="absolute top-3 left-3 z-[1000] flex flex-col gap-1">
+                        <button onclick="map.zoomIn()" class="map-ctrl-pill" style="padding:5px 11px;font-size:15px;line-height:1;font-weight:900">+</button>
+                        <button onclick="map.zoomOut()" class="map-ctrl-pill" style="padding:5px 11px;font-size:15px;line-height:1;font-weight:900">−</button>
                     </div>
                     <!-- Legend inside #map so bottom-4 is relative to tile area, not the whole view -->
                     <div id="map-legend" class="absolute bottom-4 left-3 z-[1000] bg-zinc-950/85 border border-zinc-800/70 rounded-lg px-2.5 py-2 text-[9px] font-black uppercase tracking-wide space-y-1 backdrop-blur-sm pointer-events-none">
@@ -8337,9 +8337,13 @@ let _blockUserEdited = false;
                 _savedZoom   = _intelMap.getZoom();
                 _intelMap.remove(); _intelMap = null;
             }
-            _intelMap = L.map('intel-map-el', { zoomControl: true, attributionControl: false, worldCopyJump: true, doubleClickZoom: true });
+            _intelMap = L.map('intel-map-el', { zoomControl: false, attributionControl: false, worldCopyJump: true, doubleClickZoom: true });
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(_intelMap);
             setupDoubleTapZoom(_intelMap);
+            const _intelZoom = document.createElement('div');
+            _intelZoom.style.cssText = 'position:absolute;top:10px;left:10px;z-index:1000;display:flex;flex-direction:column;gap:4px;pointer-events:auto';
+            _intelZoom.innerHTML = `<button onclick="if(_intelMap)_intelMap.zoomIn()" class="map-ctrl-pill" style="padding:5px 11px;font-size:15px;line-height:1;font-weight:900">+</button><button onclick="if(_intelMap)_intelMap.zoomOut()" class="map-ctrl-pill" style="padding:5px 11px;font-size:15px;line-height:1;font-weight:900">−</button>`;
+            document.getElementById('intel-map-el').appendChild(_intelZoom);
 
             // Legend
             const legendItems = [
