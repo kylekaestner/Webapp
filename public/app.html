@@ -1685,11 +1685,13 @@
         function setupDoubleTapZoom(leafletMap) {
             let lastTap = 0, lastX = 0, lastY = 0;
             leafletMap.getContainer().addEventListener('touchstart', e => {
-                if (e.touches.length !== 1) return;
+                if (e.touches.length > 1) { lastTap = 0; return; } // pinch in progress — reset so lift doesn't look like a double-tap
                 const t = e.touches[0];
                 const now = Date.now();
                 if (now - lastTap < 350 && Math.abs(t.clientX - lastX) < 30 && Math.abs(t.clientY - lastY) < 30) {
-                    leafletMap.zoomIn();
+                    const rect = leafletMap.getContainer().getBoundingClientRect();
+                    const latlng = leafletMap.containerPointToLatLng(L.point(t.clientX - rect.left, t.clientY - rect.top));
+                    leafletMap.setZoomAround(latlng, leafletMap.getZoom() + 1);
                     lastTap = 0;
                 } else {
                     lastTap = now;
@@ -3983,7 +3985,7 @@
 
         function initMap() {
             if (map) return;
-            map = L.map('map', { zoomControl: false, doubleClickZoom: true }).setView([39.8283, -98.5795], 4);
+            map = L.map('map', { zoomControl: false, doubleClickZoom: true, bounceAtZoomLimits: false }).setView([39.8283, -98.5795], 4);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
             setupDoubleTapZoom(map);
             map.on('zoomend', deoverlapLiveLabels);
@@ -8337,7 +8339,7 @@ let _blockUserEdited = false;
                 _savedZoom   = _intelMap.getZoom();
                 _intelMap.remove(); _intelMap = null;
             }
-            _intelMap = L.map('intel-map-el', { zoomControl: false, attributionControl: false, worldCopyJump: true, doubleClickZoom: true });
+            _intelMap = L.map('intel-map-el', { zoomControl: false, attributionControl: false, worldCopyJump: true, doubleClickZoom: true, bounceAtZoomLimits: false });
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(_intelMap);
             setupDoubleTapZoom(_intelMap);
             const _intelZoom = document.createElement('div');
