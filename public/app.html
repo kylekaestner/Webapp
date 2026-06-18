@@ -346,6 +346,7 @@
     <div class="splash-plane">✈️</div>
     <div class="splash-title">CrewSync</div>
     <div class="splash-sub">Crew Scheduling</div>
+    <div style="font-size:10px;font-weight:700;color:#3f3f46;letter-spacing:0.12em;text-transform:uppercase;margin-top:6px;">v1.4 Beta</div>
     <div class="splash-dots">
         <div class="splash-dot"></div>
         <div class="splash-dot"></div>
@@ -368,6 +369,7 @@
     <div id="sidebar" class="hidden md:flex w-64 border-r border-zinc-800 bg-zinc-900/20 flex-col shrink-0">
         <div class="p-6 border-b border-zinc-800 text-center shrink-0">
             <h1 class="text-blue-500 font-black italic text-xl tracking-tighter uppercase">CrewSync</h1>
+            <p class="text-zinc-600 text-[10px] font-bold uppercase tracking-widest mt-0.5">v1.4 Beta</p>
         </div>
         <!-- Desktop identity row -->
         <div id="sidebar-identity" class="hidden px-3 py-2.5 border-b border-zinc-800/60 shrink-0">
@@ -2042,11 +2044,11 @@
                             // Admin token → full access, no crew identity
                             myPilot = null;
                         } else if (data.isViewer) {
-                            // View-only guest — no pilot identity, no editing
                             myPilot      = null;
                             myViewer     = true;
                             myViewerKey  = data.pilotKey;
                             myViewerName = data.name || 'Viewer';
+                            PILOT_NAMES[myViewerKey] = myViewerName;
                         } else {
                             myPilot = data.pilotKey;
                         }
@@ -2641,8 +2643,9 @@
             if (!code) return null;
             const upper = code.toUpperCase();
             if (AIRPORTS[upper]) return AIRPORTS[upper];
-            // tolerate 4-letter ICAO where the last 3 are IATA
-            if (upper.length === 4) {
+            // For K/C-prefix ICAO codes (US/Canada), never strip the prefix and look up
+            // the 3-letter remainder — PAN (Thailand) ≠ KPAN (Arizona)
+            if (upper.length === 4 && upper[0] !== 'K' && upper[0] !== 'C') {
                 const last3 = upper.slice(-3);
                 if (AIRPORTS[last3]) return AIRPORTS[last3];
             }
@@ -7855,7 +7858,7 @@ let _blockUserEdited = false;
         let _intelCounts = {};           // { AIRPORT_CODE: count } — for crossing card badges
         let _intelAll    = null;         // full entry list
         let _intelFilter = { category: 'all' };
-        let _intelView   = 'airports';   // 'airports' | 'map' | 'detail'
+        let _intelView   = 'map';         // 'airports' | 'map' | 'detail'
         let _intelDetailAirport = null;  // code when in detail view
         let _intelSearch = '';           // search string on airport index
         let _intelEditId  = null;
@@ -8038,15 +8041,28 @@ let _blockUserEdited = false;
             const raw = typeof input[0] === 'string'
                 ? input
                 : input.flatMap(s => [s.departure_airport, s.arrival_airport]).filter(Boolean);
-            const needed = [...new Set(raw.map(c => c.toUpperCase()))].filter(c => {
+            const allCodes = [...new Set(raw.map(c => c.toUpperCase()))];
+
+            // Fetch missing city names
+            const neededCities = allCodes.filter(c => {
                 const n = normApt(c);
                 return !AIRPORT_CITIES[c] && !AIRPORT_CITIES[n] && !_serverCityCache[c] && !_serverCityCache[n];
             });
-            if (needed.length === 0) return;
-            try {
-                const res = await fetch(`${API_BASE}/airports/cities?codes=${needed.join(',')}`);
-                if (res.ok) Object.assign(_serverCityCache, await res.json());
-            } catch (_) {}
+            if (neededCities.length > 0) {
+                try {
+                    const res = await fetch(`${API_BASE}/airports/cities?codes=${neededCities.join(',')}`);
+                    if (res.ok) Object.assign(_serverCityCache, await res.json());
+                } catch (_) {}
+            }
+
+            // Fetch coordinates for airports not already in the client AIRPORTS map
+            const neededCoords = allCodes.filter(c => !resolveAirport(c));
+            if (neededCoords.length > 0) {
+                try {
+                    const res = await fetch(`${API_BASE}/airports/coords?codes=${neededCoords.join(',')}`);
+                    if (res.ok) Object.assign(AIRPORTS, await res.json());
+                } catch (_) {}
+            }
         }
 
         function _rebuildIntelCounts() {
@@ -8111,7 +8127,7 @@ let _blockUserEdited = false;
                                 <button onclick="setIntelView('airports')" class="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${!isMap ? 'bg-zinc-700 text-white' : 'bg-transparent text-zinc-500 hover:text-zinc-300'}">List</button>
                                 <button onclick="setIntelView('map')" class="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest border-l border-zinc-800 transition-all ${isMap ? 'bg-zinc-700 text-white' : 'bg-transparent text-zinc-500 hover:text-zinc-300'}">Map</button>
                             </div>
-                            <button onclick="openAddIntel()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest transition-colors">+ Add</button>
+                            ${!isDemo ? `<button onclick="openAddIntel()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest transition-colors">+ Add</button>` : ''}
                         </div>
                     </div>
                     ${isMap ? '' : `<div class="px-5 pb-3"><div class="relative">
@@ -8165,7 +8181,7 @@ let _blockUserEdited = false;
             items.forEach(x => { (byAirport[x.airport_code] = byAirport[x.airport_code] || []).push(x); });
 
             if (_intelMap) { _intelMap.remove(); _intelMap = null; }
-            _intelMap = L.map('intel-map-el', { zoomControl: true, attributionControl: false });
+            _intelMap = L.map('intel-map-el', { zoomControl: true, attributionControl: false, worldCopyJump: true });
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(_intelMap);
 
             // Legend
@@ -8234,7 +8250,12 @@ let _blockUserEdited = false;
                     <button onclick="_intelMap.closePopup();openIntelAirport('${ap}')" style="width:100%;padding:7px;border-radius:7px;background:#3b82f6;color:#fff;font-size:11px;font-weight:900;border:none;cursor:pointer;letter-spacing:0.05em">VIEW ${count} TIP${count===1?'':'S'} →</button>
                 </div>`;
 
-                L.marker(coords, { icon }).bindPopup(popup, { className: 'dark-popup', maxWidth: 210 }).addTo(_intelMap);
+                // Add marker at base lon and ±360° so pins appear on every world copy when panning
+                [-360, 0, 360].forEach(offset => {
+                    L.marker([coords[0], coords[1] + offset], { icon })
+                        .bindPopup(popup, { className: 'dark-popup', maxWidth: 210 })
+                        .addTo(_intelMap);
+                });
             });
 
             _intelMap.setView([15, -85], 2);
@@ -8312,7 +8333,7 @@ let _blockUserEdited = false;
             const fmtDate   = s => new Date(s).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
             items.sort((a, b) => catOrder.indexOf(a.category) - catOrder.indexOf(b.category));
             el.innerHTML = `<div class="flex flex-col gap-2.5 pb-4">${items.map(e => {
-                const isOwn = !myViewer && (myPilot === null || e.added_by === myPilot);
+                const isOwn = !isDemo && (myPilot === null || (myPilot && e.added_by === myPilot) || (myViewer && e.added_by === myViewerKey));
                 const firstName = (PILOT_NAMES[e.added_by] || e.added_by || '').split(' ')[0];
                 const pilotColor = PILOT_COLORS[e.added_by] || '#52525b';
                 const color  = catColors[e.category] || '#94a3b8';
@@ -8435,7 +8456,9 @@ let _blockUserEdited = false;
             const body    = document.getElementById('intel-form-body').value.trim();
             if (airport.length < 3) { alert('Enter a valid airport code (e.g. KLAX)'); return; }
             if (!title) { alert('Title is required'); return; }
-            const payload = { airport_code: airport, category: _intelFormCat, title, body, pilot_key: myPilot || 'admin' };
+            if (isDemo) { alert('Read-only in demo mode.'); return; }
+            if (!myToken) { alert('Not signed in.'); return; }
+            const payload = { airport_code: airport, category: _intelFormCat, title, body, token: myToken };
             try {
                 let res;
                 if (_intelEditId) {
@@ -8466,7 +8489,7 @@ let _blockUserEdited = false;
             try {
                 const res = await fetch(`/api/intel/${id}`, {
                     method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pilot_key: myPilot || 'admin' })
+                    body: JSON.stringify({ token: myToken })
                 });
                 if (!res.ok) throw new Error();
                 if (Array.isArray(_intelAll)) _intelAll = _intelAll.filter(x => x.id !== id);

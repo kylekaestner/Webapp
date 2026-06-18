@@ -22,6 +22,8 @@ try {
 }
 
 // Middleware
+const compression = require('compression');
+app.use(compression());
 app.use(cors());
 app.use(bodyParser.json());
 // Prevent browsers (especially iOS PWA) from caching HTML pages
@@ -701,8 +703,9 @@ function parseVCS_skywest(text) {
             continue;
         }
 
-        // Pairing event (ADD Q5089A ER7) — parse DESCRIPTION for individual legs
-        const pairingM = summary.match(/^ADD\s+(\S+)(?:\s+(\S+))?/);
+        // Pairing event — any "PREFIX PAIRING_CODE [AIRCRAFT]" summary (ADD, TRN, IOE, etc.)
+        // Single-word events (NJM, MOV, PDS, PDE…) fall through here since they have no second token.
+        const pairingM = summary.match(/^\S+\s+(\S+)(?:\s+(\S+))?/);
         if (!pairingM) continue;
         const tripName   = pairingM[1] || '';
         const defaultTail = pairingM[2] || '';
@@ -834,7 +837,9 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
 const pdfParse = require('pdf-parse');
 const tzlookup = require('tz-lookup');
 
-// Build airport code → [lat, lon], timezone, and IATA↔ICAO maps from bundled airports.dat (OpenFlights format)
+// Build airport code → [lat, lon], timezone, and IATA↔ICAO maps.
+// Phase 1: airports.dat (OpenFlights) — used for timezone data which OurAirports lacks.
+// Phase 2: airports_raw.csv (OurAirports, ~85k) — broader coverage for coords.
 const _aptCoords = {};
 const _aptTimezone = {};
 const _iataToIcaoApt = {};
@@ -857,9 +862,36 @@ try {
             _icaoToIataApt[icao.toUpperCase()] = iata.toUpperCase();
         }
     }
-    console.log(`Airport DB loaded: ${Object.keys(_aptCoords).length} codes`);
+    console.log(`Airport DB (OpenFlights): ${Object.keys(_aptCoords).length} codes`);
 } catch (e) {
     console.error('Could not load airports.dat:', e.message);
+}
+// Phase 2: supplement with OurAirports full dataset (ident, icao_code, gps_code indexed)
+try {
+    const rawLines = fs.readFileSync(path.join(__dirname, 'data', 'airports_raw.csv'), 'utf8').split('\n');
+    // columns: id,ident,type,name,lat,lon,elev,continent,country,region,muni,sched,icao,iata,gps,local,...
+    for (let i = 1; i < rawLines.length; i++) {
+        const cols = rawLines[i].split(',').map(s => s.replace(/^"|"$/g, '').trim());
+        const ident = cols[1], icao = cols[12], iata = cols[13], gps = cols[14];
+        const lat = parseFloat(cols[4]), lon = parseFloat(cols[5]);
+        if (!isFinite(lat) || !isFinite(lon)) continue;
+        // Index by ident and gps_code (these are the ICAO-style identifiers pilots use)
+        for (const code of [ident, icao, gps]) {
+            if (code && code !== 'N/A' && !_aptCoords[code.toUpperCase()])
+                _aptCoords[code.toUpperCase()] = [lat, lon];
+        }
+        // Only index by proper iata_code (3-letter), not local_code (avoids PAN→Thailand conflict)
+        if (iata && iata !== 'N/A' && iata.length === 3 && !_aptCoords[iata.toUpperCase()])
+            _aptCoords[iata.toUpperCase()] = [lat, lon];
+        // Build IATA↔ICAO maps where both exist
+        if (iata && iata !== 'N/A' && iata.length === 3 && icao && icao !== 'N/A') {
+            if (!_iataToIcaoApt[iata.toUpperCase()]) _iataToIcaoApt[iata.toUpperCase()] = icao.toUpperCase();
+            if (!_icaoToIataApt[icao.toUpperCase()]) _icaoToIataApt[icao.toUpperCase()] = iata.toUpperCase();
+        }
+    }
+    console.log(`Airport DB (OurAirports supplement): ${Object.keys(_aptCoords).length} total codes`);
+} catch (e) {
+    console.error('Could not load airports_raw.csv:', e.message);
 }
 
 function iataToIcaoAirport(iata) {
@@ -1146,23 +1178,21 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
             });
         }
 
-        // Upsert all events — never delete existing data.
-        // Match on (type, departure_time, departure_airport): same segment → UPDATE, new → INSERT.
+        // Replace all non-manual events for the date range covered by this file, then insert fresh.
+        // This ensures re-uploading a corrected file removes stale events from a previous broken parse.
         if (events.length === 0) {
             return res.json({ success: true, segmentsAdded: 0, parser: parserType });
         }
 
-        db.all(
-            'SELECT id, type, departure_time, departure_airport FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)',
-            [pilot.id],
-            (err, existing) => {
-                if (err) return res.status(500).json({ error: err.message });
+        const allTimes = events.flatMap(e => [e.departureTime, e.arrivalTime]).filter(Boolean).sort();
+        const rangeStart = allTimes[0].slice(0, 10);
+        const rangeEnd   = allTimes[allTimes.length - 1].slice(0, 10);
 
-                const existingMap = {};
-                existing.forEach(s => {
-                    const key = `${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`;
-                    existingMap[key] = s.id;
-                });
+        db.run(
+            `DELETE FROM segments WHERE pilot_id=? AND (is_manual IS NULL OR is_manual=0) AND departure_time>=? AND departure_time<=?`,
+            [pilot.id, rangeStart + 'T00:00:00', rangeEnd + 'T23:59:59'],
+            (delErr) => {
+                if (delErr) return res.status(500).json({ error: delErr.message });
 
                 let completed = 0;
                 const errors = [];
@@ -1177,22 +1207,11 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                 };
 
                 events.forEach(event => {
-                    const key = `${event.type}|${event.departureTime || ''}|${event.departureAirport || ''}`;
-                    const existingId = existingMap[key];
-
-                    if (existingId) {
-                        db.run(
-                            `UPDATE segments SET arrival_time=?, arrival_airport=?, tail=?, trip=?, flight_number=?, is_dh=?, block_minutes=? WHERE id=?`,
-                            [event.arrivalTime || null, event.arrivalAirport || null, event.tail || null, event.trip || null, event.flightNumber || null, event.dh ? 1 : 0, event.blockMinutes || null, existingId],
-                            err => { if (err) errors.push(err.message); done(); }
-                        );
-                    } else {
-                        db.run(
-                            `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                            [pilot.id, event.type, event.departureTime || null, event.arrivalTime || null, event.departureAirport || null, event.arrivalAirport || null, event.tail || null, event.trip || null, event.flightNumber || null, event.dh ? 1 : 0, event.blockMinutes || null],
-                            err => { if (err) errors.push(err.message); done(); }
-                        );
-                    }
+                    db.run(
+                        `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [pilot.id, event.type, event.departureTime || null, event.arrivalTime || null, event.departureAirport || null, event.arrivalAirport || null, event.tail || null, event.trip || null, event.flightNumber || null, event.dh ? 1 : 0, event.blockMinutes || null],
+                        err => { if (err) errors.push(err.message); done(); }
+                    );
                 });
             }
         );
@@ -2551,50 +2570,68 @@ app.get('/api/intel', (req, res) => {
     });
 });
 
+// Resolve a token to any authenticated pilot row (viewers included), or return 401
+function _resolveIntelAuthor(token, db, cb) {
+    if (!token) return cb(401, 'Authentication required');
+    db.get(`SELECT pilot_key, role FROM pilots WHERE token=?`, [token], (err, row) => {
+        if (err) return cb(500, err.message);
+        if (!row) return cb(401, 'Invalid token');
+        cb(null, null, row.pilot_key);
+    });
+}
+
 app.post('/api/intel', (req, res) => {
     const db = getDB();
-    const { airport_code, category, title, body, pilot_key } = req.body;
-    if (!airport_code || !category || !title || !pilot_key)
+    const { airport_code, category, title, body, token } = req.body;
+    if (!airport_code || !category || !title)
         return res.status(400).json({ error: 'Missing required fields' });
-    db.run(
-        `INSERT INTO crew_intel (airport_code, category, title, body, added_by) VALUES (?,?,?,?,?)`,
-        [airport_code.toUpperCase(), category, title, body || '', pilot_key],
-        function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            logEvent(pilot_key === 'admin' ? null : pilot_key, 'intel:add');
-            db.get(`SELECT * FROM crew_intel WHERE id=?`, [this.lastID], (e, row) => res.json(row || {}));
-        }
-    );
+    _resolveIntelAuthor(token, db, (status, msg, authorKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        db.run(
+            `INSERT INTO crew_intel (airport_code, category, title, body, added_by) VALUES (?,?,?,?,?)`,
+            [airport_code.toUpperCase(), category, title, body || '', authorKey],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                logEvent(authorKey === 'admin' ? null : authorKey, 'intel:add');
+                db.get(`SELECT * FROM crew_intel WHERE id=?`, [this.lastID], (e, row) => res.json(row || {}));
+            }
+        );
+    });
 });
 
 app.put('/api/intel/:id', (req, res) => {
     const db = getDB();
-    const { category, title, body, pilot_key } = req.body;
-    const isAdminKey = pilot_key === 'admin';
-    const { airport_code } = req.body;
-    const sql = isAdminKey
-        ? `UPDATE crew_intel SET airport_code=?, category=?, title=?, body=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`
-        : `UPDATE crew_intel SET airport_code=?, category=?, title=?, body=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND added_by=?`;
-    const params = isAdminKey
-        ? [airport_code?.toUpperCase() || '', category, title, body || '', req.params.id]
-        : [airport_code?.toUpperCase() || '', category, title, body || '', req.params.id, pilot_key];
-    db.run(sql, params, function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(403).json({ error: 'Not authorized' });
-        res.json({ success: true });
+    const { category, title, body, airport_code, token } = req.body;
+    _resolveIntelAuthor(token, db, (status, msg, authorKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        const isAdmin = authorKey === 'admin';
+        const sql = isAdmin
+            ? `UPDATE crew_intel SET airport_code=?, category=?, title=?, body=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`
+            : `UPDATE crew_intel SET airport_code=?, category=?, title=?, body=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND added_by=?`;
+        const params = isAdmin
+            ? [airport_code?.toUpperCase() || '', category, title, body || '', req.params.id]
+            : [airport_code?.toUpperCase() || '', category, title, body || '', req.params.id, authorKey];
+        db.run(sql, params, function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(403).json({ error: 'Not authorized' });
+            res.json({ success: true });
+        });
     });
 });
 
 app.delete('/api/intel/:id', (req, res) => {
     const db = getDB();
-    const { pilot_key } = req.body;
-    const isAdminKey = pilot_key === 'admin';
-    const sql = isAdminKey ? `DELETE FROM crew_intel WHERE id=?` : `DELETE FROM crew_intel WHERE id=? AND added_by=?`;
-    const params = isAdminKey ? [req.params.id] : [req.params.id, pilot_key];
-    db.run(sql, params, function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(403).json({ error: 'Not authorized' });
-        res.json({ success: true });
+    const { token } = req.body;
+    _resolveIntelAuthor(token, db, (status, msg, authorKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        const isAdmin = authorKey === 'admin';
+        const sql = isAdmin ? `DELETE FROM crew_intel WHERE id=?` : `DELETE FROM crew_intel WHERE id=? AND added_by=?`;
+        const params = isAdmin ? [req.params.id] : [req.params.id, authorKey];
+        db.run(sql, params, function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(403).json({ error: 'Not authorized' });
+            res.json({ success: true });
+        });
     });
 });
 
@@ -2605,6 +2642,21 @@ app.get('/api/airports/cities', (req, res) => {
     codes.forEach(code => {
         const city = _airportCities[code] || _airportCities['K' + code] || null;
         if (city) result[code] = city;
+    });
+    res.json(result);
+});
+
+// Airport coordinate batch lookup — fills gaps when airports aren't in the client's airports.json.
+// Uses _aptCoords built from airports.dat (ICAO codes like KSFO, KSTL are included).
+app.get('/api/airports/coords', (req, res) => {
+    const codes = (req.query.codes || '').split(',').map(c => c.trim().toUpperCase()).filter(Boolean).slice(0, 100);
+    const result = {};
+    codes.forEach(code => {
+        // Try exact code, then K-prefix for 3-letter IATA, then last-3 only for non-K/C ICAO codes
+        const coords = _aptCoords[code]
+            || (code.length === 3 ? _aptCoords['K' + code] : null)
+            || (code.length === 4 && code[0] !== 'K' && code[0] !== 'C' ? _aptCoords[code.slice(1)] : null);
+        if (coords) result[code] = coords; // [lat, lon]
     });
     res.json(result);
 });

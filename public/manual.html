@@ -31,32 +31,55 @@
         .chip-teal { background: rgba(20,184,166,.15); color: #2dd4bf; }
         .chip-green { background: rgba(34,197,94,.15); color: #4ade80; }
         .chip-zinc { background: rgba(255,255,255,.08); color: #a1a1aa; }
+        .chip-purple { background: rgba(167,139,250,.15); color: #c4b5fd; }
         .section-divider { border: none; border-top: 1px solid #27272a; margin: 40px 0; }
         .kbd { display: inline-block; padding: 1px 6px; border-radius: 5px; background: #27272a; border: 1px solid #3f3f46; font-size: 11px; font-family: monospace; color: #d4d4d8; }
         #search-input:focus { outline: none; border-color: #3b82f6; }
         .search-highlight { background: rgba(59,130,246,.3); border-radius: 2px; }
         section[id] { scroll-margin-top: 80px; }
+        @media (max-width: 767px) { section[id] { scroll-margin-top: 116px; } }
     </style>
 </head>
 <body class="min-h-screen">
 
 <!-- Top bar -->
 <div class="sticky top-0 z-50 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur-md">
-    <div class="max-w-6xl mx-auto px-4 flex items-center gap-4 h-14">
-        <a href="/app" class="flex items-center gap-2.5 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0">
+    <div class="max-w-6xl mx-auto px-4 flex items-center gap-3 h-14 min-w-0">
+        <a href="/app" class="flex items-center gap-1.5 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
             <span class="text-[11px] font-black uppercase tracking-widest">App</span>
         </a>
         <div class="w-px h-5 bg-zinc-800 shrink-0"></div>
-        <span class="text-blue-500 font-black italic text-base tracking-tighter uppercase shrink-0">CrewSync</span>
-        <span class="text-zinc-600 text-sm shrink-0">Manual</span>
-        <div class="flex-1"></div>
-        <div class="relative shrink-0">
-            <input id="search-input" type="text" placeholder="Search…" oninput="doSearch(this.value)" class="w-44 md:w-56 px-3 py-1.5 pl-8 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 placeholder-zinc-600 transition-colors" style="outline:none">
-            <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <button id="search-clear" onclick="clearSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-sm leading-none">×</button>
+        <span class="text-blue-500 font-black italic text-sm md:text-base tracking-tighter uppercase shrink-0">CrewSync</span>
+        <span class="hidden sm:inline text-zinc-600 text-sm shrink-0">Manual</span>
+        <div class="flex-1 min-w-0 flex justify-end">
+            <div class="relative w-full max-w-[200px] md:max-w-xs">
+                <input id="search-input" type="text" placeholder="Search…" oninput="doSearch(this.value)" class="w-full px-3 py-1.5 pl-8 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 placeholder-zinc-600 transition-colors" style="outline:none">
+                <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <button id="search-clear" onclick="clearSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-sm leading-none">×</button>
+            </div>
         </div>
     </div>
+</div>
+
+<!-- Mobile section picker — outside the flex row so it doesn't compete for width -->
+<div class="md:hidden sticky top-14 z-40 w-full border-b border-zinc-800 bg-zinc-950/95 backdrop-blur-md px-4 py-2">
+    <select onchange="jumpTo(this.value)" class="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm font-bold text-zinc-200">
+        <option value="intro">What is CrewSync?</option>
+        <option value="getting-started">Getting Started</option>
+        <option value="calendar">Calendar Grid</option>
+        <option value="list">List View</option>
+        <option value="map">Route Map</option>
+        <option value="crossings">Location Overlap</option>
+        <option value="crew-intel">Crew Intel</option>
+        <option value="upload">Uploading Schedules</option>
+        <option value="manual-flight">Adding Flights Manually</option>
+        <option value="notifications">Notifications</option>
+        <option value="identity">Your Personal Link</option>
+        <option value="pwa">Installing the App</option>
+        <option value="formats">Schedule Formats</option>
+        <option value="faq">FAQ</option>
+    </select>
 </div>
 
 <div class="max-w-6xl mx-auto flex">
@@ -88,28 +111,8 @@
         <a class="nav-link" onclick="jumpTo('faq')">FAQ</a>
     </nav>
 
-    <!-- Mobile section picker -->
-    <div class="md:hidden sticky top-14 z-40 w-full border-b border-zinc-800 bg-zinc-950/95 backdrop-blur-md px-4 py-2">
-        <select onchange="jumpTo(this.value)" class="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-bold text-zinc-200">
-            <option value="intro">What is CrewSync?</option>
-            <option value="getting-started">Getting Started</option>
-            <option value="calendar">Calendar Grid</option>
-            <option value="list">List View</option>
-            <option value="map">Route Map</option>
-            <option value="crossings">Location Overlap</option>
-            <option value="crew-intel">Crew Intel</option>
-            <option value="upload">Uploading Schedules</option>
-            <option value="manual-flight">Adding Flights Manually</option>
-            <option value="notifications">Notifications</option>
-            <option value="identity">Your Personal Link</option>
-            <option value="pwa">Installing the App</option>
-            <option value="formats">Schedule Formats</option>
-            <option value="faq">FAQ</option>
-        </select>
-    </div>
-
     <!-- Main content -->
-    <main class="flex-1 min-w-0 px-6 md:px-12 py-10 max-w-3xl">
+    <main class="flex-1 min-w-0 px-5 md:px-12 py-8 md:py-10 w-full max-w-3xl">
         <div id="search-no-results" class="hidden py-12 text-center text-zinc-600 text-sm">No results found</div>
 
         <!-- INTRO -->
