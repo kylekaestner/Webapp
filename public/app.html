@@ -596,6 +596,10 @@
                             </div>
                         </div>
                         <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
+                        <div class="flex gap-1">
+                            <button onclick="map.zoomIn()" class="map-ctrl-pill px-2.5 font-black text-base leading-none">+</button>
+                            <button onclick="map.zoomOut()" class="map-ctrl-pill px-2.5 font-black text-base leading-none">−</button>
+                        </div>
                         <div id="day-nav" class="hidden items-center gap-1 relative">
                             <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
                             <span id="day-nav-label" onclick="openDayPicker()" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center cursor-pointer hover:text-white transition-colors select-none" title="Pick a date"></span>
@@ -1656,6 +1660,24 @@
                     }
                 }, { passive: true });
             });
+
+            // Horizontal swipe on overlap view → switch between Crossings and Off Days tabs
+            const overlapEl = document.getElementById('view-overlap');
+            if (overlapEl) {
+                let oxStart = 0, oyStart = 0;
+                overlapEl.addEventListener('touchstart', e => {
+                    oxStart = e.touches[0].clientX;
+                    oyStart = e.touches[0].clientY;
+                }, { passive: true });
+                overlapEl.addEventListener('touchend', e => {
+                    const dx = e.changedTouches[0].clientX - oxStart;
+                    const dy = e.changedTouches[0].clientY - oyStart;
+                    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.8) {
+                        haptic('tap');
+                        switchOverlapTab(dx < 0 ? 'offdays' : 'crossings');
+                    }
+                }, { passive: true });
+            }
         }
 
         // ── Swipe-to-dismiss for bottom sheets ──────────────────────────────
@@ -3942,7 +3964,7 @@
 
         function initMap() {
             if (map) return;
-            map = L.map('map', { zoomControl: false }).setView([39.8283, -98.5795], 4);
+            map = L.map('map', { zoomControl: false, doubleClickZoom: true }).setView([39.8283, -98.5795], 4);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
             map.on('zoomend', deoverlapLiveLabels);
             map.on('moveend', deoverlapLiveLabels);
@@ -8295,7 +8317,7 @@ let _blockUserEdited = false;
                 _savedZoom   = _intelMap.getZoom();
                 _intelMap.remove(); _intelMap = null;
             }
-            _intelMap = L.map('intel-map-el', { zoomControl: true, attributionControl: false, worldCopyJump: true });
+            _intelMap = L.map('intel-map-el', { zoomControl: true, attributionControl: false, worldCopyJump: true, doubleClickZoom: true });
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(_intelMap);
 
             // Legend
