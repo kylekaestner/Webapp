@@ -8452,7 +8452,7 @@ let _blockUserEdited = false;
                     <div class="px-4 pt-3.5 pb-3">
                         <span class="inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest mb-2.5" style="background:${bg};color:${color}">${catLabel}</span>
                         <div class="text-[15px] font-bold text-white leading-snug">${escapeHtml(e.title)}</div>
-                        ${hasBody ? `<p id="intel-bp-${e.id}" class="text-sm text-zinc-400 leading-relaxed mt-2${isLong ? ' line-clamp-3' : ''}">${escapeHtml(bodyText)}</p>
+                        ${hasBody ? `<p id="intel-bp-${e.id}" class="text-sm text-zinc-400 leading-relaxed mt-2${isLong ? ' line-clamp-3' : ''}">${escapeHtml(bodyText).replace(/\n/g, '<br>')}</p>
                         ${isLong ? `<button onclick="const p=document.getElementById('intel-bp-${e.id}');const cl=p.classList.toggle('line-clamp-3');this.textContent=cl?'Show more':'Show less'" class="text-[10px] font-bold text-zinc-500 hover:text-zinc-300 mt-1 transition-colors">Show more</button>` : ''}` : ''}
                     </div>
                     <div class="border-t border-zinc-800/50 px-4 py-2 flex items-center gap-2">
