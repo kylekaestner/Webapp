@@ -307,7 +307,7 @@
             <p>The default view lists every airport with intel as a card. Each card shows the airport code, city name, and a count of entries by category. Use the <strong>search bar</strong> at the top to filter by airport code or city name. Tap any card to open the detail view for that airport.</p>
 
             <h3>Detail view</h3>
-            <p>The detail view shows all entries for a single airport. Use the <strong>category pills</strong> at the top to filter — tap <em>All</em>, <em>Hotels</em>, <em>Food</em>, <em>Activities</em>, or <em>Tips</em>. Tap any entry to expand the full description.</p>
+            <p>The detail view shows all entries for a single airport. Use the <strong>category pills</strong> at the top to filter — tap <em>All</em>, <em>Hotels</em>, <em>Food</em>, <em>Activities</em>, or <em>Tips</em>. Tap any entry to expand the full description. The back button returns you to wherever you came from — the airport list or the intel map.</p>
 
             <h3>Intel Map</h3>
             <p>Switch to the <strong>Map</strong> tab to see all intel locations plotted as thumbtack pins on a world map. Pins are color-coded by category:</p>
@@ -360,7 +360,7 @@
             </ul>
 
             <div class="callout callout-zinc">
-                Uploading a new schedule doesn't delete old data. It adds or updates segments for the period covered by the new file. If a segment already exists with the same flight details, it's updated in place.
+                Re-uploading a file replaces all non-manual segments for the date range covered by that file. Flights you've added manually are never affected. Uploading one month won't change any other month's data.
             </div>
 
             <h3>Direct sync (corporate ops)</h3>
@@ -513,7 +513,7 @@
                         <tr>
                             <td class="py-2.5 pr-4"><span class="chip chip-purple">VCS (AIMS)</span></td>
                             <td class="py-2.5 pr-4 text-zinc-400">AIMS-based operations</td>
-                            <td class="py-2.5 text-zinc-400">Export roster from AIMS as .vcs</td>
+                            <td class="py-2.5 text-zinc-400">Export roster from AIMS as .vcs. Training pairings (IOE, TRN, and similar prefixes) are supported.</td>
                         </tr>
                     </tbody>
                 </table>

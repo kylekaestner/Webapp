@@ -539,6 +539,9 @@
             <button onclick="loadPilot('drew')" id="mpilot-drew" class="mpilot-btn flex-none px-4 py-2.5 rounded-full border border-zinc-700 text-sm font-black text-zinc-400 whitespace-nowrap">Drew</button>
         </div>
 
+        <!-- Mobile next flight strip (signed-in pilots only, hidden when no upcoming flight) -->
+        <div id="mobile-next-trip" class="md:hidden hidden shrink-0 border-b border-zinc-800/50 cursor-pointer select-none" onclick="_jumpToNextFlight()" style="-webkit-tap-highlight-color:transparent"></div>
+
         <main class="flex-1 overflow-hidden relative bg-black">
             <div id="view-grid" class="view-section view-active overflow-y-auto p-3">
                 <div class="w-full grid grid-cols-7 gap-2">
@@ -1038,7 +1041,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Common Off Days</p>
-                    <p>Collapsed section at the top showing upcoming days where 2+ selected crew are free. <strong class="text-zinc-300">Tap the header to expand.</strong> For Kyle, only confirmed Hard Day Offs count — on-call days are treated as potentially working. Days where all selected pilots are free show a <strong class="text-zinc-300">gold left border and ✦ ALL OFF badge</strong>. Use the <strong class="text-zinc-300">pilot chips</strong> inside the section to filter down to just the people you care about — tap any chip to toggle them on or off. Who appears is also controlled by your <strong class="text-zinc-300">Your Crew</strong> visibility setting — pilots you've hidden there won't show up here. If a pilot's schedule data hasn't been loaded yet, a <strong class="text-zinc-300">⚠ warning</strong> appears at the top of the list noting who's missing, so you know the results may be incomplete.</p>
+                    <p>Collapsed section at the top showing upcoming days where 2+ selected crew are free. <strong class="text-zinc-300">Tap the header to expand.</strong> Only confirmed Hard Day Offs count — on-call days are treated as potentially working. Days where all selected pilots are free show a <strong class="text-zinc-300">gold left border and ✦ ALL OFF badge</strong>. Use the <strong class="text-zinc-300">pilot chips</strong> inside the section to filter down to just the people you care about — tap any chip to toggle them on or off. Who appears is also controlled by your <strong class="text-zinc-300">Your Crew</strong> visibility setting — pilots you've hidden there won't show up here. If a pilot's schedule data hasn't been loaded yet, a <strong class="text-zinc-300">⚠ warning</strong> appears at the top of the list noting who's missing, so you know the results may be incomplete.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -1169,7 +1172,7 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Syncing Schedules</p>
-                    <p>Kyle syncs automatically via Schedaero. Drew syncs via RosterBuster ICS. Adam, Sam, and Logan upload a CSV from their airline app. Use the <strong class="text-zinc-300">Upload</strong> tab on mobile. Uploading a new month's schedule <strong class="text-zinc-300">never deletes existing data</strong> — flights are added or updated in place. If the same flight already exists it gets updated; everything else stays untouched, so uploading June won't wipe out May.</p>
+                    <p>Schedules can be synced automatically or uploaded manually from your scheduling app. Use the <strong class="text-zinc-300">Upload</strong> tab to import a new file. Re-uploading a file <strong class="text-zinc-300">replaces all non-manual data for the dates it covers</strong> — only that date range is affected, so uploading one month won't touch any other month. Manually added flights are never overwritten.</p>
                 </div>
             </div>
             <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
@@ -2390,31 +2393,65 @@
             window.location.href = '/';
         }
 
-        // Sidebar widget: shows signed-in pilot's next upcoming flight
+        // Sidebar + mobile strip widget: shows signed-in pilot's next upcoming flight
+        let _nextFlightDate = null; // UTC date of next flight — used by _jumpToNextFlight
         function _updateNextTripWidget(pilot, segs) {
-            const el = document.getElementById('sidebar-next-trip');
-            if (!el) return;
+            const el   = document.getElementById('sidebar-next-trip');
+            const mob  = document.getElementById('mobile-next-trip');
+            const hide = () => { el?.classList.add('hidden'); mob?.classList.add('hidden'); _nextFlightDate = null; };
             // Only show when the signed-in pilot is viewing their own schedule
-            if (!myPilot || pilot !== myPilot) { el.classList.add('hidden'); return; }
+            if (!myPilot || pilot !== myPilot) { hide(); return; }
             const now = new Date();
             const next = segs
                 .filter(s => s.type === 'flight' && s.departureTime && new Date(s.departureTime) > now)
                 .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
-            if (!next) { el.classList.add('hidden'); return; }
-            const dep  = new Date(next.departureTime);
+            if (!next) { hide(); return; }
+            _nextFlightDate = new Date(next.departureTime);
+            const dep  = _nextFlightDate;
             const isToday    = dep.toDateString() === now.toDateString();
             const isTomorrow = dep.toDateString() === new Date(now.getTime() + 86400000).toDateString();
             const dayLabel   = isToday ? 'Today' : isTomorrow ? 'Tomorrow'
                 : dep.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
             const color = PILOT_COLORS[myPilot] || '#6366f1';
-            el.classList.remove('hidden');
-            el.innerHTML = `<div class="rounded-xl px-3 py-2.5" style="background:${color}12;border:1px solid ${color}28">
-                <div class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:${color}99">Your Next Flight</div>
-                <div class="flex items-baseline gap-1.5">
-                    <span class="text-sm font-black text-white">${next.departureAirport} → ${next.arrivalAirport}</span>
-                </div>
-                <div class="text-[10px] mt-0.5" style="color:${color}cc">${dayLabel}</div>
-            </div>`;
+            // Desktop sidebar
+            if (el) {
+                el.classList.remove('hidden');
+                el.innerHTML = `<div class="rounded-xl px-3 py-2.5" style="background:${color}12;border:1px solid ${color}28">
+                    <div class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:${color}99">Your Next Flight</div>
+                    <div class="flex items-baseline gap-1.5">
+                        <span class="text-sm font-black text-white">${next.departureAirport} → ${next.arrivalAirport}</span>
+                    </div>
+                    <div class="text-[10px] mt-0.5" style="color:${color}cc">${dayLabel}</div>
+                </div>`;
+            }
+            // Mobile strip
+            if (mob) {
+                const timeStr = next.departureTime
+                    ? formatTimeISO(next.departureTime, next.departureAirport) : '';
+                const tzStr = next.departureAirport && next.departureTime
+                    ? tzAbbr(next.departureAirport, next.departureTime) : '';
+                mob.classList.remove('hidden');
+                mob.style.background = `${color}0d`;
+                mob.innerHTML = `<div class="flex items-center gap-2 px-4 py-2" style="border-left:3px solid ${color}50">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="color:${color};opacity:0.7;flex-shrink:0"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
+                    <span class="text-xs font-black text-white">${next.departureAirport} → ${next.arrivalAirport}</span>
+                    <span style="color:${color};opacity:0.8" class="text-[10px] font-bold">${dayLabel}</span>
+                    ${timeStr ? `<span class="text-[10px] text-zinc-500">${timeStr}${tzStr ? ' ' + tzStr : ''}</span>` : ''}
+                    <span class="ml-auto text-[9px] font-black uppercase tracking-widest text-zinc-600">Next Flight</span>
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-zinc-700 shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>`;
+            }
+        }
+
+        function _jumpToNextFlight() {
+            if (!_nextFlightDate || !myPilot) return;
+            const y = _nextFlightDate.getFullYear();
+            const m = _nextFlightDate.getMonth();
+            // Navigate to that pilot + month in grid view
+            if (currentPilot !== myPilot) loadPilot(myPilot);
+            currentYear = y; currentMonth = m;
+            switchView('grid');
+            render();
         }
 
         // canEdit: gates all add/edit/delete/upload UI.
