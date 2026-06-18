@@ -2,22 +2,6 @@
 
 A private pilot scheduling and crew coordination web app. Tracks flight schedules for a group of pilots, shows live ADS-B positions, calculates location overlaps, and works as an installable mobile webapp.
 
-**Production:** `http://167.71.107.245:3000`  
-**Pilot bookmarks:** see `PILOT_LINKS.md`
-
----
-
-## Crew
-
-| Key | Name | Airline | Parser | Base | Home |
-|-----|------|---------|--------|------|------|
-| kyle | Kyle Kaestner | Corporate/135 | ICS (Schedaero) | KSUS | SUS |
-| adam | Adam Burke | Republic Airways | CSV | LGA | TUL |
-| sam | Sam Byrne | Republic Airways | CSV | LGA | STL |
-| logan | Logan Hine | SkyWest | CSV or VCS (SkyWest/SkedPlus+) | SFO | PHX |
-| drew | Drew Sinelli | GoJet | ICS (RosterBuster) | STL | STL |
-| brett | Brett Jones | Sun Country | ICS (AIMS eCrew) | CVG | CVG |
-
 ---
 
 ## Project Structure
@@ -31,7 +15,6 @@ A private pilot scheduling and crew coordination web app. Tracks flight schedule
 │   ├── app.html       # Main app (calendar, map, list, overlap)
 │   ├── join.html      # New pilot onboarding form
 │   └── index.html     # Landing page
-├── PILOT_LINKS.md     # Personalized bookmarks for each pilot
 └── README.md
 ```
 
@@ -61,19 +44,19 @@ Server starts on port 3000. Database auto-initializes on first run.
 - **Location Overlap** — shows when any two pilots are in the same city/airport
 
 ### Schedule Sync & Upload
-- **Auto-sync** — all ICS-based schedules (eCrew, RosterBuster, Sun Country) sync automatically at 06:00, 14:00, and 22:00 UTC. Kyle's Schedaero syncs on the same schedule.
-- **Manual sync** — one-tap sync button available for all ICS/Schedaero pilots in addition to auto-sync
-- **Upload** — CSV/VCS upload for SkyWest (Logan) and CSV for Republic (Adam/Sam)
+- **Auto-sync** — ICS-based schedules sync automatically at 06:00, 14:00, and 22:00 UTC
+- **Manual sync** — one-tap sync button available for all ICS pilots in addition to auto-sync
+- **Upload** — CSV and VCS file upload supported for applicable pilots
 
 ### Reserve Periods
 On-call reserve shifts (RESR, RESP, RESA) are parsed and displayed:
 - Amber color coding on calendar and list
 - Shows type label (Red-Eye / PM / AM Reserve), times, and duration
-- Location set to pilot's **base** airport (pilots commute to base for reserve)
+- Location set to pilot's **base** airport
 - Counted as working days for common-off-days calculation
 
 ### Ground Transfers
-Sun Country (Brett) trips sometimes include van/bus legs between nearby airports (e.g. TPA ↔ LAL). These are stored as `type: ground` segments:
+Some trips include van/bus legs between nearby airports. These are stored as `type: ground` segments:
 - Appear as small subdued rows in the list view and day detail sheet
 - Used by the map to correctly place the pilot's "here now" location
 - Not drawn as flight arcs on the map
@@ -95,36 +78,36 @@ Add flights manually for any pilot in four categories:
 - Installable as a home screen webapp (iOS Safari)
 - Pilot identity resolved from personalized link
 - Bottom nav bar: Calendar, List, Map, Overlap, Upload/Sync
-- One-tap sync for ICS/Schedaero pilots; upload for CSV/VCS pilots
-- Crew visibility defaults to self-only on first launch, with a nudge banner to add others
+- One-tap sync for ICS pilots; upload for CSV/VCS pilots
 
 ---
 
 ## Schedule Parsers
 
-### Kyle — ICS (Schedaero)
+### ICS (Schedaero)
 `.ics` export from Schedaero. Parses `VEVENT` blocks with `SUMMARY` containing airport pairs and `DESCRIPTION` with tail/trip info.
 
-### Adam & Sam — CSV (Republic/standard)
+### CSV (Republic/standard)
 Required columns: `DATE, DEP, ARR, DEPTIME, ARRTIME`  
 Optional: `TAIL, DH, FCVTAIL, EQP, FLIGHT, BLOCK, CREW`
 
 Times are local to the departure airport. Block time pulled from `BLOCK` column.
 
-### Logan — CSV (SkyWest variant) or VCS (SkedPlus+)
-**CSV:** Flexible header matching — accepts `FLIGHTDATE|DATE`, `DEPARTURE|DEP|ORIG`, `DESTINATION|ARR|DEST`, `DEP_TIME|DEPTIME`, `ARR_TIME|ARRTIME`, `AIRCRAFT|TAIL`, `DH|DUTY`.
+### CSV (SkyWest variant)
+Flexible header matching — accepts `FLIGHTDATE|DATE`, `DEPARTURE|DEP|ORIG`, `DESTINATION|ARR|DEST`, `DEP_TIME|DEPTIME`, `ARR_TIME|ARRTIME`, `AIRCRAFT|TAIL`, `DH|DUTY`.
 
-**VCS:** SkyWest SkedPlus+ `.vcs` export. Quoted-printable encoded. Parses day headers and flight leg lines from `DESCRIPTION`. Reserve types (RE2) mapped to `type: reserve`. Both formats are accepted interchangeably.
+### VCS (SkedPlus+)
+SkyWest SkedPlus+ `.vcs` export. Quoted-printable encoded. Parses day headers and flight leg lines from `DESCRIPTION`. Reserve types (RE2) mapped to `type: reserve`. Training pairings (IOE, TRN, and similar prefixes) are supported.
 
-### Drew — ICS (RosterBuster)
+### ICS (RosterBuster)
 ICS subscription URL stored on server, fetched on each sync.
 
-### Brett — ICS (AIMS eCrew / Sun Country)
-ICS subscription URL from iCloud calendar publish. Each `VEVENT` is a duty period; individual legs are parsed from the `DESCRIPTION` field.
+### ICS (AIMS eCrew)
+ICS subscription URL from calendar publish. Each `VEVENT` is a duty period; individual legs are parsed from the `DESCRIPTION` field.
 
 - **Reserves** (RESR/RESP/RESA): `type: reserve`, airports from `LOCATION` field
-- **Operating flights** (numeric codes → `SY####`): `type: flight`, `dh: false`
-- **Deadhead flights** (DL, UA, AA, etc.): `type: flight`, `dh: true`
+- **Operating flights** (numeric codes): `type: flight`, `dh: false`
+- **Deadhead flights**: `type: flight`, `dh: true`
 - **Own-ticket deadhead** (OWN####): `type: flight`, `dh: true`, no flight number stored
 - **Ground transport** (GRND####): `type: ground`, stored for map location tracking only
 - **RAP / same-airport legs**: skipped
@@ -146,9 +129,8 @@ POST /api/pilots/:key/add-segment             Add manual flight
 PUT  /api/pilots/:key/segments/:id            Edit manual flight
 DEL  /api/pilots/:key/segments/:id            Delete manual flight
 DEL  /api/pilots/:key/segments                Clear all segments
-
-POST /api/pilots/kyle/sync-schedaero          Sync one month
-POST /api/pilots/kyle/quick-sync-schedaero    Sync using saved credentials
+POST /api/pilots/:key/sync-schedaero          Sync one month (Schedaero pilots)
+POST /api/pilots/:key/quick-sync-schedaero    Sync using saved credentials
 
 GET  /api/live/:hex                           ADS-B position for aircraft hex code
 
@@ -165,11 +147,11 @@ GET  /api/health                              Health check
 | Column | Type | Notes |
 |--------|------|-------|
 | id | INTEGER PK | |
-| pilot_key | TEXT UNIQUE | kyle, adam, sam, logan, drew, brett |
+| pilot_key | TEXT UNIQUE | Short identifier for each pilot |
 | name | TEXT | |
 | base | TEXT | Crew base (airline city) |
 | home_airport | TEXT | Where the pilot lives |
-| role | TEXT | e.g. Captain, FO, airline name |
+| role | TEXT | e.g. Captain, FO |
 | parser_type | TEXT | csv, csv_skywest, vcs_skywest, ics, ics_rosterbuster, ics_scx, schedaero, other |
 | airline_code | TEXT | IATA/ICAO airline code |
 | token | TEXT | URL token for personalized bookmark |
@@ -187,17 +169,13 @@ GET  /api/health                              Health check
 | arrival_airport | TEXT | IATA code |
 | tail | TEXT | Aircraft tail number |
 | trip | TEXT | Trip/pairing number |
-| flight_number | TEXT | e.g. SY3030, DL2199 |
+| flight_number | TEXT | |
 | is_dh | BOOLEAN | Deadhead flag |
 | is_manual | BOOLEAN | Manually added |
 | block_minutes | INTEGER | |
 
 ### settings
-Generic key/value store. Current keys:
-- `schedaero-creds` — Kyle's Schedaero URL, token, cookie, month range
-- `drew_ics_url` — Drew's RosterBuster ICS URL
-- `brett_ics_url` — Brett's AIMS eCrew iCloud ICS URL
-- `{key}_ics_url` — Generic pattern for any ICS-synced pilot
+Generic key/value store for server-side configuration (sync URLs, credentials, app settings).
 
 ---
 
@@ -207,13 +185,11 @@ Generic key/value store. Current keys:
 
 **Session expired for Schedaero** — Quick sync will detect this and open the modal in cookie-only mode. Paste a fresh cookie from DevTools → Network → any Schedaero request → Request Headers → Cookie.
 
-**Sync button shows "Upload Schedule"** — The pilot's `parser_type` may not be resolved correctly. The server resolves `parser_type` at the `/api/pilots/:key` endpoint; check that the pilot has a correct entry in `pilotParsers` (server.js) or in the DB.
+**Sync button shows "Upload Schedule"** — The pilot's `parser_type` may not be resolved correctly. Check that the pilot has a correct entry in `pilotParsers` (server.js) or in the DB.
 
 **Reserve shows wrong location on map** — Reserve airport is set from `pilots.base`. Confirm the pilot's base is correct in the DB.
 
 **Database locked** — Only one server instance should be running.
-
-**Links not loading on mobile** — Confirm the device is reaching the production server at `167.71.107.245:3000`. Local network links (`192.168.1.x`) only work on the same WiFi.
 
 **Database reset**
 ```bash
