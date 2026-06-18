@@ -1655,6 +1655,34 @@
             });
         }
 
+        // ── Swipe-to-dismiss for bottom sheets ──────────────────────────────
+        function setupSheetSwipe(panelEl, dismissFn) {
+            let startY = 0, dragging = false;
+            panelEl.addEventListener('touchstart', e => {
+                startY = e.touches[0].clientY;
+                dragging = true;
+                panelEl.style.transition = 'none';
+            }, { passive: true });
+            panelEl.addEventListener('touchmove', e => {
+                if (!dragging) return;
+                const dy = e.touches[0].clientY - startY;
+                if (dy > 0) panelEl.style.transform = `translateY(${dy}px)`;
+            }, { passive: true });
+            panelEl.addEventListener('touchend', e => {
+                if (!dragging) return;
+                dragging = false;
+                const dy = e.changedTouches[0].clientY - startY;
+                panelEl.style.transition = 'transform 0.25s ease';
+                if (dy > 80) {
+                    panelEl.style.transform = `translateY(100%)`;
+                    setTimeout(() => { panelEl.style.transform = ''; panelEl.style.transition = ''; dismissFn(); }, 220);
+                } else {
+                    panelEl.style.transform = '';
+                    setTimeout(() => { panelEl.style.transition = ''; }, 250);
+                }
+            }, { passive: true });
+        }
+
         // Preload sample ICS (your attached schedule) so Kyle's trips show immediately
         const SAMPLE_ICS = `BEGIN:VCALENDAR
     VERSION:2.0
@@ -2204,7 +2232,8 @@
             const linkDisplay = document.getElementById('profile-link-display');
             const linkSection = document.getElementById('profile-link-section');
             if (myPilot || myViewer) {
-                if (linkDisplay) linkDisplay.textContent = location.href;
+                const _myLink = myToken ? `${location.origin}/app?u=${encodeURIComponent(myToken)}` : location.href;
+                if (linkDisplay) linkDisplay.textContent = _myLink;
                 if (linkSection) linkSection.classList.remove('hidden');
             } else {
                 if (linkSection) linkSection.classList.add('hidden');
@@ -2294,11 +2323,16 @@
             });
         }
 
+        let _profileSwipeSetup = false;
         function openProfile() {
             haptic('tap');
             _applyIdentityUI();
             _refreshNotifProfileRow();
             document.getElementById('profile-sheet').classList.remove('hidden');
+            if (!_profileSwipeSetup) {
+                const panel = document.querySelector('#profile-sheet > div:not(.absolute)');
+                if (panel) { setupSheetSwipe(panel, closeProfile); _profileSwipeSetup = true; }
+            }
         }
 
         function _refreshNotifProfileRow() {
@@ -2455,7 +2489,8 @@
 
         async function copyMyLink() {
             if (!myPilot && !myViewer) return;
-            const ok = await copyText(location.href);
+            const link = myToken ? `${location.origin}/app?u=${encodeURIComponent(myToken)}` : location.href;
+            const ok = await copyText(link);
             haptic('success');
             showToast(ok ? 'Link copied!' : 'Copy failed — select the text manually', ok ? 'success' : 'error', 2000);
         }
