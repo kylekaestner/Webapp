@@ -2327,6 +2327,10 @@
         }
 
         let _profileSwipeSetup = false;
+        let _dayDetailSwipeSetup = false;
+        let _uploadSheetSwipeSetup = false;
+        let _adminPanelSwipeSetup = false;
+        let _editUserSwipeSetup = false;
         function openProfile() {
             haptic('tap');
             _applyIdentityUI();
@@ -2508,6 +2512,10 @@
             }
             updateUploadSyncButtons(p);
             document.getElementById('mobile-upload-sheet').classList.remove('hidden');
+            if (!_uploadSheetSwipeSetup) {
+                const panel = document.querySelector('#mobile-upload-sheet > div:not(.absolute)');
+                if (panel) { setupSheetSwipe(panel, () => document.getElementById('mobile-upload-sheet').classList.add('hidden')); _uploadSheetSwipeSetup = true; }
+            }
         }
 
         async function copyText(text) {
@@ -6566,6 +6574,10 @@
 
             document.getElementById('day-detail-content').innerHTML = html;
             document.getElementById('day-detail-sheet').classList.remove('hidden');
+            if (!_dayDetailSwipeSetup) {
+                const panel = document.querySelector('#day-detail-sheet > div:not(.absolute)');
+                if (panel) { setupSheetSwipe(panel, () => document.getElementById('day-detail-sheet').classList.add('hidden')); _dayDetailSwipeSetup = true; }
+            }
         }
 
         // ── Add Flight ──────────────────────────────────────────────────
@@ -7257,6 +7269,10 @@ let _blockUserEdited = false;
             document.getElementById('admin-add-user-btn').classList.toggle('hidden', !isUsers);
             if (isUsers) await loadAdminUsers();
             else await loadAdminDashboard();
+            if (!_adminPanelSwipeSetup) {
+                const panel = document.querySelector('#admin-panel > div:not(.absolute)');
+                if (panel) { setupSheetSwipe(panel, closeAdminPanel); _adminPanelSwipeSetup = true; }
+            }
         }
 
         function closeAdminPanel() {
@@ -7598,6 +7614,10 @@ let _blockUserEdited = false;
                 document.getElementById('edit-user-ics-row').classList.add('hidden');
             }
             document.getElementById('edit-user-modal').classList.remove('hidden');
+            if (!_editUserSwipeSetup) {
+                const panel = document.querySelector('#edit-user-modal > div:not(.absolute)');
+                if (panel) { setupSheetSwipe(panel, closeEditUserModal); _editUserSwipeSetup = true; }
+            }
         }
 
         function closeEditUserModal() {
