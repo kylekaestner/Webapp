@@ -1673,6 +1673,8 @@ function loadTrailCache() {
         for (const [hex, entry] of Object.entries(data)) {
             if (entry.ts > cutoff && Array.isArray(entry.coords) && entry.coords.length >= 2) {
                 _posTrail[hex] = entry.coords;
+                // Trail coords prove this aircraft was airborne — parked detection can fire immediately on next ground reading
+                _flightState[hex] = { hasBeenAirborne: true, groundStillCount: 0 };
                 // Don't mark as seeded — let the adsb.lol fetch run and prepend denser historical points
             }
         }
