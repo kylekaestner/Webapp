@@ -6068,12 +6068,12 @@
                         bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = awayApt ? `HARD OFF · AWAY - ${awayApt}` : "HARD OFF";
                     } else if (reserves.length > 0 && workFlights.length === 0 && !awayApt) {
                         bgColor = "bg-amber-950/30 border-amber-500/30"; labelColor = "text-amber-400"; sidebarColor = "text-amber-400"; sidebarBorder = "border-amber-700/40"; label = "ON CALL";
-                    } else if (away) {
-                        bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${away.arrivalAirport}`;
                     } else if (_listAnyLive) {
                         bgColor = "bg-emerald-950/40 border-emerald-600/60"; labelColor = "text-emerald-300"; sidebarColor = "text-emerald-300"; sidebarBorder = "border-emerald-700/60"; label = "▶ IN THE AIR";
                     } else if (workFlights.length > 0) {
                         bgColor = "bg-blue-900/40 border-blue-500/60"; labelColor = "text-blue-300"; sidebarColor = "text-blue-200"; sidebarBorder = "border-blue-700/60"; label = "FLYING";
+                    } else if (away) {
+                        bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${away.arrivalAirport}`;
                     } else if (awayApt) {
                         bgColor = "bg-yellow-900/20 border-yellow-600/40"; labelColor = "text-yellow-400"; sidebarColor = "text-yellow-400"; sidebarBorder = "border-yellow-700/40"; label = `AWAY - ${awayApt}`;
                     } else {
