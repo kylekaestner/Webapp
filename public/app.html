@@ -2878,10 +2878,16 @@
 
                     arrDate.setHours(0, 0, 0, 0);
                     depDate.setHours(0, 0, 0, 0);
-                    const day = new Date(arrDate);
-                    day.setDate(day.getDate() + 1);
 
-                    while (day < depDate) {
+                    // Skip same-day turns — only generate events when the pilot crosses a
+                    // midnight boundary (i.e. arrival day != departure day).
+                    if (depDate <= arrDate) continue;
+
+                    // Start on the arrival day (inclusive) and run through the departure
+                    // day (inclusive). This fixes one-night layovers where the old
+                    // arrDate+1 start caused zero events to be generated.
+                    const day = new Date(arrDate);
+                    while (day <= depDate) {
                         const y = day.getFullYear(), m = String(day.getMonth() + 1).padStart(2, '0'), d = String(day.getDate()).padStart(2, '0');
                         awayEvents.push({ type: 'away', departureTime: `${y}-${m}-${d}T00:00:00`, arrivalAirport: current.arrivalAirport });
                         day.setDate(day.getDate() + 1);
@@ -5415,7 +5421,18 @@
                         const end   = s.arrivalTime ? flightUTCTime(s.arrivalTime, s.arrivalAirport || s.departureAirport) : null;
                         return start && start <= now2 && (!end || now2 <= end);
                     });
-                    if (activeReserve) { pushPin(activeReserve.departureAirport, 'Reserve'); return; }
+                    if (activeReserve) {
+                        // Suppress if the reserve was activated as a trip — work flights exist within 24 h either side
+                        const ms24 = 24 * 60 * 60 * 1000;
+                        const hasActivatedTrip = pilotFlights.some(f => {
+                            if (f.trip === 'PERSONAL') return false;
+                            const dep = flightUTCTime(f.departureTime, f.departureAirport);
+                            const arr = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport) : null;
+                            return (dep && Math.abs(dep - now2) < ms24) ||
+                                   (arr && arr <= now2 && (now2 - arr) < ms24);
+                        });
+                        if (!hasActivatedTrip) { pushPin(activeReserve.departureAirport, 'Reserve'); return; }
+                    }
 
                     // ── 3. Reserve ended recently — overnight if more work at same airport ──
                     // Use a 36h window instead of date comparison to avoid UTC-vs-local timezone skew.
@@ -5428,7 +5445,7 @@
                     if (todayEndedReserve) {
                         const apt = todayEndedReserve.departureAirport.toUpperCase();
                         const moreWork = segs.some(s => {
-                            if (s.type !== 'flight' && s.type !== 'reserve') return false;
+                            if (s.type !== 'flight') return false;
                             if (s.departureAirport?.toUpperCase() !== apt) return false;
                             const dep = flightUTCTime(s.departureTime, s.departureAirport);
                             return dep && dep > now2;
@@ -5489,6 +5506,16 @@
                         !atBase || (nextDepUTC - now2) < 12 * 60 * 60 * 1000
                     );
                     if (midTrip) { pushPin(lastArrival, 'Overnight'); return; }
+
+                    // ── 5b. Trip not yet started — first work flight departs soon from known airport ──
+                    if (!lastArrival) {
+                        const nextWorkFlight = pilotFlights.find(f => {
+                            if (f.trip === 'PERSONAL') return false;
+                            const dep = flightUTCTime(f.departureTime, f.departureAirport);
+                            return dep && dep > now2 && (dep - now2) < 24 * 60 * 60 * 1000;
+                        });
+                        if (nextWorkFlight) { pushPin(nextWorkFlight.departureAirport, 'Overnight'); return; }
+                    }
 
                     // ── 6. Commute prediction ──
                     // Commuting only applies to pilots whose home ≠ base (e.g. Adam: base=LGA, home=TUL).
