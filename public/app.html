@@ -2858,7 +2858,7 @@
         function inferAwayLayovers(segList, base) {
             const sorted = sortSegmentsByTime(segList);
             const awayEvents = [];
-            const flights = sorted.filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime);
+            const flights = sorted.filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime && s.trip !== 'PERSONAL');
             
             for (let i = 0; i < flights.length - 1; i++) {
                 const current = flights[i];
