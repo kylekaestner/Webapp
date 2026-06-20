@@ -3133,6 +3133,7 @@
                         return;
                     }
                     if (s.type !== 'flight' && s.type !== 'reserve' && s.type !== 'ground') return;
+                    if (s.type === 'flight' && s.trip === 'PERSONAL') return;
                     if (s.type === 'reserve' && s.departure_time && s.arrival_time) {
                         // Mark every day in the reserve window using local airport dates
                         const rdStr = flightLocalDate(s.departure_time, s.departure_airport) || s.departure_time.slice(0, 10);
