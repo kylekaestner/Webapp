@@ -5665,7 +5665,7 @@
             const c = code.toUpperCase().trim();
             if (_tzCache[c]) return _tzCache[c];
             // Derive from coordinates if tz-lookup is available
-            const coords = AIRPORTS[c] || AIRPORT_DB.byIcao[c] || AIRPORT_DB.byIata[c];
+            const coords = AIRPORTS[c] || (typeof AIRPORT_DB !== 'undefined' && (AIRPORT_DB.byIcao[c] || AIRPORT_DB.byIata[c]));
             if (coords && typeof tzlookup === 'function') {
                 try {
                     const tz = tzlookup(coords[0], coords[1]);
