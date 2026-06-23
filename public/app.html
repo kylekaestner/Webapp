@@ -7346,6 +7346,9 @@ let _blockUserEdited = false;
         // ── Schedule upload reminder ─────────────────────────────────────
         function checkScheduleUploadReminder(pilot) {
             if (!myPilot || pilot !== myPilot || isDemo) return;
+            // Only remind pilots who manually upload files (Schedaero and ICS pilots auto-sync)
+            const parser = pilotsCache[pilot]?.parser_type || '';
+            if (parser === 'schedaero' || parser === 'ics_rosterbuster' || parser.startsWith('ics')) return;
 
             const now = new Date();
             const day = now.getDate();
@@ -7355,7 +7358,7 @@ let _blockUserEdited = false;
 
             // Determine which month we're checking for
             let targetMonth, targetYear, isUrgent;
-            if (day >= 22) {
+            if (day >= 23) {
                 targetMonth = (month + 1) % 12;
                 targetYear  = month === 11 ? year + 1 : year;
                 isUrgent    = day >= 28;
@@ -7390,7 +7393,7 @@ let _blockUserEdited = false;
 
             if (hasData) return;
 
-            // Days 22–27: show once per login cycle (localStorage key per pilot/month)
+            // Days 23–27: show once per login cycle (localStorage key per pilot/month)
             if (!isUrgent) {
                 const seenKey = `upload_reminder_${pilot}_${year}_${month}`;
                 if (localStorage.getItem(seenKey)) return;
