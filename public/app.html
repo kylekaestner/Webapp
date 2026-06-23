@@ -342,6 +342,20 @@
 </head>
 <body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;">
 <div id="toast-container"></div>
+<div id="upload-reminder" class="hidden fixed bottom-20 md:bottom-4 inset-x-0 z-[9000] px-3">
+    <div class="max-w-lg mx-auto bg-zinc-900 border border-amber-500/40 rounded-2xl p-4 shadow-2xl flex gap-3 items-start">
+        <div class="text-xl shrink-0 mt-0.5">📅</div>
+        <div class="flex-1 min-w-0">
+            <div class="text-xs font-black text-amber-300 uppercase tracking-widest mb-1">Schedule Reminder</div>
+            <div id="upload-reminder-msg" class="text-xs text-zinc-400 leading-relaxed"></div>
+            <div class="flex gap-2 mt-3">
+                <button onclick="uploadReminderUpload()" class="text-xs font-black px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40">Upload Now</button>
+                <button onclick="dismissUploadReminder()" class="text-xs font-bold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 border border-zinc-700">Dismiss</button>
+            </div>
+        </div>
+        <button onclick="dismissUploadReminder()" class="shrink-0 text-zinc-500 hover:text-zinc-300 text-sm mt-0.5">✕</button>
+    </div>
+</div>
 <div id="splash-screen">
     <div class="splash-plane">✈️</div>
     <div class="splash-title">CrewSync</div>
@@ -3011,6 +3025,7 @@
                     const isOwn = myPilot && myPilot === pilot && !isDemo;
                     emptyBanner.classList.toggle('hidden', !(isOwn && segmentData.length === 0));
                 }
+                checkScheduleUploadReminder(pilot);
                 dismissSplash();
             });
         }
@@ -7327,6 +7342,81 @@ let _blockUserEdited = false;
             if (splash) splash.textContent = label;
             if (sidebar) sidebar.textContent = label;
         }).catch(() => {});
+
+        // ── Schedule upload reminder ─────────────────────────────────────
+        function checkScheduleUploadReminder(pilot) {
+            if (!myPilot || pilot !== myPilot || isDemo) return;
+
+            const now = new Date();
+            const day = now.getDate();
+            const month = now.getMonth(); // 0-indexed
+            const year  = now.getFullYear();
+            const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+            // Determine which month we're checking for
+            let targetMonth, targetYear, isUrgent;
+            if (day >= 22) {
+                targetMonth = (month + 1) % 12;
+                targetYear  = month === 11 ? year + 1 : year;
+                isUrgent    = day >= 28;
+            } else {
+                // Already in new month — check if THIS month has fresh data
+                targetMonth = month;
+                targetYear  = year;
+                isUrgent    = true;
+            }
+
+            const targetStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}`;
+            const prevMonth = targetMonth === 0 ? 11 : targetMonth - 1;
+            const prevYear  = targetMonth === 0 ? targetYear - 1 : targetYear;
+            const prevStr   = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}`;
+
+            const workFlights = (pilotsCache[pilot]?.segments || [])
+                .filter(s => s.type === 'flight' && s.trip !== 'PERSONAL');
+
+            // Trips whose first leg departed in the previous month — these are carry-overs
+            const carryOverTrips = new Set(
+                workFlights
+                    .filter(s => s.trip && (s.departureTime || '').startsWith(prevStr))
+                    .map(s => s.trip)
+            );
+
+            // "Real" target-month data: a work flight departing in the target month
+            // that does NOT belong to a carry-over trip from the previous month
+            const hasData = workFlights.some(s =>
+                (s.departureTime || '').startsWith(targetStr) &&
+                (!s.trip || !carryOverTrips.has(s.trip))
+            );
+
+            if (hasData) return;
+
+            // Days 22–27: show once per login cycle (localStorage key per pilot/month)
+            if (!isUrgent) {
+                const seenKey = `upload_reminder_${pilot}_${year}_${month}`;
+                if (localStorage.getItem(seenKey)) return;
+                localStorage.setItem(seenKey, '1');
+            }
+
+            const monthLabel = MONTHS[targetMonth] + (targetYear !== year ? ` ${targetYear}` : '');
+            const isCurrent  = targetMonth === month && targetYear === year;
+            const msg = isCurrent
+                ? `No flights found for ${monthLabel}. Upload or sync your schedule to stay current.`
+                : `No ${monthLabel} flights yet. If bid results are out, add your schedule when you're ready.`;
+
+            const el = document.getElementById('upload-reminder');
+            if (!el) return;
+            document.getElementById('upload-reminder-msg').textContent = msg;
+            el.classList.remove('hidden');
+        }
+
+        function dismissUploadReminder() {
+            document.getElementById('upload-reminder')?.classList.add('hidden');
+        }
+
+        function uploadReminderUpload() {
+            dismissUploadReminder();
+            openUploadSheet();
+        }
 
         // ── Splash screen ───────────────────────────────────────────────
         function dismissSplash() {
