@@ -2152,6 +2152,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#09090b;color:#e4
 </head><body>
 <div class="wrap">
   <div class="header">
+    <img src="/icon.svg" width="36" height="36" style="border-radius:9px;flex-shrink:0" alt="">
     <div><div class="logo">CrewSync</div><div class="header-sub">Crew Roster</div></div>
   </div>
   <div class="cards">${cards}</div>
