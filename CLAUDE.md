@@ -98,6 +98,24 @@ myViewer  // key of view-only user, or null
 | `buildGroundPeriods()` | 3446 | Inside computeOverlap; emits ground windows per pilot |
 | `computeOffDays()` | 3330 | Off Days pipeline |
 | `renderCommonOffSection()` | 3152 | Renders off day rows + filter chips |
+| `showDayDetail()` | 6557 | Opens day detail bottom sheet for a date key |
+| `handleUpload()` | 6523 | File upload handler → `uploadPilotSchedule()` |
+| `submitAddFlight()` | 7024 | Saves manual flight from add-flight modal |
+| `startLiveTracking()` | 4946 | ADS-B poll loop for one callsign; 8s interval |
+| `startCalListLivePolling()` | 4848 | Polls ADS-B for `[data-live-callsign]` elements in cal/list |
+| `setupMobileGestures()` | 1636 | Registers swipe + pull-to-refresh handlers |
+| `renderIntel()` | 8452 | Crew Intel dispatcher → airports / map / detail sub-renders |
+| `renderIntelMap()` | 8524 | Leaflet thumbtack-pin map for intel entries |
+| `renderIntelAirports()` | 8633 | Airport card list for Crew Intel |
+| `renderIntelDetail()` | 8686 | Per-airport intel tip cards |
+| `saveIntelTip()` | 8828 | POST/PUT intel entry to `/api/intel` |
+| `openAdminPanel()` | 7508 | Admin users panel + dashboard tab |
+| `saveUser()` | 7872 | Admin add/edit user → POST/PUT `/api/pilots` |
+| `initServiceWorker()` | 7960 | Registers `/sw.js`; listens for `OPEN_OVERLAP` message |
+| `initPushNotifications()` | 7970 | Decides whether to subscribe or show prompt |
+| `subscribeToPush()` | 7994 | Gets VAPID key, creates push subscription, POSTs to server |
+| `updateCrossingAlert()` | 8132 | Updates badge count + crossing modal from computed overlaps |
+| `loadNotifications()` | 8022 | Fetches `/api/notifications` and updates bell badge |
 
 ---
 
@@ -233,6 +251,78 @@ Moving the filter bar inside the scroll container breaks iOS horizontal scroll (
 
 ---
 
+## Touch gesture system
+
+Two swipe handlers are registered in `setupGestures()` (~line 1640):
+
+**Calendar / List month swipe** — listens on the main content element. Horizontal swipe (|dx| > 60, more horizontal than vertical by 1.8×) → changes month. Only fires on calendar/list views.
+
+**Overlap tab swipe** — listens on `#view-overlap`. Same thresholds. Swipe left → Off Days tab; swipe right → Crossings tab. **Critical:** ignores touches that originate inside `#offday-filter-bar` (`e.target.closest('#offday-filter-bar')`) — otherwise scrolling the pilot chips left triggers a tab switch.
+
+```js
+overlapEl.addEventListener('touchstart', e => {
+    if (e.target.closest('#offday-filter-bar')) { oxStart = null; return; }
+    oxStart = e.touches[0].clientX; oyStart = e.touches[0].clientY;
+}, { passive: true });
+overlapEl.addEventListener('touchend', e => {
+    if (oxStart === null) return;
+    const dx = e.changedTouches[0].clientX - oxStart;
+    // ...
+}, { passive: true });
+```
+
+---
+
+## Splash screen (`#splash-screen`)
+
+Defined in `app.html` around line 360. Full-screen overlay shown while the app initialises; fades out once identity is resolved.
+
+- Logo: `<img class="splash-plane" src="/icon.svg">` — the CrewSync plane icon (72×72, rounded, floating animation). Was previously a `✈️` emoji — don't revert.
+- Title: "CrewSync" in blue bold italic
+- Subtitle: "Crew Scheduling"
+- Three pulsing blue dots as loading indicator
+- CSS classes: `.splash-plane`, `.splash-title`, `.splash-sub`, `.splash-dots`, `.splash-dot`
+- Dismissed by adding `splash-hide` (fade) then `splash-gone` (display:none)
+
+---
+
+## Branding assets
+
+| File | Usage |
+|---|---|
+| `public/icon.svg` | App icon — dark navy bg, white plane pointing NE. Used in: splash screen, crew roster header, browser favicon |
+| `public/icon-192.png` | PWA manifest icon (192×192) |
+| `public/icon-512.png` | PWA manifest icon (512×512) |
+| `public/apple-touch-icon.png` | iOS home screen icon |
+
+When adding the logo anywhere, use `<img src="/icon.svg">` with `border-radius` to match the rounded-square style. Don't use emoji or generic plane glyphs.
+
+---
+
+## Crew roster page (`/crew-roster`)
+
+Server-side HTML rendered in `server.js` around line 2068. Protected by `rosterAuth` middleware (password from env). Only accessible to admin.
+
+**Per-pilot card shows:**
+- Initials avatar (viewers get 👁 emoji, blue bg)
+- Name, pilot_key, base, home_airport
+- Last active timestamp + colored dot indicator
+
+**Last-active color scale:**
+
+| Recency | Color | Label example |
+|---|---|---|
+| < 1 hour | `#22c55e` green | `3m ago` |
+| 1–24 hours | `#84cc16` lime | `5h ago` |
+| 1–3 days | `#eab308` yellow | `2d ago · Jun 26` |
+| 3–7 days | `#f97316` orange | `5d ago · Jun 23` |
+| > 1 week | `#ef4444` red | `Jun 15` |
+| Never | `#52525b` gray | `Never` |
+
+`last_active` is updated in the DB whenever a pilot loads the app (set via `PUT /api/pilots/:key` or directly in the auth flow). The `fmtActive()` and `activeColor()` helpers live inside the route handler in server.js.
+
+---
+
 ## API endpoints (server.js)
 
 ```
@@ -299,3 +389,326 @@ Copy the function from app.html, feed it prod segments, look for periods >48h.
 - `renderAllPilotsMap()` — all pilots month
 
 UTC/local date skew is common: segments stored in local time, `new Date()` in browser uses local time, but comparisons to `new Date()` (now) need care around midnight.
+
+---
+
+## Calendar grid rendering (`render()` → grid branch)
+
+`render()` (~line 5937) rebuilds whichever view is active. It does **not** fetch — call `loadPilot()` to refresh from server first.
+
+**Grid mode logic per calendar cell:**
+
+1. Walks every day in the month. For each day (`dateKey = YYYY-MM-DD`):
+   - Filters `segments[]` for events whose **local** departure or arrival date matches (uses `flightLocalDate()`, not raw JS date).
+   - Classifies the day: Hard Off > Vacation > Flying > Reserve > Away (from inferAwayLayovers) > personal-away > Off.
+2. **Border/background** set by classification:
+   - `border-red-600 bg-red-700/80` — Hard Off
+   - `border-blue-500/30 bg-blue-500/10` — Flying
+   - `border-amber-400/30` — Reserve (On Call)
+   - `border-yellow-500/40 bg-yellow-900/20` — Away layover
+3. Within each cell, flight items sorted chronologically. Each flight item stores data attributes (`data-dep-time`, `data-arr-time`, `data-tail`, `data-trip`, `data-flight`, `data-live-callsign`).
+4. **Active flights** (depMs ≤ now ≤ arrMs): get `active-leg` class (green border pulse) and `data-live-callsign` attribute that `startCalListLivePolling()` picks up.
+5. After grid renders: `attachTooltips()` wires hover tooltips. `startCalListLivePolling()` starts ADS-B polling for any cells with `data-live-callsign`.
+
+**Mobile grid:** CSS overrides at line ~76 make cells compact (52–96px tall). Flight pills are shown text-only with route; status pills hidden.
+
+---
+
+## List view rendering (`render()` → list branch)
+
+`render()` list branch iterates every day in the month. For each day with events:
+- One "day header" block with date label and status badge.
+- Flight rows (`.flight-row`) sorted by departure time. Each row shows: route pair, local dep/arr times with timezone abbreviation, block time, tail/flight#, layover duration between consecutive legs.
+- **Ground legs** (type='ground') appear as subdued smaller rows labeled `VAN ORD→MDW`.
+- **Reserve slots** appear as amber "ON CALL" rows with time window.
+- Past days get `.list-past` (grayscale + dimmed). Today highlighted.
+- **Layover label** logic: gap between consecutive flights → `layoverLabel(gapMins, atHome, sameDay)`. Shows overnight duration if >30 min and not at home. Suppresses label if >30h at home (pilot commuted home).
+
+---
+
+## Day detail sheet (`showDayDetail(dateKey)`)
+
+Opens `#day-detail-sheet` (bottom sheet on mobile, centered modal on desktop) when a calendar cell is tapped.
+
+Content built from same `segments[]` slice as the grid. Renders:
+1. Header: status label (HARD OFF / IN THE AIR / FLYING / ON CALL / DAY OFF) + full date.
+2. All flights for the day sorted by departure time.
+3. Each flight card: route, dep/arr times (with city/state names from airport lookup), block time, tail#, trip#, DH badge, layover line to next leg.
+4. Reserve cards: type label (RESR/RESA/RESP), time window.
+5. Ground leg cards: subdued, smaller.
+6. Manual flights get Edit/Delete buttons (only if `canEdit()` is true — logged-in user's own flights or admin).
+7. Any live flight shows a `▶ LIVE` badge and calls `deriveCallsign()` for ADS-B tracking.
+
+`canEdit()` returns true if `myPilot === currentPilot` or admin (`myPilot === null`).
+
+---
+
+## Pull-to-refresh (`setupMobileGestures()`)
+
+Registered on `#view-grid` and `#view-list` via touchstart/touchmove/touchend.
+
+**Logic:**
+- `touchstart`: record startX/startY; `ptrActive = el.scrollTop === 0` (only fires at top of scroll).
+- `touchmove`: if dragging down while at scroll top → scale opacity and rotate the `#ptr-indicator` spinner. At 70px pull → `ptrTriggered = true`, indicator spins continuously.
+- `touchend`: if `ptrTriggered` → call `loadPilot(currentPilot)` + show "Schedule refreshed" toast. Else if horizontal swipe → `changeMonth()`.
+
+`#ptr-indicator` is a fixed 36px circle, initially translated off-screen (-52px). Its Y position tracks the pull distance.
+
+---
+
+## ADS-B live tracking
+
+Two parallel systems:
+
+### `startLiveTracking()` (map view only, ~line 4946)
+Polls `/api/live-position?callsign=XX` every **8 seconds** for an active flight arc on the map.
+
+- Called from `renderMap()` and `renderDayMap()` for any flight whose window spans now.
+- Draws a real-time GPS trail (solid colored polyline) and a remaining-arc (dashed geodesic arc from current position to destination).
+- Plane icon (SVG from ADS-B Exchange shape library, ~line 5238) starts hidden; becomes visible only after ADS-B confirms it airborne (`hasBeenAirborne = true`).
+- `deoverlapLiveLabels()` runs every 300ms to prevent callsign tooltip collisions.
+- If server returns `{ parked: true }` → flight complete, re-renders map.
+- If `hadTrail && !found` for 3+ misses → plane already landed, removes arc and re-renders.
+- Uses `_livePollers[callsign]` (object) to prevent duplicate pollers. `_landedEarly` Set tracks early landings.
+- **World copy support**: markers placed at `lon`, `lon+360`, `lon-360` so panning globally shows the plane on every map copy.
+
+### `startCalListLivePolling()` (~line 4848)
+Polls every **15 seconds** for active-leg cells/rows in the calendar and list views.
+
+- Finds all elements with `[data-live-callsign]` attribute (added during render for `isActiveLeg` cells).
+- Per callsign: polls `/api/live-position`, updates `#live-{callsign}` element with altitude + speed text.
+- Shows: `✈ FL340 · 428 kts` (airborne) or `Taxiing · 15 kts` (ground).
+- Stopped by `stopCalListPollers()` before each re-render.
+
+### Server-side ADS-B proxy (`/api/live-position`)
+Server proxies to `api.adsb.lol` and `airplanes.live`. Caches trail points per callsign from server start so trail is pre-seeded before polling. Returns `{ found, lat, lon, altFt, speedKts, onGround, heading, trail[], parked, hadTrail }`.
+
+`deriveCallsign()` in the frontend maps tail/flight number combinations to the correct ADS-B callsign (e.g. corporate tails like N431JD, or airline flight numbers like SKW1234).
+
+---
+
+## Upload flow
+
+`handleUpload(input)` (~line 6523):
+1. Reads selected file and upload-for pilot from `#upload-pilot-select` dropdown.
+2. Calls `uploadPilotSchedule(pilotKey, file)` → `POST /api/pilots/:key/upload` with `multipart/form-data`.
+3. On success: shows toast with segment count, reloads that pilot if currently viewed, then `computeOverlap()` to update crossings.
+4. After overlap computed: calls `updateCrossingAlert(overlaps)` (badge) and `broadcastCrossingNotifications(overlaps)` (push) if `PUSH_ENABLED`.
+
+**Mobile upload**: `#mobile-upload-sheet` bottom sheet has separate `#mobile-upload-pilot-select` and `#mobile-file-input`; handled by `handleMobileUpload()` which mirrors `handleUpload`.
+
+**Upload reminder**: `showUploadReminder()` (~line 7454) fires after `loadPilot()` if the pilot has no flights for the current month (and hasn't seen the reminder for that month/pilot key). Shows `#upload-reminder` banner with "Upload Now" button.
+
+---
+
+## Add flight modal (`submitAddFlight()`, ~line 7024)
+
+Opened by "+" button (desktop header or mobile). Supports 4 flight types:
+- **Work** — `trip` = pairing #, no special flag
+- **DH** — `is_dh = true`  
+- **Commute** — `trip = 'COMMUTE'`, `is_manual = 1`
+- **Personal** — `trip = 'PERSONAL'`, `is_manual = 1`
+
+**Fields:** Pilot selector (hidden if not admin), date, DEP/ARR airports (auto-uppercased), dep/arr times, block time (auto-calculated from times if not manually edited), flight #, tail #.
+
+**Block time auto-calc** (`autoComputeBlockTime()`): when dep/arr airports + times are all filled and user hasn't manually edited block time → looks up airport timezones, converts to UTC, computes diff. Shows "(auto-calculated)" label; if user edits manually it changes to "(manual)".
+
+`submitAddFlight()` POSTs to `/api/pilots/:key/add-segment`, then calls `loadPilot(currentPilot)` to refresh. In edit mode (editing an existing manual segment), it calls `PUT /api/pilots/:key/segments/:id` instead.
+
+**Edit ground transport**: separate `#edit-ground-modal` (simpler, no type picker). Opened from day detail sheet for `type=ground` segments.
+
+---
+
+## Notifications system
+
+### Push notifications
+- Service worker `/sw.js` registered by `initServiceWorker()` at app start.
+- `initPushNotifications()` runs after identity resolves. If permission already granted → `subscribeToPush()`. If not asked yet → shows `#notif-prompt-sidebar` (desktop sidebar banner) prompting user to enable.
+- `subscribeToPush()`: fetches VAPID public key from `/api/push/vapid-key`, creates Web Push subscription, POSTs `{ token, subscription }` to `/api/push/subscribe`.
+- Server sends push when crossings are computed after an upload/sync via `broadcastCrossingNotifications()`.
+- SW message `{ type: 'OPEN_OVERLAP' }` → `switchView('overlap')` (tapping a push notification opens the crossings tab).
+- `PUSH_ENABLED` const controls whether push features are active. `myToken` (URL token) is sent with subscriptions so server knows which pilot.
+
+### In-app crossing alerts (badge + modal)
+`updateCrossingAlert(overlaps)` (~line 8132):
+- Filters overlaps to only those involving `myPilot`, within next **48h** (`XALERT_BADGE_WINDOW`).
+- Cross-references against `localStorage['cs_xacked']` (acked crossing keys) to show unread badge count only.
+- Updates `#crossing-badge-mobile` and `#crossing-badge-desktop` (orange badge on Overlap nav icon).
+- Crossings within **24h** (`XALERT_MODAL_WINDOW`) AND not yet shown this session → shows `#crossing-alert-modal` once per session (`sessionStorage['cs_modal_shown']`).
+- `ackMyCrossings()` called when user opens crossings view — marks all as seen, clears badge.
+
+### Notification panel (`#notif-panel`)
+Bell icon (desktop header + mobile) opens slide-down panel. `loadNotifications()` fetches `/api/notifications?token=…` on load. Panel shows title, body, relative timestamp, unread dot. Clicking any notification → `switchView('overlap')` + marks all read via `PATCH /api/notifications/read`.
+
+App badge (`navigator.setAppBadge()`) set to unread count where supported (iOS 16.4+).
+
+---
+
+## Crew Intel view (`#view-intel`)
+
+**State variables:**
+- `_intelAll` — flat array of all intel entries (from `/api/intel`)
+- `_intelView` — `'airports'` | `'map'` | `'detail'`
+- `_intelDetailAirport` — IATA code when in detail view
+- `_intelFilter.category` — `'all'` | `'hotel'` | `'food'` | `'activity'` | `'tip'`
+- `_intelSearch` — search string for airports list
+- `_intelMap` — Leaflet instance for map view (separate from main `map`)
+
+**Views:**
+1. **Airports list** (`renderIntelAirports()`): One card per airport with intel, sorted alphabetically by city name. Color-accented left border (dominant category color). Click → detail view.
+2. **Intel map** (`renderIntelMap()`): Leaflet map with SVG thumbtack pins. Pin color: single-category = that category's color, mixed = red. Pin count badge shows total tips at that airport. Clicking a pin opens popup with category breakdown + "VIEW N TIPS →" button.
+3. **Detail view** (`renderIntelDetail()`): Shows all tips for one airport, filterable by category pill. Each card shows: category badge, title, body (collapsible if >180 chars), author (pilot first name + color dot), date. Own entries show Edit/Delete buttons.
+
+**Data flow:**
+- `loadIntelCounts()` fetches `/api/intel` → `_intelAll`. Called on `switchView('intel')`.
+- `saveIntelTip()` POSTs to `/api/intel` or PUTs to `/api/intel/:id` for edits.
+- `deleteIntelTip(id)` sends `DELETE /api/intel/:id` after `showConfirm()`.
+
+**Category colors:** hotel=#60a5fa (blue), food=#fbbf24 (amber), activity=#4ade80 (green), tip=#c4b5fd (purple). Mixed pins are #ef4444 (red).
+
+**Intel map persistence:** When toggling back to map view, `_savedCenter` and `_savedZoom` preserve the previous pan/zoom position.
+
+---
+
+## Admin panel (`openAdminPanel()`, ~line 7508)
+
+Accessible from Profile Sheet → "★ Manage Users" (admin only). Two tabs:
+
+**Users tab:** Lists all pilots/viewers from `/api/pilots`. Per user: initials avatar, name, key, base, home_airport, role, parser type, token, last-active. Edit/delete buttons. "+ Add User" opens `#edit-user-modal`.
+
+**Dashboard tab:** App stats — total segments, pilots, segments per pilot, last sync times.
+
+**Edit/Add User modal (`#edit-user-modal`):**
+- View-only toggle (👁 mode): hides pilot-specific fields (base, home_airport, airline, role), marks user as `role='viewer'`.
+- Airline selector determines `parser_type`: GoJet→`csv`, SkyWest→`vcs_skywest`, Republic→`csv`, SunCountry→`ics_scx`, RosterBuster→`ics_rosterbuster`, Other→`other`.
+- When RosterBuster selected, shows ICS URL field.
+- `saveUser()` → POST `/api/pilots` (new) or PUT `/api/pilots/:key` (edit). Auto-generates pilot_key from first name (lowercase, deduped).
+- After save: alerts user of generated `?u=TOKEN` personal link to share.
+
+---
+
+## PWA / service worker
+
+**Service worker `/sw.js`:**
+- Registered on every app load. Handles background push notifications.
+- On push receive: parses payload, shows system notification with title + body.
+- On notification click: sends `{ type: 'OPEN_OVERLAP' }` to client → app switches to Crossings tab.
+
+**PWA install prompt (`#pwa-prompt`):**
+- Shows on mobile when app is not yet installed (not in `standalone` display mode).
+- iOS: shows manually crafted "Add to Home Screen" instruction (no native install API on iOS).
+- Android: listens for `beforeinstallprompt` event → `pwaInstall()` triggers native prompt.
+- Dismissed state saved to `localStorage['pwa_dismissed']`. Not shown again for 7 days.
+
+**Auto-refresh on resume:**
+```js
+// In <head>, runs immediately before any scripts
+if (document.visibilityState === 'hidden') hiddenAt = Date.now();
+else if (hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000) window.location.reload();
+```
+This refreshes the app after 5 minutes of backgrounding (e.g., reopening from iOS home screen), ensuring schedules are current.
+
+**Manifest:** `manifest.json` served with `?u=TOKEN` from the `<link rel="manifest">` tag injected in `<head>` so each pilot's installed PWA has their token baked into the manifest's `start_url`.
+
+---
+
+## UI components and modals reference
+
+| Element | Opens via | Purpose |
+|---|---|---|
+| `#day-detail-sheet` | `showDayDetail(dateKey)` | Day events bottom sheet; bottom on mobile, centered on desktop |
+| `#add-flight-modal` | `openAddFlight()` | Add/edit manual flight (all types) |
+| `#edit-ground-modal` | Edit button on ground leg card | Edit ground transfer airports/times |
+| `#schedaero-modal` | "Sync Schedaero" button | Kyle's Schedaero sync: URL, API token, cookie, month range |
+| `#drew-ics-modal` | "Sync Schedule (Drew)" button | Drew's RosterBuster ICS URL input |
+| `#ics-sync-modal` | "Sync Schedule" button (generic ICS pilots) | ICS URL for any ICS-type pilot |
+| `#mobile-upload-sheet` | Mobile nav Upload button | Mobile bottom sheet for upload/sync |
+| `#profile-sheet` | Avatar button (mobile) or sidebar identity row | Identity, personal link, crew visibility, notifications toggle |
+| `#admin-panel` | Profile → "Manage Users" (admin) | User list + dashboard tabs |
+| `#edit-user-modal` | "+" or Edit in admin panel | Add/edit pilot or viewer |
+| `#overlap-detail-modal` | Tap "Also Nearby" crossing row | Expanded crossing detail |
+| `#crossing-alert-modal` | Auto, once per session if crossing within 24h | Crossing alert popup |
+| `#intel-modal` | "+ Add" in Crew Intel | Add/edit intel tip |
+| `#notif-panel` | Bell icon | Notification history panel |
+| `#confirm-modal` | `showConfirm(title, body)` | Generic destructive action confirmation |
+| `#overlap-help-modal` | "?" button in Crossings view | Crossings type explanation |
+| `#intel-help-modal` | "?" in Crew Intel | Crew Intel explanation |
+| `#grid-help-modal` | "?" in Calendar view | Calendar color coding help |
+| `#list-help-modal` | "?" in List view | List view explanation |
+| `#map-help-modal` | "?" in Map view | Map modes explanation |
+
+**Bottom sheet swipe-to-dismiss:** `setupSheetSwipe(panelEl, dismissFn)` registers touchstart/touchmove/touchend on any bottom sheet panel. Dragging down >80px triggers dismiss with a 220ms slide-out animation.
+
+---
+
+## Layout structure
+
+```
+body (flex row, 100dvh)
+  #sidebar (hidden md:flex, 256px)        ← desktop nav + pilot list + upload section
+  div.flex-1 (main content column)
+    header (desktop or mobile)
+    #empty-schedule-banner                 ← shown when pilot has no data
+    #mobile-pilot-bar                      ← horizontal scroll pill nav (mobile only)
+    #mobile-next-trip                      ← next flight strip (signed-in pilots)
+    main.flex-1
+      #view-grid    .view-section          ← calendar
+      #view-list    .view-section          ← list
+      #view-map     .view-section          ← map + mobile mode bar
+      #view-overlap .view-section          ← crossings + off days
+      #view-intel   .view-section          ← crew intel
+    nav.mobile-nav                         ← fixed bottom: Grid, List, Map, Overlap, Intel, Upload
+```
+
+Only one `.view-section` has `.view-active` (display:block/flex) at a time. `switchView()` swaps the class. View fade-in is a 0.14s CSS animation on `.view-active`.
+
+**Desktop sidebar:** Collapsible via hamburger `toggleSidebar()`. `#sidebar.sidebar-hidden` sets width:0, overflow:hidden, opacity:0 with CSS transition.
+
+---
+
+## Color constants (pilot colors)
+
+Used in Crew Intel (`PILOT_COLORS`) and map legend:
+```js
+PILOT_COLORS = {
+  kyle: '#3b82f6',   // blue
+  adam: '#818cf8',   // indigo
+  sam:  '#f472b6',   // pink
+  logan:'#fb923c',   // orange
+  drew: '#34d399',   // emerald
+}
+```
+Additional pilots get colors from a rotating palette.
+
+---
+
+## Schedaero sync (Kyle)
+
+**Full sync** (`openSchedaeroSync()` → `syncSchedaero()` → `POST /api/pilots/kyle/sync-schedaero`):
+- Requires: GetMonth URL, API token (x-avinode-apitoken header), full session cookie.
+- Syncs configurable month range (back 0–6, ahead 1–6 months).
+- Credentials saved server-side in `settings` table after successful sync.
+
+**Quick sync** (`quickSyncSchedaero()` → `POST /api/pilots/kyle/quick-sync-schedaero`):
+- Uses saved credentials (URL + token + cookie from settings table).
+- If session expired (302 redirect or auth error) → opens `#schedaero-modal` in cookie-only mode (URL/token fields hidden, "session expired" banner shown, "Edit URL & API token" toggle available).
+- Quick sync button shown on mobile upload sheet.
+- Auto-sync runs quick sync at 06:00, 14:00, 22:00 UTC daily (server-side `setTimeout` chain, not cron).
+
+---
+
+## Offline / connectivity
+
+`#offline-banner` (red bar at top) appears when browser goes offline (`window.addEventListener('offline')`). Slides down from top. Disappears on `'online'` event.
+
+The service worker does not cache API responses — it's push-only. There is no offline data mode; all schedule data requires network.
+
+---
+
+## `flightLocalDate` / `flightUTCTime` — when to use each
+
+`flightLocalDate(isoStr, airportCode)` → `'YYYY-MM-DD'` string at the airport's local timezone. Use when checking which calendar day an event falls on.
+
+`flightUTCTime(isoStr, airportCode)` → `Date` object in true UTC. Use when comparing times across pilots or checking if a flight is currently active (`depMs <= now <= arrMs`).
+
+Never use `new Date(localString) < now` directly for crossings or "currently airborne" checks — local browser time may differ from airport timezone by hours.
