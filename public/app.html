@@ -3466,7 +3466,20 @@
                     const recentArr = flights.slice(0, i)
                         .filter(p => normApt(p.arrival_airport) === dep)
                         .sort((a, b) => new Date(b.arrival_time) - new Date(a.arrival_time))[0];
-                    const useRecentArr = recentArr && (dep !== home || (depT - new Date(recentArr.arrival_time)) < 24 * 3600000);
+                    const recentArrT = recentArr ? new Date(recentArr.arrival_time) : null;
+                    // For home base: only use arrival if within 24h (pilot lives there).
+                    // For other airports: only use if pilot hasn't flown elsewhere since — i.e. still
+                    // on the same trip. A departure from any other airport between recentArr and now
+                    // means the pilot went home and came back; use a fresh 2h window instead.
+                    const useRecentArr = recentArr && (
+                        dep === home
+                            ? (depT - recentArrT) < 24 * 3600000
+                            : !allDeps.some(n =>
+                                normApt(n.departure_airport) !== dep &&
+                                new Date(n.departure_time) > recentArrT &&
+                                new Date(n.departure_time) < depT
+                            )
+                    );
                     const groundStart = useRecentArr ? new Date(recentArr.arrival_time)
                         : new Date(depT.getTime() - 2 * 3600000);
                     const alreadyCovered = periods.some(p => p.airport === dep &&
