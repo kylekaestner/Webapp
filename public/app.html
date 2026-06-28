@@ -42,6 +42,7 @@
 
         /* Intel map full-width mode */
         #view-intel.intel-map-mode { overflow: hidden !important; display: flex !important; flex-direction: column; }
+        #view-overlap.view-active { display: flex !important; flex-direction: column; overflow: hidden; }
         #view-intel.intel-map-mode #intel-inner { max-width: none !important; width: 100% !important; flex: 1 1 0; display: flex; flex-direction: column; padding-bottom: 0 !important; margin: 0 !important; }
         #view-intel.intel-map-mode #intel-header { position: relative; flex-shrink: 0; }
         #view-intel.intel-map-mode #intel-content { flex: 1 1 0; padding: 0 !important; min-height: 0; }
@@ -654,24 +655,33 @@
                 </div>
             </div>
 
-            <div id="view-overlap" class="view-section overflow-y-auto">
-                <div class="max-w-2xl mx-auto pb-20">
-                    <div id="overlap-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm border-b border-zinc-800/60">
-                        <div class="px-6 pt-5 pb-0 flex items-center justify-between gap-4">
-                            <h2 class="text-lg font-black text-white uppercase tracking-tight">Crew Planning</h2>
-                            <button id="overlap-refresh-btn" onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">Refresh</button>
-                        </div>
-                        <!-- Tabs -->
-                        <div class="flex px-6 pt-3 gap-0">
-                            <button id="tab-crossings" onclick="switchOverlapTab('crossings')" class="overlap-tab overlap-tab-active pb-2.5 pr-5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-colors">Crossings</button>
-                            <button id="tab-offdays" onclick="switchOverlapTab('offdays')" class="overlap-tab pb-2.5 px-5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-colors">Off Days</button>
-                        </div>
+            <div id="view-overlap" class="view-section">
+                <div id="overlap-header" class="shrink-0 bg-[#050505] border-b border-zinc-800/60" style="z-index:10">
+                    <div class="max-w-2xl mx-auto px-6 pt-5 pb-0 flex items-center justify-between gap-4">
+                        <h2 class="text-lg font-black text-white uppercase tracking-tight">Crew Planning</h2>
+                        <button id="overlap-refresh-btn" onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">Refresh</button>
                     </div>
-                    <div id="overlap-content" class="space-y-3 px-6 pt-4">
-                        <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate crossings</div>
+                    <!-- Tabs -->
+                    <div class="max-w-2xl mx-auto flex px-6 pt-3 gap-0">
+                        <button id="tab-crossings" onclick="switchOverlapTab('crossings')" class="overlap-tab overlap-tab-active pb-2.5 pr-5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-colors">Crossings</button>
+                        <button id="tab-offdays" onclick="switchOverlapTab('offdays')" class="overlap-tab pb-2.5 px-5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-colors">Off Days</button>
                     </div>
-                    <div id="offdays-content" class="px-6 pt-4 hidden">
-                        <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate common off days</div>
+                </div>
+                <!-- Off Days filter bar — shrink-0 so it's outside the scroll container; iOS horizontal scroll works correctly -->
+                <div id="offday-filter-bar" style="display:none" class="shrink-0 border-b border-zinc-800 bg-[#050505]">
+                    <div class="max-w-2xl mx-auto px-4 py-2.5 flex items-center gap-2.5">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-zinc-600 shrink-0">Show</span>
+                        <div id="offday-filter-chips" class="flex-1 min-w-0 flex gap-2 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none"></div>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto" style="-webkit-overflow-scrolling:touch">
+                    <div class="max-w-2xl mx-auto pb-20">
+                        <div id="overlap-content" class="space-y-3 px-6 pt-4">
+                            <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate crossings</div>
+                        </div>
+                        <div id="offdays-content" class="px-6 pt-4 hidden">
+                            <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate common off days</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2212,12 +2222,10 @@
         function _visKey() {
             if (myPilot) return `crewVisible_${myPilot}`;
             if (myViewer) return `crewVisible_${myViewerKey}`;
-            return null; // admin — no preference stored
+            return 'crewVisible_admin';
         }
 
         function getCrewVisible() {
-            // Admin (no identity, no viewer flag) sees all pilots
-            if (!myPilot && !myViewer) return [...VALID_PILOTS];
             const stored = localStorage.getItem(_visKey());
             if (stored) {
                 try {
@@ -2299,9 +2307,9 @@
                 if (linkSection) linkSection.classList.add('hidden');
             }
 
-            // Viewers and pilots both get crew visibility + sign-out; admin gets neither
+            // Pilots, viewers, and admin all get crew visibility
             const cvSection = document.getElementById('crew-visibility-section');
-            if (cvSection) cvSection.classList.toggle('hidden', !myPilot && !myViewer);
+            if (cvSection) cvSection.classList.remove('hidden');
             const signOutBtn = document.getElementById('sign-out-btn');
             if (signOutBtn) signOutBtn.classList.toggle('hidden', !myPilot && !myViewer);
 
@@ -2331,9 +2339,9 @@
 
         function _buildCrewVisibilityUI() {
             const el = document.getElementById('crew-visibility-btns');
-            if (!el || (!myPilot && !myViewer)) return;
+            if (!el) return;
             const visible = getCrewVisible();
-            // Pilots exclude themselves (they can't hide their own schedule); viewers see all pilots
+            // Pilots exclude themselves (can't hide own schedule); admin + viewers see all pilots
             el.innerHTML = VALID_PILOTS.filter(p => p !== myPilot).map(p => {
                 const c  = PILOT_COLORS[p];
                 const on = visible.includes(p);
@@ -3118,6 +3126,29 @@
             renderCommonOffSection(!isTab, isTab);
         }
 
+        function toggleCrossingsPilot(key) {
+            if (!_crossingsFilter) _crossingsFilter = new Set(PILOT_KEYS);
+            if (_crossingsFilter.has(key)) {
+                _crossingsFilter.delete(key);
+            } else {
+                _crossingsFilter.add(key);
+            }
+            renderOverlapFilterBar();
+            computeOverlap();
+        }
+
+        function renderOverlapFilterBar() {
+            const chipsEl = document.getElementById('offday-filter-chips');
+            if (!chipsEl) return;
+            if (!_crossingsFilter) _crossingsFilter = new Set(PILOT_KEYS);
+            chipsEl.innerHTML = PILOT_KEYS.map(k => {
+                const active = _crossingsFilter.has(k);
+                const color  = PILOT_COLORS[k];
+                const name   = PILOT_NAMES[k]?.split(' ')[0] || k;
+                return `<button onclick="toggleCrossingsPilot('${k}')" style="flex:none;background:${active ? color + '22' : 'transparent'};color:${active ? color : '#52525b'};border:1px solid ${active ? color + '55' : '#3f3f46'};border-radius:9999px;padding:6px 14px;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;transition:all 0.15s;-webkit-tap-highlight-color:transparent;min-height:36px;display:inline-flex;align-items:center">${name}</button>`;
+            }).join('');
+        }
+
         function renderCommonOffSection(preserveOpen, fullView = false) {
             const visibleCrew = getCrewVisible();
             if (!_offDayFilter) _offDayFilter = new Set(visibleCrew);
@@ -3236,16 +3267,15 @@
                 const active = _offDayFilter.has(k);
                 const color = PILOT_COLORS[k];
                 const name = PILOT_NAMES[k].split(' ')[0];
-                return `<button onclick="toggleOffDayPilot('${k}')" style="background:${active ? color + '22' : 'transparent'};color:${active ? color : '#52525b'};border:1px solid ${active ? color + '55' : '#3f3f46'};border-radius:9999px;padding:6px 14px;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;transition:all 0.15s;-webkit-tap-highlight-color:transparent;min-height:36px;display:inline-flex;align-items:center">${name}</button>`;
+                return `<button onclick="toggleOffDayPilot('${k}')" style="flex:none;background:${active ? color + '22' : 'transparent'};color:${active ? color : '#52525b'};border:1px solid ${active ? color + '55' : '#3f3f46'};border-radius:9999px;padding:6px 14px;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;transition:all 0.15s;-webkit-tap-highlight-color:transparent;min-height:36px;display:inline-flex;align-items:center">${name}</button>`;
             }).join('');
 
             if (fullView) {
-                // Tab mode — no collapsible wrapper, content always visible
+                // Populate the external filter bar (outside scroll container — reliable iOS horizontal scroll)
+                const chipsEl = document.getElementById('offday-filter-chips');
+                if (chipsEl) chipsEl.innerHTML = filterChips;
+                // Tab mode — no collapsible wrapper, no inline filter row
                 el.innerHTML = `<div class="divide-y divide-zinc-800/30">
-                    <div class="px-4 py-2.5 flex items-center gap-2.5">
-                        <span class="text-[9px] font-black uppercase tracking-widest text-zinc-600 shrink-0">Show</span>
-                        <div class="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:2px 0">${filterChips}</div>
-                    </div>
                     ${stalePilots.length ? `<div class="px-4 py-2.5 flex items-center gap-2 bg-zinc-900/40">
                         <span style="color:#92400e;font-size:11px">⚠</span>
                         <span style="font-size:10px;color:#78716c">${stalePilots.map(k => PILOT_NAMES[k].split(' ')[0]).join(', ')} ${stalePilots.length === 1 ? 'has' : 'have'} no upcoming schedule — off days may be incomplete</span>
@@ -3268,7 +3298,7 @@
                 <div class="off-days-body${bodyHidden} border-t border-zinc-800/50 divide-y divide-zinc-800/30">
                     <div class="px-4 py-2.5 flex items-center gap-2.5 border-b border-zinc-800/30">
                         <span class="text-[9px] font-black uppercase tracking-widest text-zinc-600 shrink-0">Show</span>
-                        <div class="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:2px 0">${filterChips}</div>
+                        <div id="offday-filter-scroll" style="flex:1;min-width:0;display:flex;gap:6px;align-items:center;padding:2px 0">${filterChips}</div>
                     </div>
                     ${stalePilots.length ? `<div class="px-4 py-2.5 flex items-center gap-2 border-b border-zinc-800/30 bg-zinc-900/40">
                         <span style="color:#92400e;font-size:11px">⚠</span>
@@ -3288,6 +3318,8 @@
             document.getElementById('offdays-content')?.classList.toggle('hidden', tab !== 'offdays');
             document.getElementById('tab-crossings')?.classList.toggle('overlap-tab-active', tab === 'crossings');
             document.getElementById('tab-offdays')?.classList.toggle('overlap-tab-active', tab === 'offdays');
+            const filterBar = document.getElementById('offday-filter-bar');
+            if (filterBar) filterBar.style.display = tab === 'offdays' ? 'block' : 'none';
             const refreshBtn = document.getElementById('overlap-refresh-btn');
             if (refreshBtn) {
                 refreshBtn.onclick = tab === 'offdays' ? computeOffDays : computeOverlap;
@@ -3473,7 +3505,7 @@
             }
 
             const pilotPeriods = {};
-            const overlapKeys = [...VALID_PILOTS]; // always compute across full crew
+            const overlapKeys = [...VALID_PILOTS];
             overlapKeys.forEach(key => {
                 const data = pilotsCache[key];
                 pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base, PILOT_HOME[key]) : [];
