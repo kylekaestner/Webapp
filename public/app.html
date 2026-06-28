@@ -3540,7 +3540,7 @@
             const overlapKeys = [...VALID_PILOTS];
             overlapKeys.forEach(key => {
                 const data = pilotsCache[key];
-                pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base, PILOT_HOME[key]) : [];
+                pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base, data.home_airport || PILOT_HOME[key]) : [];
             });
 
             const getCoords = code => AIRPORTS[code] || AIRPORTS['K' + code] || null;
@@ -3584,8 +3584,11 @@
                     const homePilot = aAtBHome ? kB : kA;
                     const visitorPilot = aAtBHome ? kA : kB;
                     const visitorHasTime = aAtBHome ? aHasTime : bHasTime;
-                    // Only meaningful if the visitor actually has time — not just connecting through
-                    return { type: 'HOME_VISIT', label: 'Home Turf', color: '#34d399', homePilot, visitorPilot, tier: visitorHasTime ? 1 : 3 };
+                    // Only show Home Turf when the visitor has a real layover — quick transits through
+                    // a pilot's home airport (e.g. ORD connection) fall through to normal logic.
+                    if (visitorHasTime) {
+                        return { type: 'HOME_VISIT', label: 'Home Turf', color: '#34d399', homePilot, visitorPilot, tier: 1 };
+                    }
                 }
 
                 // Different airports
