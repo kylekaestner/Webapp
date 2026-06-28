@@ -2083,8 +2083,18 @@ app.get('/crew-roster', rosterAuth, (req, res) => {
             const hrs = Math.floor(mins / 60);
             if (hrs < 24)   return `${hrs}h ago`;
             const days = Math.floor(hrs / 24);
-            if (days < 7)   return `${days}d ago`;
-            return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const dateStr = new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            if (days < 7)   return `${days}d ago · ${dateStr}`;
+            return dateStr;
+        };
+        const activeColor = (iso) => {
+            if (!iso) return '#52525b';
+            const hrs = (Date.now() - new Date(iso).getTime()) / 3600000;
+            if (hrs < 1)   return '#22c55e';  // green   — within 1h
+            if (hrs < 24)  return '#84cc16';  // lime    — same day
+            if (hrs < 72)  return '#eab308';  // yellow  — 1–3 days
+            if (hrs < 168) return '#f97316';  // orange  — 3–7 days
+            return '#ef4444';                  // red     — over a week
         };
         const cards = rows.map(r => {
             const link = `${origin}/app?u=${r.token}`;
@@ -2096,7 +2106,7 @@ app.get('/crew-roster', rosterAuth, (req, res) => {
                 ? `${r.pilot_key} · View only`
                 : [r.pilot_key, r.base && `base ${r.base}`, r.home_airport && r.home_airport !== r.base && `home ${r.home_airport}`].filter(Boolean).join(' · ');
             const activeStr = fmtActive(r.last_active);
-            const activeColor = !r.last_active ? '#52525b' : (Date.now() - new Date(r.last_active).getTime()) < 86400000 ? '#22c55e' : '#71717a';
+            const dotColor = activeColor(r.last_active);
             const cardBorder = isViewer ? '#166534' : '#27272a';
             return `<div style="background:#111113;border:1px solid ${cardBorder};border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px">
   <div style="display:flex;align-items:center;gap:12px">
@@ -2105,7 +2115,10 @@ app.get('/crew-roster', rosterAuth, (req, res) => {
       <div style="font-weight:800;font-size:15px;color:#fff">${r.name}</div>
       <div style="font-size:11px;color:#52525b;font-weight:600;margin-top:2px">${sub}</div>
     </div>
-    <div style="font-size:11px;color:${activeColor};white-space:nowrap;font-weight:600">${activeStr}</div>
+    <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+      <div style="width:7px;height:7px;border-radius:50%;background:${dotColor}"></div>
+      <span style="font-size:11px;color:${dotColor};white-space:nowrap;font-weight:700">${activeStr}</span>
+    </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;background:#09090b;border:1px solid #1c1c1f;border-radius:8px;padding:8px 10px">
     <span style="flex:1;font-size:11px;color:#71717a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,monospace">${link}</span>
