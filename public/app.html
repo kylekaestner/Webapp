@@ -3450,6 +3450,11 @@
                 const flights = segments
                     .filter(s => (s.type === 'flight' || s.type === 'ground') && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport)
                     .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
+                // All departing segments including personal/commute — used to terminate ground periods
+                // so a commute home from a layover airport correctly ends the stay there.
+                const allDeps = segments
+                    .filter(s => s.departure_time && s.departure_airport)
+                    .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
                 const periods = [];
 
                 flights.forEach((f, i) => {
@@ -3469,7 +3474,8 @@
                     if (!alreadyCovered) periods.push({ airport: dep, start: groundStart, end: depT, flightNum: f.flight_number || null });
 
                     if (home && arr === home) return;
-                    const nextFromArr = flights.slice(i + 1).find(n => normApt(n.departure_airport) === arr);
+                    // Use allDeps so personal/commute departures also terminate ground periods
+                    const nextFromArr = allDeps.find(n => normApt(n.departure_airport) === arr && new Date(n.departure_time) > arrT);
                     let groundEnd;
                     if (homeC && arr === homeC) {
                         const nextFromBase = home ? flights.slice(i + 1).find(n =>
@@ -3483,7 +3489,20 @@
                             ? new Date(nextFromBase.departure_time)
                             : cap;
                     } else if (nextFromArr) {
-                        groundEnd = new Date(nextFromArr.departure_time);
+                        const nextT = new Date(nextFromArr.departure_time);
+                        const gapDays = (nextT - arrT) / 86400000;
+                        if (gapDays > 2) {
+                            // Long gap before next departure from arr — if the pilot flew from any
+                            // other airport during this gap, they went home after this arrival.
+                            const wentHome = allDeps.some(n =>
+                                normApt(n.departure_airport) !== arr &&
+                                new Date(n.departure_time) > arrT &&
+                                new Date(n.departure_time) < nextT
+                            );
+                            groundEnd = wentHome ? new Date(arrT.getTime() + 8 * 3600000) : nextT;
+                        } else {
+                            groundEnd = nextT;
+                        }
                     } else {
                         groundEnd = new Date(arrT.getTime() + 8 * 3600000);
                     }
