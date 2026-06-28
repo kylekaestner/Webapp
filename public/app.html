@@ -3224,8 +3224,8 @@
                     `<span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black whitespace-nowrap" style="background:${PILOT_COLORS[k]}22;color:${PILOT_COLORS[k]};border:1px solid ${PILOT_COLORS[k]}44"><span class="w-1.5 h-1.5 rounded-full" style="background:${PILOT_COLORS[k]}"></span>${PILOT_NAMES[k].split(' ')[0]}</span>`
                 ).join('');
                 return `<div class="flex items-center gap-2 px-4 min-w-0" style="padding-top:10px;padding-bottom:10px;${rowStyle}">
-                    <div class="flex items-center gap-1.5 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:4px 0">${chips}</div>
-                    <div class="flex items-center gap-1.5 shrink-0 ml-auto pl-1">
+                    <div class="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:4px 0">${chips}</div>
+                    <div class="flex items-center gap-1.5 shrink-0 ml-2 pl-1">
                         ${countBadge}
                         <div class="text-[11px] font-black whitespace-nowrap" style="${dayLabelStyle}">${dayLabel}</div>
                     </div>
@@ -3244,7 +3244,7 @@
                 el.innerHTML = `<div class="divide-y divide-zinc-800/30">
                     <div class="px-4 py-2.5 flex items-center gap-2.5">
                         <span class="text-[9px] font-black uppercase tracking-widest text-zinc-600 shrink-0">Show</span>
-                        <div class="flex items-center gap-1.5 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:2px 0">${filterChips}</div>
+                        <div class="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:2px 0">${filterChips}</div>
                     </div>
                     ${stalePilots.length ? `<div class="px-4 py-2.5 flex items-center gap-2 bg-zinc-900/40">
                         <span style="color:#92400e;font-size:11px">⚠</span>
@@ -3268,7 +3268,7 @@
                 <div class="off-days-body${bodyHidden} border-t border-zinc-800/50 divide-y divide-zinc-800/30">
                     <div class="px-4 py-2.5 flex items-center gap-2.5 border-b border-zinc-800/30">
                         <span class="text-[9px] font-black uppercase tracking-widest text-zinc-600 shrink-0">Show</span>
-                        <div class="flex items-center gap-1.5 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:2px 0">${filterChips}</div>
+                        <div class="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:2px 0">${filterChips}</div>
                     </div>
                     ${stalePilots.length ? `<div class="px-4 py-2.5 flex items-center gap-2 border-b border-zinc-800/30 bg-zinc-900/40">
                         <span style="color:#92400e;font-size:11px">⚠</span>
@@ -4701,7 +4701,8 @@
         // Returns null if no flight number -- single-aircraft ops have no callsign.
         function deriveCallsign(seg, pilotKey) {
             const fn = (seg.flightNumber || seg.flight_number || '').replace(/\s/g, '').toUpperCase();
-            if (fn) return normalizeFlightNum(fn, PILOT_CARRIER[pilotKey] || '') || null;
+            const carrier = PILOT_CARRIER[pilotKey] || pilotsCache[pilotKey]?.airline_code || '';
+            if (fn) return normalizeFlightNum(fn, carrier) || null;
             if (pilotKey === 'kyle') {
                 const digits = (seg.tail || '').replace(/\D/g, '');
                 return digits ? `SJJ${digits}` : null;

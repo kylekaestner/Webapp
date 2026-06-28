@@ -231,8 +231,9 @@ function parseECrewICS(text, airlineCode = '', iataAliases = []) {
         return sup[m[1]] ?? parseInt(m[1], 10);
     };
 
-    // Leg line: "CODE  - DEP  (HHMM[⁺¹]) - ARR  (HHMM[⁺¹])"
-    const LEG_RE = /^([A-Z0-9]+)\s{1,4}-\s+([A-Z]{3}\d?)\s*\((\d{4}[^)]*)\)\s+-\s+([A-Z]{3}\d?)\s*\((\d{4}[^)]*)\)/i;
+    // Leg line: "CODE  - DEP  (HHMM[⁺¹]) - ARR  ([E]HHMM[⁺¹])"
+    // The E prefix on arrival time means "estimated" (e.g. "E0237⁺¹")
+    const LEG_RE = /^([A-Z0-9]+)\s{1,4}-\s+([A-Z]{3}\d?)\s*\([A-Z]?(\d{4}[^)]*)\)\s+-\s+([A-Z]{3}\d?)\s*\([A-Z]?(\d{4}[^)]*)\)/i;
 
     for (const b of blocks) {
         const lines = b.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -260,11 +261,11 @@ function parseECrewICS(text, airlineCode = '', iataAliases = []) {
 
         const toUTC = (val, tz) => tz !== 'UTC' ? localTZToUTC(val, tz) : formatICSDatetime(val);
 
-        // Reserve duty: RESR / RESP / RESA
+        // Reserve duty: RESR / RESP / RESA / RAP (Reserve Alert Period)
         // DTSTART is the reporting/duty block time, NOT the actual reserve window.
         // Parse actual on-call window times from the DESCRIPTION leg line, e.g.:
         //   "RESR - CVG  (1700) - CVG  (0659⁺¹)" → window 5:00 PM → 6:59 AM
-        const resMatch = summary.match(/^(RES[A-Z])\b/i);
+        const resMatch = summary.match(/^(RES[A-Z]|RAP)\b/i);
         if (resMatch) {
             const locApt  = cleanApt(location.split(')').pop().trim().replace(/\d+$/, '').trim() || '');
             const baseDate = dtStartVal.slice(0, 8);
@@ -274,7 +275,7 @@ function parseECrewICS(text, airlineCode = '', iataAliases = []) {
             const descLines = rawDesc.split('\n').map(l => l.trim()).filter(Boolean);
             for (const line of descLines) {
                 const m = line.match(LEG_RE);
-                if (!m || !/^RES/i.test(m[1])) continue;
+                if (!m || !/^(RES|RAP)/i.test(m[1])) continue;
                 const depField = m[3], arrField = m[5];
                 const depHHMM  = depField.replace(/\D/g, '').slice(0, 4);
                 const arrHHMM  = arrField.replace(/\D/g, '').slice(0, 4);
@@ -323,12 +324,24 @@ function parseECrewICS(text, airlineCode = '', iataAliases = []) {
             const depHHMM  = depField.replace(/\D/g, '').slice(0, 4);
             const arrHHMM  = arrField.replace(/\D/g, '').slice(0, 4);
 
-            const depDateStr = addDays(baseDate, parseDayOffset(depField));
-            const arrDateStr = addDays(baseDate, parseDayOffset(arrField));
-
             // Use each airport's own timezone for accurate UTC conversion
             const depTZ = _aptTimezone[depApt] || tzid;
             const arrTZ = _aptTimezone[arrApt] || tzid;
+
+            // eCrew description offsets (⁺¹, ⁺²) are relative to the duty PERIOD start,
+            // which may be in a prior VEVENT (e.g. a RAP on the previous day). When the
+            // departure airport shares the same timezone as DTSTART AND the HHMM matches,
+            // DTSTART is already on the correct calendar day and the offset has been
+            // "consumed" — subtract it so we don't overshoot by a day.
+            let depOffset = parseDayOffset(depField);
+            let arrOffset = parseDayOffset(arrField);
+            if (depOffset > 0 && depTZ === tzid) {
+                const dtStartHHMM = dtStartVal.slice(9, 13);
+                if (dtStartHHMM === depHHMM) { arrOffset -= depOffset; depOffset = 0; }
+            }
+
+            const depDateStr = addDays(baseDate, depOffset);
+            const arrDateStr = addDays(baseDate, arrOffset);
 
             const depUTC = toUTC(`${depDateStr}T${depHHMM}00`, depTZ);
             const arrUTC = toUTC(`${arrDateStr}T${arrHHMM}00`, arrTZ);
