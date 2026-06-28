@@ -269,7 +269,8 @@
         #splash-screen.splash-hide { opacity: 0; pointer-events: none; }
         #splash-screen.splash-gone { display: none; }
         .splash-plane {
-            font-size: 52px; line-height: 1; margin-bottom: 20px;
+            width: 72px; height: 72px; margin-bottom: 20px;
+            border-radius: 18px;
             animation: splash-float 2s ease-in-out infinite;
         }
         @keyframes splash-float {
@@ -358,7 +359,7 @@
     </div>
 </div>
 <div id="splash-screen">
-    <div class="splash-plane">✈️</div>
+    <img class="splash-plane" src="/icon.svg" alt="">
     <div class="splash-title">CrewSync</div>
     <div class="splash-sub">Crew Scheduling</div>
     <div id="splash-version" style="font-size:10px;font-weight:700;color:#3f3f46;letter-spacing:0.12em;text-transform:uppercase;margin-top:6px;"></div>
