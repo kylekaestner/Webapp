@@ -3221,7 +3221,12 @@
 
             const commonOffDays = [];
             const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const endDate = allDatesMax ? new Date(allDatesMax + 'T12:00:00') : new Date(startDate.getTime() + 90 * 86400000);
+            // Cap to end of next calendar month — pilots with no data beyond that would
+            // falsely appear "off" every day since no segments = off. new Date(y,m+2,0) = last day of next month.
+            const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59);
+            const endDate = allDatesMax
+                ? new Date(Math.min(new Date(allDatesMax + 'T12:00:00').getTime(), nextMonthEnd.getTime()))
+                : nextMonthEnd;
             for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
                 const dateStr = localDateStr(d);
                 const offPilots = activeKeys.flatMap(k => {
