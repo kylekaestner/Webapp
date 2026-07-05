@@ -1121,6 +1121,134 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
     });
 });
 
+// GET /api/pilots/:pilotKey/here-now — debug endpoint showing where the HERE-NOW pin resolves to and why
+app.get('/api/pilots/:pilotKey/here-now', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+
+    db.get('SELECT id, name, base, home_airport FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
+
+        db.all('SELECT * FROM segments WHERE pilot_id = ? ORDER BY departure_time', [pilot.id], (err, segs) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const now = new Date();
+            const nowISO = now.toISOString();
+
+            // Detect UTC pilot by Z suffix on first flight's departure_time
+            const firstFlight = segs.find(s => s.type === 'flight' && s.departure_time);
+            const isUTCPilot = !!(firstFlight && firstFlight.departure_time.endsWith('Z'));
+
+            // Convert a stored time string to UTC Date. UTC pilots use Z times; others use local
+            // stored times (no TZ suffix). For local times we use Intl to convert via airport tz.
+            const aptTzCache = {};
+            function aptTz(code) {
+                if (!code) return null;
+                if (aptTzCache[code]) return aptTzCache[code];
+                const coords = _airportCities[code.toUpperCase()];
+                if (!coords) return null;
+                try {
+                    // Use Intl to probe timezone from coordinates via a known-offset trick
+                    // We can't map lat/lon → IANA tz server-side without a library, so fall back
+                    // to null and use raw string comparison for non-UTC pilots.
+                } catch(e) {}
+                return null;
+            }
+
+            function toUTCDate(isoStr) {
+                if (!isoStr) return null;
+                if (isoStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(isoStr)) return new Date(isoStr);
+                // For local-time strings, treat as UTC for comparison purposes in this debug endpoint.
+                // This gives slight drift (hours) but is sufficient to identify which flight is "last completed".
+                return new Date(isoStr + 'Z');
+            }
+
+            const flights = segs
+                .filter(s => s.type === 'flight' && s.departure_time && s.arrival_time)
+                .map(s => ({
+                    id: s.id,
+                    type: s.type,
+                    trip: s.trip,
+                    dep_airport: s.departure_airport,
+                    arr_airport: s.arrival_airport,
+                    dep_time: s.departure_time,
+                    arr_time: s.arrival_time,
+                    flight_number: s.flight_number,
+                    dep_utc: toUTCDate(s.departure_time)?.toISOString() || null,
+                    arr_utc: toUTCDate(s.arrival_time)?.toISOString() || null,
+                    dep_past: toUTCDate(s.departure_time) ? toUTCDate(s.departure_time) <= now : null,
+                    arr_past: toUTCDate(s.arrival_time) ? toUTCDate(s.arrival_time) <= now : null,
+                    is_manual: !!s.is_manual,
+                }))
+                .sort((a, b) => a.dep_time.localeCompare(b.dep_time));
+
+            // Completed = departure AND arrival both in the past
+            const completedFlights = flights.filter(f => f.dep_past && f.arr_past);
+            const lastFlight = completedFlights.length > 0 ? completedFlights[completedFlights.length - 1] : null;
+            const lastArrival = lastFlight ? lastFlight.arr_airport : null;
+
+            const home = pilot.home_airport || null;
+            const base = pilot.base || null;
+            const atHome = lastArrival && home && lastArrival.toUpperCase() === home.toUpperCase();
+            const atBase = lastArrival && base && lastArrival.toUpperCase() === base.toUpperCase();
+
+            // Active flights (dep past, arr future)
+            const activeFlights = flights.filter(f => f.dep_past && f.arr_past === false);
+
+            // Reserve segments
+            const reserves = segs.filter(s => s.type === 'reserve' && s.departure_airport);
+
+            let location, label, stepFired, stepDetail;
+
+            if (activeFlights.length > 0) {
+                stepFired = '1_airborne';
+                const f = activeFlights[0];
+                location = f.dep_airport;
+                label = 'Airborne (pin at dep airport until ADS-B overrides)';
+                stepDetail = { active_leg: f };
+            } else if (!lastArrival) {
+                stepFired = '5b_no_completed_flights';
+                location = home;
+                label = 'Home (no completed flights)';
+                stepDetail = { note: 'No completed flights found. Pilot shown at home.' };
+            } else if (!atHome) {
+                stepFired = '5_mid_trip';
+                location = lastArrival;
+                label = `Overnight at ${lastArrival}`;
+                stepDetail = { last_arrival: lastArrival, at_home: atHome, at_base: atBase };
+            } else {
+                stepFired = '6_at_home';
+                location = home;
+                label = 'Home';
+                stepDetail = { last_arrival: lastArrival };
+            }
+
+            res.json({
+                pilot: pilotKey,
+                name: pilot.name,
+                home,
+                base,
+                now: nowISO,
+                is_utc_pilot: isUTCPilot,
+                location,
+                label,
+                step_fired: stepFired,
+                step_detail: stepDetail,
+                debug: {
+                    note: 'dep_utc/arr_utc use raw string + Z suffix for local-time pilots (approximate; actual app uses airport timezone). dep_past/arr_past are based on this approximation.',
+                    total_flights: flights.length,
+                    completed_count: completedFlights.length,
+                    active_count: activeFlights.length,
+                    last_flight: lastFlight,
+                    reserve_count: reserves.length,
+                },
+                flights,
+            });
+        });
+    });
+});
+
 // POST upload schedule file
 app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res) => {
     const db = getDB();

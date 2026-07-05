@@ -4577,6 +4577,8 @@
                     const completedFlights = allFlightsSorted.filter(f => {
                         const cs = deriveCallsign(f, currentPilot);
                         if (cs && _landedEarly.has(cs)) return true;
+                        const d = flightUTCTime(f.departureTime, f.departureAirport);
+                        if (d && d > now) return false; // hasn't departed yet — can't be completed
                         const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                         return a && a <= now;
                     });
@@ -5586,6 +5588,8 @@
                     const completedFlights = pilotFlights.filter(f => {
                         const cs = deriveCallsign(f, pilotKey);
                         if (cs && _landedEarly.has(cs)) return true;
+                        const d = flightUTCTime(f.departureTime, f.departureAirport);
+                        if (d && d > now2) return false; // hasn't departed yet — can't be completed
                         const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                         return a && a <= now2;
                     });
