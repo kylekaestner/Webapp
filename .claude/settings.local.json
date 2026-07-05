@@ -21,7 +21,8 @@
       "Bash(Format-Table -AutoSize)",
       "Bash(awk 'NR>100 && NR<150')",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(curl -s http://167.71.107.245:3000/api/pilots/drew)"
     ]
   }
 }
