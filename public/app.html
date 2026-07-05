@@ -870,7 +870,7 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div class="min-w-0">
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Flight # <span id="add-flight-num-label" class="text-zinc-600 normal-case font-normal">(opt)</span></label>
-                        <input type="text" id="add-flight-num" placeholder="UA 442" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                        <input type="text" id="add-flight-num" placeholder="SKW1234" oninput="this.value=this.value.toUpperCase().replace(/\s/g,'')" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
                     </div>
                     <div class="min-w-0">
                         <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Tail # <span class="text-zinc-600 normal-case font-normal">(opt)</span></label>
@@ -2739,7 +2739,16 @@
 
         const PILOT_HOMES   = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX', drew: 'STL' };
         const PILOT_CARRIER = { kyle: 'SJJ', adam: 'RPA', sam: 'RPA', logan: 'SKW', drew: 'GJS' };
-        const IATA_TO_CALLSIGN = { G7: 'GJS', OO: 'SKW', YX: 'RPA', '9E': 'FLG' };
+        const IATA_TO_CALLSIGN = {
+            // Regionals (existing crew airlines)
+            G7: 'GJS', OO: 'SKW', YX: 'RPA', '9E': 'FLG',
+            // US majors / LCCs — IATA 2-letter → ICAO 3-letter for ADS-B callsign lookup
+            UA: 'UAL', DL: 'DAL', AA: 'AAL', WN: 'SWA', AS: 'ASA',
+            B6: 'JBU', F9: 'FFT', NK: 'NKS', G4: 'AAY', SY: 'SCX',
+            HA: 'HAL', MX: 'MXY', VX: 'VRD',
+            // Canada / common international
+            AC: 'ACA', WS: 'WJA', WE: 'SWG',
+        };
         const IATA_TO_CALLSIGN_ENTRIES = Object.entries(IATA_TO_CALLSIGN);
         // Airports that count as "home" — some pilots have two (e.g. Kyle: SUS + STL, same metro)
         const PILOT_HOME_AIRPORTS = { kyle: ['SUS','STL'], adam: ['TUL'], sam: ['STL'], logan: ['PHX'], drew: ['STL'] };
@@ -7044,6 +7053,11 @@ let _blockUserEdited = false;
             }
             if (dep.length < 3 || arr.length < 3) {
                 errEl.textContent = 'Airport codes must be 3–4 characters (e.g. ORD or KORD).';
+                return errEl.classList.remove('hidden');
+            }
+            const flightNumVal = document.getElementById('add-flight-num').value.trim();
+            if (flightNumVal && !/^[A-Z]{3}\d+$/.test(flightNumVal)) {
+                errEl.textContent = 'Flight # must use the 3-letter ICAO code (e.g. SKW1234, UAL442, SWA88).';
                 return errEl.classList.remove('hidden');
             }
 
