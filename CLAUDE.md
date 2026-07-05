@@ -195,6 +195,10 @@ For each pilot, the day map resolves their current location in this priority ord
 
 **Commuter detection** (`isCommuter`): `atBase && !atHome` — pilot who lives somewhere other than their base (e.g. Adam: base=LGA, home=TUL). When they land at LGA, they're shown "Heading home" for up to 3 hours before being moved to TUL.
 
+**`completedFlights` guard — departure must have passed:** Both `renderMap` and `renderDayMap` require that `departureTimeUTC <= now` in addition to `arrivalTimeUTC <= now` before counting a flight as completed. Without this, a manually-added transpacific flight whose `arrivalTime` was stored one day too early (a known `inferArrDate` limitation for >12h timezone crossings) would appear "completed" before the flight even departs, placing the HERE-NOW pin at the wrong arrival airport.
+
+**Debug endpoint:** `GET /api/pilots/:key/here-now` returns `{ location, label, step_fired, step_detail, flights }` — shows which HERE-NOW logic branch fired and which flight drove the decision. Useful when the pin appears at the wrong airport. Note: uses approximate UTC conversion (raw `isoStr + 'Z'`) for local-time pilots; close enough for debugging but not pixel-perfect.
+
 ### `inferAwayLayovers()` — synthetic away events
 
 Runs during `loadPilot()`. Walks all `type='flight'` segments (excluding `trip='PERSONAL'`). Between consecutive flights, if the arrival airport is:
