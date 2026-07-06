@@ -4435,8 +4435,9 @@
                     return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
                 });
                 const hasFuture = !hasActive && legs.some(f => {
+                    const d = flightUTCTime(f.departureTime, f.departureAirport);
                     const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                    return a && a > now;
+                    return (d && d > now) || (a && a > now);
                 });
                 const allPast   = !hasActive && !hasFuture;
 
@@ -5391,7 +5392,7 @@
                 const arrTime = flightUTCTime(f.arrivalTime || f.departureTime, f.arrivalAirport) || new Date(f.arrivalTime || f.departureTime);
                 const _cs = deriveCallsign(f, f.pilotKey);
                 const isActive = !_landedEarly.has(_cs) && depTime <= now && now <= new Date(arrTime.getTime() + 20 * 60000);
-                const isPast   = !isActive && arrTime < now;
+                const isPast   = !isActive && depTime <= now && arrTime < now;
                 const color = PILOT_COLORS[f.pilotKey];
 
                 // Offset index within pair group
