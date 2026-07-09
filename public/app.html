@@ -327,6 +327,8 @@
         }
         .mbtn.mbtn-active { color: #3b82f6 !important; }
         .mbtn.mbtn-active::before { width: 28px; }
+        .mbtn-icon-wrap { width: 38px; height: 28px; display:flex; align-items:center; justify-content:center; border-radius:10px; transition: background 0.15s; }
+        .mbtn-active .mbtn-icon-wrap { background: rgba(59,130,246,0.13); }
 
         /* ── PWA install prompt ─────────────────────────────────────── */
         #pwa-prompt {
@@ -456,23 +458,23 @@
         <div id="sidebar-pilot-list" class="px-3 pb-3 space-y-0.5 mt-2">
             <p class="text-[9px] font-bold text-zinc-600 uppercase tracking-widest px-2 pt-1 pb-2">Crew</p>
             <button onclick="loadPilot('kyle')" id="pilot-kyle" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.3);color:#38bdf8">K</span>
+                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);color:#3b82f6">K</span>
                 <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Kyle Kaestner</span>
             </button>
             <button onclick="loadPilot('adam')" id="pilot-adam" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(129,140,248,0.15);border:1px solid rgba(129,140,248,0.3);color:#818cf8">A</span>
+                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(45,212,191,0.15);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf">A</span>
                 <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Adam Burke</span>
             </button>
             <button onclick="loadPilot('sam')" id="pilot-sam" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(244,114,182,0.15);border:1px solid rgba(244,114,182,0.3);color:#f472b6">S</span>
+                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(249,115,22,0.15);border:1px solid rgba(249,115,22,0.3);color:#f97316">S</span>
                 <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Sam Byrne</span>
             </button>
             <button onclick="loadPilot('logan')" id="pilot-logan" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(251,146,60,0.15);border:1px solid rgba(251,146,60,0.3);color:#fb923c">L</span>
+                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(129,140,248,0.15);border:1px solid rgba(129,140,248,0.3);color:#818cf8">L</span>
                 <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Logan Hine</span>
             </button>
             <button onclick="loadPilot('drew')" id="pilot-drew" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.3);color:#34d399">D</span>
+                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(251,113,133,0.15);border:1px solid rgba(251,113,133,0.3);color:#fb7185">D</span>
                 <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Drew Sinelli</span>
             </button>
         </div>
@@ -715,29 +717,29 @@
 
         <!-- Mobile bottom nav -->
         <nav class="mobile-nav md:hidden border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md flex items-end shrink-0" style="padding-bottom: env(safe-area-inset-bottom);">
-            <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
                 <span class="text-[8px] font-black uppercase tracking-wide leading-none">Grid</span>
             </button>
-            <button onclick="switchView('list')" id="mbtn-list" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>
+            <button onclick="switchView('list')" id="mbtn-list" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg></div>
                 <span class="text-[8px] font-black uppercase tracking-wide leading-none">List</span>
             </button>
-            <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+            <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg></div>
                 <span class="text-[8px] font-black uppercase tracking-wide leading-none">Map</span>
             </button>
-            <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn relative flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="12" r="6.5"/><circle cx="15" cy="12" r="6.5"/></svg>
+            <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn relative flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="12" r="6.5"/><circle cx="15" cy="12" r="6.5"/></svg></div>
                 <span class="text-[8px] font-black uppercase tracking-wide leading-none">Overlap</span>
                 <span id="crossing-badge-mobile" class="xbadge hidden" style="top:6px;right:calc(50% - 18px)"></span>
             </button>
-            <button onclick="switchView('intel')" id="mbtn-intel" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+            <button onclick="switchView('intel')" id="mbtn-intel" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg></div>
                 <span class="text-[8px] font-black uppercase tracking-wide leading-none">Intel</span>
             </button>
-            <button id="btn-upload-nav" onclick="openMobileUpload()" class="mbtn flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 h-[50px]">
-                <svg id="mbtn-upload-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <button id="btn-upload-nav" onclick="openMobileUpload()" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg id="mbtn-upload-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
                 <span id="mbtn-upload-label" class="text-[8px] font-black uppercase tracking-wide leading-none">Upload</span>
             </button>
         </nav>

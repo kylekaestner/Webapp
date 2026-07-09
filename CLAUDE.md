@@ -672,17 +672,44 @@ Only one `.view-section` has `.view-active` (display:block/flex) at a time. `swi
 
 ## Color constants (pilot colors)
 
-Used in Crew Intel (`PILOT_COLORS`) and map legend:
+Used in Crew Intel (`PILOT_COLORS`), map legend, sidebar avatar circles, mobile pill active state, and flight card accents:
 ```js
 PILOT_COLORS = {
-  kyle: '#3b82f6',   // blue
-  adam: '#818cf8',   // indigo
-  sam:  '#f472b6',   // pink
-  logan:'#fb923c',   // orange
-  drew: '#34d399',   // emerald
+  kyle: '#3b82f6',   // blue-500
+  adam: '#2dd4bf',   // teal-400
+  sam:  '#f97316',   // orange-500
+  logan:'#818cf8',   // indigo-400
+  drew: '#fb7185',   // rose-400
 }
 ```
-Additional pilots get colors from a rotating palette.
+Additional non-core pilots (brett, hunter, nick, jack) have colors defined inline; further pilots get `_dynamicColorPool` rotating palette.
+
+**Source of truth**: always read from `PILOT_COLORS` constant in app.html (~line 2109). Hardcoded HTML uses these values as rgba; e.g. `#3b82f6` → `rgba(59,130,246,0.15)` for avatar circle background.
+
+---
+
+## UI theme (server branch — aviation boarding pass style)
+
+### Flight cards (day detail sheet + list view)
+- **`.bp-card`** — boarding pass container: `overflow:hidden`, `border-radius:16px`
+- **`.bp-apt-code`** — 38px monospace airport code (30px on mobile)
+- **`.bp-top-bar`** — 3px accent gradient bar at card top
+- **`.bp-tear-line`** / **`.bp-stub`** — dashed separator + stub section with flight meta + barcode decoration
+- **`accentColor` hierarchy** (day detail & list): `isActiveLeg → #22c55e` > `isPersonal → #a78bfa` > `isCommute → #f59e0b` > `PILOT_COLORS[currentPilot]`
+
+### Sidebar pilot buttons (`#sidebar-pilot-list`)
+- **`.pilot-avatar-btn`** — full-width button with colored initials circle (`w-7 h-7 rounded-full`) + pilot name
+- Circle background/border/text use `PILOT_COLORS[pilot]` rgba values (hardcoded in HTML, must match JS constant)
+- Active state set by `loadPilot()`: `btn.style.background = pc + '1a'`, `btn.style.borderColor = pc + '55'`
+
+### Mobile nav bar (`.mobile-nav`)
+- Each button is `56px` tall with `.mbtn-icon-wrap` (38×28px, `border-radius:10px`) wrapping the SVG
+- Active: `.mbtn-active .mbtn-icon-wrap` gets `background: rgba(59,130,246,0.13)` + icon/label color `#3b82f6`
+- Top indicator line (`.mbtn::before`): 2px, `#3b82f6`, animates width from 0→28px on active
+
+### Mobile pilot pills (`#mobile-pilot-bar`)
+- Active pill uses `PILOT_COLORS[pilot]` (border + color + background) via `loadPilot()` JS
+- Inactive: `border-zinc-700 text-zinc-400`
 
 ---
 
