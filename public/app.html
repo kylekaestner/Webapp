@@ -2522,7 +2522,7 @@
             const now = new Date();
             const next = segs
                 .filter(s => s.type === 'flight' && s.departureTime && new Date(s.departureTime) > now)
-                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                .sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)))[0];
             if (!next) { hide(); return; }
             _nextFlightDate = new Date(next.departureTime);
             const dep  = _nextFlightDate;
@@ -4445,7 +4445,7 @@
                 const upper = f.arrivalAirport.toUpperCase();
                 if (isHomeOrBase(upper, currentPilot)) return;
                 const nextDep = allFlights.filter(s => s.departureAirport === f.arrivalAirport && s.departureTime > f.arrivalTime)
-                    .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                    .sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)))[0];
                 if (!nextDep) return;
                 const arrMid = new Date(f.arrivalTime); arrMid.setHours(0,0,0,0);
                 const depMid = new Date(nextDep.departureTime); depMid.setHours(0,0,0,0);
@@ -4499,7 +4499,7 @@
                 const hitLines = worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' });
 
                 // Popup: list all legs chronologically
-                const sorted = legs.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+                const sorted = legs.slice().sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
                 const legRows = sorted.map(f => {
                     const dt = new Date(f.departureTime);
                     const ds = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -4595,7 +4595,7 @@
 
             // Current position pin
             const home = PILOT_HOMES[currentPilot] || null;
-            const allFlightsSorted = allFlights.slice().sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+            const allFlightsSorted = allFlights.slice().sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
             const isAirborne = allFlightsSorted.some(f => {
                 const d = flightUTCTime(f.departureTime, f.departureAirport);
                 const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
@@ -5541,7 +5541,7 @@
 
                     const pilotFlights = segs
                         .filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime)
-                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+                        .sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
 
                     // Helper — resolve airport and push a pin entry
                     const pushPin = (code, label) => {
@@ -5845,7 +5845,7 @@
         }
         function getNextLegFrom(airport, afterTimeStr) {
             return segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === airport && s.departureTime > afterTimeStr)
-                .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime))[0];
+                .sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)))[0];
         }
         function layoverLabel(groundMins, atHome, sameDay) {
             if (groundMins <= 0) return '';
@@ -6093,7 +6093,7 @@
                     // Scrollable flight list
                     html += `<div class="overflow-y-auto flex-1 px-1.5 pb-1.5 space-y-1">`;
                     const cellFlights = dayEvents.filter(e => e.type === 'flight' || e.type === 'ground')
-                        .sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+                        .sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
                     cellFlights.forEach(f => {
                         if (f.type === 'ground') {
                             const gDepFmt = f.departureTime ? formatTimeISO(f.departureTime, f.departureAirport) : '';
@@ -6206,7 +6206,7 @@
                     const _listPersonalFlightApt = (_listRawPersonalApt && !isHomeOrBase(normApt(_listRawPersonalApt), currentPilot)) ? _listRawPersonalApt : null;
                     const awayApt = _listPersonalFlightApt || _listPersonallyAwayApt;
                     const reserves = dayEvents.filter(e => e.type === 'reserve');
-                    const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+                    const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
                     const _listNow = Date.now();
                     const _listAnyLive = flights.some(f => {
                         const cs = deriveCallsign(f, currentPilot) || '';
@@ -6244,7 +6244,7 @@
                             return `<div class="border border-amber-500/25 rounded-2xl px-4 py-3 bg-amber-950/20 text-sm text-amber-200"><div class="flex items-center justify-between"><div class="font-black text-amber-300 uppercase tracking-wide">On Call <span class="text-amber-600 text-xs font-semibold ml-1">${subType}</span></div><div class="text-right text-xs text-amber-400/70">${depFmt}${tzSup2(depTz)} – ${arrFmt}${tzSup2(arrTz)}</div></div></div>`;
                         }).join('');
                     }
-                    const allLegs = [...flights, ...groundLegs].sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+                    const allLegs = [...flights, ...groundLegs].sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
                     if (allLegs.length > 0) {
                         contentHtml = allLegs.map(leg => {
                             if (leg.type === 'ground') {
@@ -6648,7 +6648,7 @@
             const isVacation = dayEvents.some(e => e.type === 'vacation');
             let away = dayEvents.find(e => e.type === 'away');
             if (away && isHomeAirport(away.arrivalAirport, currentPilot)) away = null;
-            const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+            const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
             const workFlights = flights.filter(f => f.trip !== 'PERSONAL');
             const isPersonalFlight = flights.some(f => f.trip === 'PERSONAL');
             const _detailPersonallyAwayApt = isPersonalFlight ? null : isPersonallyAway(dateKey);
@@ -6657,8 +6657,8 @@
                 : null;
             const _detailPersonalFlightApt = (_detailRawPersonalApt && !isHomeOrBase(normApt(_detailRawPersonalApt), currentPilot)) ? _detailRawPersonalApt : null;
             const awayApt = _detailPersonalFlightApt || _detailPersonallyAwayApt;
-            const reserves = dayEvents.filter(e => e.type === 'reserve').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
-            const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+            const reserves = dayEvents.filter(e => e.type === 'reserve').sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
+            const groundLegs = dayEvents.filter(e => e.type === 'ground').sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
 
             const nowMs = Date.now();
             const flightMs = flights.map(f => {
@@ -6692,7 +6692,7 @@
                 html += `<div class="text-center py-8"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>`;
             }
 
-            const allDayLegs = [...flights, ...groundLegs].sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+            const allDayLegs = [...flights, ...groundLegs].sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
             allDayLegs.forEach(leg => {
             if (leg.type === 'ground') {
                 const g = leg;
