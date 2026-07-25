@@ -86,20 +86,36 @@
 
   function setAngularInput(el, value) {
     if (!el) return;
-    // Native setter bypasses framework value tracking
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
     setter.call(el, value);
-    // Fire the full set of events Angular listens to
     ['focus', 'input', 'change', 'blur'].forEach(ev =>
       el.dispatchEvent(new Event(ev, { bubbles: true }))
     );
+  }
+
+  // Set a text input that has an autocomplete dropdown.
+  // Types the value, waits for mat-option panel, clicks the best match.
+  async function setAutocomplete(el, value) {
+    if (!el) return false;
+    el.focus();
+    setAngularInput(el, value);
+    // Wait for the autocomplete panel to appear
+    await new Promise(r => setTimeout(r, 700));
+    const opts = [...document.querySelectorAll('mat-option')].filter(
+      o => o.offsetParent !== null // visible only
+    );
+    if (!opts.length) return true; // no autocomplete — plain text fill is enough
+    // Prefer option whose text contains the value; otherwise take first
+    const match = opts.find(o => o.textContent.includes(value)) || opts[0];
+    match.click();
+    await new Promise(r => setTimeout(r, 200));
+    return true;
   }
 
   // Click a mat-select open and choose option matching search text
   function selectMatOption(selectEl, search) {
     if (!selectEl) return Promise.resolve(false);
     return new Promise(resolve => {
-      // Click the trigger (may be the element itself or a child trigger)
       const trigger = selectEl.querySelector('.mat-select-trigger') || selectEl;
       trigger.click();
       setTimeout(() => {
@@ -108,7 +124,7 @@
           o.textContent.toLowerCase().includes(search.toLowerCase())
         );
         if (match) { match.click(); return resolve(true); }
-        document.body.click(); // close if nothing matched
+        document.body.click();
         resolve(false);
       }, 500);
     });
@@ -194,28 +210,41 @@
   async function fillFlight(flight) {
     const log = [];
 
-    // Text fields
+    // ── Flight Date and ETD (UTC format matching the "(GMT) GMT" label) ────
+    const dateEl = inputByLabel('flight date and etd');
+    if (dateEl) {
+      const d = new Date(flight.departure_time); // UTC
+      const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd   = String(d.getUTCDate()).padStart(2, '0');
+      const yyyy = d.getUTCFullYear();
+      const hh   = String(d.getUTCHours()).padStart(2, '0');
+      const min  = String(d.getUTCMinutes()).padStart(2, '0');
+      setAngularInput(dateEl, `${mm}/${dd}/${yyyy} ${hh}:${min}`);
+      log.push('Date ✓');
+    } else log.push('Date ✗');
+
+    // ── Origin autocomplete ────────────────────────────────────────────────
     const originEl = inputByLabel('origin');
-    const destEl   = inputByLabel('destination');
-    const tripEl   = inputByLabel('trip id');
+    if (originEl) { await setAutocomplete(originEl, flight.departure_airport); log.push('Origin ✓'); }
+    else log.push('Origin ✗');
 
-    if (originEl) { setAngularInput(originEl, flight.departure_airport); log.push('Origin ✓'); }
-    else log.push('Origin ✗ (not found)');
+    // ── Destination autocomplete ───────────────────────────────────────────
+    const destEl = inputByLabel('destination');
+    if (destEl) { await setAutocomplete(destEl, flight.arrival_airport); log.push('Dest ✓'); }
+    else log.push('Dest ✗');
 
-    if (destEl)   { setAngularInput(destEl,   flight.arrival_airport);   log.push('Dest ✓'); }
-    else log.push('Dest ✗ (not found)');
-
+    // ── Trip ID (plain text) ───────────────────────────────────────────────
+    const tripEl = inputByLabel('trip id');
     if (tripEl && flight.trip) { setAngularInput(tripEl, flight.trip); log.push('Trip ID ✓'); }
-    else if (!tripEl) log.push('Trip ID ✗ (not found)');
+    else if (!tripEl) log.push('Trip ID ✗');
 
-    // Dropdowns — give text inputs a moment to settle first
-    await new Promise(r => setTimeout(r, 300));
+    // ── Dropdowns — wait for any open autocomplete panels to close ─────────
+    await new Promise(r => setTimeout(r, 400));
 
     const sicSel      = selectByLabel('sic');
     const aircraftSel = selectByLabel('aircraft');
-
-    if (sicSel)      { const ok = await selectMatOption(sicSel, SIC_NAME);          log.push('SIC ' + (ok ? '✓' : '✗')); }
-    if (aircraftSel && flight.tail) { const ok = await selectMatOption(aircraftSel, flight.tail); log.push('Aircraft ' + (ok ? '✓' : '✗')); }
+    if (sicSel)                     { const ok = await selectMatOption(sicSel,      SIC_NAME);     log.push('SIC '      + (ok ? '✓' : '✗')); }
+    if (aircraftSel && flight.tail) { const ok = await selectMatOption(aircraftSel, flight.tail);  log.push('Aircraft ' + (ok ? '✓' : '✗')); }
 
     console.log('[CrewSync FRAT] Fill result:', log.join(', '));
     return log;
