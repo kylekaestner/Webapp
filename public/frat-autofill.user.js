@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      2.5
+// @version      2.6
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA from CrewSync + Schedaero
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -340,9 +340,9 @@
               resolve(null);
               return;
             }
-            // Log ALL BottomLeft fields found (so we can see what's there even if no KDK match)
-            const allBL = [...r.responseText.matchAll(/<BottomLeft>([^<]*)<\/BottomLeft>/gi)].map(m => m[1].trim());
-            console.log(`[CrewSync FRAT] BottomLeft fields on ${date}: ${allBL.join(' | ') || '(none)'}`);
+            // Log ALL BottomLeft fields — regex tolerates attributes like <BottomLeft style="...">
+            const allBL = [...r.responseText.matchAll(/<BottomLeft[^>]*>([^<]*)<\/BottomLeft>/gi)].map(m => m[1].trim());
+            console.log(`[CrewSync FRAT] BottomLeft fields on ${date}: ${allBL.join(' | ') || '(none — crew may not be published yet for future trips)'}`);
 
             for (const crew of allBL) {
               const parts = crew.split('/');
@@ -451,9 +451,9 @@
     const allMs        = [...document.querySelectorAll('mat-select')];
     const aircraftInfo = findAnySelect('aircraft');
     const tsaInfo      = findAnySelect('tsa vetting') || findAnySelect('part 135 tsa vetting');
-    const picInfo      = findAnySelect('pic');
+    let picInfo        = findAnySelect('pic');
 
-    // SIC = the mat-select immediately after PIC in document order
+    // SIC = mat-select immediately after PIC in document order
     let sicInfo = null;
     if (picInfo && picInfo.kind === 'mat') {
       const picIdx = allMs.indexOf(picInfo.el);
@@ -465,6 +465,16 @@
       }
     }
     if (!sicInfo) sicInfo = findAnySelect('sic');
+
+    // PIC = mat-select immediately before SIC — guaranteed anchor when label search fails.
+    // SIC is known-good (fills Kyle correctly), so SIC-1 must be PIC.
+    if (!picInfo && sicInfo) {
+      const sicIdx = allMs.indexOf(sicInfo.el);
+      if (sicIdx > 0 && allMs[sicIdx - 1] !== aircraftInfo?.el) {
+        picInfo = { el: allMs[sicIdx - 1], kind: 'mat' };
+        console.log('[CrewSync FRAT] PIC derived as SIC-1 (label search failed)');
+      }
+    }
 
     const labelOf = info => {
       if (!info) return 'NOT FOUND';
