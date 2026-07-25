@@ -48,26 +48,28 @@
         return document.getElementById(lbl.htmlFor) || null;
       }
     }
-    // Strategy 3 — element whose text is exactly this label, find nearest input
-    const all = document.querySelectorAll(
-      'label, mat-label, span, div, p, th'
-    );
-    for (const el of all) {
-      // Only consider elements with no block-level children (leaf-ish)
-      if (el.children.length > 2) continue;
-      const txt = el.textContent.replace(/\*/g, '').trim().toLowerCase();
-      if (txt === t) {
-        // Walk up looking for an input
-        let node = el.parentElement;
-        for (let i = 0; i < 5 && node; i++) {
-          const inp = node.querySelector('input:not([type=hidden]):not([type=checkbox])');
-          if (inp) return inp;
-          node = node.parentElement;
-        }
-      }
+    // Strategy 3 — find the label text element, then walk UP looking for a
+  //   container that has EXACTLY 1 visible input. This prevents grabbing the
+  //   wrong field when labels are in a multi-column row (e.g. Trip ID label
+  //   found, but row container's first input is the Flight Date field).
+  const all = document.querySelectorAll('label, mat-label, span, div, p, th');
+  for (const el of all) {
+    if (el.children.length > 2) continue; // skip composite containers
+    const txt = el.textContent.replace(/\*/g, '').trim().toLowerCase();
+    if (txt !== t) continue;
+
+    let container = el.parentElement;
+    for (let i = 0; i < 4 && container; i++) {
+      const inputs = [...container.querySelectorAll(
+        'input:not([type=hidden]):not([type=checkbox]):not([type=radio])'
+      )];
+      if (inputs.length === 1) return inputs[0]; // unique — this is the right column
+      // Multiple inputs means we're in a row/section spanning columns — go higher
+      container = container.parentElement;
     }
-    return null;
   }
+  return null;
+}
 
   // Find a mat-select whose form-field label matches text
   function selectByLabel(text) {
