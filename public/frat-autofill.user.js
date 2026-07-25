@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      2.8
+// @version      2.9
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA from CrewSync + Schedaero
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -275,7 +275,7 @@
 
     // ── 2. findAnySelect results for key fields ────────────────────────────
     console.group('[CrewSync FRAT] findAnySelect results:');
-    ['aircraft', 'pic', 'sic', 'tsa vetting', 'part 135 tsa vetting'].forEach(term => {
+    ['aircraft', 'pic', 'sic', 'tsa vetting', 'part 135 tsa vetting', 'physically and mentally fit', 'time zones'].forEach(term => {
       const r = findAnySelect(term);
       if (!r) { console.log(`  "${term}" → NOT FOUND`); return; }
       const idx = allMs.indexOf(r.el);
@@ -484,6 +484,8 @@
     const allMs        = [...document.querySelectorAll('mat-select')];
     const aircraftInfo = findAnySelect('aircraft');
     const tsaInfo      = findAnySelect('tsa vetting') || findAnySelect('part 135 tsa vetting');
+    const fitInfo      = findAnySelect('physically and mentally fit') || findAnySelect('fit to fly safely');
+    const restInfo     = findAnySelect('time zones') || findAnySelect('rest time equal');
     let picInfo        = findAnySelect('pic');
 
     // SIC = mat-select immediately after PIC in document order
@@ -519,7 +521,9 @@
       `  aircraft: ${labelOf(aircraftInfo)}\n` +
       `  pic:      ${labelOf(picInfo)}\n` +
       `  sic:      ${labelOf(sicInfo)}\n` +
-      `  tsa:      ${labelOf(tsaInfo)}`
+      `  tsa:      ${labelOf(tsaInfo)}\n` +
+      `  fit:      ${labelOf(fitInfo)}\n` +
+      `  restTime: ${labelOf(restInfo)}`
     );
 
     // ── Fill order: PIC → SIC → Aircraft (last — Angular blanks it on crew changes) → TSA
@@ -557,6 +561,20 @@
       const ok = await selectAnyOption(tsaInfo, 'Completed');
       log.push('TSA ' + (ok ? '✓' : '✗'));
     } else log.push('TSA ✗ (not found)');
+
+    // Fit to fly — always Yes
+    if (fitInfo) {
+      highlightField(fitInfo);
+      const ok = await selectAnyOption(fitInfo, 'Yes');
+      log.push('Fit to fly ' + (ok ? '✓' : '✗'));
+    } else log.push('Fit to fly ✗ (not found)');
+
+    // Rest time after crossing time zones
+    if (restInfo) {
+      highlightField(restInfo);
+      const ok = await selectAnyOption(restInfo, '14 hours');
+      log.push('Rest time ' + (ok ? '✓' : '✗'));
+    } else log.push('Rest time ✗ (not found)');
 
     console.log('[CrewSync FRAT] Fill result:', log.join(', '));
     return log;
