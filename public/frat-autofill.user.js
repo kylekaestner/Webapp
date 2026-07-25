@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      2.1
+// @version      2.2
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -96,15 +96,16 @@
       }
     }
     // S3: formcontrolname / ng-reflect-name on mat-select
+    // Require name length >= 3 to avoid matching short substrings ('ic', 'pi')
     for (const s of document.querySelectorAll('mat-select')) {
       const name = (s.getAttribute('formcontrolname') ||
                     s.getAttribute('ng-reflect-name') || '').toLowerCase();
-      if (name && (name === t || name.includes(t) || t.includes(name))) return { el: s, kind: 'mat' };
+      if (name && name.length >= 3 && (name === t || name.includes(t) || t.includes(name))) return { el: s, kind: 'mat' };
     }
-    // S4: find label text element, then return the NEAREST select/mat-select
-    //     that follows it in DOM order. This is critical for two-column layouts
-    //     (PIC / SIC side by side) where walking UP the tree returns the wrong
-    //     (first) select in the shared row container.
+    // S4: find label text using WORD-BOUNDARY matching, then return the first
+    //     select that follows it in DOM order.
+    //     Word-boundary prevents 'specific' matching 'pic', or 'music' matching 'sic'.
+    const termRegex = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
     const allSelects = [
       ...[...document.querySelectorAll('mat-select')].map(s => ({ el: s, kind: 'mat' })),
       ...[...document.querySelectorAll('select')].map(s => ({ el: s, kind: 'native' })),
@@ -112,8 +113,8 @@
 
     for (const el of document.querySelectorAll('label, mat-label, span, div, p, h4, h5, h6')) {
       if (el.children.length > 2) continue;
-      const txt = el.textContent.replace(/\*/g, '').trim().toLowerCase();
-      if (txt !== t && !txt.includes(t)) continue;
+      const txt = el.textContent.replace(/\*/g, '').trim();
+      if (!termRegex.test(txt)) continue;
 
       // Find all selects that come AFTER this label in document order
       const following = allSelects.filter(({ el: s }) =>
@@ -219,68 +220,80 @@
     const match = opts.find(o => o.textContent.toLowerCase().includes(search.toLowerCase()));
     if (match) { match.click(); return true; }
 
-    console.log(`[CrewSync FRAT] No match for "${search}". Options:`,
-      opts.map(o => o.textContent.trim()));
+    // If exactly 1 option is visible and it's not a "no results" placeholder, click it.
+    // Handles fields like TSA Vetting where the only option has unexpected casing/phrasing.
+    const realOpts = opts.filter(o => !o.classList.contains('mat-option-disabled') &&
+      !o.textContent.trim().toLowerCase().startsWith('no '));
+    if (realOpts.length === 1) {
+      console.log(`[CrewSync FRAT] No text match for "${search}" — clicking sole option: "${realOpts[0].textContent.trim()}"`);
+      realOpts[0].click();
+      return true;
+    }
+
+    const optTexts = opts.map(o => `"${o.textContent.trim()}"`).join(' | ');
+    console.log(`[CrewSync FRAT] No match for "${search}". Options: ${optTexts}`);
     closeCdkOverlay();
     return false;
   }
 
-  // ── Debug: log every visible input and its context ────────────────────────
+  // ── Debug: dump form state as plain inline strings (no collapsed Objects) ─
 
   function debugDump() {
+    const allMs = [...document.querySelectorAll('mat-select')];
+
+    // ── 1. ALL mat-selects in document order ──────────────────────────────
+    console.group(`[CrewSync FRAT] ALL mat-selects (${allMs.length} total) — full list:`);
+    allMs.forEach((sel, idx) => {
+      const fc  = sel.getAttribute('formcontrolname') || sel.getAttribute('ng-reflect-name') || '(none)';
+      const val = sel.querySelector('.mat-select-value-text')?.textContent.trim() || '(empty)';
+      const ff  = sel.closest('mat-form-field');
+      const ffl = ff ? (matFieldLabel(ff) || '(no ff-label)') : '(not in ff)';
+      // Find nearest preceding text node as label hint
+      let prevLabel = '';
+      let node = sel;
+      for (let i = 0; i < 6 && !prevLabel; i++) {
+        node = node.previousElementSibling || node.parentElement?.previousElementSibling;
+        if (!node) break;
+        const txt = node.textContent.replace(/\*/g, '').trim().slice(0, 40);
+        if (txt && node.children.length <= 3) prevLabel = txt;
+      }
+      console.log(`[${idx}] fc="${fc}" | val="${val}" | ff-label="${ffl}" | prev-sibling="${prevLabel}"`);
+    });
+    console.groupEnd();
+
+    // ── 2. findAnySelect results for key fields ────────────────────────────
+    console.group('[CrewSync FRAT] findAnySelect results:');
+    ['aircraft', 'pic', 'sic', 'tsa vetting', 'part 135 tsa vetting'].forEach(term => {
+      const r = findAnySelect(term);
+      if (!r) { console.log(`  "${term}" → NOT FOUND`); return; }
+      const idx = allMs.indexOf(r.el);
+      const fc  = r.el.getAttribute('formcontrolname') || '(none)';
+      const val = r.el.querySelector('.mat-select-value-text')?.textContent.trim() || '(empty)';
+      console.log(`  "${term}" → [${idx}] fc="${fc}" | val="${val}" | kind=${r.kind}`);
+    });
+    console.groupEnd();
+
+    // ── 3. Visible text inputs ─────────────────────────────────────────────
     const inputs = [...document.querySelectorAll(
       'input:not([type=hidden]):not([type=checkbox]):not([type=radio])'
     )].filter(i => i.offsetParent !== null);
-
-    console.group('[CrewSync FRAT] Visible inputs:');
+    console.group(`[CrewSync FRAT] Visible inputs (${inputs.length}):`);
     inputs.forEach((inp, idx) => {
       const ff  = inp.closest('mat-form-field');
       const lbl = ff
         ? (ff.querySelector('mat-label')?.textContent.trim() ||
-           ff.querySelector('label')?.textContent.trim() || '(none)')
-        : (document.querySelector(`label[for="${inp.id}"]`)?.textContent.trim() || '(none)');
-      console.log(idx, {
-        label: lbl,
-        id:    inp.id   || '(none)',
-        name:  inp.name || '(none)',
-        placeholder: inp.placeholder || '(none)',
-        'aria-label': inp.getAttribute('aria-label') || '(none)',
-        formcontrolname: inp.getAttribute('formcontrolname') || '(none)',
-        type:  inp.type || 'text',
-        value: inp.value,
-      });
+           ff.querySelector('label')?.textContent.trim() || '(no ff-label)')
+        : (document.querySelector(`label[for="${inp.id}"]`)?.textContent.trim() || '(no label)');
+      console.log(
+        `[${idx}] label="${lbl}" | id="${inp.id || '(none)'}" | fc="${inp.getAttribute('formcontrolname') || '(none)'}" | placeholder="${inp.placeholder || ''}" | val="${inp.value}"`
+      );
     });
     console.groupEnd();
 
+    // ── 4. mat-label elements present ─────────────────────────────────────
     const matLabels = [...document.querySelectorAll('mat-label')];
-    console.group('[CrewSync FRAT] mat-label texts:');
-    matLabels.forEach(l => console.log(`"${l.textContent.trim()}"`, '→ parent:', l.parentElement?.tagName));
-    console.groupEnd();
-
-    // Dump all mat-select fields
-    console.group('[CrewSync FRAT] mat-select fields:');
-    document.querySelectorAll('mat-form-field').forEach((ff, idx) => {
-      const sel = ff.querySelector('mat-select');
-      if (!sel) return;
-      const lbl = matFieldLabel(ff) || '(no label)';
-      const val = sel.querySelector('.mat-select-value-text')?.textContent.trim() || '(empty)';
-      const fc = sel.getAttribute('formcontrolname') || '(none)';
-      console.log(idx, { label: lbl, formcontrolname: fc, currentValue: val });
-    });
-    console.groupEnd();
-
-    // Dump native <select> fields
-    console.group('[CrewSync FRAT] native <select> fields:');
-    document.querySelectorAll('select').forEach((sel, idx) => {
-      const lbl = document.querySelector(`label[for="${sel.id}"]`)?.textContent.trim() ||
-        sel.closest('[class*="field"], [class*="form"], [class*="group"]')
-          ?.querySelector('label, span, div')?.textContent.trim() || '(no label)';
-      const fc = sel.getAttribute('formcontrolname') || sel.getAttribute('ng-reflect-name') || '(none)';
-      console.log(idx, { label: lbl.substring(0, 60), formcontrolname: fc,
-        currentValue: sel.options[sel.selectedIndex]?.text || '(none)',
-        optionCount: sel.options.length });
-    });
-    console.groupEnd();
+    console.log(`[CrewSync FRAT] mat-label count: ${matLabels.length}`,
+      matLabels.length ? matLabels.map(l => `"${l.textContent.trim()}"`).join(', ') : '(none — form uses plain text labels)');
 
     alert('CrewSync debug info written to browser console (F12 → Console).\nShare the output with Kyle.');
   }
@@ -396,12 +409,13 @@
       const ff = info.el.closest('mat-form-field');
       return `${info.kind} · label="${matFieldLabel(ff) || '(none)'}" · idx=${allMs.indexOf(info.el)}`;
     };
-    console.log('[CrewSync FRAT] Selects resolved:', {
-      sic:      labelOf(sicInfo),
-      aircraft: labelOf(aircraftInfo),
-      tsa:      labelOf(tsaInfo),
-      pic:      labelOf(picInfo),
-    });
+    console.log(
+      `[CrewSync FRAT] Selects resolved:\n` +
+      `  aircraft: ${labelOf(aircraftInfo)}\n` +
+      `  pic:      ${labelOf(picInfo)}\n` +
+      `  sic:      ${labelOf(sicInfo)}\n` +
+      `  tsa:      ${labelOf(tsaInfo)}`
+    );
 
     // Fill Aircraft first so it's in the form before SIC/TSA side-effects fire
     if (aircraftInfo && flight.tail) {
