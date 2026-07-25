@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      1.6
+// @version      1.7
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -73,39 +73,76 @@
   return null;
 }
 
-  // Find a mat-select whose form-field label matches text
-  function selectByLabel(text) {
+  // Find any select element (mat-select OR native <select>) for the given label text.
+  // Returns { el, kind: 'mat'|'native' } or null.
+  function findAnySelect(text) {
     const t = text.toLowerCase();
 
-    // Strategy 1 — exact mat-form-field label match
+    // ── mat-select strategies ──────────────────────────────────────────────
+    // S1: exact mat-form-field label
     for (const ff of document.querySelectorAll('mat-form-field')) {
       if (matFieldLabel(ff) === t) {
-        const sel = ff.querySelector('mat-select');
-        if (sel) return sel;
+        const s = ff.querySelector('mat-select');
+        if (s) return { el: s, kind: 'mat' };
       }
     }
-    // Strategy 2 — partial/contains match (handles long labels like "Part 135 TSA Vetting")
+    // S2: partial match on mat-form-field label
     for (const ff of document.querySelectorAll('mat-form-field')) {
       const lbl = matFieldLabel(ff);
-      if (!lbl) continue; // skip unlabeled fields
+      if (!lbl) continue;
       if (lbl.includes(t) || (lbl.length >= 2 && t.includes(lbl))) {
-        const sel = ff.querySelector('mat-select');
-        if (sel) return sel;
+        const s = ff.querySelector('mat-select');
+        if (s) return { el: s, kind: 'mat' };
       }
     }
-    // Strategy 3 — label text element near a mat-select (same single-child heuristic)
+    // S3: formcontrolname / ng-reflect-name on mat-select
+    for (const s of document.querySelectorAll('mat-select')) {
+      const name = (s.getAttribute('formcontrolname') ||
+                    s.getAttribute('ng-reflect-name') || '').toLowerCase();
+      if (name && (name === t || name.includes(t) || t.includes(name))) return { el: s, kind: 'mat' };
+    }
+    // S4: label text element → walk up → mat-select
     for (const el of document.querySelectorAll('label, mat-label, span, div, p')) {
       if (el.children.length > 2) continue;
       const txt = el.textContent.replace(/\*/g, '').trim().toLowerCase();
       if (txt !== t && !txt.includes(t)) continue;
-      let container = el.parentElement;
-      for (let i = 0; i < 4 && container; i++) {
-        const sel = container.querySelector('mat-select');
-        if (sel) return sel;
-        container = container.parentElement;
+      let c = el.parentElement;
+      for (let i = 0; i < 4 && c; i++) {
+        const s = c.querySelector('mat-select');
+        if (s) return { el: s, kind: 'mat' };
+        c = c.parentElement;
       }
     }
+
+    // ── native <select> fallback ───────────────────────────────────────────
+    // S5: label[for=id]
+    for (const lbl of document.querySelectorAll('label')) {
+      const txt = lbl.textContent.replace(/\*/g, '').trim().toLowerCase();
+      if ((txt === t || txt.includes(t)) && lbl.htmlFor) {
+        const s = document.getElementById(lbl.htmlFor);
+        if (s && s.tagName === 'SELECT') return { el: s, kind: 'native' };
+      }
+    }
+    // S6: label text element → walk up → native select
+    for (const el of document.querySelectorAll('label, span, div, p, h4, h5, h6')) {
+      if (el.children.length > 2) continue;
+      const txt = el.textContent.replace(/\*/g, '').trim().toLowerCase();
+      if (txt !== t && !txt.includes(t)) continue;
+      let c = el.parentElement;
+      for (let i = 0; i < 6 && c; i++) {
+        const s = c.querySelector('select');
+        if (s) return { el: s, kind: 'native' };
+        c = c.parentElement;
+      }
+    }
+
     return null;
+  }
+
+  // Kept for backwards compat within selectMatOption
+  function selectByLabel(text) {
+    const r = findAnySelect(text);
+    return (r && r.kind === 'mat') ? r.el : null;
   }
 
   // ── Angular-aware value setter ────────────────────────────────────────────
@@ -136,6 +173,27 @@
     match.click();
     await new Promise(r => setTimeout(r, 200));
     return true;
+  }
+
+  // Select an option in either a mat-select or a native <select>
+  async function selectAnyOption(info, search) {
+    if (!info) return false;
+    const { el, kind } = info;
+
+    if (kind === 'native') {
+      const opts = [...el.options];
+      const match = opts.find(o => o.text.toLowerCase().includes(search.toLowerCase()));
+      if (!match) {
+        console.log(`[CrewSync FRAT] No match for "${search}" in native select. Options:`, opts.map(o => o.text.trim()));
+        return false;
+      }
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+      setter.call(el, match.value);
+      ['change', 'input'].forEach(ev => el.dispatchEvent(new Event(ev, { bubbles: true })));
+      return true;
+    }
+
+    return selectMatOption(el, search); // mat-select path
   }
 
   // Close whatever Angular CDK overlay is currently open
@@ -204,14 +262,28 @@
     matLabels.forEach(l => console.log(`"${l.textContent.trim()}"`, '→ parent:', l.parentElement?.tagName));
     console.groupEnd();
 
-    // Also dump all mat-select fields and their options (when open)
+    // Dump all mat-select fields
     console.group('[CrewSync FRAT] mat-select fields:');
     document.querySelectorAll('mat-form-field').forEach((ff, idx) => {
       const sel = ff.querySelector('mat-select');
       if (!sel) return;
       const lbl = matFieldLabel(ff) || '(no label)';
       const val = sel.querySelector('.mat-select-value-text')?.textContent.trim() || '(empty)';
-      console.log(idx, { label: lbl, currentValue: val, el: sel });
+      const fc = sel.getAttribute('formcontrolname') || '(none)';
+      console.log(idx, { label: lbl, formcontrolname: fc, currentValue: val });
+    });
+    console.groupEnd();
+
+    // Dump native <select> fields
+    console.group('[CrewSync FRAT] native <select> fields:');
+    document.querySelectorAll('select').forEach((sel, idx) => {
+      const lbl = document.querySelector(`label[for="${sel.id}"]`)?.textContent.trim() ||
+        sel.closest('[class*="field"], [class*="form"], [class*="group"]')
+          ?.querySelector('label, span, div')?.textContent.trim() || '(no label)';
+      const fc = sel.getAttribute('formcontrolname') || sel.getAttribute('ng-reflect-name') || '(none)';
+      console.log(idx, { label: lbl.substring(0, 60), formcontrolname: fc,
+        currentValue: sel.options[sel.selectedIndex]?.text || '(none)',
+        optionCount: sel.options.length });
     });
     console.groupEnd();
 
@@ -294,30 +366,30 @@
     // ── Dropdowns — wait for any open autocomplete panels to close ─────────
     await new Promise(r => setTimeout(r, 400));
 
-    const sicSel      = selectByLabel('sic');
-    const aircraftSel = selectByLabel('aircraft');
-    const tsaSel      = selectByLabel('tsa vetting') || selectByLabel('part 135 tsa vetting');
+    const sicInfo      = findAnySelect('sic');
+    const aircraftInfo = findAnySelect('aircraft');
+    const tsaInfo      = findAnySelect('tsa vetting') || findAnySelect('part 135 tsa vetting');
 
     console.log('[CrewSync FRAT] Selects found:', {
-      sic: sicSel ? matFieldLabel(sicSel.closest('mat-form-field')) : 'NOT FOUND',
-      aircraft: aircraftSel ? matFieldLabel(aircraftSel.closest('mat-form-field')) : 'NOT FOUND',
-      tsa: tsaSel ? matFieldLabel(tsaSel.closest('mat-form-field')) : 'NOT FOUND',
+      sic:      sicInfo      ? `${sicInfo.kind}` : 'NOT FOUND',
+      aircraft: aircraftInfo ? `${aircraftInfo.kind}` : 'NOT FOUND',
+      tsa:      tsaInfo      ? `${tsaInfo.kind}` : 'NOT FOUND',
     });
 
-    if (sicSel) {
-      const ok = await selectMatOption(sicSel, SIC_NAME); // 'Kaestner' matches "Kaestner, Kyle"
+    if (sicInfo) {
+      const ok = await selectAnyOption(sicInfo, SIC_NAME); // 'Kaestner' matches "Kaestner, Kyle"
       log.push('SIC ' + (ok ? '✓' : '✗'));
-    } else log.push('SIC ✗ (select not found)');
+    } else log.push('SIC ✗ (not found)');
 
-    if (aircraftSel && flight.tail) {
-      const ok = await selectMatOption(aircraftSel, flight.tail);
+    if (aircraftInfo && flight.tail) {
+      const ok = await selectAnyOption(aircraftInfo, flight.tail);
       log.push('Aircraft ' + (ok ? '✓' : '✗'));
-    } else if (!aircraftSel) log.push('Aircraft ✗ (select not found)');
+    } else if (!aircraftInfo) log.push('Aircraft ✗ (not found)');
 
-    if (tsaSel) {
-      const ok = await selectMatOption(tsaSel, 'Completed');
+    if (tsaInfo) {
+      const ok = await selectAnyOption(tsaInfo, 'Completed');
       log.push('TSA ' + (ok ? '✓' : '✗'));
-    } else log.push('TSA ✗ (select not found)');
+    } else log.push('TSA ✗ (not found)');
 
     console.log('[CrewSync FRAT] Fill result:', log.join(', '));
     return log;
