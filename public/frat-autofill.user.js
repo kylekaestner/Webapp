@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      1.1
-// @description  Prefills Origin, Destination, and SIC from your CrewSync schedule
+// @version      1.2
+// @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/edit
@@ -16,85 +16,149 @@
 (function () {
   'use strict';
 
-  const SERVER  = 'http://167.71.107.245:3000';
-  const PILOT   = 'kyle';
-  const SIC_NAME = 'Kaestner';   // text to match in the SIC dropdown
+  const SERVER   = 'http://167.71.107.245:3000';
+  const PILOT    = 'kyle';
+  const SIC_NAME = 'Kaestner';
 
-  // ── DOM helpers ──────────────────────────────────────────────────────────
+  // ── Input finders ─────────────────────────────────────────────────────────
 
-  function waitFor(sel, timeout = 15000) {
-    return new Promise((res, rej) => {
-      const t0 = Date.now();
-      (function poll() {
-        const el = document.querySelector(sel);
-        if (el) return res(el);
-        if (Date.now() - t0 > timeout) return rej('Timeout waiting for: ' + sel);
-        setTimeout(poll, 300);
-      })();
-    });
+  // Returns the text of the label associated with a mat-form-field containing el
+  function matFieldLabel(ff) {
+    const ml = ff.querySelector('mat-label');
+    if (ml) return ml.textContent.replace(/\*/g, '').trim().toLowerCase();
+    // Some Prism SMS fields use a plain <label> inside the form field wrapper
+    const lbl = ff.querySelector('label');
+    if (lbl) return lbl.textContent.replace(/\*/g, '').trim().toLowerCase();
+    return '';
   }
 
-  // Bypass Angular/React value tracking — the native setter + input event
-  // is the only reliable way to update a framework-managed text field.
+  // Find an <input> whose Angular Material form-field has a label matching text
+  function inputByLabel(text) {
+    const t = text.toLowerCase();
+    // Strategy 1 — mat-form-field with mat-label or label child
+    for (const ff of document.querySelectorAll('mat-form-field')) {
+      if (matFieldLabel(ff) === t) {
+        return ff.querySelector('input:not([type=hidden])') || null;
+      }
+    }
+    // Strategy 2 — HTML <label for="...">
+    for (const lbl of document.querySelectorAll('label')) {
+      const lblTxt = lbl.textContent.replace(/\*/g, '').trim().toLowerCase();
+      if (lblTxt === t && lbl.htmlFor) {
+        return document.getElementById(lbl.htmlFor) || null;
+      }
+    }
+    // Strategy 3 — element whose text is exactly this label, find nearest input
+    const all = document.querySelectorAll(
+      'label, mat-label, span, div, p, th'
+    );
+    for (const el of all) {
+      // Only consider elements with no block-level children (leaf-ish)
+      if (el.children.length > 2) continue;
+      const txt = el.textContent.replace(/\*/g, '').trim().toLowerCase();
+      if (txt === t) {
+        // Walk up looking for an input
+        let node = el.parentElement;
+        for (let i = 0; i < 5 && node; i++) {
+          const inp = node.querySelector('input:not([type=hidden]):not([type=checkbox])');
+          if (inp) return inp;
+          node = node.parentElement;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Find a mat-select whose form-field label matches text
+  function selectByLabel(text) {
+    const t = text.toLowerCase();
+    for (const ff of document.querySelectorAll('mat-form-field')) {
+      if (matFieldLabel(ff) === t) {
+        return ff.querySelector('mat-select') || null;
+      }
+    }
+    return null;
+  }
+
+  // ── Angular-aware value setter ────────────────────────────────────────────
+
   function setAngularInput(el, value) {
     if (!el) return;
+    // Native setter bypasses framework value tracking
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
     setter.call(el, value);
-    el.dispatchEvent(new Event('input',  { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.focus();
-    el.blur();
+    // Fire the full set of events Angular listens to
+    ['focus', 'input', 'change', 'blur'].forEach(ev =>
+      el.dispatchEvent(new Event(ev, { bubbles: true }))
+    );
   }
 
-  // Find the <input> inside a mat-form-field whose mat-label matches labelText
-  function inputByLabel(labelText) {
-    for (const lbl of document.querySelectorAll('mat-label')) {
-      if (lbl.textContent.trim().replace(/\s*\*\s*$/, '').toLowerCase() === labelText.toLowerCase()) {
-        const ff = lbl.closest('mat-form-field');
-        if (ff) return ff.querySelector('input');
-      }
-    }
-    return null;
-  }
-
-  // Find the mat-select inside a mat-form-field by label
-  function selectByLabel(labelText) {
-    for (const lbl of document.querySelectorAll('mat-label')) {
-      if (lbl.textContent.trim().replace(/\s*\*\s*$/, '').toLowerCase() === labelText.toLowerCase()) {
-        const ff = lbl.closest('mat-form-field');
-        if (ff) return ff.querySelector('mat-select');
-      }
-    }
-    return null;
-  }
-
-  // Click a mat-select open, then pick the option whose text includes `search`
+  // Click a mat-select open and choose option matching search text
   function selectMatOption(selectEl, search) {
     if (!selectEl) return Promise.resolve(false);
     return new Promise(resolve => {
-      selectEl.click();
+      // Click the trigger (may be the element itself or a child trigger)
+      const trigger = selectEl.querySelector('.mat-select-trigger') || selectEl;
+      trigger.click();
       setTimeout(() => {
         const opts = [...document.querySelectorAll('mat-option')];
-        const match = opts.find(o => o.textContent.toLowerCase().includes(search.toLowerCase()));
+        const match = opts.find(o =>
+          o.textContent.toLowerCase().includes(search.toLowerCase())
+        );
         if (match) { match.click(); return resolve(true); }
-        // Close the panel if no match found
-        document.body.click();
+        document.body.click(); // close if nothing matched
         resolve(false);
       }, 500);
     });
   }
 
-  // ── Date formatting (Kyle's segments are UTC — end in Z) ─────────────────
+  // ── Debug: log every visible input and its context ────────────────────────
 
-  function fmtFlight(seg) {
-    const dep = new Date(seg.departure_time); // ends in Z → parses as UTC
-    const opts = { timeZone: 'America/Chicago' };
-    const dateStr = dep.toLocaleDateString('en-US', { ...opts, weekday: 'short', month: 'short', day: 'numeric' });
-    const timeStr = dep.toLocaleTimeString('en-US', { ...opts, hour: '2-digit', minute: '2-digit', hour12: false });
-    return `${dateStr} · ${timeStr} CT`;
+  function debugDump() {
+    const inputs = [...document.querySelectorAll(
+      'input:not([type=hidden]):not([type=checkbox]):not([type=radio])'
+    )].filter(i => i.offsetParent !== null);
+
+    console.group('[CrewSync FRAT] Visible inputs:');
+    inputs.forEach((inp, idx) => {
+      const ff  = inp.closest('mat-form-field');
+      const lbl = ff
+        ? (ff.querySelector('mat-label')?.textContent.trim() ||
+           ff.querySelector('label')?.textContent.trim() || '(none)')
+        : (document.querySelector(`label[for="${inp.id}"]`)?.textContent.trim() || '(none)');
+      console.log(idx, {
+        label: lbl,
+        id:    inp.id   || '(none)',
+        name:  inp.name || '(none)',
+        placeholder: inp.placeholder || '(none)',
+        'aria-label': inp.getAttribute('aria-label') || '(none)',
+        formcontrolname: inp.getAttribute('formcontrolname') || '(none)',
+        type:  inp.type || 'text',
+        value: inp.value,
+      });
+    });
+    console.groupEnd();
+
+    const matLabels = [...document.querySelectorAll('mat-label')];
+    console.group('[CrewSync FRAT] mat-label texts:');
+    matLabels.forEach(l => console.log(`"${l.textContent.trim()}"`, '→ parent:', l.parentElement?.tagName));
+    console.groupEnd();
+
+    alert('CrewSync debug info written to browser console (F12 → Console).\nShare the output with Kyle.');
   }
 
-  // ── Fetch upcoming flights ────────────────────────────────────────────────
+  // ── Date / time formatting ────────────────────────────────────────────────
+
+  function fmtFlight(seg) {
+    const dep = new Date(seg.departure_time); // UTC, ends in Z
+    const opts = { timeZone: 'America/Chicago' };
+    return dep.toLocaleDateString('en-US', { ...opts, weekday: 'short', month: 'short', day: 'numeric' })
+      + ' · '
+      + dep.toLocaleTimeString('en-US', { ...opts, hour: '2-digit', minute: '2-digit', hour12: false })
+      + ' CT';
+  }
+
+  // ── Fetch upcoming legs ────────────────────────────────────────────────────
 
   function fetchFlights() {
     return new Promise((resolve, reject) => {
@@ -105,42 +169,57 @@
         onload(r) {
           try {
             const data = JSON.parse(r.responseText);
-            const cutoff = Date.now() - 2 * 3600_000; // include up to 2h ago
+            const cutoff = Date.now() - 2 * 3600_000;
             const flights = (data.segments || [])
               .filter(s =>
                 s.type === 'flight' &&
-                s.departure_airport &&
-                s.arrival_airport &&
-                s.departure_time &&
+                s.departure_airport && s.arrival_airport && s.departure_time &&
                 new Date(s.departure_time).getTime() >= cutoff
               )
               .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time))
-              .slice(0, 10);
+              .slice(0, 12);
             resolve(flights);
           } catch (e) { reject(e); }
         },
         onerror:   () => reject(new Error('Network error')),
-        ontimeout: () => reject(new Error('Request timed out')),
+        ontimeout: () => reject(new Error('Timeout')),
       });
     });
   }
 
-  // ── Fill the FRAT form fields ─────────────────────────────────────────────
+  // ── Form fill ─────────────────────────────────────────────────────────────
 
   async function fillFlight(flight) {
-    // Text inputs: Origin and Destination
-    const originInput = inputByLabel('origin');
-    const destInput   = inputByLabel('destination');
-    if (originInput) setAngularInput(originInput, flight.departure_airport);
-    if (destInput)   setAngularInput(destInput,   flight.arrival_airport);
+    const log = [];
 
-    // SIC dropdown — Kyle is always SIC
+    // Text fields
+    const originEl = inputByLabel('origin');
+    const destEl   = inputByLabel('destination');
+    const tripEl   = inputByLabel('trip id');
+
+    if (originEl) { setAngularInput(originEl, flight.departure_airport); log.push('Origin ✓'); }
+    else log.push('Origin ✗ (not found)');
+
+    if (destEl)   { setAngularInput(destEl,   flight.arrival_airport);   log.push('Dest ✓'); }
+    else log.push('Dest ✗ (not found)');
+
+    if (tripEl && flight.trip) { setAngularInput(tripEl, flight.trip); log.push('Trip ID ✓'); }
+    else if (!tripEl) log.push('Trip ID ✗ (not found)');
+
+    // Dropdowns — give text inputs a moment to settle first
     await new Promise(r => setTimeout(r, 300));
-    const sicSel = selectByLabel('sic');
-    await selectMatOption(sicSel, SIC_NAME);
+
+    const sicSel      = selectByLabel('sic');
+    const aircraftSel = selectByLabel('aircraft');
+
+    if (sicSel)      { const ok = await selectMatOption(sicSel, SIC_NAME);          log.push('SIC ' + (ok ? '✓' : '✗')); }
+    if (aircraftSel && flight.tail) { const ok = await selectMatOption(aircraftSel, flight.tail); log.push('Aircraft ' + (ok ? '✓' : '✗')); }
+
+    console.log('[CrewSync FRAT] Fill result:', log.join(', '));
+    return log;
   }
 
-  // ── Floating panel UI ─────────────────────────────────────────────────────
+  // ── Panel UI ───────────────────────────────────────────────────────────────
 
   const PANEL_ID = 'cs-frat-panel';
 
@@ -151,114 +230,96 @@
     const panel = document.createElement('div');
     panel.id = PANEL_ID;
     Object.assign(panel.style, {
-      position:     'fixed',
-      top:          '72px',
-      right:        '18px',
-      zIndex:       '2147483647',
-      background:   '#0f172a',
-      border:       '1px solid #1e3a5f',
-      borderRadius: '16px',
-      padding:      '14px 14px 10px',
-      width:        '300px',
-      boxShadow:    '0 12px 40px rgba(0,0,0,.65)',
-      fontFamily:   'system-ui,-apple-system,sans-serif',
-      fontSize:     '13px',
-      lineHeight:   '1.4',
+      position: 'fixed', top: '72px', right: '18px', zIndex: '2147483647',
+      background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: '16px',
+      padding: '14px 14px 10px', width: '300px',
+      boxShadow: '0 12px 40px rgba(0,0,0,.65)',
+      fontFamily: 'system-ui,-apple-system,sans-serif', fontSize: '13px', lineHeight: '1.4',
     });
 
-    // Header
-    const header = document.createElement('div');
-    Object.assign(header.style, {
-      display:        'flex',
-      justifyContent: 'space-between',
-      alignItems:     'center',
-      marginBottom:   '10px',
-    });
-    header.innerHTML = `
-      <div style="font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.1em">
-        ✈ CrewSync — Select Leg
+    panel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.1em">
+          ✈ CrewSync — Select Leg
+        </div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <span id="cs-status" style="font-size:11px;color:#10b981;display:none"></span>
+          <button id="cs-debug" title="Debug — dump selectors to console"
+            style="background:none;border:1px solid #334155;color:#475569;cursor:pointer;font-size:10px;border-radius:5px;padding:2px 5px">dbg</button>
+          <button id="cs-close"
+            style="background:none;border:none;color:#475569;cursor:pointer;font-size:20px;line-height:1;padding:0 2px">×</button>
+        </div>
       </div>
-      <div style="display:flex;gap:4px;align-items:center">
-        <span id="cs-status" style="font-size:11px;color:#10b981;display:none"></span>
-        <button id="cs-close" title="Close"
-          style="background:none;border:none;color:#475569;cursor:pointer;font-size:20px;line-height:1;padding:0 2px">×</button>
+      <div style="font-size:10px;color:#475569;margin-bottom:10px">
+        Fills: Origin · Destination · Trip ID · SIC · Aircraft
+      </div>
+      <div id="cs-legs"></div>
+      <div style="font-size:10px;color:#334155;margin-top:8px;border-top:1px solid #1e293b;padding-top:8px">
+        PIC &amp; TSA Vetting — fill manually
       </div>
     `;
-    panel.appendChild(header);
 
-    const sub = document.createElement('div');
-    sub.style.cssText = 'font-size:10px;color:#475569;margin-bottom:10px';
-    sub.textContent = 'Click a leg — fills Origin, Destination, and SIC';
-    panel.appendChild(sub);
-
-    const status = header.querySelector('#cs-status');
+    const legsEl = panel.querySelector('#cs-legs');
+    const status = panel.querySelector('#cs-status');
 
     if (!flights.length) {
-      const empty = document.createElement('div');
-      empty.style.cssText = 'color:#475569;text-align:center;padding:16px 0;font-size:12px';
-      empty.textContent = 'No upcoming flights in schedule';
-      panel.appendChild(empty);
+      legsEl.innerHTML = '<div style="color:#475569;text-align:center;padding:16px 0;font-size:12px">No upcoming flights in schedule</div>';
     }
 
     flights.forEach(f => {
       const card = document.createElement('div');
       Object.assign(card.style, {
-        padding:      '10px 13px',
-        borderRadius: '10px',
-        border:       '1px solid #1e293b',
-        background:   '#1e293b',
-        cursor:       'pointer',
-        marginBottom: '6px',
-        transition:   'background .12s, border-color .12s',
+        padding: '10px 13px', borderRadius: '10px',
+        border: '1px solid #1e293b', background: '#1e293b',
+        cursor: 'pointer', marginBottom: '6px',
+        transition: 'background .12s, border-color .12s',
       });
-      card.onmouseenter = () => { card.style.background = '#1e3a5f'; card.style.borderColor = '#3b82f6'; };
-      card.onmouseleave = () => {
-        if (!card.dataset.done) { card.style.background = '#1e293b'; card.style.borderColor = '#1e293b'; }
-      };
+      card.onmouseenter = () => { if (!card.dataset.done) { card.style.background = '#1e3a5f'; card.style.borderColor = '#3b82f6'; } };
+      card.onmouseleave = () => { if (!card.dataset.done) { card.style.background = '#1e293b'; card.style.borderColor = '#1e293b'; } };
 
-      const route = document.createElement('div');
-      route.style.cssText = 'font-weight:700;font-size:16px;color:#f1f5f9;letter-spacing:.01em';
-      route.innerHTML = `${f.departure_airport} <span style="color:#3b82f6">→</span> ${f.arrival_airport}`;
-
-      const meta = document.createElement('div');
-      meta.style.cssText = 'font-size:10px;color:#64748b;margin-top:3px';
-      meta.textContent = fmtFlight(f) + (f.tail ? ' · ' + f.tail : '');
-
-      card.appendChild(route);
-      card.appendChild(meta);
+      card.innerHTML = `
+        <div id="cs-route-${f.id}" style="font-weight:700;font-size:16px;color:#f1f5f9;letter-spacing:.01em">
+          ${f.departure_airport} <span style="color:#3b82f6">→</span> ${f.arrival_airport}
+        </div>
+        <div id="cs-meta-${f.id}" style="font-size:10px;color:#64748b;margin-top:3px">
+          ${fmtFlight(f)}${f.tail ? ' · ' + f.tail : ''}${f.trip ? ' · ' + f.trip : ''}
+        </div>
+      `;
 
       card.onclick = async () => {
         if (card.dataset.done) return;
         card.dataset.done = '1';
-        card.style.background   = '#064e3b';
-        card.style.borderColor  = '#10b981';
-        status.textContent      = 'Filling…';
-        status.style.display    = 'block';
-        route.style.color       = '#34d399';
-        await fillFlight(f);
-        status.textContent = `✓ ${f.departure_airport} → ${f.arrival_airport}`;
-        meta.textContent   = 'Done — check PIC and TSA fields manually';
-        meta.style.color   = '#4ade80';
+        card.style.background = '#1e3a5f';
+        card.style.borderColor = '#3b82f6';
+        status.textContent = 'Filling…';
+        status.style.display = 'block';
+
+        const log = await fillFlight(f);
+        const allOk = log.every(l => !l.includes('✗'));
+
+        card.style.background  = allOk ? '#064e3b' : '#3b1f00';
+        card.style.borderColor = allOk ? '#10b981'  : '#f59e0b';
+
+        document.getElementById(`cs-route-${f.id}`).style.color = allOk ? '#34d399' : '#fbbf24';
+        document.getElementById(`cs-meta-${f.id}`).textContent  = log.join(' · ');
+        document.getElementById(`cs-meta-${f.id}`).style.color  = allOk ? '#4ade80' : '#fbbf24';
+        status.textContent = allOk ? '✓ Done' : '⚠ Partial — check console';
+        status.style.color = allOk ? '#10b981' : '#f59e0b';
       };
 
-      panel.appendChild(card);
+      legsEl.appendChild(card);
     });
-
-    const hint = document.createElement('div');
-    hint.style.cssText = 'font-size:10px;color:#334155;margin-top:8px;border-top:1px solid #1e293b;padding-top:8px';
-    hint.innerHTML = 'PIC &amp; TSA Vetting — fill manually &nbsp;·&nbsp; <a href="' + SERVER + '/frat-autofill.user.js" target="_blank" style="color:#3b82f6;text-decoration:none">reinstall script</a>';
-    panel.appendChild(hint);
 
     document.body.appendChild(panel);
     panel.querySelector('#cs-close').onclick = () => panel.remove();
+    panel.querySelector('#cs-debug').onclick  = () => debugDump();
   }
 
-  // ── Error / loading panels ────────────────────────────────────────────────
+  // ── Loading / error panels ────────────────────────────────────────────────
 
   function buildLoadingPanel() {
     const existing = document.getElementById(PANEL_ID);
     if (existing) existing.remove();
-
     const panel = document.createElement('div');
     panel.id = PANEL_ID;
     Object.assign(panel.style, {
@@ -267,18 +328,30 @@
       padding: '14px', width: '220px', boxShadow: '0 8px 24px rgba(0,0,0,.5)',
       fontFamily: 'system-ui,sans-serif', fontSize: '12px', color: '#475569',
     });
-    panel.innerHTML = `<div style="font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">✈ CrewSync</div>Loading schedule…`;
+    panel.innerHTML = '<div style="font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">✈ CrewSync</div>Loading schedule…';
     document.body.appendChild(panel);
     return panel;
+  }
+
+  // ── waitFor helper ────────────────────────────────────────────────────────
+
+  function waitFor(sel, timeout = 15000) {
+    return new Promise((res, rej) => {
+      const t0 = Date.now();
+      (function poll() {
+        if (document.querySelector(sel)) return res();
+        if (Date.now() - t0 > timeout) return rej('Timeout: ' + sel);
+        setTimeout(poll, 300);
+      })();
+    });
   }
 
   // ── Main ─────────────────────────────────────────────────────────────────
 
   async function main() {
     try {
-      // Wait for Angular to render the form before we do anything
-      await waitFor('mat-form-field');
-      await new Promise(r => setTimeout(r, 1000)); // extra hydration buffer
+      await waitFor('mat-form-field, input[type=text]');
+      await new Promise(r => setTimeout(r, 1200));
 
       const loadingPanel = buildLoadingPanel();
 
@@ -288,7 +361,7 @@
       } catch (e) {
         loadingPanel.innerHTML = `
           <div style="font-size:10px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">✈ CrewSync</div>
-          <div style="color:#64748b;font-size:12px">Could not reach server.<br>Check your connection.</div>
+          <div style="color:#64748b;font-size:12px">Could not reach server.<br>Check VPN / connection.</div>
         `;
         console.error('[CrewSync FRAT]', e);
         return;
@@ -296,7 +369,6 @@
 
       loadingPanel.remove();
       buildPanel(flights);
-
     } catch (e) {
       console.error('[CrewSync FRAT]', e);
     }
