@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      1.7
+// @version      1.8
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -101,39 +101,25 @@
                     s.getAttribute('ng-reflect-name') || '').toLowerCase();
       if (name && (name === t || name.includes(t) || t.includes(name))) return { el: s, kind: 'mat' };
     }
-    // S4: label text element → walk up → mat-select
-    for (const el of document.querySelectorAll('label, mat-label, span, div, p')) {
-      if (el.children.length > 2) continue;
-      const txt = el.textContent.replace(/\*/g, '').trim().toLowerCase();
-      if (txt !== t && !txt.includes(t)) continue;
-      let c = el.parentElement;
-      for (let i = 0; i < 4 && c; i++) {
-        const s = c.querySelector('mat-select');
-        if (s) return { el: s, kind: 'mat' };
-        c = c.parentElement;
-      }
-    }
+    // S4: find label text element, then return the NEAREST select/mat-select
+    //     that follows it in DOM order. This is critical for two-column layouts
+    //     (PIC / SIC side by side) where walking UP the tree returns the wrong
+    //     (first) select in the shared row container.
+    const allSelects = [
+      ...[...document.querySelectorAll('mat-select')].map(s => ({ el: s, kind: 'mat' })),
+      ...[...document.querySelectorAll('select')].map(s => ({ el: s, kind: 'native' })),
+    ];
 
-    // ── native <select> fallback ───────────────────────────────────────────
-    // S5: label[for=id]
-    for (const lbl of document.querySelectorAll('label')) {
-      const txt = lbl.textContent.replace(/\*/g, '').trim().toLowerCase();
-      if ((txt === t || txt.includes(t)) && lbl.htmlFor) {
-        const s = document.getElementById(lbl.htmlFor);
-        if (s && s.tagName === 'SELECT') return { el: s, kind: 'native' };
-      }
-    }
-    // S6: label text element → walk up → native select
-    for (const el of document.querySelectorAll('label, span, div, p, h4, h5, h6')) {
+    for (const el of document.querySelectorAll('label, mat-label, span, div, p, h4, h5, h6')) {
       if (el.children.length > 2) continue;
       const txt = el.textContent.replace(/\*/g, '').trim().toLowerCase();
       if (txt !== t && !txt.includes(t)) continue;
-      let c = el.parentElement;
-      for (let i = 0; i < 6 && c; i++) {
-        const s = c.querySelector('select');
-        if (s) return { el: s, kind: 'native' };
-        c = c.parentElement;
-      }
+
+      // Find all selects that come AFTER this label in document order
+      const following = allSelects.filter(({ el: s }) =>
+        el.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING
+      );
+      if (following.length) return following[0]; // closest = first in DOM order
     }
 
     return null;
