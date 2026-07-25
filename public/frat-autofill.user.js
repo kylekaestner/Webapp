@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      1.8
+// @version      1.9
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -191,29 +191,37 @@
     if (backdrop) backdrop.click();
   }
 
-  // Click a mat-select open and choose option matching search text
-  function selectMatOption(selectEl, search) {
-    if (!selectEl) return Promise.resolve(false);
-    return new Promise(resolve => {
-      // Close any currently open overlay before opening a new one
-      closeCdkOverlay();
-      setTimeout(() => {
-        const trigger = selectEl.querySelector('.mat-select-trigger') || selectEl;
-        trigger.click();
-        setTimeout(() => {
-          const opts = [...document.querySelectorAll('mat-option')];
-          const match = opts.find(o =>
-            o.textContent.toLowerCase().includes(search.toLowerCase())
-          );
-          if (match) { match.click(); return resolve(true); }
-          // No match — log available options so we can debug, then close cleanly
-          console.log(`[CrewSync FRAT] No match for "${search}". Options:`,
-            opts.map(o => o.textContent.trim()));
-          closeCdkOverlay();
-          resolve(false);
-        }, 700);
-      }, 200); // brief pause so previous overlay is fully gone before opening next
-    });
+  // Click a mat-select open, optionally type in its search box, then pick option
+  async function selectMatOption(selectEl, search) {
+    if (!selectEl) return false;
+
+    closeCdkOverlay();
+    await new Promise(r => setTimeout(r, 250));
+
+    const trigger = selectEl.querySelector('.mat-select-trigger') || selectEl;
+    trigger.click();
+    await new Promise(r => setTimeout(r, 450));
+
+    // If the panel has a search/filter input, type the search term to narrow the list.
+    // Aircraft uses this — all tail numbers are options but only some are rendered.
+    const panelSearch = document.querySelector(
+      '.mat-select-panel input, mat-select-search input, ' +
+      '[class*="select-search"] input, .mat-autocomplete-panel ~ * input'
+    );
+    if (panelSearch) {
+      panelSearch.focus();
+      setAngularInput(panelSearch, search);
+      await new Promise(r => setTimeout(r, 600)); // wait for filter to apply
+    }
+
+    const opts = [...document.querySelectorAll('mat-option')];
+    const match = opts.find(o => o.textContent.toLowerCase().includes(search.toLowerCase()));
+    if (match) { match.click(); return true; }
+
+    console.log(`[CrewSync FRAT] No match for "${search}". Options:`,
+      opts.map(o => o.textContent.trim()));
+    closeCdkOverlay();
+    return false;
   }
 
   // ── Debug: log every visible input and its context ────────────────────────
