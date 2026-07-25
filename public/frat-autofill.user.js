@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      2.4
-// @description  Prefills Origin, Destination, Trip ID, SIC, PIC, and Aircraft from CrewSync + Schedaero company schedule
+// @version      2.5
+// @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA from CrewSync + Schedaero
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/edit
@@ -12,17 +12,19 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @connect      167.71.107.245
+// @connect      schedaero.avinode.com
 // @run-at       document-idle
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  const SERVER   = 'http://167.71.107.245:3000';
-  const PILOT    = 'kyle';
-  const SIC_NAME = 'Kaestner'; // Kyle's last name as it appears in PIC/SIC dropdowns
+  const SERVER      = 'http://167.71.107.245:3000';
+  const PILOT       = 'kyle';
+  const SIC_NAME    = 'Kaestner'; // Kyle's last name as it appears in SIC dropdown
+  const COMPANY_CAL = 'https://schedaero.avinode.com/mvc/api/calendars/main/5678';
 
-  // Captain name lookup by Schedaero initials
+  // Captain name lookup by Schedaero 3-letter initials
   const CREW_NAMES = {
     HSB: 'Hans Brosbol',   TJB: 'Thomas Bressie', MEV: 'Martin Valla',
     JAL: 'Lonnie Legner',  AJB: 'Aleks Biteman',  TAJ: 'Tyler Johnson',
@@ -319,30 +321,48 @@
       + ' CT';
   }
 
-  // ── Fetch captain from company Schedaero calendar ─────────────────────────
+  // ── Fetch captain from Schedaero company calendar ─────────────────────────
+  // Uses your live browser session cookies (no server restart needed).
 
   function fetchCaptain(flight) {
     const date = new Date(flight.departure_time).toISOString().slice(0, 10);
+    const url  = `${COMPANY_CAL}/${date}?ajax=true&_=${Date.now()}`;
+    console.log('[CrewSync FRAT] Fetching company cal:', url);
     return new Promise(resolve => {
       GM_xmlhttpRequest({
         method:  'GET',
-        url:     `${SERVER}/api/kyle/company-crew?date=${date}`,
+        url,
         timeout: 8000,
         onload(r) {
           try {
-            const data = JSON.parse(r.responseText);
-            const hit = (data.assignments || []).find(a => a.captainName);
-            if (hit) {
-              console.log(`[CrewSync FRAT] Captain: ${hit.captainInitials} = ${hit.captainName}`);
-              resolve(hit.captainName);
-            } else {
-              console.log('[CrewSync FRAT] No captain found for', date, data);
+            if (r.status !== 200) {
+              console.log(`[CrewSync FRAT] Company cal HTTP ${r.status} — are you logged into Schedaero?`);
               resolve(null);
+              return;
             }
-          } catch (e) { resolve(null); }
+            // Log ALL BottomLeft fields found (so we can see what's there even if no KDK match)
+            const allBL = [...r.responseText.matchAll(/<BottomLeft>([^<]*)<\/BottomLeft>/gi)].map(m => m[1].trim());
+            console.log(`[CrewSync FRAT] BottomLeft fields on ${date}: ${allBL.join(' | ') || '(none)'}`);
+
+            for (const crew of allBL) {
+              const parts = crew.split('/');
+              if (parts.length >= 2 && parts[1].trim().toUpperCase() === 'KDK') {
+                const captInit    = parts[0].trim().toUpperCase();
+                const captainName = CREW_NAMES[captInit];
+                console.log(`[CrewSync FRAT] Captain: ${captInit} = ${captainName || '(unknown initials)'}`);
+                resolve(captainName || null);
+                return;
+              }
+            }
+            console.log('[CrewSync FRAT] No KDK-as-SIC entry found for', date);
+            resolve(null);
+          } catch (e) {
+            console.log('[CrewSync FRAT] Company cal parse error:', e.message);
+            resolve(null);
+          }
         },
-        onerror:   () => { console.log('[CrewSync FRAT] Company crew fetch failed'); resolve(null); },
-        ontimeout: () => { console.log('[CrewSync FRAT] Company crew fetch timed out'); resolve(null); },
+        onerror:   () => { console.log('[CrewSync FRAT] Company cal network error'); resolve(null); },
+        ontimeout: () => { console.log('[CrewSync FRAT] Company cal timeout'); resolve(null); },
       });
     });
   }
