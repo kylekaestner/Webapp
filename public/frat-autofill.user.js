@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      1.2
+// @version      1.3
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/edit
+// @updateURL    http://167.71.107.245:3000/frat-autofill.user.js
+// @downloadURL  http://167.71.107.245:3000/frat-autofill.user.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
