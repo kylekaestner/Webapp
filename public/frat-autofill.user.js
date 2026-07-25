@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      1.9
+// @version      2.0
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -202,16 +202,17 @@
     trigger.click();
     await new Promise(r => setTimeout(r, 450));
 
-    // If the panel has a search/filter input, type the search term to narrow the list.
-    // Aircraft uses this — all tail numbers are options but only some are rendered.
-    const panelSearch = document.querySelector(
-      '.mat-select-panel input, mat-select-search input, ' +
-      '[class*="select-search"] input, .mat-autocomplete-panel ~ * input'
-    );
+    // If the CURRENTLY VISIBLE panel has a search/filter input, type to narrow the list.
+    // Aircraft needs this — not all tail numbers are rendered until filtered.
+    // IMPORTANT: must filter to visible inputs only — a closed panel's input can
+    // still be in the DOM and would otherwise be found first by querySelector.
+    const panelSearch = [...document.querySelectorAll(
+      '.mat-select-panel input, mat-select-search input, [class*="select-search"] input'
+    )].find(el => el.offsetParent !== null); // offsetParent null = hidden/detached
     if (panelSearch) {
       panelSearch.focus();
       setAngularInput(panelSearch, search);
-      await new Promise(r => setTimeout(r, 600)); // wait for filter to apply
+      await new Promise(r => setTimeout(r, 600));
     }
 
     const opts = [...document.querySelectorAll('mat-option')];
@@ -360,9 +361,22 @@
     // ── Dropdowns — wait for any open autocomplete panels to close ─────────
     await new Promise(r => setTimeout(r, 400));
 
-    const sicInfo      = findAnySelect('sic');
     const aircraftInfo = findAnySelect('aircraft');
     const tsaInfo      = findAnySelect('tsa vetting') || findAnySelect('part 135 tsa vetting');
+
+    // SIC is the mat-select immediately after PIC in document order.
+    // Label-matching is unreliable here because PIC/SIC share a row and walking
+    // up the DOM returns the first (wrong) select in their shared container.
+    const picInfo = findAnySelect('pic');
+    let sicInfo = null;
+    if (picInfo && picInfo.kind === 'mat') {
+      const allMs = [...document.querySelectorAll('mat-select')];
+      const picIdx = allMs.indexOf(picInfo.el);
+      if (picIdx >= 0 && picIdx + 1 < allMs.length) {
+        sicInfo = { el: allMs[picIdx + 1], kind: 'mat' };
+      }
+    }
+    if (!sicInfo) sicInfo = findAnySelect('sic'); // fallback
 
     console.log('[CrewSync FRAT] Selects found:', {
       sic:      sicInfo      ? `${sicInfo.kind}` : 'NOT FOUND',
