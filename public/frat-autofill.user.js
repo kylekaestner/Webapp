@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      2.0
+// @version      2.1
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -361,40 +361,73 @@
     // ── Dropdowns — wait for any open autocomplete panels to close ─────────
     await new Promise(r => setTimeout(r, 400));
 
+    // Briefly outline a field so the user can see which element we're targeting
+    function highlightField(info) {
+      if (!info) return;
+      const ff = info.el.closest('mat-form-field') || info.el.parentElement;
+      if (!ff) return;
+      const prev = ff.style.outline;
+      ff.style.outline = '3px solid #f59e0b';
+      setTimeout(() => { ff.style.outline = prev; }, 1200);
+    }
+
+    const allMs        = [...document.querySelectorAll('mat-select')];
     const aircraftInfo = findAnySelect('aircraft');
     const tsaInfo      = findAnySelect('tsa vetting') || findAnySelect('part 135 tsa vetting');
+    const picInfo      = findAnySelect('pic');
 
-    // SIC is the mat-select immediately after PIC in document order.
-    // Label-matching is unreliable here because PIC/SIC share a row and walking
-    // up the DOM returns the first (wrong) select in their shared container.
-    const picInfo = findAnySelect('pic');
+    // SIC = the mat-select immediately after PIC in document order
     let sicInfo = null;
     if (picInfo && picInfo.kind === 'mat') {
-      const allMs = [...document.querySelectorAll('mat-select')];
       const picIdx = allMs.indexOf(picInfo.el);
       if (picIdx >= 0 && picIdx + 1 < allMs.length) {
-        sicInfo = { el: allMs[picIdx + 1], kind: 'mat' };
+        const candidate = allMs[picIdx + 1];
+        // Safety check: must not be the same as PIC or Aircraft
+        if (candidate !== picInfo.el && candidate !== aircraftInfo?.el) {
+          sicInfo = { el: candidate, kind: 'mat' };
+        }
       }
     }
-    if (!sicInfo) sicInfo = findAnySelect('sic'); // fallback
+    if (!sicInfo) sicInfo = findAnySelect('sic');
 
-    console.log('[CrewSync FRAT] Selects found:', {
-      sic:      sicInfo      ? `${sicInfo.kind}` : 'NOT FOUND',
-      aircraft: aircraftInfo ? `${aircraftInfo.kind}` : 'NOT FOUND',
-      tsa:      tsaInfo      ? `${tsaInfo.kind}` : 'NOT FOUND',
+    // Log which form-field label each select belongs to
+    const labelOf = info => {
+      if (!info) return 'NOT FOUND';
+      const ff = info.el.closest('mat-form-field');
+      return `${info.kind} · label="${matFieldLabel(ff) || '(none)'}" · idx=${allMs.indexOf(info.el)}`;
+    };
+    console.log('[CrewSync FRAT] Selects resolved:', {
+      sic:      labelOf(sicInfo),
+      aircraft: labelOf(aircraftInfo),
+      tsa:      labelOf(tsaInfo),
+      pic:      labelOf(picInfo),
     });
 
-    if (sicInfo) {
-      const ok = await selectAnyOption(sicInfo, SIC_NAME); // 'Kaestner' matches "Kaestner, Kyle"
-      log.push('SIC ' + (ok ? '✓' : '✗'));
-    } else log.push('SIC ✗ (not found)');
-
+    // Fill Aircraft first so it's in the form before SIC/TSA side-effects fire
     if (aircraftInfo && flight.tail) {
+      highlightField(aircraftInfo);
       const ok = await selectAnyOption(aircraftInfo, flight.tail);
       log.push('Aircraft ' + (ok ? '✓' : '✗'));
     } else if (!aircraftInfo) log.push('Aircraft ✗ (not found)');
 
+    if (sicInfo) {
+      highlightField(sicInfo);
+      const ok = await selectAnyOption(sicInfo, SIC_NAME);
+      log.push('SIC ' + (ok ? '✓' : '✗'));
+    } else log.push('SIC ✗ (not found)');
+
+    // If Angular blanked Aircraft after SIC was set, re-fill it
+    if (aircraftInfo && flight.tail) {
+      const curVal = aircraftInfo.el.querySelector('.mat-select-value-text')?.textContent?.trim() || '';
+      if (!curVal) {
+        console.log('[CrewSync FRAT] Aircraft blanked — re-filling');
+        highlightField(aircraftInfo);
+        await selectAnyOption(aircraftInfo, flight.tail);
+      }
+    }
+
     if (tsaInfo) {
+      highlightField(tsaInfo);
       const ok = await selectAnyOption(tsaInfo, 'Completed');
       log.push('TSA ' + (ok ? '✓' : '✗'));
     } else log.push('TSA ✗ (not found)');
