@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      2.6
+// @version      2.7
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA from CrewSync + Schedaero
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -321,6 +321,32 @@
       + ' CT';
   }
 
+  // Extract all BottomLeft crew strings from a Schedaero calendar response.
+  // Handles both raw XML ("<BottomLeft>TJB/KDK</BottomLeft>") and JSON
+  // ({"BottomLeft":"TJB/KDK",...}) — Schedaero returns JSON when the request
+  // comes from a script rather than a browser page navigation.
+  function extractBottomLeft(text) {
+    const hits = [];
+    // Try JSON first (most likely format for programmatic AJAX requests)
+    try {
+      const data = JSON.parse(text);
+      const scan = v => {
+        if (!v || typeof v !== 'object') return;
+        // Check both PascalCase (C#/.NET default) and camelCase
+        if (v.BottomLeft) hits.push(String(v.BottomLeft).trim());
+        else if (v.bottomLeft) hits.push(String(v.bottomLeft).trim());
+        (Array.isArray(v) ? v : Object.values(v)).forEach(scan);
+      };
+      scan(data);
+      return hits; // return even if empty — we know it was JSON
+    } catch (_) {}
+    // Fall back to XML/HTML regex for raw XML responses
+    for (const m of text.matchAll(/<BottomLeft[^>]*>([^<]*)<\/BottomLeft>/gi)) {
+      if (m[1].trim()) hits.push(m[1].trim());
+    }
+    return hits;
+  }
+
   // ── Fetch captain from Schedaero company calendar ─────────────────────────
   // Uses your live browser session cookies (no server restart needed).
 
@@ -340,16 +366,22 @@
               resolve(null);
               return;
             }
-            // Log ALL BottomLeft fields — regex tolerates attributes like <BottomLeft style="...">
-            const allBL = [...r.responseText.matchAll(/<BottomLeft[^>]*>([^<]*)<\/BottomLeft>/gi)].map(m => m[1].trim());
-            console.log(`[CrewSync FRAT] BottomLeft fields on ${date}: ${allBL.join(' | ') || '(none — crew may not be published yet for future trips)'}`);
+
+            // Log the raw response so we can see what format Schedaero actually returns
+            console.log('[CrewSync FRAT] Company cal response (first 400 chars):', r.responseText.slice(0, 400));
+
+            // Extract all BottomLeft values — handles both JSON and XML responses.
+            // Schedaero AJAX returns JSON when fetched programmatically; the browser
+            // renders it as XML but the wire format is JSON with PascalCase field names.
+            const allBL = extractBottomLeft(r.responseText);
+            console.log(`[CrewSync FRAT] BottomLeft values on ${date}: ${allBL.join(' | ') || '(none)'}`);
 
             for (const crew of allBL) {
               const parts = crew.split('/');
               if (parts.length >= 2 && parts[1].trim().toUpperCase() === 'KDK') {
                 const captInit    = parts[0].trim().toUpperCase();
                 const captainName = CREW_NAMES[captInit];
-                console.log(`[CrewSync FRAT] Captain: ${captInit} = ${captainName || '(unknown initials)'}`);
+                console.log(`[CrewSync FRAT] Captain: ${captInit} = ${captainName || '(unknown initials — add to CREW_NAMES)'}`);
                 resolve(captainName || null);
                 return;
               }
