@@ -1793,6 +1793,61 @@ app.post('/api/pilots/kyle/quick-sync-schedaero', async (req, res) => {
     });
 });
 
+// Company crew lookup — returns captain for a given date where Kyle is SIC
+// Fetches the Schedaero daily calendar using stored credentials and parses
+// <BottomLeft>CAPT/KDK</BottomLeft> crew assignments.
+app.get('/api/kyle/company-crew', async (req, res) => {
+    const { date } = req.query; // YYYY-MM-DD
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date required (YYYY-MM-DD)' });
+    const db = getDB();
+    db.get(`SELECT value FROM settings WHERE key='schedaero-creds'`, async (err, row) => {
+        if (err || !row) return res.status(400).json({ error: 'No Schedaero credentials saved' });
+        let creds;
+        try { creds = JSON.parse(row.value); } catch { return res.status(500).json({ error: 'Corrupt credentials' }); }
+        if (!creds.cookie || !creds.url) return res.status(400).json({ error: 'Incomplete credentials' });
+        const baseUrl = creds.url.split('?')[0]; // strip any existing query params
+        const calUrl = `${baseUrl}/${date}?ajax=true&_=${Date.now()}`;
+        const origin = new URL(creds.url).origin;
+        const csrfMatch = creds.cookie.match(/(?:^|;\s*)(?:__Host-)?AviCSRF=([^;]+)/);
+        const csrf = csrfMatch ? csrfMatch[1].trim() : null;
+        const headers = {
+            'Cookie': creds.cookie,
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': `${origin}/`,
+        };
+        if (csrf)          headers['X-AviCSRF'] = csrf;
+        if (creds.apiToken) headers['X-Avinode-ApiToken'] = creds.apiToken;
+        try {
+            const response = await fetch(calUrl, { headers });
+            if (!response.ok) {
+                return res.status(response.status).json({ error: `Schedaero returned ${response.status}`, sessionExpired: response.status === 302 || response.status === 401 });
+            }
+            const text = await response.text();
+            const CREW = {
+                HSB: 'Hans Brosbol', TJB: 'Thomas Bressie', MEV: 'Martin Valla',
+                JAL: 'Lonnie Legner', AJB: 'Aleks Biteman', TAJ: 'Tyler Johnson',
+                LWK: 'Luke Knudsvig', GWM: 'Greg Medsker',
+            };
+            const assignments = [];
+            const re = /<BottomLeft>([^<]*)<\/BottomLeft>/gi;
+            let m;
+            while ((m = re.exec(text)) !== null) {
+                const crew = m[1].trim();
+                if (!crew) continue;
+                const parts = crew.split('/');
+                if (parts.length >= 2 && parts[1].trim().toUpperCase() === 'KDK') {
+                    const captInit = parts[0].trim().toUpperCase();
+                    assignments.push({ captainInitials: captInit, captainName: CREW[captInit] || null, raw: crew });
+                }
+            }
+            res.json({ date, assignments });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+});
+
 // Live flight tracking — position + accumulated trail
 const _liveCache = {};
 const LIVE_TTL = 5000; // 5s cache; client polls every 8s

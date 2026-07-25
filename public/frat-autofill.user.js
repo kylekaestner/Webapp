@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      2.3
-// @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
+// @version      2.4
+// @description  Prefills Origin, Destination, Trip ID, SIC, PIC, and Aircraft from CrewSync + Schedaero company schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/edit
@@ -20,7 +20,14 @@
 
   const SERVER   = 'http://167.71.107.245:3000';
   const PILOT    = 'kyle';
-  const SIC_NAME = 'Kaestner';
+  const SIC_NAME = 'Kaestner'; // Kyle's last name as it appears in PIC/SIC dropdowns
+
+  // Captain name lookup by Schedaero initials
+  const CREW_NAMES = {
+    HSB: 'Hans Brosbol',   TJB: 'Thomas Bressie', MEV: 'Martin Valla',
+    JAL: 'Lonnie Legner',  AJB: 'Aleks Biteman',  TAJ: 'Tyler Johnson',
+    LWK: 'Luke Knudsvig',  GWM: 'Greg Medsker',
+  };
 
   // ── Input finders ─────────────────────────────────────────────────────────
 
@@ -312,6 +319,34 @@
       + ' CT';
   }
 
+  // ── Fetch captain from company Schedaero calendar ─────────────────────────
+
+  function fetchCaptain(flight) {
+    const date = new Date(flight.departure_time).toISOString().slice(0, 10);
+    return new Promise(resolve => {
+      GM_xmlhttpRequest({
+        method:  'GET',
+        url:     `${SERVER}/api/kyle/company-crew?date=${date}`,
+        timeout: 8000,
+        onload(r) {
+          try {
+            const data = JSON.parse(r.responseText);
+            const hit = (data.assignments || []).find(a => a.captainName);
+            if (hit) {
+              console.log(`[CrewSync FRAT] Captain: ${hit.captainInitials} = ${hit.captainName}`);
+              resolve(hit.captainName);
+            } else {
+              console.log('[CrewSync FRAT] No captain found for', date, data);
+              resolve(null);
+            }
+          } catch (e) { resolve(null); }
+        },
+        onerror:   () => { console.log('[CrewSync FRAT] Company crew fetch failed'); resolve(null); },
+        ontimeout: () => { console.log('[CrewSync FRAT] Company crew fetch timed out'); resolve(null); },
+      });
+    });
+  }
+
   // ── Fetch upcoming legs ────────────────────────────────────────────────────
 
   function fetchFlights() {
@@ -346,7 +381,10 @@
   async function fillFlight(flight) {
     const log = [];
 
-    // ── Flight Date and ETD (UTC format matching the "(GMT) GMT" label) ────
+    // Start company crew fetch immediately — runs in parallel with text-field filling
+    const captainPromise = fetchCaptain(flight);
+
+    // ── Flight Date and ETD ────────────────────────────────────────────────
     const dateEl = inputByLabel('flight date and etd');
     if (dateEl) {
       const d = new Date(flight.departure_time); // UTC
@@ -374,10 +412,13 @@
     if (tripEl && flight.trip) { setAngularInput(tripEl, flight.trip); log.push('Trip ID ✓'); }
     else if (!tripEl) log.push('Trip ID ✗');
 
-    // ── Dropdowns — wait for any open autocomplete panels to close ─────────
-    await new Promise(r => setTimeout(r, 400));
+    // ── Wait for captain lookup + any autocomplete panels to close ─────────
+    const [captain] = await Promise.all([
+      captainPromise,
+      new Promise(r => setTimeout(r, 400)),
+    ]);
 
-    // Briefly outline a field so the user can see which element we're targeting
+    // Briefly outline a field so the user can see which element is being targeted
     function highlightField(info) {
       if (!info) return;
       const ff = info.el.closest('mat-form-field') || info.el.parentElement;
@@ -398,7 +439,6 @@
       const picIdx = allMs.indexOf(picInfo.el);
       if (picIdx >= 0 && picIdx + 1 < allMs.length) {
         const candidate = allMs[picIdx + 1];
-        // Safety check: must not be the same as PIC or Aircraft
         if (candidate !== picInfo.el && candidate !== aircraftInfo?.el) {
           sicInfo = { el: candidate, kind: 'mat' };
         }
@@ -406,7 +446,6 @@
     }
     if (!sicInfo) sicInfo = findAnySelect('sic');
 
-    // Log which form-field label each select belongs to
     const labelOf = info => {
       if (!info) return 'NOT FOUND';
       const ff = info.el.closest('mat-form-field');
@@ -420,29 +459,36 @@
       `  tsa:      ${labelOf(tsaInfo)}`
     );
 
-    // Fill Aircraft first so it's in the form before SIC/TSA side-effects fire
-    if (aircraftInfo && flight.tail) {
-      highlightField(aircraftInfo);
-      const ok = await selectAnyOption(aircraftInfo, flight.tail);
-      log.push('Aircraft ' + (ok ? '✓' : '✗'));
-    } else if (!aircraftInfo) log.push('Aircraft ✗ (not found)');
+    // ── Fill order: PIC → SIC → Aircraft (last — Angular blanks it on crew changes) → TSA
 
+    // PIC — captain from company schedule
+    if (captain && picInfo) {
+      highlightField(picInfo);
+      // Search by last name for dropdown format flexibility (e.g. "Brosbol, Hans" or "Hans Brosbol")
+      const lastName = captain.split(' ').pop();
+      const ok = await selectAnyOption(picInfo, lastName);
+      log.push('PIC ' + (ok ? `✓ (${captain})` : `✗ (${captain} not in list)`));
+    } else if (!captain) {
+      log.push('PIC — manual (not on company schedule today)');
+    } else {
+      log.push('PIC ✗ (field not found)');
+    }
+
+    // SIC — Kyle
     if (sicInfo) {
       highlightField(sicInfo);
       const ok = await selectAnyOption(sicInfo, SIC_NAME);
       log.push('SIC ' + (ok ? '✓' : '✗'));
     } else log.push('SIC ✗ (not found)');
 
-    // If Angular blanked Aircraft after SIC was set, re-fill it
+    // Aircraft — filled LAST so PIC/SIC changes can't blank it afterward
     if (aircraftInfo && flight.tail) {
-      const curVal = aircraftInfo.el.querySelector('.mat-select-value-text')?.textContent?.trim() || '';
-      if (!curVal) {
-        console.log('[CrewSync FRAT] Aircraft blanked — re-filling');
-        highlightField(aircraftInfo);
-        await selectAnyOption(aircraftInfo, flight.tail);
-      }
-    }
+      highlightField(aircraftInfo);
+      const ok = await selectAnyOption(aircraftInfo, flight.tail);
+      log.push('Aircraft ' + (ok ? '✓' : '✗'));
+    } else if (!aircraftInfo) log.push('Aircraft ✗ (not found)');
 
+    // TSA Vetting
     if (tsaInfo) {
       highlightField(tsaInfo);
       const ok = await selectAnyOption(tsaInfo, 'Completed');
@@ -485,11 +531,11 @@
         </div>
       </div>
       <div style="font-size:10px;color:#475569;margin-bottom:10px">
-        Fills: Origin · Destination · Trip ID · SIC · Aircraft
+        Fills: Date · Origin · Dest · Trip ID · PIC · SIC · Aircraft · TSA
       </div>
       <div id="cs-legs"></div>
       <div style="font-size:10px;color:#334155;margin-top:8px;border-top:1px solid #1e293b;padding-top:8px">
-        PIC — fill manually
+        PIC auto-filled from company schedule · verify before submit
       </div>
     `;
 
