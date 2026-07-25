@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      2.2
+// @version      2.3
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -102,17 +102,20 @@
                     s.getAttribute('ng-reflect-name') || '').toLowerCase();
       if (name && name.length >= 3 && (name === t || name.includes(t) || t.includes(name))) return { el: s, kind: 'mat' };
     }
-    // S4: find label text using WORD-BOUNDARY matching, then return the first
-    //     select that follows it in DOM order.
-    //     Word-boundary prevents 'specific' matching 'pic', or 'music' matching 'sic'.
+    // S4: word-boundary label search across ALL text-bearing elements, including
+    //     table cells (td/th) which the previous version missed.
+    //     Skips elements that contain an input/select (those are data cells, not labels).
     const termRegex = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
     const allSelects = [
       ...[...document.querySelectorAll('mat-select')].map(s => ({ el: s, kind: 'mat' })),
       ...[...document.querySelectorAll('select')].map(s => ({ el: s, kind: 'native' })),
     ];
 
-    for (const el of document.querySelectorAll('label, mat-label, span, div, p, h4, h5, h6')) {
-      if (el.children.length > 2) continue;
+    for (const el of document.querySelectorAll(
+      'label, mat-label, span, div, p, td, th, h4, h5, h6'
+    )) {
+      // Skip data cells — cells that contain an input or select are not labels
+      if (el.querySelector('mat-select, select, input:not([type=hidden])')) continue;
       const txt = el.textContent.replace(/\*/g, '').trim();
       if (!termRegex.test(txt)) continue;
 
