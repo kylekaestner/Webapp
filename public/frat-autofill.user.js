@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      1.5
+// @version      1.6
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -151,20 +151,24 @@
   function selectMatOption(selectEl, search) {
     if (!selectEl) return Promise.resolve(false);
     return new Promise(resolve => {
-      const trigger = selectEl.querySelector('.mat-select-trigger') || selectEl;
-      trigger.click();
+      // Close any currently open overlay before opening a new one
+      closeCdkOverlay();
       setTimeout(() => {
-        const opts = [...document.querySelectorAll('mat-option')];
-        const match = opts.find(o =>
-          o.textContent.toLowerCase().includes(search.toLowerCase())
-        );
-        if (match) { match.click(); return resolve(true); }
-        // No match — log available options so we can debug, then close cleanly
-        console.log(`[CrewSync FRAT] No match for "${search}". Options:`,
-          opts.map(o => o.textContent.trim()));
-        closeCdkOverlay();
-        resolve(false);
-      }, 700);
+        const trigger = selectEl.querySelector('.mat-select-trigger') || selectEl;
+        trigger.click();
+        setTimeout(() => {
+          const opts = [...document.querySelectorAll('mat-option')];
+          const match = opts.find(o =>
+            o.textContent.toLowerCase().includes(search.toLowerCase())
+          );
+          if (match) { match.click(); return resolve(true); }
+          // No match — log available options so we can debug, then close cleanly
+          console.log(`[CrewSync FRAT] No match for "${search}". Options:`,
+            opts.map(o => o.textContent.trim()));
+          closeCdkOverlay();
+          resolve(false);
+        }, 700);
+      }, 200); // brief pause so previous overlay is fully gone before opening next
     });
   }
 
@@ -292,7 +296,7 @@
 
     const sicSel      = selectByLabel('sic');
     const aircraftSel = selectByLabel('aircraft');
-    const tsaSel      = selectByLabel('tsa vetting');  // matches "Part 135 TSA Vetting"
+    const tsaSel      = selectByLabel('tsa vetting') || selectByLabel('part 135 tsa vetting');
 
     console.log('[CrewSync FRAT] Selects found:', {
       sic: sicSel ? matFieldLabel(sicSel.closest('mat-form-field')) : 'NOT FOUND',
