@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      2.7
+// @version      2.8
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA from CrewSync + Schedaero
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -377,11 +377,12 @@
             console.log(`[CrewSync FRAT] BottomLeft values on ${date}: ${allBL.join(' | ') || '(none)'}`);
 
             for (const crew of allBL) {
-              const parts = crew.split('/');
-              if (parts.length >= 2 && parts[1].trim().toUpperCase() === 'KDK') {
-                const captInit    = parts[0].trim().toUpperCase();
+              const parts     = crew.split('/');
+              const captInit  = parts[0].trim().toUpperCase();
+              const sicInit   = (parts[1] || '').trim().toUpperCase();
+              if (sicInit === 'KDK' && captInit.length >= 2) {
                 const captainName = CREW_NAMES[captInit];
-                console.log(`[CrewSync FRAT] Captain: ${captInit} = ${captainName || '(unknown initials — add to CREW_NAMES)'}`);
+                console.log(`[CrewSync FRAT] Captain: ${captInit} = ${captainName || '(unknown — add to CREW_NAMES)'}`);
                 resolve(captainName || null);
                 return;
               }
