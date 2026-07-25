@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      1.4
+// @version      1.5
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -87,7 +87,8 @@
     // Strategy 2 — partial/contains match (handles long labels like "Part 135 TSA Vetting")
     for (const ff of document.querySelectorAll('mat-form-field')) {
       const lbl = matFieldLabel(ff);
-      if (lbl.includes(t) || t.includes(lbl.replace(/\s+/g, ' '))) {
+      if (!lbl) continue; // skip unlabeled fields
+      if (lbl.includes(t) || (lbl.length >= 2 && t.includes(lbl))) {
         const sel = ff.querySelector('mat-select');
         if (sel) return sel;
       }
@@ -199,6 +200,17 @@
     matLabels.forEach(l => console.log(`"${l.textContent.trim()}"`, '→ parent:', l.parentElement?.tagName));
     console.groupEnd();
 
+    // Also dump all mat-select fields and their options (when open)
+    console.group('[CrewSync FRAT] mat-select fields:');
+    document.querySelectorAll('mat-form-field').forEach((ff, idx) => {
+      const sel = ff.querySelector('mat-select');
+      if (!sel) return;
+      const lbl = matFieldLabel(ff) || '(no label)';
+      const val = sel.querySelector('.mat-select-value-text')?.textContent.trim() || '(empty)';
+      console.log(idx, { label: lbl, currentValue: val, el: sel });
+    });
+    console.groupEnd();
+
     alert('CrewSync debug info written to browser console (F12 → Console).\nShare the output with Kyle.');
   }
 
@@ -282,10 +294,14 @@
     const aircraftSel = selectByLabel('aircraft');
     const tsaSel      = selectByLabel('tsa vetting');  // matches "Part 135 TSA Vetting"
 
+    console.log('[CrewSync FRAT] Selects found:', {
+      sic: sicSel ? matFieldLabel(sicSel.closest('mat-form-field')) : 'NOT FOUND',
+      aircraft: aircraftSel ? matFieldLabel(aircraftSel.closest('mat-form-field')) : 'NOT FOUND',
+      tsa: tsaSel ? matFieldLabel(tsaSel.closest('mat-form-field')) : 'NOT FOUND',
+    });
+
     if (sicSel) {
-      // Try last name first, fall back to first name
-      let ok = await selectMatOption(sicSel, SIC_NAME);
-      if (!ok) ok = await selectMatOption(sicSel, 'Kyle');
+      const ok = await selectMatOption(sicSel, SIC_NAME); // 'Kaestner' matches "Kaestner, Kyle"
       log.push('SIC ' + (ok ? '✓' : '✗'));
     } else log.push('SIC ✗ (select not found)');
 
@@ -339,7 +355,7 @@
       </div>
       <div id="cs-legs"></div>
       <div style="font-size:10px;color:#334155;margin-top:8px;border-top:1px solid #1e293b;padding-top:8px">
-        PIC &amp; TSA Vetting — fill manually
+        PIC — fill manually
       </div>
     `;
 
