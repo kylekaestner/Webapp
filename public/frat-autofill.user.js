@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      1.3
+// @version      1.4
 // @description  Prefills Origin, Destination, Trip ID, and SIC from your CrewSync schedule
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -137,6 +137,15 @@
     return true;
   }
 
+  // Close whatever Angular CDK overlay is currently open
+  function closeCdkOverlay() {
+    // Escape key is the most reliable way to close mat-select panels
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true, cancelable: true }));
+    // Also click the backdrop as a fallback
+    const backdrop = document.querySelector('.cdk-overlay-backdrop');
+    if (backdrop) backdrop.click();
+  }
+
   // Click a mat-select open and choose option matching search text
   function selectMatOption(selectEl, search) {
     if (!selectEl) return Promise.resolve(false);
@@ -149,9 +158,12 @@
           o.textContent.toLowerCase().includes(search.toLowerCase())
         );
         if (match) { match.click(); return resolve(true); }
-        document.body.click();
+        // No match — log available options so we can debug, then close cleanly
+        console.log(`[CrewSync FRAT] No match for "${search}". Options:`,
+          opts.map(o => o.textContent.trim()));
+        closeCdkOverlay();
         resolve(false);
-      }, 500);
+      }, 700);
     });
   }
 
