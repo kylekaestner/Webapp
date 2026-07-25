@@ -74,9 +74,32 @@
   // Find a mat-select whose form-field label matches text
   function selectByLabel(text) {
     const t = text.toLowerCase();
+
+    // Strategy 1 — exact mat-form-field label match
     for (const ff of document.querySelectorAll('mat-form-field')) {
       if (matFieldLabel(ff) === t) {
-        return ff.querySelector('mat-select') || null;
+        const sel = ff.querySelector('mat-select');
+        if (sel) return sel;
+      }
+    }
+    // Strategy 2 — partial/contains match (handles long labels like "Part 135 TSA Vetting")
+    for (const ff of document.querySelectorAll('mat-form-field')) {
+      const lbl = matFieldLabel(ff);
+      if (lbl.includes(t) || t.includes(lbl.replace(/\s+/g, ' '))) {
+        const sel = ff.querySelector('mat-select');
+        if (sel) return sel;
+      }
+    }
+    // Strategy 3 — label text element near a mat-select (same single-child heuristic)
+    for (const el of document.querySelectorAll('label, mat-label, span, div, p')) {
+      if (el.children.length > 2) continue;
+      const txt = el.textContent.replace(/\*/g, '').trim().toLowerCase();
+      if (txt !== t && !txt.includes(t)) continue;
+      let container = el.parentElement;
+      for (let i = 0; i < 4 && container; i++) {
+        const sel = container.querySelector('mat-select');
+        if (sel) return sel;
+        container = container.parentElement;
       }
     }
     return null;
@@ -243,8 +266,24 @@
 
     const sicSel      = selectByLabel('sic');
     const aircraftSel = selectByLabel('aircraft');
-    if (sicSel)                     { const ok = await selectMatOption(sicSel,      SIC_NAME);     log.push('SIC '      + (ok ? '✓' : '✗')); }
-    if (aircraftSel && flight.tail) { const ok = await selectMatOption(aircraftSel, flight.tail);  log.push('Aircraft ' + (ok ? '✓' : '✗')); }
+    const tsaSel      = selectByLabel('tsa vetting');  // matches "Part 135 TSA Vetting"
+
+    if (sicSel) {
+      // Try last name first, fall back to first name
+      let ok = await selectMatOption(sicSel, SIC_NAME);
+      if (!ok) ok = await selectMatOption(sicSel, 'Kyle');
+      log.push('SIC ' + (ok ? '✓' : '✗'));
+    } else log.push('SIC ✗ (select not found)');
+
+    if (aircraftSel && flight.tail) {
+      const ok = await selectMatOption(aircraftSel, flight.tail);
+      log.push('Aircraft ' + (ok ? '✓' : '✗'));
+    } else if (!aircraftSel) log.push('Aircraft ✗ (select not found)');
+
+    if (tsaSel) {
+      const ok = await selectMatOption(tsaSel, 'Completed');
+      log.push('TSA ' + (ok ? '✓' : '✗'));
+    } else log.push('TSA ✗ (select not found)');
 
     console.log('[CrewSync FRAT] Fill result:', log.join(', '));
     return log;
