@@ -2249,7 +2249,11 @@ app.post('/crew-roster/add-viewer', rosterAuth, express.urlencoded({ extended: f
 });
 
 // DB download — password-protected, for local dev sync
-app.get('/admin/download-db', rosterAuth, (req, res) => {
+app.get('/admin/download-db', (req, res) => {
+    const cookie = req.headers.cookie || '';
+    const cookieOk = cookie.match(/roster_auth=([^;]+)/)?.[1] === ROSTER_PW;
+    const queryOk  = req.query.pw === ROSTER_PW;
+    if (!cookieOk && !queryOk) return res.status(401).send('Unauthorized');
     res.download(path.join(__dirname, 'dispatch.db'), 'dispatch.db');
 });
 
