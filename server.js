@@ -2248,6 +2248,11 @@ app.post('/crew-roster/add-viewer', rosterAuth, express.urlencoded({ extended: f
     tryInsert(baseKey, 0);
 });
 
+// DB download — password-protected, for local dev sync
+app.get('/admin/download-db', rosterAuth, (req, res) => {
+    res.download(path.join(__dirname, 'dispatch.db'), 'dispatch.db');
+});
+
 // Admin user list — password-protected HTML page
 app.get('/crew-roster', rosterAuth, (req, res) => {
     const db = getDB();
