@@ -551,14 +551,14 @@
                     <span id="identity-avatar-initials" class="text-xs font-black leading-none">?</span>
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.7"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-                <div class="flex flex-col leading-tight">
+                <div id="mobile-header-month-info" class="flex flex-col leading-tight">
                     <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic">CrewSync</span>
                     <span id="current-month-display-mobile" class="text-base font-black italic tracking-tighter text-white uppercase">May 2026</span>
                 </div>
             </div>
             <div class="flex items-center gap-1">
-                <button onclick="changeMonth(-1)" class="w-10 h-10 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">‹</button>
-                <button onclick="changeMonth(1)" class="w-10 h-10 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">›</button>
+                <button id="mobile-prev-btn" onclick="changeMonth(-1)" class="w-10 h-10 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">‹</button>
+                <button id="mobile-next-btn" onclick="changeMonth(1)" class="w-10 h-10 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">›</button>
                 <button id="notif-bell-btn-mobile" onclick="toggleNotifPanel()" class="hidden relative w-10 h-10 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 transition-colors" title="Notifications">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                     <span id="notif-badge-mobile" class="hidden absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 bg-red-500 rounded-full text-[8px] font-black text-white flex items-center justify-center px-0.5 leading-none pointer-events-none"></span>
@@ -1119,8 +1119,8 @@
                 </div>
 
                 <div class="space-y-1.5">
-                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Common Off Days</p>
-                    <p>Collapsed section at the top showing upcoming days where 2+ selected crew are free. <strong class="text-zinc-300">Tap the header to expand.</strong> Only confirmed Hard Day Offs count — on-call days are treated as potentially working. Days where all selected pilots are free show a <strong class="text-zinc-300">gold left border and ✦ ALL OFF badge</strong>. Use the <strong class="text-zinc-300">pilot chips</strong> inside the section to filter down to just the people you care about — tap any chip to toggle them on or off. Who appears is also controlled by your <strong class="text-zinc-300">Your Crew</strong> visibility setting — pilots you've hidden there won't show up here. If a pilot's schedule data hasn't been loaded yet, a <strong class="text-zinc-300">⚠ warning</strong> appears at the top of the list noting who's missing, so you know the results may be incomplete.</p>
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Off Days Tab</p>
+                    <p>Switch to the <strong class="text-zinc-300">Off Days</strong> tab to see upcoming days where crew members are simultaneously free. Use the <strong class="text-zinc-300">pilot chips</strong> in the filter bar to choose who to include — tap any chip to toggle them. Toggle between <strong class="text-zinc-300">list</strong> and <strong class="text-zinc-300">calendar</strong> views using the calendar icon in the filter bar. In calendar view, colored name pills inside each cell show who is off that day — amber cells mean everyone is off, green cells mean most are off. Tap any cell for a detail breakdown. Days where all selected pilots are off show a <strong class="text-zinc-300">gold highlight and ALL badge</strong>.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -1332,8 +1332,8 @@
                 </div>
 
                 <div class="space-y-1.5">
-                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Here Now</p>
-                    <p>The <strong class="text-zinc-300">purple pulsing dot</strong> shows where a pilot currently is. <strong class="text-zinc-300">Tap it</strong> to see whether they're home or on an overnight, and which airport.</p>
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Here Now pins</p>
+                    <p>Each pilot's location pin is resolved in priority order: <strong class="text-zinc-300">live ADS-B</strong> if airborne → <strong class="text-zinc-300">active flight window</strong> → <strong class="text-zinc-300">reserve base</strong> if on call → <strong class="text-zinc-300">away layover</strong> airport → <strong class="text-zinc-300">most recent arrival</strong> or home. Commuter pilots (base ≠ home) briefly show "Heading home" after landing at their base. <strong class="text-zinc-300">Tap any pin</strong> to see the airport and status.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -3150,6 +3150,15 @@
             // Next flight strip only on grid
             const nfStrip = document.getElementById('mobile-next-trip');
             if (nfStrip) nfStrip.classList.toggle('hidden', view !== 'grid' || _nextFlightDismissed || nfStrip.innerHTML === '');
+            // Mobile header: hide calendar-specific controls on overlap/intel
+            const calView = view === 'grid' || view === 'list' || view === 'map';
+            ['mobile-header-month-info','mobile-prev-btn','mobile-next-btn','btn-add-flight-mobile'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = calView ? '' : 'none';
+            });
+            // Hide pilot pill bar on overlap/intel — irrelevant to those views
+            const pilotBar = document.getElementById('mobile-pilot-bar');
+            if (pilotBar) pilotBar.style.display = calView ? '' : 'none';
             if (view === 'map') {
                 initMap();
                 // Sync day nav / pilot controls visibility with the current mode

@@ -208,13 +208,17 @@ Runs during `loadPilot()`. Walks all `type='flight'` segments (excluding `trip='
 
 …then inserts synthetic `{ type: 'away', arrivalAirport }` events for each day of the layover (arrival day through departure day inclusive). These events drive calendar "away" coloring but are NOT stored in the DB.
 
-### Off Days detection (`computeOffDays` / `renderCommonOffSection`)
+### Off Days detection (`computeOffDays` / `renderCommonOffSection` / `renderOffDayCalendar`)
 
-A pilot is "off" on a date if they have **no** `flight`, `reserve`, or `ground` segments on that calendar date. Exception: `type='flight'` with `trip='PERSONAL'` is excluded from the "working" set (personal flights don't count as work days). Kyle's `type='hard'` segments are treated as confirmed off days from his ICS.
+A pilot is "off" on a date if they have **no** `flight`, `reserve`, or `ground` segments on that calendar date. Exception: `type='flight'` with `trip='PERSONAL'` is excluded from the "working" set (personal flights don't count as work days). Kyle's `type='hard'` and `type='vacation'` segments are both treated as confirmed off days.
 
 Reserve windows mark every day in the window as "working" (using local airport date so UTC Kyle doesn't accidentally mark wrong days).
 
 A date is "common off" when all selected pilots are simultaneously off.
+
+**Off Days tab UI:** two views toggled by the calendar icon in the filter bar:
+- **List view** (default) — `renderCommonOffSection()` — chronological rows grouped by date
+- **Calendar view** — `renderOffDayCalendar()` — month grid with colored name pills per off pilot in each cell. Amber cell = all selected off; green cell = majority off. Tapping a cell shows pilot status. On mobile the detail slides up as a bottom sheet; on desktop it renders inline below the calendar. Month navigation (`prevOffMonth` / `nextOffMonth`) is independent of the main calendar month. `_offDayView`, `_offDayYear`, `_offDayMonth`, `_offDaySelected`, `_offDayFilter` are the state variables.
 
 ### Auto-sync schedule (server.js)
 
@@ -701,6 +705,11 @@ Additional non-core pilots (brett, hunter, nick, jack) have colors defined inlin
 - **`.pilot-avatar-btn`** — full-width button with colored initials circle (`w-7 h-7 rounded-full`) + pilot name
 - Circle background/border/text use `PILOT_COLORS[pilot]` rgba values (hardcoded in HTML, must match JS constant)
 - Active state set by `loadPilot()`: `btn.style.background = pc + '1a'`, `btn.style.borderColor = pc + '55'`
+
+### Mobile top header (`header.md:hidden`)
+- Contains: identity avatar (`#identity-avatar`), month info (`#mobile-header-month-info`), prev/next month buttons (`#mobile-prev-btn`, `#mobile-next-btn`), notifications bell (`#notif-bell-btn-mobile`), help button, add flight button (`#btn-add-flight-mobile`)
+- **Calendar-specific controls** (`#mobile-header-month-info`, `#mobile-prev-btn`, `#mobile-next-btn`, `#btn-add-flight-mobile`) are hidden via `style.display='none'` on `overlap` and `intel` views — only the avatar, bell, and help `?` remain visible
+- This toggle happens in `switchView()` — `calView = view === 'grid' || view === 'list' || view === 'map'`
 
 ### Mobile nav bar (`.mobile-nav`)
 - Each button is `56px` tall with `.mbtn-icon-wrap` (38×28px, `border-radius:10px`) wrapping the SVG

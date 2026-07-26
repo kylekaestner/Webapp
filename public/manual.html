@@ -166,8 +166,17 @@
                 <li><strong>Grid</strong> — Monthly calendar</li>
                 <li><strong>List</strong> — Chronological flight list</li>
                 <li><strong>Map</strong> — Route and crew map</li>
-                <li><strong>Overlap</strong> — Location crossings</li>
-                <li><strong>Upload</strong> — Upload your schedule (mobile)</li>
+                <li><strong>Overlap</strong> — Location crossings and common off days</li>
+                <li><strong>Intel</strong> — Crew knowledge base</li>
+                <li><strong>Upload</strong> — Upload your schedule (mobile only)</li>
+            </ul>
+
+            <h3>Swipe gestures (mobile)</h3>
+            <ul>
+                <li><strong>Swipe left/right</strong> on the calendar or list view to move between months</li>
+                <li><strong>Swipe left/right</strong> on the Crew Planning view to switch between Crossings and Off Days tabs</li>
+                <li><strong>Pull down</strong> from the top of the calendar or list to refresh the schedule</li>
+                <li><strong>Swipe down</strong> on any bottom sheet (day detail, profile, upload) to dismiss it</li>
             </ul>
         </section>
 
@@ -236,10 +245,17 @@
             <p>Shows the selected pilot's flight routes for the current month as arcs on the map. Each arc connects a departure airport to an arrival airport. Color corresponds to the pilot's crew color. Clicking an arc shows the flight details.</p>
 
             <h3>All Crew — Day</h3>
-            <p>Shows where every crew member is on a specific day. Location pins indicate each pilot's current airport — either where they're based for the day, or where they landed most recently. Use the date navigator to step forward or backward by day.</p>
-            <p>This is the most useful mode for planning: you can quickly see who's in what city on any given day.</p>
+            <p>Shows where every crew member is on a specific day. Use the date navigator to step forward or backward by day. This is the most useful mode for planning: you can quickly see who's in what city on any given day.</p>
+            <p>Each pilot's pin location is resolved in priority order:</p>
+            <ul>
+                <li><strong>Live ADS-B</strong> — real-time GPS position if the flight is being tracked</li>
+                <li><strong>Active flight</strong> — shown in-air if currently between departure and arrival</li>
+                <li><strong>Reserve window</strong> — shown at their reserve base if on call</li>
+                <li><strong>Away layover</strong> — shown at an overnight layover airport</li>
+                <li><strong>Most recent arrival</strong> — last airport they landed at, or home if the trip is finished</li>
+            </ul>
             <div class="callout callout-zinc">
-                Pins use each pilot's crew color. The pin label shows the airport code. If a pilot is in the air, their pin shows their most recent departure or destination.
+                Pins use each pilot's crew color. Commuter pilots (base ≠ home) show a brief "Heading home" state after landing at their base before moving to their home airport.
             </div>
 
             <h3>All Crew — Month</h3>
@@ -292,7 +308,14 @@
             <p>Reserve windows are included in the crossing computation. If a pilot is on reserve at SFO from 6 AM to 9 PM, they're considered present at SFO for that entire window — even though they might not be flying.</p>
 
             <h3>Off Days tab</h3>
-            <p>The second tab in the overlap view shows days where multiple pilots have days off simultaneously. Useful for spotting windows where the crew could plan something together.</p>
+            <p>The second tab in the Crew Planning view shows days where multiple pilots are off simultaneously — useful for spotting windows to plan something together.</p>
+            <p>Use the <strong>pilot chips</strong> in the filter bar to choose who to include. Tap any chip to toggle a pilot on or off. The chip bar scrolls horizontally on mobile (drag to scroll) and wraps on wider screens.</p>
+            <p>There are two views, toggled by the <strong>calendar icon</strong> in the filter bar:</p>
+            <ul>
+                <li><strong>List view</strong> (default) — upcoming off days in chronological order, grouped by date. Days where every selected pilot is off are highlighted in gold with an ALL badge.</li>
+                <li><strong>Calendar view</strong> — a monthly grid. Each cell shows colored name pills for pilots who are off that day. Amber cells mean all selected pilots are off; green cells mean most are off. Tap any cell to see a per-pilot status breakdown. Month navigation in calendar view is independent of the main calendar month.</li>
+            </ul>
+            <p>A warning banner appears if any selected pilot has no schedule loaded yet — their off days will be missing from the results.</p>
         </section>
 
         <hr class="section-divider">
@@ -378,8 +401,16 @@
             <h2>Adding Flights Manually</h2>
             <p>If a flight isn't in your uploaded schedule — a personal trip, a charter, a positioning leg — you can add it manually.</p>
 
+            <h3>Flight types</h3>
+            <ul>
+                <li><strong>Work</strong> — A scheduled work leg. Requires a pairing/trip number. Shows in blue.</li>
+                <li><strong>Deadhead (DH)</strong> — Positioning flight where you ride as a passenger. Shown with a DH badge.</li>
+                <li><strong>Commute</strong> — A commute leg to or from base. Shows in amber. Does not count as a working day for off-day purposes.</li>
+                <li><strong>Personal</strong> — Personal or leisure travel. Shows in violet. Does not count as a working day and doesn't generate away layovers.</li>
+            </ul>
+
             <h3>How to add</h3>
-            <p>Click or tap the <strong>+ Add Flight</strong> button (top-right on desktop, <span class="kbd">+</span> on mobile). Fill in the departure airport, arrival airport, date, and times. Tail number and flight number are optional.</p>
+            <p>Click or tap the <strong>+ Add Flight</strong> button (top-right on desktop, <span class="kbd">+</span> on mobile). Select the flight type, fill in the departure airport, arrival airport, date, and times. Block time is calculated automatically from airports and times — you can override it manually. Tail number and flight number are optional.</p>
 
             <h3>Manually added vs. uploaded</h3>
             <p>Manually added flights are stored separately from uploaded schedule data. They show up in the calendar, list view, map, and crossing computation just like any other flight. They won't be overwritten if you re-upload your schedule.</p>
@@ -559,7 +590,7 @@
                         <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                     </summary>
                     <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
-                        Data only updates when a pilot uploads a new schedule file or triggers a direct sync. There's no automatic background sync — it depends on each pilot uploading when their schedule changes (new bid, trip swap, etc.). Direct sync can be triggered manually with one tap for configured accounts.
+                        It depends on the pilot's schedule source. Pilots using ICS-based systems (RosterBuster, SunCountry, and similar) are synced automatically three times a day — roughly 6 AM, 2 PM, and 10 PM UTC. Corporate pilots using direct Schedaero sync follow the same schedule. For CSV/PDF uploads, data only updates when the pilot manually uploads a new file or triggers a sync. Direct sync can also be triggered on demand with one tap from the upload sheet.
                     </div>
                 </details>
 
