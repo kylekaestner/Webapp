@@ -983,6 +983,15 @@
         </div>
     </div>
 
+    <!-- Off-day detail bottom sheet -->
+    <div id="offday-detail-sheet" class="hidden fixed inset-0 z-[1002] flex items-end" onclick="if(event.target===this)dismissOffDayDetail()">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div id="offday-detail-panel" class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl shadow-2xl" onclick="event.stopPropagation()" style="padding-bottom:max(20px,env(safe-area-inset-bottom))">
+            <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mt-3 mb-0 shrink-0"></div>
+            <div id="offday-detail-content" class="px-5 pt-3 pb-4"></div>
+        </div>
+    </div>
+
     <!-- Schedaero Sync Modal -->
     <div id="schedaero-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeSchedaeroModal()">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
@@ -3441,10 +3450,12 @@
         }
 
         function _renderOffDayView() {
+            const container = document.getElementById('offdays-content');
             if (_offDayView === 'calendar') {
+                if (container) { container.classList.remove('px-6'); container.classList.add('px-2'); }
                 renderOffDayCalendar();
             } else {
-                const container = document.getElementById('offdays-content');
+                if (container) { container.classList.remove('px-2'); container.classList.add('px-6'); }
                 if (container) {
                     container.innerHTML = '<div id="common-off-section"></div>';
                     renderCommonOffSection(false, true);
@@ -3481,18 +3492,19 @@
             renderOffDayCalendar();
         }
 
+        let _offDaySheetSwipeSetup = false;
         function dismissOffDayDetail() {
             _offDaySelected = null;
-            const el = document.getElementById('offday-day-detail');
-            if (el) el.innerHTML = '';
+            const sheet = document.getElementById('offday-detail-sheet');
+            const panel = document.getElementById('offday-detail-panel');
+            if (panel) { panel.style.transform = 'translateY(100%)'; panel.style.transition = 'transform 0.22s ease'; }
+            setTimeout(() => { if (sheet) sheet.classList.add('hidden'); }, 220);
             document.querySelectorAll('[data-offday-date]').forEach(c => c.style.boxShadow = '');
         }
 
         function showOffDayDetail(dateStr) {
             if (_offDaySelected === dateStr) { dismissOffDayDetail(); return; }
             _offDaySelected = dateStr;
-            const el = document.getElementById('offday-day-detail');
-            if (!el) return;
 
             const visibleCrew = getCrewVisible();
             if (!_offDayFilter) _offDayFilter = new Set(visibleCrew);
@@ -3502,11 +3514,6 @@
             const localDateStr = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
             const date = new Date(dateStr + 'T12:00:00');
             const label = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-
-            const kyleHardOff = new Set();
-            (pilotsCache['kyle']?.segments || []).filter(s => s.type === 'hard').forEach(s => {
-                if (s.departure_time) kyleHardOff.add(s.departure_time.slice(0, 10));
-            });
 
             const pilotFlyingDates = {};
             PILOT_KEYS.forEach(k => {
@@ -3530,24 +3537,44 @@
 
             const rows = activeKeys.map(k => {
                 const off = !pilotFlyingDates[k].has(dateStr);
+                const pc  = PILOT_COLORS[k];
                 const statusLabel = off ? 'Off' : 'Working';
                 const statusColor = off ? '#22c55e' : '#52525b';
-                return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0">
-                    <span style="width:7px;height:7px;border-radius:50%;background:${PILOT_COLORS[k]};flex-shrink:0"></span>
-                    <span style="font-size:12px;font-weight:700;color:#e4e4e7;flex:1">${(PILOT_NAMES[k]||k).split(' ')[0]}</span>
-                    <span style="font-size:11px;font-weight:800;color:${statusColor}">${statusLabel}</span>
+                return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #1c1c21">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${pc};flex-shrink:0"></span>
+                    <span style="font-size:14px;font-weight:700;color:#e4e4e7;flex:1">${(PILOT_NAMES[k]||k).split(' ')[0]}</span>
+                    <span style="font-size:12px;font-weight:800;color:${statusColor}">${statusLabel}</span>
                 </div>`;
             }).join('');
 
-            el.innerHTML = `<div style="background:#111;border:1px solid #27272a;border-radius:12px;padding:11px 13px;margin-top:10px">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                    <div style="font-size:10px;font-weight:900;color:#71717a;text-transform:uppercase;letter-spacing:0.07em">${label}</div>
-                    <button onclick="dismissOffDayDetail()" style="width:22px;height:22px;border-radius:6px;background:transparent;border:1px solid #3f3f46;color:#71717a;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;-webkit-tap-highlight-color:transparent" onmouseenter="this.style.background='#27272a'" onmouseleave="this.style.background='transparent'">✕</button>
+            const content = document.getElementById('offday-detail-content');
+            if (content) content.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                    <div style="font-size:11px;font-weight:900;color:#71717a;text-transform:uppercase;letter-spacing:0.07em">${label}</div>
+                    <button onclick="dismissOffDayDetail()" style="width:26px;height:26px;border-radius:7px;background:transparent;border:1px solid #3f3f46;color:#71717a;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent">✕</button>
                 </div>
-                ${rows}
-            </div>`;
+                <div style="border-top:1px solid #1c1c21">${rows}</div>`;
 
-            // Highlight the selected cell
+            const sheet = document.getElementById('offday-detail-sheet');
+            const panel = document.getElementById('offday-detail-panel');
+            if (!sheet || !panel) return;
+
+            // Slide in
+            panel.style.transform = 'translateY(100%)';
+            panel.style.transition = 'none';
+            sheet.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                panel.style.transition = 'transform 0.25s cubic-bezier(0.32,0.72,0,1)';
+                panel.style.transform  = 'translateY(0)';
+            });
+
+            // Wire swipe-to-dismiss once
+            if (!_offDaySheetSwipeSetup) {
+                _offDaySheetSwipeSetup = true;
+                setupSheetSwipe(panel, dismissOffDayDetail);
+            }
+
+            // Highlight selected cell
             document.querySelectorAll('[data-offday-date]').forEach(c => {
                 c.style.boxShadow = c.dataset.offdayDate === dateStr ? '0 0 0 2px #a1a1aa88' : '';
             });
@@ -3594,6 +3621,16 @@
 
             const isOff = (k, ds) => k === 'kyle' ? kyleHardOffDates.has(ds) : !pilotFlyingDates[k].has(ds);
 
+            // Responsive sizing
+            const mob = window.innerWidth < 600;
+            const cellPad    = mob ? '4px 3px'  : '7px 6px';
+            const cellMinH   = mob ? '58px'     : '72px';
+            const gridGap    = mob ? '3px'      : '4px';
+            const pillFs     = mob ? '7px'      : '8px';
+            const pillPad    = mob ? '1px 3px'  : '2px 5px';
+            const pillRadius = mob ? '3px'      : '4px';
+            const dateFs     = mob ? '10px'     : '11px';
+
             // Calendar grid
             const firstDay = new Date(year, month, 1);
             const lastDay  = new Date(year, month + 1, 0);
@@ -3611,11 +3648,11 @@
 
             const nActive = activeKeys.length;
             const dowRow = ['S','M','T','W','T','F','S'].map(l =>
-                `<div style="text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.07em;color:#3f3f46;padding:4px 0">${l}</div>`
+                `<div style="text-align:center;font-size:${mob?'8px':'9px'};font-weight:900;text-transform:uppercase;letter-spacing:0.07em;color:#3f3f46;padding:${mob?'3px':'4px'} 0">${l}</div>`
             ).join('');
 
             const cellsHtml = cells.map(cell => {
-                if (!cell) return `<div style="border-radius:9px;background:#0a0a0a;min-height:72px"></div>`;
+                if (!cell) return `<div style="border-radius:${mob?'6px':'9px'};background:#0a0a0a;min-height:${cellMinH}"></div>`;
                 const { d, dateStr, offPilots } = cell;
                 const isToday    = dateStr === todayStr;
                 const isSelected = dateStr === _offDaySelected;
@@ -3632,15 +3669,15 @@
                 const chips = offPilots.map(k => {
                     const name = (PILOT_NAMES[k]||k).split(' ')[0];
                     const pc = PILOT_COLORS[k];
-                    return `<span style="background:${pc}22;color:${pc};border:1px solid ${pc}44;border-radius:4px;font-size:8px;font-weight:900;padding:2px 5px;line-height:1.4;flex-shrink:0">${name}</span>`;
+                    return `<span style="background:${pc}22;color:${pc};border:1px solid ${pc}44;border-radius:${pillRadius};font-size:${pillFs};font-weight:900;padding:${pillPad};line-height:1.4;flex-shrink:0">${name}</span>`;
                 }).join('');
                 const allBadge = allOff ? `<span style="font-size:7px;font-weight:900;color:#fbbf24;line-height:1;margin-left:auto;margin-top:1px">ALL</span>` : '';
 
                 return `<div data-offday-date="${dateStr}" onclick="showOffDayDetail('${dateStr}')"
-                    style="border-radius:9px;background:${bg};border:${border};min-height:72px;padding:7px 6px;cursor:pointer;transition:opacity 0.12s;display:flex;flex-direction:column;gap:4px"
+                    style="border-radius:${mob?'6px':'9px'};background:${bg};border:${border};min-height:${cellMinH};padding:${cellPad};cursor:pointer;transition:opacity 0.12s;display:flex;flex-direction:column;gap:3px"
                     onmouseenter="this.style.opacity='0.72'" onmouseleave="this.style.opacity='1'">
                     <div style="display:flex;align-items:flex-start;gap:2px">
-                        <span style="font-size:11px;font-weight:${isToday ? '900' : '700'};color:${dateColor}">${d}</span>
+                        <span style="font-size:${dateFs};font-weight:${isToday ? '900' : '700'};color:${dateColor}">${d}</span>
                         ${allBadge}
                     </div>
                     <div style="display:flex;flex-wrap:wrap;gap:2px;flex:1;align-content:flex-start">${chips}</div>
@@ -3677,16 +3714,19 @@
                     <span style="font-size:13px;font-weight:900;color:#e4e4e7;letter-spacing:0.05em;text-transform:uppercase">${monthLabel}</span>
                     <button onclick="nextOffMonth()" style="width:34px;height:34px;border-radius:8px;background:#18181b;border:1px solid #27272a;color:#a1a1aa;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent">›</button>
                 </div>
-                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px">${dowRow}</div>
-                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cellsHtml}</div>
+                <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:${gridGap};margin-bottom:${gridGap}">${dowRow}</div>
+                <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:${gridGap}">${cellsHtml}</div>
                 <div style="margin-top:14px;border-top:1px solid #1c1c21;padding-top:12px;display:flex;flex-direction:column;gap:8px">
                     <div style="display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center">${pilotLegend}</div>
                     <div style="display:flex;flex-wrap:wrap;gap:8px 14px;justify-content:center">${cellLegend}</div>
                 </div>
-                <div id="offday-day-detail" style="padding-bottom:8px"></div>
             </div>`;
 
-            if (_offDaySelected) showOffDayDetail(_offDaySelected);
+            if (_offDaySelected) {
+                document.querySelectorAll('[data-offday-date]').forEach(c => {
+                    c.style.boxShadow = c.dataset.offdayDate === _offDaySelected ? '0 0 0 2px #a1a1aa88' : '';
+                });
+            }
         }
 
         function openOverlapDetail(idx) {
