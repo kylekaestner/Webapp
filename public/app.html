@@ -705,7 +705,10 @@
                 <div id="offday-filter-bar" style="display:none" class="shrink-0 border-b border-zinc-800 bg-[#050505]">
                     <div class="max-w-2xl mx-auto px-4 py-2.5 flex items-center gap-2.5">
                         <span class="text-[9px] font-black uppercase tracking-widest text-zinc-600 shrink-0">Show</span>
-                        <div id="offday-filter-chips" class="flex-1 min-w-0 flex gap-2 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none"></div>
+                        <div id="offday-filter-chips" class="flex-1 min-w-0 flex gap-2 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;flex-wrap:nowrap"></div>
+                        <button id="offday-view-toggle" onclick="toggleOffDayView()" title="Toggle calendar view" style="flex-shrink:0;width:30px;height:30px;border-radius:8px;background:#18181b;border:1px solid #27272a;color:#a1a1aa;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;-webkit-tap-highlight-color:transparent">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        </button>
                     </div>
                 </div>
                 <div class="flex-1 overflow-y-auto" style="-webkit-overflow-scrolling:touch">
@@ -3180,7 +3183,8 @@
                 _offDayFilter.add(key);
             }
             const isTab = _overlapTab === 'offdays';
-            renderCommonOffSection(!isTab, isTab);
+            if (isTab) _renderOffDayView();
+            else renderCommonOffSection(true, false);
         }
 
         function toggleCrossingsPilot(key) {
@@ -3373,6 +3377,10 @@
 
         let _overlapData = []; // stores all primary overlaps for detail modal
         let _overlapTab = 'crossings'; // 'crossings' | 'offdays'
+        let _offDayYear     = null;  // null = current month
+        let _offDayMonth    = null;
+        let _offDaySelected = null;  // tapped date string
+        let _offDayView     = 'list'; // 'list' | 'calendar'
 
         function switchOverlapTab(tab) {
             _overlapTab = tab;
@@ -3381,7 +3389,37 @@
             document.getElementById('tab-crossings')?.classList.toggle('overlap-tab-active', tab === 'crossings');
             document.getElementById('tab-offdays')?.classList.toggle('overlap-tab-active', tab === 'offdays');
             const filterBar = document.getElementById('offday-filter-bar');
-            if (filterBar) filterBar.style.display = tab === 'offdays' ? 'block' : 'none';
+            if (filterBar) {
+                filterBar.style.display = tab === 'offdays' ? 'block' : 'none';
+                if (tab === 'offdays' && !filterBar._wheelWired) {
+                    filterBar._wheelWired = true;
+                    const chipsEl = document.getElementById('offday-filter-chips');
+                    if (chipsEl) {
+                        chipsEl.addEventListener('wheel', e => {
+                            if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+                            e.preventDefault();
+                            chipsEl.scrollLeft += e.deltaY;
+                        }, { passive: false });
+                        let _dragX = null, _dragScroll = 0, _dragging = false;
+                        chipsEl.addEventListener('mousedown', e => {
+                            _dragX = e.clientX; _dragScroll = chipsEl.scrollLeft; _dragging = false;
+                            chipsEl.style.cursor = 'grabbing';
+                        });
+                        chipsEl.addEventListener('mousemove', e => {
+                            if (_dragX === null) return;
+                            const dx = e.clientX - _dragX;
+                            if (Math.abs(dx) > 3) _dragging = true;
+                            if (_dragging) { chipsEl.scrollLeft = _dragScroll - dx; e.preventDefault(); }
+                        });
+                        const endDrag = () => { _dragX = null; chipsEl.style.cursor = ''; };
+                        chipsEl.addEventListener('mouseup', e => {
+                            if (_dragging) e.stopPropagation();
+                            endDrag();
+                        });
+                        chipsEl.addEventListener('mouseleave', endDrag);
+                    }
+                }
+            }
             const refreshBtn = document.getElementById('overlap-refresh-btn');
             if (refreshBtn) {
                 refreshBtn.onclick = tab === 'offdays' ? computeOffDays : computeOverlap;
@@ -3399,8 +3437,256 @@
                     catch(_) {}
                 }
             }));
-            container.innerHTML = '<div id="common-off-section"></div>';
-            renderCommonOffSection(false, true);
+            _renderOffDayView();
+        }
+
+        function _renderOffDayView() {
+            if (_offDayView === 'calendar') {
+                renderOffDayCalendar();
+            } else {
+                const container = document.getElementById('offdays-content');
+                if (container) {
+                    container.innerHTML = '<div id="common-off-section"></div>';
+                    renderCommonOffSection(false, true);
+                }
+            }
+            const btn = document.getElementById('offday-view-toggle');
+            if (btn) {
+                const active = _offDayView === 'calendar';
+                btn.style.background    = active ? '#1e3a5f'    : '#18181b';
+                btn.style.color         = active ? '#3b82f6'    : '#a1a1aa';
+                btn.style.borderColor   = active ? '#3b82f655'  : '#27272a';
+            }
+        }
+
+        function toggleOffDayView() {
+            _offDayView     = _offDayView === 'list' ? 'calendar' : 'list';
+            _offDaySelected = null;
+            _renderOffDayView();
+        }
+
+        function prevOffMonth() {
+            const n = new Date();
+            let y = _offDayYear ?? n.getFullYear(), m = _offDayMonth ?? n.getMonth();
+            if (--m < 0) { m = 11; y--; }
+            _offDayYear = y; _offDayMonth = m;
+            renderOffDayCalendar();
+        }
+
+        function nextOffMonth() {
+            const n = new Date();
+            let y = _offDayYear ?? n.getFullYear(), m = _offDayMonth ?? n.getMonth();
+            if (++m > 11) { m = 0; y++; }
+            _offDayYear = y; _offDayMonth = m;
+            renderOffDayCalendar();
+        }
+
+        function dismissOffDayDetail() {
+            _offDaySelected = null;
+            const el = document.getElementById('offday-day-detail');
+            if (el) el.innerHTML = '';
+            document.querySelectorAll('[data-offday-date]').forEach(c => c.style.boxShadow = '');
+        }
+
+        function showOffDayDetail(dateStr) {
+            if (_offDaySelected === dateStr) { dismissOffDayDetail(); return; }
+            _offDaySelected = dateStr;
+            const el = document.getElementById('offday-day-detail');
+            if (!el) return;
+
+            const visibleCrew = getCrewVisible();
+            if (!_offDayFilter) _offDayFilter = new Set(visibleCrew);
+            const activeKeys = visibleCrew.filter(k => _offDayFilter.has(k));
+
+            const _pad = n => String(n).padStart(2, '0');
+            const localDateStr = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
+            const date = new Date(dateStr + 'T12:00:00');
+            const label = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+            const kyleHardOff = new Set();
+            (pilotsCache['kyle']?.segments || []).filter(s => s.type === 'hard').forEach(s => {
+                if (s.departure_time) kyleHardOff.add(s.departure_time.slice(0, 10));
+            });
+
+            const pilotFlyingDates = {};
+            PILOT_KEYS.forEach(k => {
+                const flying = new Set();
+                (pilotsCache[k]?.segments || []).forEach(s => {
+                    if (k === 'kyle' && s.type === 'hard') return;
+                    if (s.type !== 'flight' && s.type !== 'reserve' && s.type !== 'ground') return;
+                    if (s.type === 'flight' && s.trip === 'PERSONAL') return;
+                    if (s.type === 'reserve' && s.departure_time && s.arrival_time) {
+                        const rdStr = flightLocalDate(s.departure_time, s.departure_airport) || s.departure_time.slice(0, 10);
+                        const reStr = flightLocalDate(s.arrival_time,   s.departure_airport) || s.arrival_time.slice(0, 10);
+                        const rd = new Date(rdStr + 'T12:00:00'), re = new Date(reStr + 'T12:00:00');
+                        for (let dd = new Date(rd); dd <= re; dd.setDate(dd.getDate() + 1)) flying.add(localDateStr(dd));
+                    } else {
+                        const t = s.departure_time;
+                        if (t) flying.add(flightLocalDate(t, s.departure_airport) || t.slice(0, 10));
+                    }
+                });
+                pilotFlyingDates[k] = flying;
+            });
+
+            const rows = activeKeys.map(k => {
+                const off = !pilotFlyingDates[k].has(dateStr);
+                const statusLabel = off ? 'Off' : 'Working';
+                const statusColor = off ? '#22c55e' : '#52525b';
+                return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0">
+                    <span style="width:7px;height:7px;border-radius:50%;background:${PILOT_COLORS[k]};flex-shrink:0"></span>
+                    <span style="font-size:12px;font-weight:700;color:#e4e4e7;flex:1">${(PILOT_NAMES[k]||k).split(' ')[0]}</span>
+                    <span style="font-size:11px;font-weight:800;color:${statusColor}">${statusLabel}</span>
+                </div>`;
+            }).join('');
+
+            el.innerHTML = `<div style="background:#111;border:1px solid #27272a;border-radius:12px;padding:11px 13px;margin-top:10px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <div style="font-size:10px;font-weight:900;color:#71717a;text-transform:uppercase;letter-spacing:0.07em">${label}</div>
+                    <button onclick="dismissOffDayDetail()" style="width:22px;height:22px;border-radius:6px;background:transparent;border:1px solid #3f3f46;color:#71717a;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;-webkit-tap-highlight-color:transparent" onmouseenter="this.style.background='#27272a'" onmouseleave="this.style.background='transparent'">✕</button>
+                </div>
+                ${rows}
+            </div>`;
+
+            // Highlight the selected cell
+            document.querySelectorAll('[data-offday-date]').forEach(c => {
+                c.style.boxShadow = c.dataset.offdayDate === dateStr ? '0 0 0 2px #a1a1aa88' : '';
+            });
+        }
+
+        function renderOffDayCalendar() {
+            const container = document.getElementById('offdays-content');
+            if (!container) return;
+
+            const visibleCrew = getCrewVisible();
+            if (!_offDayFilter) _offDayFilter = new Set(visibleCrew);
+            const activeKeys = visibleCrew.filter(k => _offDayFilter.has(k));
+
+            const now  = new Date();
+            const _pad = n => String(n).padStart(2, '0');
+            const localDateStr = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
+            const todayStr = localDateStr(now);
+            const year  = _offDayYear  ?? now.getFullYear();
+            const month = _offDayMonth ?? now.getMonth();
+
+            // Build flying-date sets for each pilot
+            const pilotFlyingDates = {};
+            const kyleHardOffDates = new Set();
+            PILOT_KEYS.forEach(k => {
+                const flying = new Set();
+                (pilotsCache[k]?.segments || []).forEach(s => {
+                    if (k === 'kyle' && s.type === 'hard' && s.departure_time) {
+                        kyleHardOffDates.add(s.departure_time.slice(0, 10)); return;
+                    }
+                    if (s.type !== 'flight' && s.type !== 'reserve' && s.type !== 'ground') return;
+                    if (s.type === 'flight' && s.trip === 'PERSONAL') return;
+                    if (s.type === 'reserve' && s.departure_time && s.arrival_time) {
+                        const rdStr = flightLocalDate(s.departure_time, s.departure_airport) || s.departure_time.slice(0, 10);
+                        const reStr = flightLocalDate(s.arrival_time,   s.departure_airport) || s.arrival_time.slice(0, 10);
+                        const rd = new Date(rdStr + 'T12:00:00'), re = new Date(reStr + 'T12:00:00');
+                        for (let dd = new Date(rd); dd <= re; dd.setDate(dd.getDate() + 1)) flying.add(localDateStr(dd));
+                    } else {
+                        const t = s.departure_time;
+                        if (t) flying.add(flightLocalDate(t, s.departure_airport) || t.slice(0, 10));
+                    }
+                });
+                pilotFlyingDates[k] = flying;
+            });
+
+            const isOff = (k, ds) => k === 'kyle' ? kyleHardOffDates.has(ds) : !pilotFlyingDates[k].has(ds);
+
+            // Calendar grid
+            const firstDay = new Date(year, month, 1);
+            const lastDay  = new Date(year, month + 1, 0);
+            const startDow = firstDay.getDay();
+            const monthLabel = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+            const cells = [];
+            for (let i = 0; i < startDow; i++) cells.push(null);
+            for (let d = 1; d <= lastDay.getDate(); d++) {
+                const dateStr   = `${year}-${_pad(month + 1)}-${_pad(d)}`;
+                const offPilots = activeKeys.filter(k => isOff(k, dateStr));
+                cells.push({ d, dateStr, offPilots });
+            }
+            while (cells.length % 7 !== 0) cells.push(null);
+
+            const nActive = activeKeys.length;
+            const dowRow = ['S','M','T','W','T','F','S'].map(l =>
+                `<div style="text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.07em;color:#3f3f46;padding:4px 0">${l}</div>`
+            ).join('');
+
+            const cellsHtml = cells.map(cell => {
+                if (!cell) return `<div style="border-radius:9px;background:#0a0a0a;min-height:72px"></div>`;
+                const { d, dateStr, offPilots } = cell;
+                const isToday    = dateStr === todayStr;
+                const isSelected = dateStr === _offDaySelected;
+                const allOff  = nActive > 0 && offPilots.length === nActive;
+                const mostOff = nActive > 2 && offPilots.length >= nActive - 1;
+
+                let bg     = '#0f172a';
+                let border = isToday ? '1.5px solid rgba(59,130,246,0.5)' : '1px solid #1e1e24';
+                if (isSelected) border = '1.5px solid rgba(161,161,170,0.55)';
+                if (allOff)       { bg = 'rgba(251,191,36,0.09)';  border = '1px solid rgba(251,191,36,' + (isToday ? '0.7' : '0.32') + ')'; }
+                else if (mostOff) { bg = 'rgba(34,197,94,0.06)';   border = '1px solid rgba(34,197,94,0.22)'; }
+
+                const dateColor = allOff ? '#fbbf24' : isToday ? '#60a5fa' : '#52525b';
+                const chips = offPilots.map(k => {
+                    const name = (PILOT_NAMES[k]||k).split(' ')[0];
+                    const pc = PILOT_COLORS[k];
+                    return `<span style="background:${pc}22;color:${pc};border:1px solid ${pc}44;border-radius:4px;font-size:8px;font-weight:900;padding:2px 5px;line-height:1.4;flex-shrink:0">${name}</span>`;
+                }).join('');
+                const allBadge = allOff ? `<span style="font-size:7px;font-weight:900;color:#fbbf24;line-height:1;margin-left:auto;margin-top:1px">ALL</span>` : '';
+
+                return `<div data-offday-date="${dateStr}" onclick="showOffDayDetail('${dateStr}')"
+                    style="border-radius:9px;background:${bg};border:${border};min-height:72px;padding:7px 6px;cursor:pointer;transition:opacity 0.12s;display:flex;flex-direction:column;gap:4px"
+                    onmouseenter="this.style.opacity='0.72'" onmouseleave="this.style.opacity='1'">
+                    <div style="display:flex;align-items:flex-start;gap:2px">
+                        <span style="font-size:11px;font-weight:${isToday ? '900' : '700'};color:${dateColor}">${d}</span>
+                        ${allBadge}
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:2px;flex:1;align-content:flex-start">${chips}</div>
+                </div>`;
+            }).join('');
+
+            const pilotLegend = activeKeys.map(k => {
+                const name = (PILOT_NAMES[k]||k).split(' ')[0];
+                const pc = PILOT_COLORS[k];
+                return `<span style="background:${pc}22;color:${pc};border:1px solid ${pc}44;border-radius:4px;font-size:8px;font-weight:900;padding:2px 5px;line-height:1.4">${name}</span>`;
+            }).join('');
+
+            const cellLegend = `
+                <span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#a1a1aa">
+                    <span style="width:12px;height:12px;border-radius:3px;background:rgba(251,191,36,0.09);border:1px solid rgba(251,191,36,0.32);display:inline-block"></span>All off
+                </span>
+                ${nActive > 2 ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#a1a1aa">
+                    <span style="width:12px;height:12px;border-radius:3px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.22);display:inline-block"></span>Most off
+                </span>` : ''}`;
+
+            // Update filter chips
+            const filterChips = visibleCrew.map(k => {
+                const active = _offDayFilter.has(k);
+                const color  = PILOT_COLORS[k];
+                const name   = (PILOT_NAMES[k]||k).split(' ')[0];
+                return `<button onclick="toggleOffDayPilot('${k}')" style="flex:none;background:${active ? color+'22' : 'transparent'};color:${active ? color : '#52525b'};border:1px solid ${active ? color+'55' : '#3f3f46'};border-radius:9999px;padding:6px 14px;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;transition:all 0.15s;-webkit-tap-highlight-color:transparent;min-height:36px;display:inline-flex;align-items:center">${name}</button>`;
+            }).join('');
+            const chipsEl = document.getElementById('offday-filter-chips');
+            if (chipsEl) chipsEl.innerHTML = filterChips;
+
+            container.innerHTML = `<div style="padding:0 2px">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 2px 8px">
+                    <button onclick="prevOffMonth()" style="width:34px;height:34px;border-radius:8px;background:#18181b;border:1px solid #27272a;color:#a1a1aa;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent">‹</button>
+                    <span style="font-size:13px;font-weight:900;color:#e4e4e7;letter-spacing:0.05em;text-transform:uppercase">${monthLabel}</span>
+                    <button onclick="nextOffMonth()" style="width:34px;height:34px;border-radius:8px;background:#18181b;border:1px solid #27272a;color:#a1a1aa;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent">›</button>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px">${dowRow}</div>
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cellsHtml}</div>
+                <div style="margin-top:14px;border-top:1px solid #1c1c21;padding-top:12px;display:flex;flex-direction:column;gap:8px">
+                    <div style="display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center">${pilotLegend}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px 14px;justify-content:center">${cellLegend}</div>
+                </div>
+                <div id="offday-day-detail" style="padding-bottom:8px"></div>
+            </div>`;
+
+            if (_offDaySelected) showOffDayDetail(_offDaySelected);
         }
 
         function openOverlapDetail(idx) {
