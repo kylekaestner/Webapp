@@ -23,7 +23,8 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(curl -s http://167.71.107.245:3000/api/pilots/drew)",
-      "Bash(git -C \"e:/Webapp\" push origin server)"
+      "Bash(git -C \"e:/Webapp\" push origin server)",
+      "Bash(git push *)"
     ]
   }
 }

@@ -261,11 +261,12 @@ function parseECrewICS(text, airlineCode = '', iataAliases = []) {
 
         const toUTC = (val, tz) => tz !== 'UTC' ? localTZToUTC(val, tz) : formatICSDatetime(val);
 
-        // Reserve duty: RESR / RESP / RESA / RAP (Reserve Alert Period)
+        // Reserve duty: RESR / RESP / RESA / RAP (Reserve Alert Period) / LCR (Long Call Reserve)
         // DTSTART is the reporting/duty block time, NOT the actual reserve window.
         // Parse actual on-call window times from the DESCRIPTION leg line, e.g.:
         //   "RESR - CVG  (1700) - CVG  (0659⁺¹)" → window 5:00 PM → 6:59 AM
-        const resMatch = summary.match(/^(RES[A-Z]|RAP)\b/i);
+        //   "LCR  - CVG  (0201) - CVG  (0200⁺¹)" → window 2:01 AM → 2:00 AM next day
+        const resMatch = summary.match(/^(RES[A-Z]|RAP|LCR)\b/i);
         if (resMatch) {
             const locApt  = cleanApt(location.split(')').pop().trim().replace(/\d+$/, '').trim() || '');
             const baseDate = dtStartVal.slice(0, 8);
@@ -275,7 +276,7 @@ function parseECrewICS(text, airlineCode = '', iataAliases = []) {
             const descLines = rawDesc.split('\n').map(l => l.trim()).filter(Boolean);
             for (const line of descLines) {
                 const m = line.match(LEG_RE);
-                if (!m || !/^(RES|RAP)/i.test(m[1])) continue;
+                if (!m || !/^(RES|RAP|LCR)/i.test(m[1])) continue;
                 const depField = m[3], arrField = m[5];
                 const depHHMM  = depField.replace(/\D/g, '').slice(0, 4);
                 const arrHHMM  = arrField.replace(/\D/g, '').slice(0, 4);
