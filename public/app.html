@@ -3495,10 +3495,16 @@
         let _offDaySheetSwipeSetup = false;
         function dismissOffDayDetail() {
             _offDaySelected = null;
+            // Mobile sheet
             const sheet = document.getElementById('offday-detail-sheet');
             const panel = document.getElementById('offday-detail-panel');
-            if (panel) { panel.style.transform = 'translateY(100%)'; panel.style.transition = 'transform 0.22s ease'; }
-            setTimeout(() => { if (sheet) sheet.classList.add('hidden'); }, 220);
+            if (panel && sheet && !sheet.classList.contains('hidden')) {
+                panel.style.transform = 'translateY(100%)'; panel.style.transition = 'transform 0.22s ease';
+                setTimeout(() => sheet.classList.add('hidden'), 220);
+            }
+            // Desktop inline
+            const inlineEl = document.getElementById('offday-day-detail-inline');
+            if (inlineEl) inlineEl.innerHTML = '';
             document.querySelectorAll('[data-offday-date]').forEach(c => c.style.boxShadow = '');
         }
 
@@ -3536,13 +3542,15 @@
             });
 
             const kyleHardOff = new Set();
-            (pilotsCache['kyle']?.segments || []).filter(s => s.type === 'hard').forEach(s => {
-                if (s.departure_time) kyleHardOff.add(s.departure_time.slice(0, 10));
+            const kyleVac     = new Set();
+            (pilotsCache['kyle']?.segments || []).forEach(s => {
+                if (s.type === 'hard'     && s.departure_time) kyleHardOff.add(s.departure_time.slice(0, 10));
+                if (s.type === 'vacation' && s.departure_time) kyleVac.add(s.departure_time.slice(0, 10));
             });
 
             const rows = activeKeys.map(k => {
-                const off = k === 'kyle' ? kyleHardOff.has(dateStr) : !pilotFlyingDates[k].has(dateStr);
-                const pc  = PILOT_COLORS[k];
+                const off   = k === 'kyle' ? (kyleHardOff.has(dateStr) || kyleVac.has(dateStr)) : !pilotFlyingDates[k].has(dateStr);
+                const pc    = PILOT_COLORS[k];
                 const statusLabel = off ? 'Off' : 'Working';
                 const statusColor = off ? '#22c55e' : '#52525b';
                 return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #1c1c21">
@@ -3552,31 +3560,40 @@
                 </div>`;
             }).join('');
 
-            const content = document.getElementById('offday-detail-content');
-            if (content) content.innerHTML = `
+            const detailInner = `
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
                     <div style="font-size:11px;font-weight:900;color:#71717a;text-transform:uppercase;letter-spacing:0.07em">${label}</div>
                     <button onclick="dismissOffDayDetail()" style="width:26px;height:26px;border-radius:7px;background:transparent;border:1px solid #3f3f46;color:#71717a;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent">✕</button>
                 </div>
                 <div style="border-top:1px solid #1c1c21">${rows}</div>`;
 
-            const sheet = document.getElementById('offday-detail-sheet');
-            const panel = document.getElementById('offday-detail-panel');
-            if (!sheet || !panel) return;
+            const isMobile = window.innerWidth < 768;
 
-            // Slide in
-            panel.style.transform = 'translateY(100%)';
-            panel.style.transition = 'none';
-            sheet.classList.remove('hidden');
-            requestAnimationFrame(() => {
-                panel.style.transition = 'transform 0.25s cubic-bezier(0.32,0.72,0,1)';
-                panel.style.transform  = 'translateY(0)';
-            });
-
-            // Wire swipe-to-dismiss once
-            if (!_offDaySheetSwipeSetup) {
-                _offDaySheetSwipeSetup = true;
-                setupSheetSwipe(panel, dismissOffDayDetail);
+            if (isMobile) {
+                // Mobile: slide-up bottom sheet
+                const content = document.getElementById('offday-detail-content');
+                if (content) content.innerHTML = detailInner;
+                const sheet = document.getElementById('offday-detail-sheet');
+                const panel = document.getElementById('offday-detail-panel');
+                if (!sheet || !panel) return;
+                panel.style.transform = 'translateY(100%)';
+                panel.style.transition = 'none';
+                sheet.classList.remove('hidden');
+                requestAnimationFrame(() => {
+                    panel.style.transition = 'transform 0.25s cubic-bezier(0.32,0.72,0,1)';
+                    panel.style.transform  = 'translateY(0)';
+                });
+                if (!_offDaySheetSwipeSetup) {
+                    _offDaySheetSwipeSetup = true;
+                    setupSheetSwipe(panel, dismissOffDayDetail);
+                }
+            } else {
+                // Desktop: inline card below the calendar
+                const inlineEl = document.getElementById('offday-day-detail-inline');
+                if (inlineEl) {
+                    inlineEl.innerHTML = `<div style="background:#111;border:1px solid #27272a;border-radius:12px;padding:14px 16px;margin-top:12px;animation:fadeIn 0.15s ease">${detailInner}</div>`;
+                    inlineEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
             }
 
             // Highlight selected cell
@@ -3603,11 +3620,15 @@
             // Build flying-date sets for each pilot
             const pilotFlyingDates = {};
             const kyleHardOffDates = new Set();
+            const kyleVacDates     = new Set();
             PILOT_KEYS.forEach(k => {
                 const flying = new Set();
                 (pilotsCache[k]?.segments || []).forEach(s => {
                     if (k === 'kyle' && s.type === 'hard' && s.departure_time) {
                         kyleHardOffDates.add(s.departure_time.slice(0, 10)); return;
+                    }
+                    if (k === 'kyle' && s.type === 'vacation' && s.departure_time) {
+                        kyleVacDates.add(s.departure_time.slice(0, 10)); return;
                     }
                     if (s.type !== 'flight' && s.type !== 'reserve' && s.type !== 'ground') return;
                     if (s.type === 'flight' && s.trip === 'PERSONAL') return;
@@ -3624,7 +3645,7 @@
                 pilotFlyingDates[k] = flying;
             });
 
-            const isOff = (k, ds) => k === 'kyle' ? kyleHardOffDates.has(ds) : !pilotFlyingDates[k].has(ds);
+            const isOff = (k, ds) => k === 'kyle' ? (kyleHardOffDates.has(ds) || kyleVacDates.has(ds)) : !pilotFlyingDates[k].has(ds);
 
             // Responsive sizing
             const mob = window.innerWidth < 600;
@@ -3673,7 +3694,7 @@
                 const dateColor = allOff ? '#fbbf24' : isToday ? '#60a5fa' : '#52525b';
                 const chips = offPilots.map(k => {
                     const name = (PILOT_NAMES[k]||k).split(' ')[0];
-                    const pc = PILOT_COLORS[k];
+                    const pc   = PILOT_COLORS[k];
                     return `<span style="background:${pc}22;color:${pc};border:1px solid ${pc}44;border-radius:${pillRadius};font-size:${pillFs};font-weight:900;padding:${pillPad};line-height:1.4;flex-shrink:0">${name}</span>`;
                 }).join('');
                 const allBadge = allOff ? `<span style="font-size:7px;font-weight:900;color:#fbbf24;line-height:1;margin-left:auto;margin-top:1px">ALL</span>` : '';
@@ -3725,6 +3746,7 @@
                     <div style="display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center">${pilotLegend}</div>
                     <div style="display:flex;flex-wrap:wrap;gap:8px 14px;justify-content:center">${cellLegend}</div>
                 </div>
+                <div id="offday-day-detail-inline"></div>
             </div>`;
 
             if (_offDaySelected) {
