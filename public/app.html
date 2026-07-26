@@ -3535,8 +3535,13 @@
                 pilotFlyingDates[k] = flying;
             });
 
+            const kyleHardOff = new Set();
+            (pilotsCache['kyle']?.segments || []).filter(s => s.type === 'hard').forEach(s => {
+                if (s.departure_time) kyleHardOff.add(s.departure_time.slice(0, 10));
+            });
+
             const rows = activeKeys.map(k => {
-                const off = !pilotFlyingDates[k].has(dateStr);
+                const off = k === 'kyle' ? kyleHardOff.has(dateStr) : !pilotFlyingDates[k].has(dateStr);
                 const pc  = PILOT_COLORS[k];
                 const statusLabel = off ? 'Off' : 'Working';
                 const statusColor = off ? '#22c55e' : '#52525b';
