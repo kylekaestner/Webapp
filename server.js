@@ -2785,6 +2785,60 @@ app.post('/api/settings/:key', (req, res) => {
     );
 });
 
+// ── NOTAM proxy (SkyLink API via RapidAPI) ────────────────────────────────────
+// Free tier: 1,000 req/month, no credit card — sign up at rapidapi.com then subscribe to
+// "SkyLink NOTAM API". Store your key:
+//   POST /api/settings/notam-creds   body: { "rapidapiKey": "YOUR_KEY" }
+// If credentials are absent the endpoint returns { notams: [] } so autofill degrades gracefully.
+
+app.get('/api/notams', async (req, res) => {
+    const { dep, arr } = req.query;
+    if (!dep) return res.status(400).json({ error: 'dep required', notams: [] });
+
+    const db = getDB();
+    db.get(`SELECT value FROM settings WHERE key='notam-creds'`, async (err, row) => {
+        if (err || !row) return res.json({ notams: [], unconfigured: true });
+
+        let creds;
+        try { creds = JSON.parse(row.value); } catch { return res.json({ notams: [] }); }
+        const { rapidapiKey } = creds;
+        if (!rapidapiKey) return res.json({ notams: [], unconfigured: true });
+
+        const locations = [...new Set([dep, arr].filter(Boolean))];
+        const notams = [];
+
+        await Promise.all(locations.map(async icao => {
+            try {
+                const resp = await fetch(`https://skylink-api.p.rapidapi.com/v3/notams/${encodeURIComponent(icao)}`, {
+                    headers: {
+                        'x-rapidapi-key':  rapidapiKey,
+                        'x-rapidapi-host': 'skylink-api.p.rapidapi.com',
+                    },
+                    signal: AbortSignal.timeout(10000),
+                });
+                if (!resp.ok) { console.warn(`[NOTAM] SkyLink ${resp.status} for ${icao}`); return; }
+                const data = await resp.json();
+                for (const n of (data.notams || [])) {
+                    if (n.type === 'C') continue; // skip cancelled NOTAMs
+                    // Infer classification from raw: FDC NOTAMs start with "!FDC"
+                    const isFDC = /^!FDC\b/i.test(n.raw || '');
+                    notams.push({
+                        airport:        icao,
+                        id:             n.notam_id,
+                        classification: isFDC ? 'FDC' : 'DOM',
+                        text:           n.body || n.raw || '',
+                        effectiveStart: n.effective,
+                        effectiveEnd:   n.expiration,
+                    });
+                }
+            } catch (e) { console.warn(`[NOTAM] ${icao}:`, e.message); }
+        }));
+
+        console.log(`[NOTAM] ${notams.length} NOTAMs for ${locations.join(', ')}`);
+        res.json({ notams });
+    });
+});
+
 // ── Crew Intel ────────────────────────────────────────────────────────────────
 app.get('/api/intel', (req, res) => {
     const db = getDB();
