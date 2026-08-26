@@ -6514,7 +6514,7 @@
                     else if (isTraining && !isFlying) { style = "border-orange-500/40 bg-orange-900/25"; tag = "TRAINING"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (isReserve) { style = "border-amber-400/30 bg-amber-400/5"; tag = "ON CALL"; }
-                    else if (isPersonalFlight) { /* personal travel day — flight pill shows below; don't mark as AWAY */ tag = ""; }
+                    else if (isPersonalFlight) { /* personal travel day — flight pill shows below; don't mark as AWAY */ }
                     else if (awayApt) { style = "border-yellow-500/40 bg-yellow-900/20"; tag = `AWAY - ${awayApt}`; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
                     else if (isAllCrewOff) { style = "border-amber-400/60 bg-amber-950/30"; tag = "✦ ALL OFF"; }
