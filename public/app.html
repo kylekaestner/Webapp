@@ -7132,7 +7132,12 @@
             if (flights.length === 0 && reserves.length === 0 && groundLegs.length === 0) {
                 const icon = isVacation ? '🌴' : isHard ? '🔴' : isTraining ? '🎓' : away ? '🏨' : currentPilot === 'kyle' ? '📟' : '😴';
                 const msg  = isVacation ? 'Vacation' : isHard ? 'Hard Day Off' : isTraining ? (trainingLoc ? `Training · ${trainingLoc}` : 'Training Day') : away ? `Away at ${away.arrivalAirport}` : currentPilot === 'kyle' ? 'On Call' : 'Day Off';
-                html += `<div class="text-center py-8"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>`;
+                const specialSeg = isTraining ? dayEvents.find(e => e.type === 'training') : isVacation ? dayEvents.find(e => e.type === 'vacation') : null;
+                const specialEditActions = (specialSeg?.id && canEdit()) ? `<div class="flex gap-2 mt-4 pt-4 border-t border-white/10">
+                    <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${specialSeg.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
+                    <button onclick="deleteManualFlight(${specialSeg.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
+                </div>` : '';
+                html += `<div class="py-8"><div class="text-center"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>${specialEditActions}</div>`;
             }
 
             const allDayLegs = [...flights, ...groundLegs].sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
@@ -7305,9 +7310,9 @@
             if (trainingLoc) trainingLoc.classList.toggle('hidden', type !== 'training');
 
             const title = document.getElementById('add-flight-title');
-            if (title) title.textContent = type === 'vacation' ? 'Add Vacation' : type === 'training' ? 'Add Training' : 'Add Flight';
+            if (title) title.textContent = type === 'vacation' ? (_editSegmentId ? 'Edit Vacation' : 'Add Vacation') : type === 'training' ? (_editSegmentId ? 'Edit Training' : 'Add Training') : (_editSegmentId ? 'Edit Flight' : 'Add Flight');
             const btn = document.getElementById('add-flight-submit-btn');
-            if (btn) btn.textContent = type === 'vacation' ? 'Add Vacation' : type === 'training' ? 'Add Training' : (_editSegmentId ? 'Save Changes' : 'Add Flight');
+            if (btn) btn.textContent = type === 'vacation' ? (_editSegmentId ? 'Save Vacation' : 'Add Vacation') : type === 'training' ? (_editSegmentId ? 'Save Training' : 'Add Training') : (_editSegmentId ? 'Save Changes' : 'Add Flight');
         }
 
 let _blockUserEdited = false;
@@ -7440,7 +7445,7 @@ let _blockUserEdited = false;
             document.getElementById('add-flight-submit-btn').textContent = 'Add Flight';
             document.getElementById('add-date').value = _localToday();
             document.getElementById('add-pilot').value = myPilot || currentPilot || PILOT_KEYS[0];
-            ['add-dep','add-arr','add-dep-time','add-arr-time','add-flight-num','add-tail-num','add-block-time'].forEach(id => document.getElementById(id).value = '');
+            ['add-dep','add-arr','add-dep-time','add-arr-time','add-flight-num','add-tail-num','add-block-time','add-training-location'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
             document.getElementById('add-block-auto-label').textContent = '(auto-calculated)';
             document.getElementById('add-arr-next-day-label').textContent = '';
             document.getElementById('add-flight-error').classList.add('hidden');
@@ -7480,8 +7485,12 @@ let _blockUserEdited = false;
                 blockEl.value = '';
                 blockLbl.textContent = '(auto-calculated)';
             }
-            const type = seg.trip === 'PERSONAL' ? 'personal' : seg.trip === 'COMMUTE' ? 'commute' : (seg.dh ? 'dh' : 'work');
+            const type = seg.type === 'vacation' ? 'vacation' : seg.type === 'training' ? 'training' : seg.trip === 'PERSONAL' ? 'personal' : seg.trip === 'COMMUTE' ? 'commute' : (seg.dh ? 'dh' : 'work');
             setAddFlightType(type);
+            if (seg.type === 'training') {
+                const locEl = document.getElementById('add-training-location');
+                if (locEl) locEl.value = seg.departureAirport || '';
+            }
             document.getElementById('add-flight-modal').classList.remove('hidden');
         }
 
@@ -7492,7 +7501,7 @@ let _blockUserEdited = false;
 
         async function deleteManualFlight(segmentId) {
             const seg = segments.find(s => s.id === segmentId);
-            const label = seg?.type === 'ground' ? 'Delete Ground Leg' : 'Delete Flight';
+            const label = seg?.type === 'ground' ? 'Delete Ground Leg' : seg?.type === 'training' ? 'Delete Training Day' : seg?.type === 'vacation' ? 'Delete Vacation Day' : 'Delete Flight';
             const ok = await showConfirm(label, 'This cannot be undone.');
             if (!ok) return;
             try {
