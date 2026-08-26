@@ -7140,6 +7140,25 @@
                 html += `<div class="py-8"><div class="text-center"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>${specialEditActions}</div>`;
             }
 
+            // Training/vacation card — shown whenever the segment exists, even alongside flights
+            const _tvSegs = dayEvents.filter(e => e.type === 'training' || e.type === 'vacation');
+            _tvSegs.forEach(tvSeg => {
+                const tvIcon = tvSeg.type === 'vacation' ? '🌴' : '🎓';
+                const tvColor = tvSeg.type === 'vacation' ? '#14b8a6' : '#f97316';
+                const tvLabel = tvSeg.type === 'vacation' ? 'Vacation' : (tvSeg.departureAirport ? `Training · ${tvSeg.departureAirport}` : 'Training Day');
+                const tvEditActions = (tvSeg.id && canEdit()) ? `<div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
+                    <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${tvSeg.id})" class="flex-1 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
+                    <button onclick="deleteManualFlight(${tvSeg.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
+                </div>` : '';
+                html += `<div class="bg-zinc-900/60 border rounded-xl px-4 py-3 mb-3" style="border-color:${tvColor}28">
+                    <div class="flex items-center gap-2">
+                        <span class="text-lg">${tvIcon}</span>
+                        <span class="text-sm font-bold text-zinc-300">${tvLabel}</span>
+                    </div>
+                    ${tvEditActions}
+                </div>`;
+            });
+
             const allDayLegs = [...flights, ...groundLegs].sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
             allDayLegs.forEach(leg => {
             if (leg.type === 'ground') {
