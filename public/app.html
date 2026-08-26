@@ -932,7 +932,7 @@
                 <!-- Training location (shown only for training type) -->
                 <div id="add-training-location-row" class="hidden">
                     <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Location <span class="text-zinc-600 normal-case font-normal">(opt — e.g. STL, SIM)</span></label>
-                    <input type="text" id="add-training-location" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-emerald-500 outline-none transition uppercase">
+                    <input type="text" id="add-training-location" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-orange-500 outline-none transition uppercase">
                 </div>
                 <!-- Flight-only fields (hidden for training/vacation) -->
                 <div id="add-flight-only-fields" class="space-y-4">
@@ -6511,7 +6511,7 @@
                     let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
                     if (isVacation) { style = "border-teal-500/50 bg-teal-900/30 text-teal-100"; tag = awayApt ? `VAC · AWAY - ${awayApt}` : "VAC"; }
                     else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = awayApt ? `HARD OFF · AWAY - ${awayApt}` : "HARD OFF"; }
-                    else if (isTraining && !isFlying) { style = "border-emerald-500/40 bg-emerald-900/25"; tag = "TRAINING"; }
+                    else if (isTraining && !isFlying) { style = "border-orange-500/40 bg-orange-900/25"; tag = "TRAINING"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (isReserve) { style = "border-amber-400/30 bg-amber-400/5"; tag = "ON CALL"; }
                     else if (isPersonalFlight) { /* personal travel day — flight pill shows below; don't mark as AWAY */ tag = ""; }
@@ -6655,7 +6655,7 @@
                     } else if (isHard) {
                         bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = awayApt ? `HARD OFF · AWAY - ${awayApt}` : "HARD OFF";
                     } else if (isTraining && workFlights.length === 0) {
-                        bgColor = "bg-emerald-950/35 border-emerald-600/50"; labelColor = "text-emerald-300"; sidebarColor = "text-emerald-300"; sidebarBorder = "border-emerald-700/50"; label = "TRAINING";
+                        bgColor = "bg-orange-950/35 border-orange-600/50"; labelColor = "text-orange-300"; sidebarColor = "text-orange-300"; sidebarBorder = "border-orange-700/50"; label = "TRAINING";
                     } else if (reserves.length > 0 && workFlights.length === 0 && !awayApt) {
                         bgColor = "bg-amber-950/30 border-amber-500/30"; labelColor = "text-amber-400"; sidebarColor = "text-amber-400"; sidebarBorder = "border-amber-700/40"; label = "ON CALL";
                     } else if (_listAnyLive) {
@@ -7113,7 +7113,7 @@
             let labelColor = 'text-zinc-400';
             if (isVacation) { label = awayApt ? `VACATION · AWAY - ${awayApt}` : 'VACATION'; labelColor = 'text-teal-400'; }
             else if (isHard) { label = awayApt ? `HARD OFF · AWAY - ${awayApt}` : 'HARD OFF'; labelColor = 'text-red-400'; }
-            else if (isTraining && workFlights.length === 0) { label = 'TRAINING'; labelColor = 'text-emerald-400'; }
+            else if (isTraining && workFlights.length === 0) { label = 'TRAINING'; labelColor = 'text-orange-400'; }
             else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
             else if (workFlights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
             else if (isPersonalFlight) { label = 'PERSONAL'; labelColor = 'text-violet-400'; }
@@ -7291,8 +7291,8 @@
 
         function setAddFlightType(type) {
             _addFlightType = type;
-            const colors    = { work: 'bg-blue-600 text-white', dh: 'bg-pink-700 text-white', commute: 'bg-amber-600 text-white', personal: 'bg-violet-600 text-white', training: 'bg-emerald-600 text-white', vacation: 'bg-teal-600 text-white' };
-            const accentHex = { work: '#3b82f6', dh: '#be185d', commute: '#d97706', personal: '#7c3aed', training: '#10b981', vacation: '#14b8a6' };
+            const colors    = { work: 'bg-blue-600 text-white', dh: 'bg-pink-700 text-white', commute: 'bg-amber-600 text-white', personal: 'bg-violet-600 text-white', training: 'bg-orange-600 text-white', vacation: 'bg-teal-600 text-white' };
+            const accentHex = { work: '#3b82f6', dh: '#be185d', commute: '#d97706', personal: '#7c3aed', training: '#f97316', vacation: '#14b8a6' };
             ['work', 'dh', 'commute', 'personal', 'training', 'vacation'].forEach(t => {
                 const btn = document.getElementById(`ftype-${t}`);
                 if (!btn) return;
