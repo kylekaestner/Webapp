@@ -6514,6 +6514,7 @@
                     else if (isTraining && !isFlying) { style = "border-emerald-500/40 bg-emerald-900/25"; tag = "TRAINING"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (isReserve) { style = "border-amber-400/30 bg-amber-400/5"; tag = "ON CALL"; }
+                    else if (isPersonalFlight) { /* personal travel day — flight pill shows below; don't mark as AWAY */ tag = ""; }
                     else if (awayApt) { style = "border-yellow-500/40 bg-yellow-900/20"; tag = `AWAY - ${awayApt}`; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
                     else if (isAllCrewOff) { style = "border-amber-400/60 bg-amber-950/30"; tag = "✦ ALL OFF"; }
@@ -6661,6 +6662,8 @@
                         bgColor = "bg-emerald-950/40 border-emerald-600/60"; labelColor = "text-emerald-300"; sidebarColor = "text-emerald-300"; sidebarBorder = "border-emerald-700/60"; label = "▶ IN THE AIR";
                     } else if (workFlights.length > 0) {
                         bgColor = "bg-blue-900/40 border-blue-500/60"; labelColor = "text-blue-300"; sidebarColor = "text-blue-200"; sidebarBorder = "border-blue-700/60"; label = "FLYING";
+                    } else if (isPersonalFlight) {
+                        bgColor = "bg-zinc-900/20 border-zinc-700/50"; labelColor = "text-zinc-500"; sidebarColor = "text-zinc-400"; sidebarBorder = "border-zinc-700/50"; label = "PERSONAL";
                     } else if (away) {
                         bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${away.arrivalAirport}`;
                     } else if (awayApt) {
@@ -7111,9 +7114,10 @@
             if (isVacation) { label = awayApt ? `VACATION · AWAY - ${awayApt}` : 'VACATION'; labelColor = 'text-teal-400'; }
             else if (isHard) { label = awayApt ? `HARD OFF · AWAY - ${awayApt}` : 'HARD OFF'; labelColor = 'text-red-400'; }
             else if (isTraining && workFlights.length === 0) { label = 'TRAINING'; labelColor = 'text-emerald-400'; }
-            else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
             else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
             else if (workFlights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
+            else if (isPersonalFlight) { label = 'PERSONAL'; labelColor = 'text-violet-400'; }
+            else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
             else if (awayApt) { label = `AWAY - ${awayApt}`; labelColor = 'text-yellow-400'; }
             else if (reserves.length > 0) { label = 'ON CALL'; labelColor = 'text-amber-400'; }
 
