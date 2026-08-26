@@ -727,12 +727,14 @@ function parseVCS_skywest(text) {
         const desc  = extractDesc(block);
         const lines = desc.split(/\n/);
         let currentDate = null;
+        let prevDepMin = null;  // tracks last dep time (minutes) to detect midnight crossings within a day header
 
         for (const line of lines) {
             // Day header: "Tuesday 06-02-2026   Report: 17:52"
             const dayM = line.match(/(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*\s+(\d{2})-(\d{2})-(\d{4})/);
             if (dayM) {
                 currentDate = `${dayM[3]}-${dayM[1]}-${dayM[2]}`;
+                prevDepMin = null;  // reset on each new day header
                 continue;
             }
 
@@ -761,6 +763,16 @@ function parseVCS_skywest(text) {
             const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
             const depMin = toMin(depT);
             const arrMin = toMin(arrT);
+
+            // Stand-up trip detection: if this leg departs earlier (in minutes) than the previous
+            // leg under the same day header, it crossed midnight — advance currentDate by one day.
+            if (prevDepMin !== null && depMin < prevDepMin) {
+                const d = new Date(currentDate + 'T12:00:00Z');
+                d.setUTCDate(d.getUTCDate() + 1);
+                currentDate = d.toISOString().slice(0, 10);
+            }
+            prevDepMin = depMin;
+
             let arrDate = currentDate;
             if (arrMin < depMin) {
                 const d = new Date(currentDate + 'T12:00:00Z');
