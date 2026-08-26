@@ -1382,14 +1382,20 @@ app.delete('/api/pilots/:pilotKey/segments', (req, res) => {
     });
 });
 
-// Manually add a single flight segment
+// Manually add a single flight/training/vacation segment
 app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
-    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes } = req.body;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes, segment_type } = req.body;
 
-    if (!departure_time || !departure_airport || !arrival_airport) {
-        return res.status(400).json({ error: 'departure_time, departure_airport, and arrival_airport are required' });
+    const dbType = (segment_type === 'vacation' || segment_type === 'training') ? segment_type : 'flight';
+    const isDateOnly = dbType === 'vacation' || dbType === 'training';
+
+    if (!departure_time) {
+        return res.status(400).json({ error: 'departure_time is required' });
+    }
+    if (!isDateOnly && (!departure_airport || !arrival_airport)) {
+        return res.status(400).json({ error: 'departure_airport and arrival_airport are required' });
     }
 
     db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
@@ -1401,9 +1407,10 @@ app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
 
         db.run(
             `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, trip, is_dh, is_manual, block_minutes)
-             VALUES (?, 'flight', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-            [pilot.id, departure_time, arrival_time || null,
-             departure_airport.trim().toUpperCase(), arrival_airport.trim().toUpperCase(),
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+            [pilot.id, dbType, departure_time, arrival_time || null,
+             departure_airport ? departure_airport.trim().toUpperCase() : null,
+             arrival_airport   ? arrival_airport.trim().toUpperCase()   : null,
              flight_number || null, tail || null, tripValue, is_dh ? 1 : 0, blockMin],
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
@@ -1417,10 +1424,16 @@ app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
 app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
     const db = getDB();
     const { pilotKey, id } = req.params;
-    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes } = req.body;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes, segment_type } = req.body;
 
-    if (!departure_time || !departure_airport || !arrival_airport) {
-        return res.status(400).json({ error: 'departure_time, departure_airport, and arrival_airport are required' });
+    const dbType = (segment_type === 'vacation' || segment_type === 'training') ? segment_type : 'flight';
+    const isDateOnly = dbType === 'vacation' || dbType === 'training';
+
+    if (!departure_time) {
+        return res.status(400).json({ error: 'departure_time is required' });
+    }
+    if (!isDateOnly && (!departure_airport || !arrival_airport)) {
+        return res.status(400).json({ error: 'departure_airport and arrival_airport are required' });
     }
 
     db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
@@ -1431,11 +1444,12 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
         const blockMin = (block_minutes != null && block_minutes > 0) ? Math.round(block_minutes) : null;
 
         db.run(
-            `UPDATE segments SET departure_time=?, arrival_time=?, departure_airport=?, arrival_airport=?,
+            `UPDATE segments SET type=?, departure_time=?, arrival_time=?, departure_airport=?, arrival_airport=?,
              flight_number=?, tail=?, trip=?, is_dh=?, is_manual=1, block_minutes=?
              WHERE id=? AND pilot_id=?`,
-            [departure_time, arrival_time || null,
-             departure_airport.trim().toUpperCase(), arrival_airport.trim().toUpperCase(),
+            [dbType, departure_time, arrival_time || null,
+             departure_airport ? departure_airport.trim().toUpperCase() : null,
+             arrival_airport   ? arrival_airport.trim().toUpperCase()   : null,
              flight_number || null, tail || null, tripValue, is_dh ? 1 : 0, blockMin,
              id, pilot.id],
             function (err) {

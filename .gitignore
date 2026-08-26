@@ -1,6 +1,7 @@
 node_modules/
 *.db
 *.db-journal
+*.off
 *trail_cache*.json
 .DS_Store
 .env
