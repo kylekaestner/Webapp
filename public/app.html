@@ -4568,7 +4568,7 @@
         function initMap() {
             if (map) return;
             map = L.map('map', { zoomControl: false, doubleClickZoom: true, bounceAtZoomLimits: false }).setView([39.8283, -98.5795], 4);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+            L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png').addTo(map);
             setupDoubleTapZoom(map);
             map.on('zoomend', deoverlapLiveLabels);
             map.on('moveend', deoverlapLiveLabels);
@@ -9169,7 +9169,7 @@ let _blockUserEdited = false;
                 _intelMap.remove(); _intelMap = null;
             }
             _intelMap = L.map('intel-map-el', { zoomControl: false, attributionControl: false, worldCopyJump: true, doubleClickZoom: true, bounceAtZoomLimits: false });
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(_intelMap);
+            L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png').addTo(_intelMap);
             setupDoubleTapZoom(_intelMap);
             const _intelZoom = document.createElement('div');
             _intelZoom.style.cssText = 'position:absolute;top:10px;left:10px;z-index:1000;display:flex;flex-direction:column;gap:4px;pointer-events:auto';
@@ -10444,7 +10444,7 @@ let _blockUserEdited = false;
                 touchZoom: false, boxZoom: false, keyboard: false, tap: false,
                 bounceAtZoomLimits: false,
             });
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+            L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', {
                 subdomains: 'abcd', maxZoom: 19
             }).addTo(_wrappedMapInst);
 
