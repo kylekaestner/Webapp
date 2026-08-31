@@ -5815,7 +5815,8 @@
                     departureTime: seg.departure_time, arrivalTime: seg.arrival_time,
                     departureAirport: seg.departure_airport, arrivalAirport: seg.arrival_airport,
                     tail: seg.tail || '', flightNumber: seg.flight_number || '',
-                    dh: seg.is_dh ? true : false, blockMinutes: seg.block_minutes || null
+                    dh: seg.is_dh ? true : false, blockMinutes: seg.block_minutes || null,
+                    trip: seg.trip || null
                 }));
             }));
             if (gen !== mapRenderGen) return;
@@ -6002,16 +6003,18 @@
                         return start && start <= now2 && (!end || now2 <= end);
                     });
                     if (activeReserve) {
-                        // Suppress if the reserve was activated as a trip — work flights exist within 24 h either side
-                        const ms24 = 24 * 60 * 60 * 1000;
-                        const hasActivatedTrip = pilotFlights.some(f => {
+                        // Suppress only if the pilot completed a flight to a non-reserve airport
+                        // AFTER the reserve began — meaning they went home during the reserve window.
+                        const reserveBase = activeReserve.departureAirport?.toUpperCase();
+                        const reserveStart = flightUTCTime(activeReserve.departureTime, activeReserve.departureAirport);
+                        const wentHomeDuringReserve = reserveStart && pilotFlights.some(f => {
                             if (f.trip === 'PERSONAL') return false;
-                            const dep = flightUTCTime(f.departureTime, f.departureAirport);
                             const arr = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport) : null;
-                            return (dep && Math.abs(dep - now2) < ms24) ||
-                                   (arr && arr <= now2 && (now2 - arr) < ms24);
+                            if (!arr || arr > now2 || arr < reserveStart) return false;
+                            const arrApt = f.arrivalAirport?.toUpperCase();
+                            return arrApt && arrApt !== reserveBase;
                         });
-                        if (!hasActivatedTrip) { pushPin(activeReserve.departureAirport, 'Reserve'); return; }
+                        if (!wentHomeDuringReserve) { pushPin(activeReserve.departureAirport, 'Reserve'); return; }
                     }
 
                     // ── 3. Reserve ended recently — overnight if more work at same airport ──
