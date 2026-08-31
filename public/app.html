@@ -6029,13 +6029,16 @@
                         const apt = todayEndedReserve.departureAirport.toUpperCase();
                         // Only anchor to the reserve airport if the next departure (flight or reserve) from
                         // there is within 30h — otherwise the pilot has had time to commute home.
-                        const moreWork = segs.some(s => {
+                        const nextWorkSeg = segs.find(s => {
                             if (s.type !== 'flight' && s.type !== 'reserve') return false;
                             if (s.departureAirport?.toUpperCase() !== apt) return false;
                             const dep = flightUTCTime(s.departureTime, s.departureAirport);
                             return dep && dep > now2 && (dep - now2) < 30 * 60 * 60 * 1000;
                         });
-                        if (moreWork) { pushPin(todayEndedReserve.departureAirport, 'Overnight'); return; }
+                        if (nextWorkSeg) {
+                            const label = nextWorkSeg.type === 'reserve' ? 'Reserve' : 'Overnight';
+                            pushPin(todayEndedReserve.departureAirport, label); return;
+                        }
                     }
 
                     // ── 4. Active AWAY segment (manually entered — trusted as authoritative) ──
