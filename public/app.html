@@ -6027,10 +6027,10 @@
                     });
                     if (todayEndedReserve) {
                         const apt = todayEndedReserve.departureAirport.toUpperCase();
-                        // Only anchor to the reserve airport if the next departure from there is within 30h —
-                        // otherwise the pilot has had time to commute home between the reserve and next trip.
+                        // Only anchor to the reserve airport if the next departure (flight or reserve) from
+                        // there is within 30h — otherwise the pilot has had time to commute home.
                         const moreWork = segs.some(s => {
-                            if (s.type !== 'flight') return false;
+                            if (s.type !== 'flight' && s.type !== 'reserve') return false;
                             if (s.departureAirport?.toUpperCase() !== apt) return false;
                             const dep = flightUTCTime(s.departureTime, s.departureAirport);
                             return dep && dep > now2 && (dep - now2) < 30 * 60 * 60 * 1000;
@@ -6088,9 +6088,10 @@
                     const nextDepUTC = nextDepFromHere ? flightUTCTime(nextDepFromHere.departureTime, nextDepFromHere.departureAirport) : null;
 
                     // Mid-trip overnight: pilot is at a non-home airport with a future departure from there.
-                    // Includes turns at base — if the next leg departs within 12 h, the pilot hasn't gone home.
+                    // Includes turns at base — if the next leg departs within 18 h, the pilot hasn't gone home
+                    // (commuters need at least 3–4 h each way, so anything < 18 h makes a home run unlikely).
                     const midTrip = lastArrival && !atHome && nextDepFromHere && (
-                        !atBase || (nextDepUTC - now2) < 12 * 60 * 60 * 1000
+                        !atBase || (nextDepUTC - now2) < 18 * 60 * 60 * 1000
                     );
                     if (midTrip) { pushPin(lastArrival, 'Overnight'); return; }
 
