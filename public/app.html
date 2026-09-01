@@ -8045,7 +8045,7 @@ let _blockUserEdited = false;
 
         // ── App version ─────────────────────────────────────────────────
         fetch('/api/version').then(r => r.json()).then(({ version }) => {
-            const label = `v${version.replace(/-beta$/i, ' Beta')}`;
+            const label = `v${version.replace(/-beta(?:\.(\d+))?$/i, (_, n) => n ? ` Beta ${n}` : ' Beta')}`;
             const splash = document.getElementById('splash-version');
             const sidebar = document.getElementById('sidebar-version');
             if (splash) splash.textContent = label;
