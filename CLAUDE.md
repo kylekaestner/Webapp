@@ -138,11 +138,15 @@ Emits `{ airport, start, end, ... }` windows. Key parameters:
 - If `nextFromArr` is >2 days away, checks `wentHome`: if pilot flew from any other airport during the gap, cap ground period at arrival+8h
 - Else: default to arrival+8h
 
+**Known limitation — reserve segments not included in `buildGroundPeriods`:**
+
+`buildGroundPeriods` only processes `type='flight'` and `type='ground'` segments. Reserve blocks are ignored. This means: if pilot A is on reserve at SFO and pilot B has a layover at SFO, no crossing is generated. In practice this hasn't caused missed crossings (verified Aug–Sep 2026) because no other pilot overnights at a reserve base simultaneously. If it becomes an issue, the fix is to synthesize a ground period from each reserve block's `departure_time → arrival_time`.
+
 **Step 2 — cross pilot pairs**
 
 `airportsNear(a, b)`: checks metro groups first, then haversine ≤50mi.
 
-Skip condition: both pilots at their own homes → skip (line ~3677).
+Skip condition: both pilots at their own homes → skip (line ~4173).
 
 **Step 3 — `classifyOverlap()`**
 
