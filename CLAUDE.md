@@ -124,7 +124,7 @@ myViewer  // key of view-only user, or null
 **Step 1 — `buildGroundPeriods(segments, homeBase, homeCity)`**
 
 Emits `{ airport, start, end, ... }` windows. Key parameters:
-- `homeBase` = `data.base` (airline domicile) — arrival here is skipped (`if (home && arr === home) return`)
+- `homeBase` = `data.base` (airline domicile) — arrival here is skipped for commuters (base ≠ home city). For non-commuters (base = home city, e.g. Drew/Kyle), arrival falls through to the homeCity branch so an at-home ground period is generated (`if (home && arr === home && homeC !== home) return`)
 - `homeCity` = `data.home_airport || PILOT_HOME[key]` (where pilot lives) — has special branch
 
 **Pre-departure period logic (`recentArr` / `useRecentArr`):**

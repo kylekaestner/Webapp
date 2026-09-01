@@ -3979,7 +3979,10 @@
                         p.start.getTime() <= groundStart.getTime() && p.end.getTime() >= depT.getTime());
                     if (!alreadyCovered) periods.push({ airport: dep, start: groundStart, end: depT, flightNum: f.flight_number || null });
 
-                    if (home && arr === home) return;
+                    // Skip post-arrival period at airline base — UNLESS the pilot's home city IS their
+                    // base (non-commuters like Drew/Kyle). For them, fall through to the homeCity branch
+                    // so a ground period is generated covering the at-home stay.
+                    if (home && arr === home && homeC !== home) return;
                     // Use allDeps so personal/commute departures also terminate ground periods
                     const nextFromArr = allDeps.find(n => normApt(n.departure_airport) === arr && new Date(n.departure_time) > arrT);
                     let groundEnd;
