@@ -4946,7 +4946,7 @@
                     const depTz = tzAbbr(f.departureAirport, f.departureTime);
                     const arrTz = tzAbbr(f.arrivalAirport, f.arrivalTime);
                     return `<div style="font-size:11px;color:${legColor};margin-top:3px">
-                        ${ds} &nbsp;${formatTimeISO(f.departureTime, f.departureAirport)}${depTz ? ' <span style="opacity:.55">' + depTz + '</span>' : ''} → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}${arrTz ? ' <span style="opacity:.55">' + arrTz + '</span>' : ''}${label ? ' &nbsp;· ' + label : ''}${legStatus}
+                        ${ds} &nbsp;${formatTimeISO(f.departureTime, f.departureAirport)}${depTz ? ' <span style="opacity:.55">' + depTz + '</span>' : ''} → ${formatTimeISO(f.arrivalTime, f.arrivalAirport)}${arrTz ? ' <span style="opacity:.55">' + arrTz + '</span>' : ''}${label ? ' &nbsp;· ' + flightAwareLink(label, label, flightAwareEligible(_ld?.getTime())) : ''}${legStatus}
                     </div>`;
                 }).join('');
                 const countLabel = count === 1 ? '1 flight' : `${count} flights`;
@@ -5283,6 +5283,23 @@
             }
             if (carrier && /^\d+$/.test(fn)) return carrier + fn;
             return fn;
+        }
+
+        // FlightAware's dateless /live/flight/{ident} link resolves to whichever instance of that
+        // ident is nearest to now — reliable for already-flown legs and anything departing soon, but
+        // for a flight more than ~48h out it either shows the wrong day (recurring airline numbers)
+        // or nothing at all (Kyle's corporate legs aren't filed with FlightAware until close to departure).
+        // So the link is only offered inside that window; farther out we just show plain text.
+        const FLIGHTAWARE_WINDOW_MS = 48 * 3600000;
+        function flightAwareEligible(depMs) {
+            return !depMs || depMs <= Date.now() + FLIGHTAWARE_WINDOW_MS;
+        }
+        // Wraps a flight ident (callsign) in a link to its FlightAware tracking page, opened in a new tab.
+        // `eligible` (default true) gates whether the link is actually applied — see flightAwareEligible().
+        function flightAwareLink(ident, displayHtml, eligible = true) {
+            if (!ident || !eligible) return displayHtml || '';
+            const url = `https://www.flightaware.com/live/flight/${encodeURIComponent(ident)}`;
+            return `<a href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px" title="Track ${ident} on FlightAware">${displayHtml}</a>`;
         }
 
         function isPositionOnRoute(lat, lon, depCoords, arrCoords) {
@@ -5905,7 +5922,7 @@
                 const dayPopup = `
                     <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:2px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
                     ${_cityLine}
-                    <div style="font-size:11px;font-weight:700;margin-bottom:5px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${_cs}</span>` : ''}</div>
+                    <div style="font-size:11px;font-weight:700;margin-bottom:5px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</div>
                     <div style="font-size:11px;color:#94a3b8">${formatTimeISO(f.departureTime, f.departureAirport)} – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
                     ${_statusLine}
                 `;
@@ -6595,7 +6612,7 @@
                             : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : isCommute ? 'background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.25)' : 'background:rgba(0,0,0,0.4)');
                         html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}"${isActiveLeg && csig ? ` data-live-callsign="${csig}"` : ''}>`;
                         const cellFlightLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                        const flLabelSpan = cellFlightLabel ? `<span style="font-size:9px;font-weight:700;color:#7dd3fc;margin-left:3px">${cellFlightLabel}</span>` : '';
+                        const flLabelSpan = cellFlightLabel ? flightAwareLink(cellFlightLabel, `<span style="font-size:9px;font-weight:700;color:#7dd3fc;margin-left:3px">${cellFlightLabel}</span>`, flightAwareEligible(depMs)) : '';
                         html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}${flLabelSpan}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
@@ -6781,7 +6798,7 @@
                                                 <span class="text-base font-bold" style="color:rgba(255,255,255,0.9)">${arrApt}</span>
                                                 ${badgeRow}
                                             </div>
-                                            ${(_flLabel || tailAttr) ? `<div class="text-[10px] text-zinc-500 mt-0.5">${_flLabel || tailAttr}</div>` : ''}
+                                            ${(_flLabel || tailAttr) ? `<div class="text-[10px] text-zinc-500 mt-0.5">${_flLabel ? flightAwareLink(_flLabel, _flLabel, flightAwareEligible(depMs2)) : tailAttr}</div>` : ''}
                                         </div>
                                         <div class="text-right shrink-0">
                                             <div class="text-sm font-bold text-zinc-200 font-mono">${depTime}${tzSup(depTz)}<span class="text-zinc-600 mx-1">→</span>${arrTime}${tzSup(arrTz)}</div>
@@ -7271,7 +7288,7 @@
                         </div>
                     </div>
                     ${hasStub ? `<div class="bp-stub">
-                        ${_dayFlLabel || f.flightNumber ? `<div class="bp-stub-field"><div class="bp-stub-label">Flight</div><div class="bp-stub-value">${f.flightNumber || _dayFlLabel}</div></div>` : ''}
+                        ${_dayFlLabel || f.flightNumber ? `<div class="bp-stub-field"><div class="bp-stub-label">Flight</div><div class="bp-stub-value">${_dayFlLabel ? flightAwareLink(_dayFlLabel, _dayFlLabel, flightAwareEligible(dMs)) : f.flightNumber}</div></div>` : ''}
                         ${f.tail ? `<div class="bp-stub-field"><div class="bp-stub-label">Tail</div><div class="bp-stub-value">${f.tail}</div></div>` : ''}
                         ${groundBadgeTxt ? `<div class="bp-stub-field"><div class="bp-stub-label">Layover</div><div class="bp-stub-value" style="color:#fbbf24">${groundBadgeTxt}</div></div>` : ''}
                     </div>` : ''}
