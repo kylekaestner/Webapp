@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.5
+// @version      3.6
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/*
@@ -942,33 +942,31 @@
     ) || null;
   }
 
-  // Polls the whole document for a visible leaf element whose text matches.
-  // PRISM's dropdown here is a small plain box anchored right under the button
-  // (confirmed via screenshot) — not a standard Angular CDK overlay/mat-menu,
-  // so searching only inside those containers missed it entirely. Searching
-  // every visible leaf node is broader but reliable given the target text is
-  // specific enough not to false-match anything else on the page.
-  async function clickOverlayOptionByText(text, timeout = 6000) {
+  // Polls the whole document for a visible element whose text matches, then
+  // clicks the SMALLEST such match (most specific — its own text is closest to
+  // just the option, not some large wrapping container). Deliberately not
+  // restricted to leaf nodes: if the matched text ever gets split across child
+  // spans (e.g. search-highlighting wraps part of it), a leaf-only search would
+  // miss the wrapping element even though its full textContent has the match.
+  async function clickOverlayOptionByText(text, timeout = 4000) {
     const t = text.toLowerCase();
     const t0 = Date.now();
-    let lastSeen = [];
     while (Date.now() - t0 < timeout) {
       const candidates = [...document.querySelectorAll('body *')]
-        .filter(el => el.offsetParent !== null && el.children.length === 0 && el.textContent.trim());
-      lastSeen = candidates;
-      const match = candidates.find(el => el.textContent.trim().toLowerCase().includes(t));
-      if (match) {
-        const clickable = match.closest(
+        .filter(el => el.offsetParent !== null && el.textContent.trim().toLowerCase().includes(t));
+      if (candidates.length) {
+        candidates.sort((a, b) => a.textContent.length - b.textContent.length);
+        const target = candidates[0];
+        const clickable = target.closest(
           'button, a, li, [role="menuitem"], [role="option"], mat-option, [class*="option"], [class*="item"], [class*="row"]'
-        ) || match;
-        console.log(`[CrewSync FRAT] Clicking template option: "${match.textContent.trim()}"`);
+        ) || target;
+        console.log(`[CrewSync FRAT] Clicking template option: "${target.textContent.trim()}"`);
         clickable.click();
         return true;
       }
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 150));
     }
-    const sample = lastSeen.slice(0, 60).map(e => `"${e.textContent.trim()}"`).filter(s => s !== '""');
-    console.log(`[CrewSync FRAT] Template option "${text}" not found after ${timeout}ms. Visible leaf text sample: ${sample.join(' | ') || '(none)'}`);
+    console.log(`[CrewSync FRAT] Template option "${text}" not found after ${timeout}ms.`);
     return false;
   }
 
@@ -978,17 +976,10 @@
     btn.click();
     await new Promise(r => setTimeout(r, 400));
 
-    // The dropdown's own search box may filter/virtualize the list so the
-    // template row only renders once something is typed — mirror the same
-    // pattern selectMatOption() already uses for native mat-select panels.
-    const searchInput = [...document.querySelectorAll('input')]
-      .find(el => el.offsetParent !== null && /search/i.test(el.placeholder || ''));
-    if (searchInput) {
-      searchInput.focus();
-      setAngularInput(searchInput, 'SpiritJets');
-      await new Promise(r => setTimeout(r, 500));
-    }
-
+    // The template list rendered as-is (unfiltered) the moment the dropdown
+    // opened in testing — no typing needed, and typing into its search box
+    // triggers a full data refresh (app-wide "hminds" queries) that can
+    // re-render the list out from under us mid-poll. Don't touch it.
     const clicked = await clickOverlayOptionByText('SpiritJets Flight Risk Analysis');
     if (!clicked) console.log('[CrewSync FRAT] Report-template option not found in dropdown');
     return clicked;
