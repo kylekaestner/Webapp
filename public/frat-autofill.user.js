@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.3
+// @version      3.4
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/*
@@ -28,7 +28,7 @@
   const CREW_NAMES = {
     HSB: 'Hans Brosbol',   TJB: 'Thomas Bressie', MEV: 'Martin Valla',
     JAL: 'Lonnie Legner',  AJB: 'Aleks Biteman',  TAJ: 'Tyler Johnson',
-    LWK: 'Luke Knudsvig',  GWM: 'Greg Medsker',
+    LWK: 'Luke Knudsvig',  GWM: 'Greg Medsker', BCM: 'Bradley Mueller'
   };
 
   // IANA timezone for common airports; unknown ones fall back to lon-based estimate
@@ -923,11 +923,61 @@
     return log;
   }
 
+  // ── Landing-page "Create Risk Assessment" automation ───────────────────────
+  // On the FRAT landing/list page there's no form to fill yet — instead we
+  // remember the chosen leg and drive the native UI: click the blue "Create
+  // Risk Assessment" button, then click the report-template option in the
+  // dropdown it opens. That creates a new report at a fresh, randomly-ID'd
+  // URL and routes there via pushState; our SPA-navigation watcher (below)
+  // picks that up and re-runs main() there, which finds the remembered
+  // pending flight and fills the form immediately instead of showing the
+  // leg-select panel again.
+
+  function findButtonByText(text) {
+    const t = text.toLowerCase();
+    const buttons = [...document.querySelectorAll('button, a[role="button"]')];
+    return buttons.find(b =>
+      b.offsetParent !== null &&
+      b.textContent.replace(/\s+/g, ' ').trim().toLowerCase().includes(t)
+    ) || null;
+  }
+
+  // Polls for a visible leaf element whose text matches, inside any overlay/menu
+  // that appears after a trigger click — PRISM's dropdown markup isn't known in
+  // advance, so this searches broadly rather than assuming a specific structure.
+  async function clickOverlayOptionByText(text, timeout = 4000) {
+    const t = text.toLowerCase();
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeout) {
+      const candidates = [...document.querySelectorAll(
+        '.cdk-overlay-container *, [role="menu"] *, [role="listbox"] *, mat-option'
+      )].filter(el => el.offsetParent !== null && el.children.length === 0);
+      const match = candidates.find(el => el.textContent.trim().toLowerCase().includes(t));
+      if (match) {
+        const clickable = match.closest('button, a, li, [role="menuitem"], [role="option"], mat-option') || match;
+        clickable.click();
+        return true;
+      }
+      await new Promise(r => setTimeout(r, 150));
+    }
+    return false;
+  }
+
+  async function triggerCreateReport() {
+    const btn = findButtonByText('Create Risk Assessment');
+    if (!btn) { console.log('[CrewSync FRAT] "Create Risk Assessment" button not found'); return false; }
+    btn.click();
+    await new Promise(r => setTimeout(r, 300));
+    const clicked = await clickOverlayOptionByText('SpiritJets Flight Risk Analysis');
+    if (!clicked) console.log('[CrewSync FRAT] Report-template option not found in dropdown');
+    return clicked;
+  }
+
   // ── Panel UI ───────────────────────────────────────────────────────────────
 
   const PANEL_ID = 'cs-frat-panel';
 
-  function buildPanel(flights) {
+  function buildPanel(flights, mode = 'report') {
     const existing = document.getElementById(PANEL_ID);
     if (existing) existing.remove();
 
@@ -960,7 +1010,9 @@
         </div>
       </div>
       <div style="font-size:10px;color:#475569;margin-bottom:10px">
-        Date · Origin · Dest · Trip · PIC · SIC · Aircraft · TSA + risk questions
+        ${mode === 'landing'
+          ? 'Pick a leg — opens Create Risk Assessment for you'
+          : 'Date · Origin · Dest · Trip · PIC · SIC · Aircraft · TSA + risk questions'}
       </div>
       <div id="cs-legs"></div>
       <div style="font-size:10px;color:#334155;margin-top:8px;border-top:1px solid #1e293b;padding-top:8px">
@@ -999,9 +1051,24 @@
         card.dataset.done = '1';
         card.style.background = '#1e3a5f';
         card.style.borderColor = '#3b82f6';
-        status.textContent = 'Filling…';
         status.style.display = 'block';
 
+        if (mode === 'landing') {
+          status.textContent = 'Opening report…';
+          _pendingFlight = f;
+          const opened = await triggerCreateReport();
+          if (!opened) {
+            status.textContent = '⚠ Click "Create Risk Assessment" manually';
+            status.style.color = '#f59e0b';
+            document.getElementById(`cs-meta-${f.id}`).textContent = 'Selected — will auto-fill once the report opens';
+            document.getElementById(`cs-meta-${f.id}`).style.color = '#fbbf24';
+          }
+          // On success the page navigates away shortly; the report page's
+          // own main('report') run takes over and replaces this panel.
+          return;
+        }
+
+        status.textContent = 'Filling…';
         const log = await fillFlight(f, flights); // pass ALL flights for duty-day context
         const allOk = log.every(l => !l.includes('✗'));
 
@@ -1055,14 +1122,31 @@
 
   // ── Main ─────────────────────────────────────────────────────────────────
 
-  let _mainRunning = false;
+  let _mainRunning  = false;
+  let _pendingFlight = null; // leg chosen on the landing page, filled once the new report opens
 
-  async function main() {
+  async function autoFillPending(flight, flights) {
+    const panel = buildLoadingPanel();
+    panel.innerHTML = `<div style="font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">✈ CrewSync</div>Filling ${flight.departure_airport} → ${flight.arrival_airport}…`;
+    const log = await fillFlight(flight, flights);
+    const allOk = log.every(l => !l.includes('✗'));
+    panel.innerHTML = `
+      <div style="font-size:10px;font-weight:700;color:${allOk ? '#10b981' : '#f59e0b'};text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">✈ CrewSync ${allOk ? '✓' : '⚠'}</div>
+      <div style="font-size:11px;color:#94a3b8;line-height:1.5">${log.join(' · ')}</div>
+    `;
+  }
+
+  async function main(mode = 'report') {
     if (_mainRunning) return;
     _mainRunning = true;
     try {
-      await waitFor('mat-form-field, input[type=text]');
-      await new Promise(r => setTimeout(r, 1200));
+      if (mode === 'landing') {
+        await waitFor('button');
+        await new Promise(r => setTimeout(r, 800));
+      } else {
+        await waitFor('mat-form-field, input[type=text]');
+        await new Promise(r => setTimeout(r, 1200));
+      }
 
       const loadingPanel = buildLoadingPanel();
 
@@ -1079,7 +1163,15 @@
       }
 
       loadingPanel.remove();
-      buildPanel(flights);
+
+      if (mode === 'report' && _pendingFlight) {
+        const flight = flights.find(f => f.id === _pendingFlight.id) || _pendingFlight;
+        _pendingFlight = null;
+        await autoFillPending(flight, flights);
+        return;
+      }
+
+      buildPanel(flights, mode);
     } catch (e) {
       console.error('[CrewSync FRAT]', e);
     } finally {
@@ -1089,17 +1181,26 @@
 
   // ── SPA navigation support ────────────────────────────────────────────────
   // PRISM SMS is an Angular SPA — moving between screens (e.g. clicking
-  // "Create Risk Assessment" from a landing/list page) uses client-side
-  // routing (history.pushState), which never fires a real page load.
-  // Tampermonkey only auto-injects a userscript on an actual navigation, so
-  // if the script weren't also loaded on the page hosting that button, it
-  // would never be running yet when the pushState into the report happens —
-  // it'd only catch up on the NEXT actual load, i.e. a hard refresh. That's
-  // why @match now covers the whole app instead of just the report URL: the
-  // script loads early wherever you start, sits idle, and reacts the moment
-  // the route becomes a FRAT add/edit report — no reload required.
+  // "Create Risk Assessment" from the landing/list page, which lands on a
+  // freshly random-ID'd report URL each time) uses client-side routing
+  // (history.pushState), which never fires a real page load. Tampermonkey
+  // only auto-injects a userscript on an actual navigation, so if the script
+  // weren't also loaded on the page hosting that button, it would never be
+  // running yet when the pushState into the report happens — it'd only catch
+  // up on the NEXT actual load, i.e. a hard refresh. That's why @match now
+  // covers the whole app instead of just the report URL: the script loads
+  // early wherever you start, sits idle, and reacts the moment the route
+  // becomes a FRAT landing page or an add/edit report — no reload required.
   function isFratReportRoute() {
     return /\/frat-landing\/frat-report\/[^/]+\/(add|edit)(\/|$|\?)/.test(location.pathname + location.search);
+  }
+  function isFratLandingRoute() {
+    return /\/tools\/frat-landing\/?$/.test(location.pathname);
+  }
+  function routeMode() {
+    if (isFratReportRoute())  return 'report';
+    if (isFratLandingRoute()) return 'landing';
+    return null;
   }
 
   let _lastHref = location.href;
@@ -1109,7 +1210,8 @@
     _lastHref = location.href;
     clearTimeout(_navDebounce);
     _navDebounce = setTimeout(() => {
-      if (isFratReportRoute()) main();
+      const mode = routeMode();
+      if (mode) main(mode);
       else document.getElementById(PANEL_ID)?.remove();
     }, 200);
   }
@@ -1123,5 +1225,5 @@
   });
   window.addEventListener('popstate', onRouteChange);
 
-  if (isFratReportRoute()) main();
+  { const mode = routeMode(); if (mode) main(mode); }
 })();
