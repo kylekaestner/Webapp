@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.1
+// @version      3.2
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
@@ -1056,7 +1056,11 @@
 
   // ── Main ─────────────────────────────────────────────────────────────────
 
+  let _mainRunning = false;
+
   async function main() {
+    if (_mainRunning) return;
+    _mainRunning = true;
     try {
       await waitFor('mat-form-field, input[type=text]');
       await new Promise(r => setTimeout(r, 1200));
@@ -1079,8 +1083,43 @@
       buildPanel(flights);
     } catch (e) {
       console.error('[CrewSync FRAT]', e);
+    } finally {
+      _mainRunning = false;
     }
   }
+
+  // ── SPA navigation support ────────────────────────────────────────────────
+  // PRISM SMS is an Angular SPA — moving between reports/screens uses
+  // client-side routing (history.pushState), which never fires a real page
+  // load. Tampermonkey only auto-injects a userscript on an actual
+  // navigation, so opening a FRAT report via an in-app link (rather than a
+  // hard refresh) means this script never runs and the leg-select panel
+  // silently never appears — exactly what a reload "fixes". Patch
+  // pushState/replaceState and listen for popstate so we notice the route
+  // change ourselves and re-run main() when it lands on a matching report.
+  let _lastHref = location.href;
+  let _navDebounce = null;
+  function onRouteChange() {
+    if (location.href === _lastHref) return;
+    _lastHref = location.href;
+    clearTimeout(_navDebounce);
+    _navDebounce = setTimeout(() => {
+      if (/\/frat-landing\/frat-report\/[^/]+\/(add|edit)(\/|$|\?)/.test(location.pathname + location.search)) {
+        main();
+      } else {
+        document.getElementById(PANEL_ID)?.remove();
+      }
+    }, 200);
+  }
+  ['pushState', 'replaceState'].forEach(fnName => {
+    const orig = history[fnName];
+    history[fnName] = function (...args) {
+      const ret = orig.apply(this, args);
+      onRouteChange();
+      return ret;
+    };
+  });
+  window.addEventListener('popstate', onRouteChange);
 
   main();
 })();
