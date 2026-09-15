@@ -1,11 +1,10 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.2
+// @version      3.3
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
 // @author       Kyle Kaestner
-// @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/add
-// @match        https://prismsms.argus.aero/tools/frat-landing/frat-report/*/edit
+// @match        https://prismsms.argus.aero/*
 // @updateURL    http://167.71.107.245:3000/frat-autofill.user.js
 // @downloadURL  http://167.71.107.245:3000/frat-autofill.user.js
 // @grant        GM_xmlhttpRequest
@@ -1089,14 +1088,20 @@
   }
 
   // ── SPA navigation support ────────────────────────────────────────────────
-  // PRISM SMS is an Angular SPA — moving between reports/screens uses
-  // client-side routing (history.pushState), which never fires a real page
-  // load. Tampermonkey only auto-injects a userscript on an actual
-  // navigation, so opening a FRAT report via an in-app link (rather than a
-  // hard refresh) means this script never runs and the leg-select panel
-  // silently never appears — exactly what a reload "fixes". Patch
-  // pushState/replaceState and listen for popstate so we notice the route
-  // change ourselves and re-run main() when it lands on a matching report.
+  // PRISM SMS is an Angular SPA — moving between screens (e.g. clicking
+  // "Create Risk Assessment" from a landing/list page) uses client-side
+  // routing (history.pushState), which never fires a real page load.
+  // Tampermonkey only auto-injects a userscript on an actual navigation, so
+  // if the script weren't also loaded on the page hosting that button, it
+  // would never be running yet when the pushState into the report happens —
+  // it'd only catch up on the NEXT actual load, i.e. a hard refresh. That's
+  // why @match now covers the whole app instead of just the report URL: the
+  // script loads early wherever you start, sits idle, and reacts the moment
+  // the route becomes a FRAT add/edit report — no reload required.
+  function isFratReportRoute() {
+    return /\/frat-landing\/frat-report\/[^/]+\/(add|edit)(\/|$|\?)/.test(location.pathname + location.search);
+  }
+
   let _lastHref = location.href;
   let _navDebounce = null;
   function onRouteChange() {
@@ -1104,11 +1109,8 @@
     _lastHref = location.href;
     clearTimeout(_navDebounce);
     _navDebounce = setTimeout(() => {
-      if (/\/frat-landing\/frat-report\/[^/]+\/(add|edit)(\/|$|\?)/.test(location.pathname + location.search)) {
-        main();
-      } else {
-        document.getElementById(PANEL_ID)?.remove();
-      }
+      if (isFratReportRoute()) main();
+      else document.getElementById(PANEL_ID)?.remove();
     }, 200);
   }
   ['pushState', 'replaceState'].forEach(fnName => {
@@ -1121,5 +1123,5 @@
   });
   window.addEventListener('popstate', onRouteChange);
 
-  main();
+  if (isFratReportRoute()) main();
 })();
