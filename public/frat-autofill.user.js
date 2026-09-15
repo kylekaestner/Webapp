@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.6
+// @version      3.7
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/*
@@ -942,6 +942,23 @@
     ) || null;
   }
 
+  // element.click() only fires a synthetic 'click' event — it does NOT simulate
+  // pointerdown/mousedown/pointerup/mouseup the way a real click does. Custom
+  // dropdown/menu components often select an item on 'mousedown' specifically
+  // (so the row is picked before a separate blur/outside-click handler closes
+  // the panel), which a bare .click() would silently never trigger. Dispatch
+  // the full sequence to cover that.
+  function fireFullClick(el) {
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+    const opts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy };
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup']) {
+      const Ctor = type.startsWith('pointer') && typeof PointerEvent !== 'undefined' ? PointerEvent : MouseEvent;
+      try { el.dispatchEvent(new Ctor(type, opts)); } catch (_) {}
+    }
+    el.click(); // fires the final native 'click'
+  }
+
   // Polls the whole document for a visible element whose text matches, then
   // clicks the SMALLEST such match (most specific — its own text is closest to
   // just the option, not some large wrapping container). Deliberately not
@@ -961,7 +978,7 @@
           'button, a, li, [role="menuitem"], [role="option"], mat-option, [class*="option"], [class*="item"], [class*="row"]'
         ) || target;
         console.log(`[CrewSync FRAT] Clicking template option: "${target.textContent.trim()}"`);
-        clickable.click();
+        fireFullClick(clickable);
         return true;
       }
       await new Promise(r => setTimeout(r, 150));
@@ -1070,15 +1087,22 @@
         if (mode === 'landing') {
           status.textContent = 'Opening report…';
           _pendingFlight = f;
+          const startHref = location.href;
           const opened = await triggerCreateReport();
-          if (!opened) {
+          const stuck = () => {
             status.textContent = '⚠ Click "Create Risk Assessment" manually';
             status.style.color = '#f59e0b';
             document.getElementById(`cs-meta-${f.id}`).textContent = 'Selected — will auto-fill once the report opens';
             document.getElementById(`cs-meta-${f.id}`).style.color = '#fbbf24';
-          }
-          // On success the page navigates away shortly; the report page's
-          // own main('report') run takes over and replaces this panel.
+          };
+          if (!opened) { stuck(); return; }
+          // The option was found and "clicked", but if the app's own selection
+          // handler doesn't respond to a synthetic click the page never
+          // navigates — don't leave the panel silently stuck on "Opening…".
+          await new Promise(r => setTimeout(r, 2500));
+          if (location.href === startHref) stuck();
+          // On success the page navigates away; the report page's own
+          // main('report') run takes over and replaces this panel.
           return;
         }
 
