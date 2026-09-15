@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.4
+// @version      3.5
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/*
@@ -942,24 +942,33 @@
     ) || null;
   }
 
-  // Polls for a visible leaf element whose text matches, inside any overlay/menu
-  // that appears after a trigger click — PRISM's dropdown markup isn't known in
-  // advance, so this searches broadly rather than assuming a specific structure.
-  async function clickOverlayOptionByText(text, timeout = 4000) {
+  // Polls the whole document for a visible leaf element whose text matches.
+  // PRISM's dropdown here is a small plain box anchored right under the button
+  // (confirmed via screenshot) — not a standard Angular CDK overlay/mat-menu,
+  // so searching only inside those containers missed it entirely. Searching
+  // every visible leaf node is broader but reliable given the target text is
+  // specific enough not to false-match anything else on the page.
+  async function clickOverlayOptionByText(text, timeout = 6000) {
     const t = text.toLowerCase();
     const t0 = Date.now();
+    let lastSeen = [];
     while (Date.now() - t0 < timeout) {
-      const candidates = [...document.querySelectorAll(
-        '.cdk-overlay-container *, [role="menu"] *, [role="listbox"] *, mat-option'
-      )].filter(el => el.offsetParent !== null && el.children.length === 0);
+      const candidates = [...document.querySelectorAll('body *')]
+        .filter(el => el.offsetParent !== null && el.children.length === 0 && el.textContent.trim());
+      lastSeen = candidates;
       const match = candidates.find(el => el.textContent.trim().toLowerCase().includes(t));
       if (match) {
-        const clickable = match.closest('button, a, li, [role="menuitem"], [role="option"], mat-option') || match;
+        const clickable = match.closest(
+          'button, a, li, [role="menuitem"], [role="option"], mat-option, [class*="option"], [class*="item"], [class*="row"]'
+        ) || match;
+        console.log(`[CrewSync FRAT] Clicking template option: "${match.textContent.trim()}"`);
         clickable.click();
         return true;
       }
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 200));
     }
+    const sample = lastSeen.slice(0, 60).map(e => `"${e.textContent.trim()}"`).filter(s => s !== '""');
+    console.log(`[CrewSync FRAT] Template option "${text}" not found after ${timeout}ms. Visible leaf text sample: ${sample.join(' | ') || '(none)'}`);
     return false;
   }
 
@@ -967,7 +976,19 @@
     const btn = findButtonByText('Create Risk Assessment');
     if (!btn) { console.log('[CrewSync FRAT] "Create Risk Assessment" button not found'); return false; }
     btn.click();
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 400));
+
+    // The dropdown's own search box may filter/virtualize the list so the
+    // template row only renders once something is typed — mirror the same
+    // pattern selectMatOption() already uses for native mat-select panels.
+    const searchInput = [...document.querySelectorAll('input')]
+      .find(el => el.offsetParent !== null && /search/i.test(el.placeholder || ''));
+    if (searchInput) {
+      searchInput.focus();
+      setAngularInput(searchInput, 'SpiritJets');
+      await new Promise(r => setTimeout(r, 500));
+    }
+
     const clicked = await clickOverlayOptionByText('SpiritJets Flight Risk Analysis');
     if (!clicked) console.log('[CrewSync FRAT] Report-template option not found in dropdown');
     return clicked;
@@ -989,7 +1010,9 @@
     const panel = document.createElement('div');
     panel.id = PANEL_ID;
     Object.assign(panel.style, {
-      position: 'fixed', top: '72px', right: '18px', zIndex: '2147483647',
+      // On the landing page the "Create Risk Assessment" button sits in the
+      // same top-right corner we'd normally use, so drop the panel below it.
+      position: 'fixed', top: mode === 'landing' ? '270px' : '72px', right: '18px', zIndex: '2147483647',
       background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: '16px',
       padding: '14px 14px 10px', width: '300px',
       boxShadow: '0 12px 40px rgba(0,0,0,.65)',
@@ -1091,13 +1114,14 @@
 
   // ── Loading / error panels ────────────────────────────────────────────────
 
-  function buildLoadingPanel() {
+  function buildLoadingPanel(mode = 'report') {
     const existing = document.getElementById(PANEL_ID);
     if (existing) existing.remove();
     const panel = document.createElement('div');
     panel.id = PANEL_ID;
     Object.assign(panel.style, {
-      position: 'fixed', top: '72px', right: '18px', zIndex: '2147483647',
+      // Keep clear of the landing page's "Create Risk Assessment" button — see buildPanel().
+      position: 'fixed', top: mode === 'landing' ? '270px' : '72px', right: '18px', zIndex: '2147483647',
       background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: '16px',
       padding: '14px', width: '220px', boxShadow: '0 8px 24px rgba(0,0,0,.5)',
       fontFamily: 'system-ui,sans-serif', fontSize: '12px', color: '#475569',
@@ -1148,7 +1172,7 @@
         await new Promise(r => setTimeout(r, 1200));
       }
 
-      const loadingPanel = buildLoadingPanel();
+      const loadingPanel = buildLoadingPanel(mode);
 
       let flights;
       try {
