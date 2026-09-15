@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.8
+// @version      3.9
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/*
@@ -933,13 +933,24 @@
   // pending flight and fills the form immediately instead of showing the
   // leg-select panel again.
 
-  function findButtonByText(text) {
+  function findButtonByText(text, exact = false) {
     const t = text.toLowerCase();
     const buttons = [...document.querySelectorAll('button, a[role="button"]')];
-    return buttons.find(b =>
-      b.offsetParent !== null &&
-      b.textContent.replace(/\s+/g, ' ').trim().toLowerCase().includes(t)
-    ) || null;
+    return buttons.find(b => {
+      if (b.offsetParent === null) return false;
+      const label = b.textContent.replace(/\s+/g, ' ').trim().toLowerCase();
+      return exact ? label === t : label.includes(t);
+    }) || null;
+  }
+
+  async function waitForButtonByText(text, timeout = 4000, exact = false) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeout) {
+      const btn = findButtonByText(text, exact);
+      if (btn) return btn;
+      await new Promise(r => setTimeout(r, 150));
+    }
+    return null;
   }
 
   // Confirmed via live DOM inspection: the template picker is a plain Angular
@@ -992,6 +1003,20 @@
     const clicked = await clickMenuItemByText('SpiritJets Flight Risk Analysis');
     if (!clicked) console.log('[CrewSync FRAT] Report-template option not found in dropdown');
     return clicked;
+  }
+
+  // After filling, finish the report: click "Save as Pending", then confirm
+  // the "This report has been saved..." dialog's "Yes" button, which routes
+  // back to the FRAT landing page — where the SPA-navigation watcher already
+  // re-runs main('landing') and shows the leg picker again for the next report.
+  async function saveReport() {
+    const saveBtn = await waitForButtonByText('Save as Pending');
+    if (!saveBtn) { console.log('[CrewSync FRAT] "Save as Pending" button not found'); return false; }
+    saveBtn.click();
+    const yesBtn = await waitForButtonByText('Yes', 5000, true);
+    if (!yesBtn) { console.log('[CrewSync FRAT] Save-confirmation "Yes" button not found'); return false; }
+    yesBtn.click();
+    return true;
   }
 
   // ── Panel UI ───────────────────────────────────────────────────────────────
@@ -1160,6 +1185,11 @@
     const panel = buildLoadingPanel();
     panel.innerHTML = `<div style="font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">✈ CrewSync</div>Filling ${flight.departure_airport} → ${flight.arrival_airport}…`;
     const log = await fillFlight(flight, flights);
+
+    panel.innerHTML = `<div style="font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">✈ CrewSync</div>Saving as pending…`;
+    const saved = await saveReport();
+    log.push(saved ? 'Saved as Pending ✓' : 'Save ✗ (click manually)');
+
     const allOk = log.every(l => !l.includes('✗'));
     panel.innerHTML = `
       <div style="font-size:10px;font-weight:700;color:${allOk ? '#10b981' : '#f59e0b'};text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">✈ CrewSync ${allOk ? '✓' : '⚠'}</div>
