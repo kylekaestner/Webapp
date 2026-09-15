@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.7
+// @version      3.8
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/*
@@ -942,43 +942,35 @@
     ) || null;
   }
 
-  // element.click() only fires a synthetic 'click' event — it does NOT simulate
-  // pointerdown/mousedown/pointerup/mouseup the way a real click does. Custom
-  // dropdown/menu components often select an item on 'mousedown' specifically
-  // (so the row is picked before a separate blur/outside-click handler closes
-  // the panel), which a bare .click() would silently never trigger. Dispatch
-  // the full sequence to cover that.
-  function fireFullClick(el) {
-    const rect = el.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-    const opts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy };
-    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup']) {
-      const Ctor = type.startsWith('pointer') && typeof PointerEvent !== 'undefined' ? PointerEvent : MouseEvent;
-      try { el.dispatchEvent(new Ctor(type, opts)); } catch (_) {}
-    }
-    el.click(); // fires the final native 'click'
-  }
-
-  // Polls the whole document for a visible element whose text matches, then
-  // clicks the SMALLEST such match (most specific — its own text is closest to
-  // just the option, not some large wrapping container). Deliberately not
-  // restricted to leaf nodes: if the matched text ever gets split across child
-  // spans (e.g. search-highlighting wraps part of it), a leaf-only search would
-  // miss the wrapping element even though its full textContent has the match.
-  async function clickOverlayOptionByText(text, timeout = 4000) {
+  // Confirmed via live DOM inspection: the template picker is a plain Angular
+  // Material mat-menu, and the row is a real button:
+  //   <button id="btn-frat-add" mat-menu-item role="menuitem">SpiritJets...
+  // mat-menu-item responds to a normal click — no special event simulation
+  // needed. The earlier misses were never about event type: a text-match
+  // heuristic that picked the "smallest textContent" element tied against
+  // purely-decorative empty wrapper divs around the menu's search box (same
+  // length as the button's own text) and, on the tie, picked one of those
+  // ancestor divs instead of the actual button — so every click before this
+  // landed on an inert positioning div. Prefer the known id, since it's a
+  // static template attribute rather than a generated overlay id; fall back
+  // to searching real interactive elements (button/menuitem/option) by text.
+  async function clickMenuItemByText(text, timeout = 4000) {
     const t = text.toLowerCase();
     const t0 = Date.now();
     while (Date.now() - t0 < timeout) {
-      const candidates = [...document.querySelectorAll('body *')]
-        .filter(el => el.offsetParent !== null && el.textContent.trim().toLowerCase().includes(t));
-      if (candidates.length) {
-        candidates.sort((a, b) => a.textContent.length - b.textContent.length);
-        const target = candidates[0];
-        const clickable = target.closest(
-          'button, a, li, [role="menuitem"], [role="option"], mat-option, [class*="option"], [class*="item"], [class*="row"]'
-        ) || target;
-        console.log(`[CrewSync FRAT] Clicking template option: "${target.textContent.trim()}"`);
-        fireFullClick(clickable);
+      const known = document.getElementById('btn-frat-add');
+      if (known && known.offsetParent !== null) {
+        console.log(`[CrewSync FRAT] Clicking template option (#btn-frat-add): "${known.textContent.trim()}"`);
+        known.click();
+        return true;
+      }
+      const items = [...document.querySelectorAll(
+        'button[mat-menu-item], [role="menuitem"], [role="option"], mat-option, button, a'
+      )].filter(el => el.offsetParent !== null && el.textContent.trim().toLowerCase().includes(t));
+      if (items.length) {
+        items.sort((a, b) => a.textContent.length - b.textContent.length);
+        console.log(`[CrewSync FRAT] Clicking template option: "${items[0].textContent.trim()}"`);
+        items[0].click();
         return true;
       }
       await new Promise(r => setTimeout(r, 150));
@@ -997,7 +989,7 @@
     // opened in testing — no typing needed, and typing into its search box
     // triggers a full data refresh (app-wide "hminds" queries) that can
     // re-render the list out from under us mid-poll. Don't touch it.
-    const clicked = await clickOverlayOptionByText('SpiritJets Flight Risk Analysis');
+    const clicked = await clickMenuItemByText('SpiritJets Flight Risk Analysis');
     if (!clicked) console.log('[CrewSync FRAT] Report-template option not found in dropdown');
     return clicked;
   }
