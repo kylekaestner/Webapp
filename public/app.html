@@ -6484,7 +6484,11 @@
                 const firstDay = new Date(year, month, 1).getDay();
                 const dayOffset = firstDay; // 0=Sun, 1=Mon, … — getDay() is already Sunday-first
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
-                for (let i = 0; i < dayOffset; i++) gridContainer.innerHTML += `<div style="height:170px" class="opacity-0"></div>`;
+                // Accumulate into a local string and assign once at the end — repeated
+                // `innerHTML +=` re-serializes and re-parses the whole grid on every
+                // iteration (O(n²)), which is what made month-swipe feel laggy on mobile.
+                let gridHtml = '';
+                for (let i = 0; i < dayOffset; i++) gridHtml += `<div style="height:170px" class="opacity-0"></div>`;
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const dayDate = new Date(year, month, d);
@@ -6633,10 +6637,12 @@
                         html += `</div>`;
                     });
                     html += `</div></div>`;
-                    gridContainer.innerHTML += html;
+                    gridHtml += html;
                 }
+                gridContainer.innerHTML = gridHtml;
             } else if (currentView === 'list') {
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
+                let listHtml = '';
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const dayEvents = segments.filter(s => {
@@ -6814,8 +6820,9 @@
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];
                     if (isPastDay) listClasses.push('list-past');
                     if (isToday) listClasses.push('day-today');
-                    listContainer.innerHTML += `<div class="${listClasses.join(' ')}"><div class="w-16 shrink-0 text-center border-r ${sidebarBorder} pr-4 flex flex-col justify-center"><div class="text-[9px] font-black uppercase ${sidebarColor} opacity-70">${dateLabel.split(' ')[0]}</div><div class="text-2xl font-black ${sidebarColor}">${d}</div><div class="text-[8px] font-bold uppercase ${labelColor} mt-1 tracking-widest">${label}</div></div><div class="flex-1 space-y-2 min-w-0">${contentHtml}</div></div>`;
+                    listHtml += `<div class="${listClasses.join(' ')}"><div class="w-16 shrink-0 text-center border-r ${sidebarBorder} pr-4 flex flex-col justify-center"><div class="text-[9px] font-black uppercase ${sidebarColor} opacity-70">${dateLabel.split(' ')[0]}</div><div class="text-2xl font-black ${sidebarColor}">${d}</div><div class="text-[8px] font-bold uppercase ${labelColor} mt-1 tracking-widest">${label}</div></div><div class="flex-1 space-y-2 min-w-0">${contentHtml}</div></div>`;
                 }
+                listContainer.innerHTML = listHtml;
                 const todayEl = listContainer.querySelector('.day-today');
                 if (todayEl) todayEl.scrollIntoView({ block: 'start' });
             } else if (currentView === 'map') {
