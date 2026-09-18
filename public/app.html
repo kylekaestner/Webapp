@@ -3518,6 +3518,9 @@
             const container = document.getElementById('offdays-content');
             if (!container) return;
             container.innerHTML = '<div class="flex items-center justify-center gap-2.5 py-10 text-zinc-500 text-sm"><div class="spinner"></div><span>Loading schedules…</span></div>';
+            // See computeOverlap() — yields so the spinner paints even when every
+            // pilot is already cached and the fetch step below has nothing to await.
+            await new Promise(r => setTimeout(r, 0));
             await Promise.all(PILOT_KEYS.map(async key => {
                 if (!pilotsCache[key]) {
                     try { pilotsCache[key] = await (await fetch(`${API_BASE}/pilots/${key}`)).json(); }
@@ -3925,6 +3928,14 @@
         async function computeOverlap() {
             const container = document.getElementById('overlap-content');
             container.innerHTML = '<div class="flex items-center justify-center gap-2.5 py-10 text-zinc-500 text-sm"><div class="spinner"></div><span>Loading schedules…</span></div>';
+
+            // Yield to the browser so the spinner actually paints before the pipeline
+            // below runs. When every pilot is already cached, `await Promise.all(...)`
+            // resolves via microtasks with no real fetch — no macrotask boundary, so
+            // the browser never gets a chance to paint before the (fairly heavy)
+            // buildGroundPeriods/cross-pairing/render work below runs, and switching
+            // to Overlap can feel like it hangs before the view even appears.
+            await new Promise(r => setTimeout(r, 0));
 
             const now = new Date();
             const bufferMs = 3 * 60 * 60 * 1000;
