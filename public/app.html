@@ -8,42 +8,6 @@
     <meta name="apple-mobile-web-app-title" content="CrewSync">
     <meta name="theme-color" content="#09090b">
     <script>(function(){const t=new URLSearchParams(location.search).get('u')||localStorage.getItem('crewsync_token');const l=document.createElement('link');l.rel='manifest';l.href='/manifest.json'+(t?'?u='+encodeURIComponent(t):'');document.currentScript.before(l);})();</script>
-    <!-- TEMP DEBUG: shows a green on-screen readout of the mobile header's actual
-         safe-area/geometry values on every load. Remove once the iOS 27 clipping is fixed. -->
-    <script>(function(){
-        window.addEventListener('load', () => setTimeout(() => {
-            const probe = document.createElement('div');
-            probe.style.cssText = 'position:absolute;visibility:hidden;padding-top:env(safe-area-inset-top,0px)';
-            document.body.appendChild(probe);
-            const safeTop = getComputedStyle(probe).paddingTop;
-            probe.remove();
-
-            const header = document.querySelector('header.md\\:hidden');
-            const monthInfo = document.getElementById('mobile-header-month-info');
-            const monthSpan = document.getElementById('current-month-display-mobile');
-            const rectH = header ? header.getBoundingClientRect() : null;
-            const rectMI = monthInfo ? monthInfo.getBoundingClientRect() : null;
-            const rectM = monthSpan ? monthSpan.getBoundingClientRect() : null;
-            const csH = header ? getComputedStyle(header) : null;
-            const csM = monthSpan ? getComputedStyle(monthSpan) : null;
-
-            const div = document.createElement('div');
-            div.style.cssText = 'position:fixed;top:130px;left:8px;right:8px;z-index:2147483647;background:#000;color:#0f0;font-size:11px;font-family:monospace;padding:10px;border:2px solid #0f0;white-space:pre-wrap;border-radius:8px';
-            div.textContent =
-                'env(safe-area-inset-top) = ' + safeTop + '\n' +
-                'header paddingTop(computed) = ' + (csH ? csH.paddingTop : 'n/a') + '\n' +
-                'header height(computed) = ' + (csH ? csH.height : 'n/a') + '\n' +
-                'header rect top/bottom = ' + (rectH ? rectH.top + ' / ' + rectH.bottom : 'n/a') + '\n' +
-                'monthInfo rect top/bottom = ' + (rectMI ? rectMI.top + ' / ' + rectMI.bottom : 'n/a') + '\n' +
-                'monthSpan rect top/bottom = ' + (rectM ? rectM.top + ' / ' + rectM.bottom : 'n/a') + '\n' +
-                'monthSpan fontSize/lineHeight = ' + (csM ? csM.fontSize + ' / ' + csM.lineHeight : 'n/a') + '\n' +
-                'monthSpan text = "' + (monthSpan ? monthSpan.textContent : 'n/a') + '"\n' +
-                'innerWidth/innerHeight = ' + window.innerWidth + ' / ' + window.innerHeight + '\n' +
-                'visualViewport h = ' + (window.visualViewport ? window.visualViewport.height : 'n/a') + '\n' +
-                'devicePixelRatio = ' + window.devicePixelRatio;
-            document.body.appendChild(div);
-        }, 800));
-    })();</script>
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <title>CrewSync</title>
@@ -619,9 +583,9 @@
                     <span id="identity-avatar-initials" class="text-xs font-black leading-none">?</span>
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.7"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-                <div id="mobile-header-month-info" class="flex flex-col leading-tight">
-                    <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic">CrewSync</span>
-                    <span id="current-month-display-mobile" class="text-base font-black italic tracking-tighter text-white uppercase">May 2026</span>
+                <div id="mobile-header-month-info" class="flex flex-col leading-tight min-w-0">
+                    <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic whitespace-nowrap">CrewSync</span>
+                    <span id="current-month-display-mobile" class="text-sm font-black italic tracking-tighter text-white uppercase whitespace-nowrap overflow-hidden text-ellipsis">May 2026</span>
                 </div>
             </div>
             <div class="flex items-center gap-1">
