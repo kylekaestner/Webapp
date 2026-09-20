@@ -4854,6 +4854,67 @@
             });
         }
 
+        // Different flight legs can run close together for a stretch without sharing
+        // either airport — e.g. KUGN→KACK and KFOK→KSUS may cross paths even though
+        // they're unrelated legs — and look like one indistinguishable line on a
+        // zoomed-out view. Detects this by sampling each route's INTERIOR only
+        // (endpoints excluded) and nudges conflicting groups apart the same way
+        // offsetArc() already spreads multiple flights sharing an identical city pair.
+        //
+        // Pairs that share an airport are always skipped, never compared — two legs
+        // connected end-to-end (KACK→KFOK, KFOK→KSUS) are a single coherent multi-stop
+        // path regardless of the turn angle at the connection, and two legs fanning
+        // out from/to the same airport (KSUS→KIAD, KSUS→KDAN) naturally sample close
+        // together near that shared point even when they're clearly distinct once
+        // fully drawn — comparing them produced false positives on routes that
+        // already looked fine.
+        //
+        // Returns { [groupKey]: { offsetIndex, groupSize } }.
+        function computeRouteDeclutterOffsets(resolvedGroups) {
+            const THRESHOLD_MI = 110;
+            const SAMPLE_STEPS = 16;
+            const loStep = Math.round(SAMPLE_STEPS * 0.2);
+            const hiStep = Math.round(SAMPLE_STEPS * 0.8);
+            const items = resolvedGroups.map(g => ({
+                key: g.pk, dep: g.dep, arr: g.arr,
+                samples: greatCircleArcCoords(g.depCoords, g.arrCoords, SAMPLE_STEPS).slice(loStep, hiStep + 1)
+            }));
+
+            const n = items.length;
+            const adj = Array.from({ length: n }, () => []);
+            for (let i = 0; i < n; i++) {
+                for (let j = i + 1; j < n; j++) {
+                    const A = items[i], B = items[j];
+                    if (A.dep === B.dep || A.dep === B.arr || A.arr === B.dep || A.arr === B.arr) continue;
+                    let minD = Infinity;
+                    outer: for (const a of A.samples) {
+                        for (const b of B.samples) {
+                            const d = haversineMi(a[0], a[1], b[0], b[1]);
+                            if (d < minD) minD = d;
+                            if (minD < THRESHOLD_MI) break outer;
+                        }
+                    }
+                    if (minD < THRESHOLD_MI) { adj[i].push(j); adj[j].push(i); }
+                }
+            }
+
+            const visited = new Array(n).fill(false);
+            const offsets = {};
+            for (let i = 0; i < n; i++) {
+                if (visited[i] || adj[i].length === 0) continue;
+                const cluster = [];
+                const queue = [i];
+                visited[i] = true;
+                while (queue.length) {
+                    const cur = queue.shift();
+                    cluster.push(cur);
+                    for (const nb of adj[cur]) if (!visited[nb]) { visited[nb] = true; queue.push(nb); }
+                }
+                cluster.forEach((idx, k) => { offsets[items[idx].key] = { offsetIndex: k, groupSize: cluster.length }; });
+            }
+            return offsets;
+        }
+
         async function renderMap() {
             if (!map || !airportDbReady) return;
             stopLivePollers();
@@ -4910,12 +4971,17 @@
                 routeGroups[pk].push(f);
             });
 
-            Object.entries(routeGroups).forEach(([pk, legs]) => {
-                const dep = legs[0].departureAirport;
-                const arr = legs[0].arrivalAirport;
-                const depCoords = resolveAirport(dep);
-                const arrCoords = resolveAirport(arr);
-                if (!depCoords || !arrCoords) return;
+            // Resolve coords once per group so they're available both for the
+            // decluttering pass below and for the render loop itself.
+            const resolvedRouteGroups = Object.entries(routeGroups).map(([pk, legs]) => ({
+                pk, legs,
+                dep: legs[0].departureAirport, arr: legs[0].arrivalAirport,
+                depCoords: resolveAirport(legs[0].departureAirport),
+                arrCoords: resolveAirport(legs[0].arrivalAirport),
+            })).filter(g => g.depCoords && g.arrCoords);
+            const declutterOffsets = computeRouteDeclutterOffsets(resolvedRouteGroups);
+
+            resolvedRouteGroups.forEach(({ pk, legs, dep, arr, depCoords, arrCoords }) => {
 
                 const hasActive = legs.some(f => {
                     const d = flightUTCTime(f.departureTime, f.departureAirport);
@@ -4936,7 +5002,10 @@
                 const weight  = 1.5 + Math.min(Math.log2(count + 1) * 1.0, 2.5);
                 const opacity = hasActive ? 1.0 : hasFuture ? 0.85 : 0.45;
 
-                const arcCoords = distanceProportionalArc(depCoords, arrCoords);
+                const declutter = declutterOffsets[pk];
+                const arcCoords = declutter
+                    ? offsetArc(depCoords, arrCoords, 80, declutter.offsetIndex, declutter.groupSize)
+                    : distanceProportionalArc(depCoords, arrCoords);
                 bounds.push(arcCoords[0], arcCoords[Math.floor(arcCoords.length / 2)], arcCoords[arcCoords.length - 1]);
                 const arcU = unwrapLongitudes(arcCoords);
                 const routeLines = worldLines(arcU, { weight, opacity, color, smoothFactor: 1 });
