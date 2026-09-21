@@ -253,6 +253,14 @@ When a pilot arrives at their **home city** (`homeCity`/`homeC`, distinct from t
 - In `computeOffDays` flying-day detection: **excluded** (`trip === 'PERSONAL'`) — personal travel doesn't make a day "working"
 - In `render()` calendar: personal/commute flights are rendered as their own color-coded type in the calendar grid
 
+### RosterBuster ICS parser (`parseRosterBusterICS`, server.js) — emoji-prefix convention
+
+Drew's feed (`ics_rosterbuster`) uses a consistent emoji prefix per event type in `SUMMARY`: `✈️` = flight, `➡️ (DH)` = deadhead, `🛰` = reserve (e.g. `🛰 Long Call Reserve - LCR`). The parser matches on these prefixes and does `if (!match) continue` for anything else — **any future event type using a new prefix will be silently dropped**, not erred on, so if a pilot's schedule ever looks like it's missing days, check the raw ICS feed (`GET /api/pilots/:key/ics-url` → fetch that URL directly) for `SUMMARY` lines that don't match one of the three known prefixes before assuming the data itself is wrong.
+
+Found this exact way: reserve (`🛰`) support didn't exist until 2026-09-21 — Drew had 5 upcoming "Long Call Reserve" blocks that were completely invisible in CrewSync (not on the calendar, not in Off Days, not in Crossings) because they never made it past the flight-only match. Unlike the eCrew parser's `RESR`/`RAP` handling (which needs to parse the actual on-call window out of `DESCRIPTION`, since `DTSTART` there is duty/report time), RosterBuster's `DTSTART`/`DTEND` directly *are* the on-call window — verified against the raw feed before writing the fix, not assumed.
+
+**The trip-numbering pass after parsing only makes sense for flights.** It assigns synthetic sequential trip numbers (not real airline pairing IDs) by walking all events in departure-time order and bumping the counter on a new day's STL departure. Any non-flight event type added to this parser must be excluded from that loop (`trip` stays `null`) — otherwise it consumes a trip-number increment and shifts every subsequent flight's trip number. Reserve is already excluded; keep that pattern if training/vacation/etc. ever get added here too.
+
 ### `pilotsCache` invalidation
 
 `pilotsCache[key]` is set once per page load (or after upload/sync). The "Refresh" button on Crossings calls `computeOverlap()` but does **not** clear the cache — it re-runs `buildGroundPeriods` on cached data. A stale cache can make crossings appear wrong even after a schedule fix. To force-refresh: reload the page.
