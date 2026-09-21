@@ -2,7 +2,9 @@
 
 ## What this app is
 
-CrewSync is a private PWA for a group of 5 corporate/regional pilots (Kyle, Adam, Sam, Logan, Drew) to coordinate schedules. Key views: Calendar, List, Route Map, Crew Planning (Crossings + Off Days). Backend: Node/Express + SQLite. Frontend: single-file `public/app.html` (~9 k lines, all views and logic inline).
+CrewSync is a private PWA for a group of 5 corporate/regional pilots (Kyle, Adam, Sam, Logan, Drew) to coordinate schedules. Key views: Calendar, List, Route Map, Crew Planning (Crossings + Off Days). Backend: Node/Express + SQLite. Frontend: single-file `public/app.html` (~11 k lines, all views and logic inline).
+
+Kyle also runs a Tampermonkey userscript (`public/frat-autofill.user.js`) that autofills PRISM SMS flight risk assessments from his CrewSync schedule — see its own section below.
 
 Prod server: `http://167.71.107.245:3000/`
 
@@ -18,6 +20,7 @@ Prod server: `http://167.71.107.245:3000/`
 | `dispatch.db` | SQLite database |
 | `demo-data.js` | Fake data for `/demo` route (read-only preview) |
 | `public/join.html` | New pilot onboarding form |
+| `public/frat-autofill.user.js` | Tampermonkey userscript — autofills Kyle's PRISM SMS flight risk assessments |
 
 ---
 
@@ -87,20 +90,24 @@ myViewer  // key of view-only user, or null
 | `initIdentity()` | 2122 | Auth check on load; sets myPilot/myViewer |
 | `_applyIdentityUI()` | 2267 | Shows/hides UI sections based on who's logged in |
 | `_buildCrewVisibilityUI()` | 2340 | Crew toggle switches in profile sheet |
-| `render()` | 5937 | Main calendar/list render dispatcher |
-| `renderMap()` | 4350 | Single pilot monthly route map |
-| `renderAllPilotsMap()` | 4208 | All-crew monthly map |
-| `renderDayMap()` | 5291 | All-crew single-day map |
+| `render()` | 6544 | Main calendar/list render dispatcher |
+| `renderMap()` | 4918 | Single pilot monthly route map |
+| `renderAllPilotsMap()` | 4715 | All-crew monthly map |
+| `renderDayMap()` | 5887 | All-crew single-day map |
+| `computeRouteDeclutterOffsets()` | 4873 | Detects distinct routes (no shared airport) running close together in `renderMap()` and computes `offsetArc()` spread indices to separate them |
+| `distanceProportionalArc()` | 4826 | Bezier-bowed great-circle arc for a single route (no de-overlap) |
+| `offsetArc()` | 5304 | Bezier arc with perpendicular offset — spreads multiple flights/routes sharing an identical or conflicting path |
 | `inferAwayLayovers()` | 2880 | Generates synthetic 'away' events for overnight non-home stays |
-| `switchView()` | 3062 | Switches between calendar/list/map/overlap views |
+| `switchView()` | 3200 | Switches between calendar/list/map/overlap views |
 | `switchOverlapTab()` | 3315 | Crossings ↔ Off Days tab switch |
-| `computeOverlap()` | 3432 | Crossings pipeline (fetch → buildGroundPeriods → classify → render) |
-| `buildGroundPeriods()` | 3446 | Inside computeOverlap; emits ground windows per pilot |
-| `computeOffDays()` | 3330 | Off Days pipeline |
-| `renderCommonOffSection()` | 3152 | Renders off day rows + filter chips |
-| `showDayDetail()` | 6557 | Opens day detail bottom sheet for a date key |
-| `handleUpload()` | 6523 | File upload handler → `uploadPilotSchedule()` |
-| `submitAddFlight()` | 7024 | Saves manual flight from add-flight modal |
+| `computeOverlap()` | 3928 | Crossings pipeline (fetch → buildGroundPeriods → classify → render) |
+| `buildGroundPeriods()` | ~3942 | Inside computeOverlap; emits ground windows per pilot |
+| `computeOffDays()` | 3517 | Off Days pipeline |
+| `renderCommonOffSection()` | ~3152 | Renders off day rows + filter chips |
+| `showDayDetail()` | 7194 | Opens day detail bottom sheet for a date key |
+| `handleUpload()` | 7160 | File upload handler → `uploadPilotSchedule()` |
+| `submitAddFlight()` | 7722 | Saves manual flight from add-flight modal |
+| `flightAwareLink()` | ~5288 | Wraps a flight ident in a FlightAware tracking link, gated by `flightAwareEligible()` (departed or within 48h) |
 | `startLiveTracking()` | 4946 | ADS-B poll loop for one callsign; 8s interval |
 | `startCalListLivePolling()` | 4848 | Polls ADS-B for `[data-live-callsign]` elements in cal/list |
 | `setupMobileGestures()` | 1636 | Registers swipe + pull-to-refresh handlers |
@@ -164,6 +171,8 @@ Skip condition: both pilots at their own homes → skip (line ~4173).
 Tier 1-2 → primary cards; tier 3 → compact "Also Nearby" rows.
 
 `adjustedPeriod()` shifts times for UTC-storing pilots (Schedaero/Kyle) to match airport local time before overlap comparisons.
+
+**Perf gotcha — `computeOverlap()`/`computeOffDays()` need a real paint yield before the heavy work.** Both functions set a loading spinner then `await Promise.all(...)` to fetch any uncached pilot data. When every pilot is already cached (the common case), that `await` resolves via microtasks with no real fetch — no macrotask boundary, so the browser never gets a chance to paint the spinner before the (fairly heavy) `buildGroundPeriods`/cross-pairing/render work runs synchronously right after. This made opening the Overlap view feel like it hung before the view even appeared. Both functions now do `await new Promise(r => setTimeout(r, 0))` right after setting the spinner HTML, forcing a real paint before the pipeline starts. Don't remove this — it doesn't change *when* the calculation runs, only guarantees the spinner is visible first.
 
 ---
 
@@ -424,6 +433,8 @@ UTC/local date skew is common: segments stored in local time, `new Date()` in br
 
 **Mobile grid:** CSS overrides at line ~76 make cells compact (52–96px tall). Flight pills are shown text-only with route; status pills hidden.
 
+**Perf gotcha — never accumulate `innerHTML +=` in the day loop.** Both the grid and list loops used to build their container's HTML with `gridContainer.innerHTML += html` (and same for `listContainer`) inside the per-day loop. Each `+=` re-serializes and re-parses the *entire* accumulated HTML from scratch, making the loop O(n²) over ~30–42 days — this was the cause of a reported lag when swiping between months on mobile, since every swipe triggers a full `render()`. Fixed by accumulating into a local `gridHtml`/`listHtml` string and assigning to `innerHTML` exactly once after the loop. If you ever touch these loops, keep it that way — reintroducing per-iteration `innerHTML +=` will silently reintroduce the lag.
+
 ---
 
 ## List view rendering (`render()` → list branch)
@@ -496,6 +507,22 @@ Polls every **15 seconds** for active-leg cells/rows in the calendar and list vi
 Server proxies to `api.adsb.lol` and `airplanes.live`. Caches trail points per callsign from server start so trail is pre-seeded before polling. Returns `{ found, lat, lon, altFt, speedKts, onGround, heading, trail[], parked, hadTrail }`.
 
 `deriveCallsign()` in the frontend maps tail/flight number combinations to the correct ADS-B callsign (e.g. corporate tails like N431JD, or airline flight numbers like SKW1234).
+
+### FlightAware links on flight numbers
+
+Every visible flight number/callsign (calendar grid, list view, day-detail sheet, and both map popup types) is wrapped by `flightAwareLink(ident, displayHtml, eligible)`, linking to `flightaware.com/live/flight/{ident}` in a new tab. Uses the same `deriveCallsign()`-derived ident that already drives ADS-B tracking (fixed a prior bug where the day-detail sheet showed the raw stored flight number like `G74536` instead of the normalized `GJS4536` — it was preferring `f.flightNumber` over the already-correct `_dayFlLabel`).
+
+**Gated by `flightAwareEligible(depMs)`** (48h window): a link is only offered for flights already departed or departing within 48h. FlightAware's dateless URL resolves to whichever instance of that ident is nearest to *now* — for airline pilots who reuse the same flight number daily, a farther-out link could resolve to the wrong day; for Kyle's corporate legs, Part 91/135 flight plans typically aren't filed until close to departure, so FlightAware has nothing to show earlier anyway. Eligibility is recomputed fresh on every render, not cached.
+
+### Route decluttering (`renderMap()` — single-pilot "My Routes" map)
+
+`renderMap()` groups a pilot's flights into one arc per unique `dep|arr` pair (`routeGroups`) with no overlap handling between *different* pairs — unlike the all-crew day view (`renderDayMap()`), which already spreads multiple pilots on an identical city pair via `offsetArc()`. Two unrelated legs sharing no airport (e.g. `KUGN→KACK` and `KFOK→KSUS`) can cross or run close together for a stretch and look like one indistinguishable line.
+
+`computeRouteDeclutterOffsets(resolvedGroups)` fixes this:
+- Samples each route's **interior only** (20%–80% of the great-circle path, endpoints excluded) and flags any two groups that come within **110mi** of each other along that interior as conflicting.
+- Conflicting groups are unioned into clusters (simple BFS over an adjacency list) and each cluster member gets `{ offsetIndex, groupSize }`, fed into the existing `offsetArc()` instead of the normal `distanceProportionalArc()`.
+- **Pairs that share any airport (dep-dep, dep-arr, arr-dep, arr-arr) are always skipped, never compared.** Two connected legs (`KACK→KFOK`, `KFOK→KSUS`) are one coherent multi-stop path regardless of the turn angle at the connection — that's not overlap. Two legs fanning out from/to the same airport (`KSUS→KIAD`, `KSUS→KDAN`) also naturally sample close together near that shared point even when clearly distinct once fully drawn; comparing them produced false positives (bowing routes that already rendered fine) before this exclusion was added. If you extend this logic, keep that exclusion — it was found by testing against real fan-out routes, not assumed up front.
+- The `110mi` threshold is an untuned first guess, not derived from pixel geometry at any particular zoom level. If routes still look too close, or well-separated routes start bowing unnecessarily, that's the number to adjust.
 
 ---
 
@@ -714,6 +741,9 @@ Additional non-core pilots (brett, hunter, nick, jack) have colors defined inlin
 - Contains: identity avatar (`#identity-avatar`), month info (`#mobile-header-month-info`), prev/next month buttons (`#mobile-prev-btn`, `#mobile-next-btn`), notifications bell (`#notif-bell-btn-mobile`), help button, add flight button (`#btn-add-flight-mobile`)
 - **Calendar-specific controls** (`#mobile-header-month-info`, `#mobile-prev-btn`, `#mobile-next-btn`, `#btn-add-flight-mobile`) are hidden via `style.display='none'` on `overlap` and `intel` views — only the avatar, bell, and help `?` remain visible
 - This toggle happens in `switchView()` — `calView = view === 'grid' || view === 'list' || view === 'map'`
+- Header is `items-end` (bottom-aligned content) with `height: calc(56px + max(68px, env(safe-area-inset-top)))` and matching `padding-top`. Fully opaque `bg-black` — no `backdrop-blur-md` (removed; it was compounding with iOS's own translucent-status-bar vibrancy right at the seam, showing up as extra blur near the top edge).
+- **The `68px` floor is empirical, not derived from any spec.** On an iOS 27 device with a Dynamic Island, `env(safe-area-inset-top)` reported `59px` — technically correct for the static status bar — but content at exactly that boundary (the "+  Add Flight" button, bottom-aligned and well inside the nominal safe area) still showed half-clipped by whatever iOS renders up there (likely a Live Activity/Dynamic Island capsule, which is dynamic content the static safe-area-inset doesn't account for). `80px` fully cleared it; `68px` was chosen as a livable middle ground after the extra headroom at `80px` looked unnecessarily large. If this recurs on a future iOS version, the fix is this one `max()` floor value, not the padding mechanism itself.
+- **`#current-month-display-mobile` must never wrap.** It's `whitespace-nowrap overflow-hidden text-ellipsis` at `text-sm` with `min-w-0` on its flex parent (`#mobile-header-month-info`). Without this, a long month name ("September 2026") that doesn't fit next to the avatar + nav-icon cluster wraps onto two lines; because the header bottom-aligns its content, the wrapped block's extra height pushes its *top* line above the safe-area boundary, landing it under the status bar — this looked like a rendering blur/glitch but was actually just wrapped text pushed out of bounds. Diagnosed via a temporary on-screen readout (`getBoundingClientRect()` + a hidden probe element for the resolved `env(safe-area-inset-top)` value) — that technique is worth reusing for any future "something looks visually wrong on a specific iOS version" report, since guessing at CSS values blind wasted several iterations first.
 
 ### Mobile nav bar (`.mobile-nav`)
 - Each button is `56px` tall with `.mbtn-icon-wrap` (38×28px, `border-radius:10px`) wrapping the SVG
@@ -738,6 +768,25 @@ Additional non-core pilots (brett, hunter, nick, jack) have colors defined inlin
 - If session expired (302 redirect or auth error) → opens `#schedaero-modal` in cookie-only mode (URL/token fields hidden, "session expired" banner shown, "Edit URL & API token" toggle available).
 - Quick sync button shown on mobile upload sheet.
 - Auto-sync runs quick sync at 06:00, 14:00, 22:00 UTC daily (server-side `setTimeout` chain, not cron).
+
+---
+
+## FRAT Autofill userscript (`public/frat-autofill.user.js`)
+
+Tampermonkey userscript (Kyle only) that autofills PRISM SMS (`prismsms.argus.aero`) flight risk assessment reports from his CrewSync schedule: Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA, and ~24 risk questions computed from schedule + `aviationweather.gov` + FAA NOTAM data. Served from `/frat-autofill.user.js` with `@updateURL`/`@downloadURL` pointing at prod, so Tampermonkey can auto-update it (though a manual "Check for updates" is faster than waiting on its poll interval).
+
+**`@match` covers the whole `prismsms.argus.aero` origin, not just the report URL.** This was a hard-won fix: PRISM is an Angular SPA, and clicking "Create Risk Assessment" from the landing/list page routes to a new report via `history.pushState` — no real page load. Tampermonkey only auto-injects on an actual navigation, so if the script were scoped to just the report URL, it would never be *running* on the landing page to see that pushState happen, and would only ever catch up on a hard refresh. The script now loads app-wide, sits idle via `isFratReportRoute()`/`isFratLandingRoute()` route checks, and patches `history.pushState`/`replaceState` + listens for `popstate` to react the moment the SPA routes somewhere relevant.
+
+**Full automated pipeline (landing page → filled, saved report):**
+1. On `/tools/frat-landing`, shows the same leg-select panel as the report page (`mode: 'landing'`).
+2. Picking a leg sets `_pendingFlight`, then `triggerCreateReport()` clicks "Create Risk Assessment" and the template option ("SpiritJets Flight Risk Analysis...") in the dropdown it opens.
+3. That creates a report at a fresh, randomly-ID'd URL and routes there via pushState. The SPA-navigation watcher picks up the route change and re-runs `main('report')`, which finds `_pendingFlight` and fills the form immediately instead of showing the leg picker again.
+4. After filling, `saveReport()` clicks "Save as Pending" then "Yes" on the confirmation dialog, which routes back to the landing page — closing the loop for the next report.
+5. If any automated click fails to find its target, the pending flight is preserved and a status message asks for a manual click — since the flight is still remembered, finishing manually still triggers the auto-fill once the report opens.
+
+**Hard-won lesson on clicking PRISM's UI elements — verify the actual DOM before guessing event types.** The template-dropdown click failed for several iterations, each time diagnosed as a different wrong theory (event type needing a full pointer/mouse sequence, dropdown container scope, search-box filtering side effects) before a live DOM dump (`document.querySelectorAll('body *')` filtered to visible elements matching the target text, printed via `outerHTML`) revealed the real bug: the "smallest textContent" heuristic used to pick the click target was tying against purely-decorative empty wrapper divs (same textContent length as the actual `<button>`, since the wrappers contribute zero extra text) and picking an inert ancestor instead of the real `mat-menu-item` button. **The lesson generalizes: when a click on a found DOM element doesn't do what a real click would, get the actual `outerHTML` of the target before changing the event-dispatch mechanism — the element being wrong is at least as likely as the event type being wrong.** `triggerCreateReport()` now prefers the known static `#btn-frat-add` id over any generic text search.
+
+**Debugging tools already built into the panel:** the "dbg" button in the leg-select panel calls `debugDump()`, which logs all `mat-select` elements, `findAnySelect()` resolution results for known field labels, all visible inputs, and a risk-question-row finder test — check console output there before assuming a selector is broken.
 
 ---
 
