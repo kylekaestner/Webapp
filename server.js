@@ -124,6 +124,25 @@ function parseRosterBusterICS(text) {
         const location = getField('LOCATION');
         const desc     = getField('DESCRIPTION');
 
+        // 🛰 Long Call Reserve - LCR  (also covers Short Call / other "<Name> Reserve - XXX" labels)
+        // Unlike eCrew's RESR/RAP, DTSTART/DTEND here ARE the actual on-call window — they match
+        // the LOCATION's own "(1100Z-0300Z)" window exactly, so no DESCRIPTION leg parsing needed.
+        const resM = summary.match(/🛰.*-\s*([A-Z]{2,6})\s*$/);
+        if (resM) {
+            const resDep = dtstart ? formatICSDatetime(dtstart) : null;
+            const resArr = dtend ? formatICSDatetime(dtend) : null;
+            if (resDep) {
+                const aptM = location.match(/\)\s*([A-Z]{3})\s*$/);
+                const apt  = aptM ? aptM[1].toUpperCase() : '';
+                events.push({
+                    type: 'reserve', departureTime: resDep, arrivalTime: resArr,
+                    departureAirport: apt, arrivalAirport: apt,
+                    flightNumber: resM[1].toUpperCase(), tail: '', trip: null, dh: false, blockMinutes: null
+                });
+            }
+            continue;
+        }
+
         // ✈️ STL - ORD  or  ➡️ (DH) ORD - FAR
         const flightM = summary.match(/✈️\s*([A-Z]{3})\s*-\s*([A-Z]{3})/);
         const dhM     = summary.match(/➡️\s*\(DH\)\s*([A-Z]{3})\s*-\s*([A-Z]{3})/);
@@ -154,16 +173,20 @@ function parseRosterBusterICS(text) {
 
     // Sort by departure time, then assign trip numbers.
     // A new trip starts when departing the home base on a different day — same-day
-    // returns (turns) don't end the trip.
+    // returns (turns) don't end the trip. Reserve blocks stand alone (trip stays null)
+    // and are skipped entirely here — otherwise a reserve day between two flight trips
+    // would consume a trip-number increment and shift every subsequent trip's number.
     events.sort((a, b) => (a.departureTime || '').localeCompare(b.departureTime || ''));
     let tripNum = 1;
+    let lastFlightDay = null;
     for (let i = 0; i < events.length; i++) {
-        if (i > 0 && events[i].departureAirport === 'STL') {
-            const prevDay = (events[i - 1].departureTime || '').substring(0, 10);
+        if (events[i].type === 'reserve') continue;
+        if (lastFlightDay !== null && events[i].departureAirport === 'STL') {
             const thisDay = (events[i].departureTime || '').substring(0, 10);
-            if (thisDay !== prevDay) tripNum++;
+            if (thisDay !== lastFlightDay) tripNum++;
         }
         events[i].trip = String(tripNum);
+        lastFlightDay = (events[i].departureTime || '').substring(0, 10);
     }
 
     return events;
