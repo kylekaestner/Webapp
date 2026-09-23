@@ -90,13 +90,12 @@ myViewer  // key of view-only user, or null
 | `initIdentity()` | 2122 | Auth check on load; sets myPilot/myViewer |
 | `_applyIdentityUI()` | 2267 | Shows/hides UI sections based on who's logged in |
 | `_buildCrewVisibilityUI()` | 2340 | Crew toggle switches in profile sheet |
-| `render()` | 6544 | Main calendar/list render dispatcher |
-| `renderMap()` | 4918 | Single pilot monthly route map |
+| `render()` | ~6485 | Main calendar/list render dispatcher |
+| `renderMap()` | 4857 | Single pilot monthly route map |
 | `renderAllPilotsMap()` | 4715 | All-crew monthly map |
-| `renderDayMap()` | 5887 | All-crew single-day map |
-| `computeRouteDeclutterOffsets()` | 4873 | Detects distinct routes (no shared airport) running close together in `renderMap()` and computes `offsetArc()` spread indices to separate them |
-| `distanceProportionalArc()` | 4826 | Bezier-bowed great-circle arc for a single route (no de-overlap) |
-| `offsetArc()` | 5304 | Bezier arc with perpendicular offset — spreads multiple flights/routes sharing an identical or conflicting path |
+| `renderDayMap()` | ~5828 | All-crew single-day map |
+| `distanceProportionalArc()` | 4826 | Bezier-bowed great-circle arc for a single route (no de-overlap; `renderMap()` has no cross-route overlap handling at all — see note below) |
+| `offsetArc()` | 5238 | Bezier arc with perpendicular offset — spreads multiple flights sharing an identical city pair (used by `renderDayMap()` only) |
 | `inferAwayLayovers()` | 2880 | Generates synthetic 'away' events for overnight non-home stays |
 | `switchView()` | 3200 | Switches between calendar/list/map/overlap views |
 | `switchOverlapTab()` | 3315 | Crossings ↔ Off Days tab switch |
@@ -522,15 +521,13 @@ Every visible flight number/callsign (calendar grid, list view, day-detail sheet
 
 **Gated by `flightAwareEligible(depMs)`** (48h window): a link is only offered for flights already departed or departing within 48h. FlightAware's dateless URL resolves to whichever instance of that ident is nearest to *now* — for airline pilots who reuse the same flight number daily, a farther-out link could resolve to the wrong day; for Kyle's corporate legs, Part 91/135 flight plans typically aren't filed until close to departure, so FlightAware has nothing to show earlier anyway. Eligibility is recomputed fresh on every render, not cached.
 
-### Route decluttering (`renderMap()` — single-pilot "My Routes" map)
+### Route overlap on `renderMap()` — tried and reverted, don't redo this approach blind
 
-`renderMap()` groups a pilot's flights into one arc per unique `dep|arr` pair (`routeGroups`) with no overlap handling between *different* pairs — unlike the all-crew day view (`renderDayMap()`), which already spreads multiple pilots on an identical city pair via `offsetArc()`. Two unrelated legs sharing no airport (e.g. `KUGN→KACK` and `KFOK→KSUS`) can cross or run close together for a stretch and look like one indistinguishable line.
+`renderMap()` (single-pilot "My Routes" map) groups a pilot's flights into one arc per unique `dep|arr` pair with **no overlap handling between different pairs** — unlike the all-crew day view (`renderDayMap()`), which spreads multiple pilots on an identical city pair via `offsetArc()`. Two unrelated legs sharing no airport (e.g. `KUGN→KACK` and `KFOK→KSUS`) can cross or run close for a stretch and look like one line. This is a real, known, currently-unfixed cosmetic issue.
 
-`computeRouteDeclutterOffsets(resolvedGroups)` fixes this:
-- Samples each route's **interior only** (20%–80% of the great-circle path, endpoints excluded) and flags any two groups that come within **110mi** of each other along that interior as conflicting.
-- Conflicting groups are unioned into clusters (simple BFS over an adjacency list) and each cluster member gets `{ offsetIndex, groupSize }`, fed into the existing `offsetArc()` instead of the normal `distanceProportionalArc()`.
-- **Pairs that share any airport (dep-dep, dep-arr, arr-dep, arr-arr) are always skipped, never compared.** Two connected legs (`KACK→KFOK`, `KFOK→KSUS`) are one coherent multi-stop path regardless of the turn angle at the connection — that's not overlap. Two legs fanning out from/to the same airport (`KSUS→KIAD`, `KSUS→KDAN`) also naturally sample close together near that shared point even when clearly distinct once fully drawn; comparing them produced false positives (bowing routes that already rendered fine) before this exclusion was added. If you extend this logic, keep that exclusion — it was found by testing against real fan-out routes, not assumed up front.
-- The `110mi` threshold is an untuned first guess, not derived from pixel geometry at any particular zoom level. If routes still look too close, or well-separated routes start bowing unnecessarily, that's the number to adjust.
+**A fix was built and shipped (2026-09-21/22) and then reverted (2026-09-23) after it made the map actively worse** — a `computeRouteDeclutterOffsets()` pass sampled each route's interior, flagged any two non-touching routes within 110mi of each other as conflicting, and unioned conflicts into clusters via BFS connected-components, feeding each cluster member into `offsetArc()` with an index/groupSize pair. It worked correctly against the small hand-built test cases used to validate it (2-3 routes, a real trip's worth of legs) but broke badly against Kyle's actual "My Routes" data: **the BFS treats conflict as transitive** — if A conflicts with B and B conflicts with C, all three get lumped into one cluster and spread across offset indices, even though A and C may not be close to each other at all. Around a busy hub with many routes, this chains into large clusters where some routes (sometimes short ones) get pushed to extreme offset indices relative to their own length, producing wild, unreadable loops (visibly swinging arcs sweeping up into Canada that had no business being there). It was never tested against a real multi-destination hub before shipping, only small synthetic clusters.
+
+**If this gets revisited:** don't reuse the transitive-clustering approach as-is. Options worth considering instead: only ever offset *pairwise* (never chain through a shared conflict into an unrelated third route), cap the maximum offset magnitude in absolute terms regardless of cluster size/index, or scope any offset to be proportional to how much interior overlap actually exists rather than a fixed step size per cluster slot. Test against Kyle's real live route data (a busy month, not a hand-picked 3-leg trip) before shipping again — that's exactly what this revert would have caught.
 
 ---
 
