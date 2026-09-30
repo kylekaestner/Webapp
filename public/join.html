@@ -152,32 +152,26 @@
                     </div>
                 </div>
                 <div>
-                    <label class="field-label">Airline or Operation</label>
-                    <input class="field-input" type="text" id="role" placeholder="Republic Airways, Part 91 Corporate…">
-                </div>
-                <div>
-                    <label class="field-label">Schedule Source <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">— how do you get your schedule?</span></label>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px" id="parser-pills">
-                        <button type="button" onclick="selectParser('csv')" data-parser="csv" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Republic</button>
-                        <button type="button" onclick="selectParser('ics_rosterbuster')" data-parser="ics_rosterbuster" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">GoJet</button>
-                        <button type="button" onclick="selectParser('schedaero')" data-parser="schedaero" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SpiritJets</button>
-                        <button type="button" onclick="selectSkywest()" data-parser="skywest_parent" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">SkyWest</button>
-                        <div id="skywest-format" style="display:none;grid-column:1/-1;background:#0d0d0f;border:1.5px solid #27272a;border-radius:10px;padding:10px 10px 8px;">
-                            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#3f3f46;margin-bottom:7px;">SkyWest — Schedule Format</div>
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                                <button type="button" id="skw-vcs-btn" onclick="selectParser('vcs_skywest')" class="parser-pill" style="padding:9px 8px;border-radius:8px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;text-align:left;">VCS File<span style="display:block;font-size:9px;font-weight:500;margin-top:2px;color:#3f3f46;">SkedPlus+ · Recommended</span></button>
-                                <button type="button" id="skw-csv-btn" onclick="selectParser('csv_skywest')" class="parser-pill" style="padding:9px 8px;border-radius:8px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;text-align:left;">CSV File<span style="display:block;font-size:9px;font-weight:500;margin-top:2px;color:#3f3f46;">SkedPlus legacy</span></button>
-                            </div>
-                        </div>
-                        <button type="button" onclick="selectParser('ics_scx')" data-parser="ics_scx" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Sun Country</button>
-                        <button type="button" onclick="selectParser('ics_ecrew')" data-parser="ics_ecrew" class="parser-pill" style="padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Atlas Air</button>
-                        <button type="button" onclick="selectParser('other')" data-parser="other" class="parser-pill" style="grid-column:1/-1;padding:10px 8px;border-radius:10px;border:1.5px solid #27272a;background:#111113;color:#52525b;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:inherit;">Other Airline / Operation</button>
-                    </div>
+                    <label class="field-label">Company</label>
+                    <select class="field-input" id="companySel" onchange="selectCompany(this.value)">
+                        <option value="">— Select your airline / operation —</option>
+                        <option value="csv">Republic Airways</option>
+                        <option value="ics_rosterbuster">GoJet Airlines</option>
+                        <option value="ics_delta_micrew">Delta Air Lines</option>
+                        <option value="ics_ecrew">Atlas Air</option>
+                        <option value="ics_scx">Sun Country Airlines</option>
+                        <option value="vcs_skywest">SkyWest Airlines</option>
+                        <option value="other">Other / Not Listed</option>
+                    </select>
                     <p id="parser-other-note" style="display:none;margin-top:8px;font-size:11px;color:#52525b;line-height:1.5;">Upload your schedule in the next step — we'll identify your format automatically and set up your account.</p>
                     <input type="hidden" id="parserType" value="">
                 </div>
-                <!-- Airline code: only shown for CSV parsers -->
-                <div id="airline-code-row" style="display:block">
+                <div>
+                    <label class="field-label">Airline or Operation</label>
+                    <input class="field-input" type="text" id="role" placeholder="Republic Airways, Part 91 Corporate…">
+                </div>
+                <!-- Airline code: only shown once a company with a known code is selected -->
+                <div id="airline-code-row" style="display:none">
                     <label class="field-label">Airline Code <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">(optional — e.g. RPA, SKW, AA)</span></label>
                     <input class="field-input" type="text" id="airlineCode" placeholder="RPA" maxlength="5" style="text-transform:uppercase;letter-spacing:0.15em;font-weight:600;" autocomplete="off">
                 </div>
@@ -192,24 +186,25 @@
         <!-- Step 2 — Schedule -->
         <div class="step" id="step-2">
             <h1 class="text-2xl font-black text-white uppercase tracking-tight leading-none mb-1">Your schedule.</h1>
-            <p class="text-zinc-500 text-sm mb-7">Upload a schedule file or paste an ICS link. You can skip this and do it later.</p>
+            <p class="text-zinc-500 text-sm mb-7" id="step2-subtitle">Upload a schedule file or paste an ICS link. You can skip this and do it later.</p>
 
             <div class="space-y-4">
-                <div>
-                    <label class="field-label">Schedule File <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">(CSV, PDF, ICS, or VCS)</span></label>
+                <div id="sched-file-section">
+                    <label class="field-label" id="sched-file-label">Schedule File</label>
                     <input class="field-input" type="file" id="scheduleFile" accept=".csv,.pdf,.ics,.vcs">
+                    <p class="text-[11px] text-zinc-600 mt-1.5 leading-relaxed" id="sched-file-hint"></p>
                 </div>
 
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-3" id="sched-or-divider">
                     <div class="flex-1 h-px bg-zinc-800"></div>
                     <span class="text-[11px] text-zinc-700 font-bold uppercase tracking-widest">or</span>
                     <div class="flex-1 h-px bg-zinc-800"></div>
                 </div>
 
-                <div>
-                    <label class="field-label">ICS Calendar URL</label>
+                <div id="sched-ics-section">
+                    <label class="field-label" id="sched-ics-label">ICS Calendar URL</label>
                     <input class="field-input" type="url" id="icsUrl" placeholder="https://…/calendar.ics">
-                    <p class="text-[11px] text-zinc-600 mt-1.5 leading-relaxed">RosterBuster, Google Calendar, and most airline apps support ICS export.</p>
+                    <p class="text-[11px] text-zinc-600 mt-1.5 leading-relaxed" id="sched-ics-hint">RosterBuster, Google Calendar, and most airline apps support ICS export.</p>
                 </div>
             </div>
 
@@ -250,46 +245,46 @@
     </div>
 
     <script>
-        const PARSER_AIRLINES = {
-            'csv':              { airline: 'Republic Airways',    code: 'RPA', needsIcs: false },
-            'ics_rosterbuster': { airline: 'GoJet Airlines',      code: 'GJS', needsIcs: true  },
-            'schedaero':        { airline: 'SpiritJets',          code: 'SJJ', needsIcs: false },
-            'csv_skywest':      { airline: 'SkyWest Airlines',    code: 'SKW', needsIcs: false },
-            'vcs_skywest':      { airline: 'SkyWest Airlines',    code: 'SKW', needsIcs: false },
-            'ics_scx':          { airline: 'Sun Country Airlines', code: 'SCX', needsIcs: true  },
-            'ics_ecrew':        { airline: 'Atlas Air',            code: 'GTI', needsIcs: true  },
+        // SpiritJets (Kyle's own Schedaero parser) is deliberately not offered here --
+        // he's the only pilot who'll ever use it, so it doesn't belong in the join flow.
+        const COMPANIES = {
+            'csv':              { airline: 'Republic Airways',     code: 'RPA', method: 'file',
+                                   fileLabel: 'Schedule File', fileAccept: '.csv',
+                                   fileHint: 'CSV Long format export from your scheduling system.' },
+            'ics_rosterbuster': { airline: 'GoJet Airlines',       code: 'GJS', method: 'ics',
+                                   icsLabel: 'RosterBuster ICS URL',
+                                   icsHint: 'From RosterBuster: Settings → Calendar Sync → copy the subscription link.' },
+            'ics_delta_micrew': { airline: 'Delta Air Lines',      code: 'DAL', method: 'ics',
+                                   icsLabel: 'MiCrew ICS URL',
+                                   icsHint: 'The published calendar subscription link from MiCrew.' },
+            'ics_ecrew':        { airline: 'Atlas Air',            code: 'GTI', method: 'ics',
+                                   icsLabel: 'eCrew ICS URL',
+                                   icsHint: 'The calendar subscription link from eCrew.' },
+            'ics_scx':          { airline: 'Sun Country Airlines', code: 'SCX', method: 'ics',
+                                   icsLabel: 'eCrew ICS URL',
+                                   icsHint: 'The calendar subscription link from eCrew.' },
+            'vcs_skywest':      { airline: 'SkyWest Airlines',     code: 'SKW', method: 'file',
+                                   fileLabel: 'Schedule File', fileAccept: '.vcs',
+                                   fileHint: 'SkedPlus+ VCS export.' },
         };
 
-        function selectParser(type) {
+        function selectCompany(type) {
             document.getElementById('parserType').value = type;
-            const isSkywest = type === 'csv_skywest' || type === 'vcs_skywest';
-            document.querySelectorAll('.parser-pill').forEach(btn => {
-                const id = btn.id;
-                if (id === 'skw-vcs-btn' || id === 'skw-csv-btn') return; // sub-pills handled separately
-                const active = isSkywest ? btn.dataset.parser === 'skywest_parent' : btn.dataset.parser === type;
-                btn.style.borderColor = active ? '#3b82f6' : '#27272a';
-                btn.style.background  = active ? 'rgba(59,130,246,0.1)' : '#111113';
-                btn.style.color       = active ? '#93c5fd' : '#52525b';
-            });
-            // Sub-pills
-            ['skw-vcs-btn', 'skw-csv-btn'].forEach(id => {
-                const btn = document.getElementById(id);
-                if (!btn) return;
-                const subParser = id === 'skw-vcs-btn' ? 'vcs_skywest' : 'csv_skywest';
-                const active = type === subParser;
-                btn.style.borderColor = active ? '#3b82f6' : '#27272a';
-                btn.style.background  = active ? 'rgba(59,130,246,0.1)' : '#111113';
-                btn.style.color       = active ? '#93c5fd' : '#52525b';
-            });
             const otherNote = document.getElementById('parser-other-note');
             const codeRow   = document.getElementById('airline-code-row');
+
+            if (!type) {
+                otherNote.style.display = 'none';
+                codeRow.style.display   = 'none';
+                return;
+            }
             if (type === 'other') {
                 otherNote.style.display = 'block';
                 codeRow.style.display   = 'none';
                 return;
             }
             otherNote.style.display = 'none';
-            const info = PARSER_AIRLINES[type];
+            const info = COMPANIES[type];
             if (info) {
                 document.getElementById('role').value        = info.airline;
                 document.getElementById('airlineCode').value = info.code;
@@ -297,9 +292,34 @@
             codeRow.style.display = (info && info.code) ? 'block' : 'none';
         }
 
-        function selectSkywest() {
-            document.getElementById('skywest-format').style.display = 'block';
-            selectParser('vcs_skywest');
+        // Shows only the single schedule-input method that matches the selected company
+        // on step 2 -- e.g. GoJet only ever sees an ICS URL field, Republic only a file
+        // picker. "other"/unset falls back to showing both, same as before this redesign.
+        function applyStep2Method() {
+            const type = document.getElementById('parserType').value;
+            const info = COMPANIES[type];
+            const method = info ? info.method : 'both';
+
+            const fileSection = document.getElementById('sched-file-section');
+            const icsSection  = document.getElementById('sched-ics-section');
+            const divider     = document.getElementById('sched-or-divider');
+
+            fileSection.style.display = (method === 'file' || method === 'both') ? 'block' : 'none';
+            icsSection.style.display  = (method === 'ics'  || method === 'both') ? 'block' : 'none';
+            divider.style.display     = (method === 'both') ? 'flex' : 'none';
+
+            document.getElementById('sched-file-label').textContent = info?.fileLabel || 'Schedule File';
+            document.getElementById('scheduleFile').accept          = info?.fileAccept || '.csv,.pdf,.ics,.vcs';
+            document.getElementById('sched-file-hint').textContent  = info?.fileHint || '';
+
+            document.getElementById('sched-ics-label').textContent = info?.icsLabel || 'ICS Calendar URL';
+            document.getElementById('sched-ics-hint').textContent  = info?.icsHint
+                || 'RosterBuster, Google Calendar, and most airline apps support ICS export.';
+
+            document.getElementById('step2-subtitle').textContent =
+                method === 'file' ? 'Upload your schedule file below. You can skip this and do it later.'
+                : method === 'ics'  ? 'Paste your ICS calendar link below. You can skip this and do it later.'
+                : 'Upload a schedule file or paste an ICS link. You can skip this and do it later.';
         }
 
         function goStep(n) {
@@ -323,6 +343,7 @@
                 setTimeout(() => { el.style.borderColor = ''; el.style.boxShadow = ''; }, 1800);
                 return;
             }
+            applyStep2Method();
             goStep(2);
         }
 
