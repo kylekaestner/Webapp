@@ -165,15 +165,13 @@
                     </select>
                     <p id="parser-other-note" style="display:none;margin-top:8px;font-size:11px;color:#52525b;line-height:1.5;">Upload your schedule in the next step — we'll identify your format automatically and set up your account.</p>
                     <input type="hidden" id="parserType" value="">
+                    <input type="hidden" id="airlineCode" value="">
                 </div>
-                <div>
+                <!-- Only shown for "Other" — a known company fully determines this via the
+                     dropdown, so showing it again as an editable field would just be redundant. -->
+                <div id="role-row" style="display:none">
                     <label class="field-label">Airline or Operation</label>
-                    <input class="field-input" type="text" id="role" placeholder="Republic Airways, Part 91 Corporate…">
-                </div>
-                <!-- Airline code: only shown once a company with a known code is selected -->
-                <div id="airline-code-row" style="display:none">
-                    <label class="field-label">Airline Code <span style="text-transform:none;font-weight:500;letter-spacing:0;color:#3f3f46">(optional — e.g. RPA, SKW, AA)</span></label>
-                    <input class="field-input" type="text" id="airlineCode" placeholder="RPA" maxlength="5" style="text-transform:uppercase;letter-spacing:0.15em;font-weight:600;" autocomplete="off">
+                    <input class="field-input" type="text" id="role" placeholder="Part 91 Corporate, Charter…">
                 </div>
             </div>
 
@@ -271,25 +269,29 @@
         function selectCompany(type) {
             document.getElementById('parserType').value = type;
             const otherNote = document.getElementById('parser-other-note');
-            const codeRow   = document.getElementById('airline-code-row');
+            const roleRow   = document.getElementById('role-row');
 
             if (!type) {
                 otherNote.style.display = 'none';
-                codeRow.style.display   = 'none';
+                roleRow.style.display   = 'none';
+                document.getElementById('role').value        = '';
+                document.getElementById('airlineCode').value = '';
                 return;
             }
             if (type === 'other') {
                 otherNote.style.display = 'block';
-                codeRow.style.display   = 'none';
+                roleRow.style.display   = 'block';
+                document.getElementById('role').value        = '';
+                document.getElementById('airlineCode').value = '';
                 return;
             }
             otherNote.style.display = 'none';
+            roleRow.style.display   = 'none';
             const info = COMPANIES[type];
             if (info) {
                 document.getElementById('role').value        = info.airline;
                 document.getElementById('airlineCode').value = info.code;
             }
-            codeRow.style.display = (info && info.code) ? 'block' : 'none';
         }
 
         // Shows only the single schedule-input method that matches the selected company
