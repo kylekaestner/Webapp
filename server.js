@@ -192,6 +192,132 @@ function parseRosterBusterICS(text) {
     return events;
 }
 
+// ===== Delta Air Lines "MiCrew" ICS Parser =====
+// Each VEVENT is an entire multi-day trip/pairing, not a single flight leg -- confirmed via
+// X-APPLE-CREATOR-IDENTITY:com.delta.micrew.prod on a real published calendar. The leg-by-leg
+// itinerary lives as free text inside DESCRIPTION, formatted like:
+//   Rpt- 1020 01JUL
+//   DL673       ATL-LAX     11:15-12:53   3NE
+//   LAYOVER   16:37/LAX
+//   ...
+//   Rpt- 0600 02JUL
+//   DL482       LAX-JAX     07:01-15:25   3NE
+//   DL482       JAX-MCO     16:26-17:18   3NE
+// Deadhead legs are prefixed "D " (single) or "DD " (double) before the flight number --
+// note the regex requires mandatory whitespace after the D/DD so it can't accidentally eat
+// the leading "D" of "DL" on a normal (non-deadhead) leg; verified against real examples of
+// both before shipping. Times are already local to each leg's own departure/arrival airport,
+// matching CrewSync's local-time storage convention directly -- no timezone conversion needed.
+//
+// Non-flying days use short codes (SUMMARY like "XX", "PVAC", "IOE") whose real meaning is
+// the LAST line of DESCRIPTION (e.g. "RESERVE DAY OFF", "PRIMARY VACATION DAY", "INITIAL
+// OPERATING EXPERIENCE"). Classified by keyword match on that text rather than the cryptic
+// code, since the codes aren't documented anywhere accessible and vary a lot (payroll
+// adjustments, personal drops, sim periods, etc.). Only vacation/training map to a CrewSync
+// segment type; everything else is skipped entirely -- notably including "RESERVE DAY OFF"
+// and "RESERVE GOLDEN OFF DAY", which are days OFF from reserve, not on-call. Actual on-call
+// reserve days were NOT present in the one real feed this was built against and deliberately
+// weren't guessed at -- see CLAUDE.md for what to check before adding that.
+function parseDeltaMiCrewICS(text) {
+    const events = [];
+    const unfolded = text.replace(/\r?\n[ \t]/g, '');
+    const blocks = unfolded.split(/BEGIN:VEVENT/gi).slice(1);
+
+    const MONTH_ABBR = { JAN:1, FEB:2, MAR:3, APR:4, MAY:5, JUN:6, JUL:7, AUG:8, SEP:9, OCT:10, NOV:11, DEC:12 };
+    const RPT_LINE_RE = /^Rpt-\s*(\d{4})\s+(\d{2})([A-Z]{3})/;
+    const HAS_RPT_RE  = /Rpt-\s*\d{4}\s+\d{2}[A-Z]{3}/;
+    const LEG_RE = /^(?:(DD|D)\s+)?([A-Z]{2})(\d{2,5})\s+([A-Z]{3})-([A-Z]{3})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})\s+(\S+)/;
+    const pad = n => String(n).padStart(2, '0');
+
+    for (const b of blocks) {
+        const lines = b.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const getField = (prefix) => {
+            const up = prefix.toUpperCase();
+            const ln = lines.find(l => { const u = l.toUpperCase(); return u.startsWith(up + ':') || u.startsWith(up + ';'); });
+            if (!ln) return '';
+            const ci = ln.indexOf(':');
+            return ci >= 0 ? ln.slice(ci + 1).replace(/\\,/g, ',').replace(/\\n/g, '\n') : '';
+        };
+
+        const summary     = getField('SUMMARY');
+        const description = getField('DESCRIPTION');
+        const dtstartRaw  = lines.find(l => /^DTSTART/i.test(l)) || '';
+        if (!dtstartRaw) continue;
+        const dtstartVal = dtstartRaw.split(':').slice(1).join(':'); // YYYYMMDDTHHMMSS
+        if (!/^\d{8}/.test(dtstartVal)) continue;
+        const eventYear = parseInt(dtstartVal.slice(0, 4), 10);
+
+        if (HAS_RPT_RE.test(description)) {
+            const descLines = description.split('\n').map(l => l.trim());
+            const tripId = (summary.match(/^\S+/) || [null])[0];
+            let curDate = null;   // { y, m, d } -- advances across report days and legs
+            let prevMonth = null;
+
+            for (const line of descLines) {
+                const rptM = line.match(RPT_LINE_RE);
+                if (rptM) {
+                    const day = parseInt(rptM[2], 10);
+                    const mon = MONTH_ABBR[rptM[3]];
+                    if (!mon) continue;
+                    let year = eventYear;
+                    if (prevMonth !== null && mon < prevMonth) year++; // trip spans New Year's
+                    curDate = { y: year, m: mon, d: day };
+                    prevMonth = mon;
+                    continue;
+                }
+                const legM = line.match(LEG_RE);
+                if (!legM || !curDate) continue;
+                const [, dhFlag, carrier, fltNum, dep, arr, depHH, depMM, arrHH, arrMM, equip] = legM;
+
+                const depDateStr = `${curDate.y}-${pad(curDate.m)}-${pad(curDate.d)}`;
+                const depMin = parseInt(depHH, 10) * 60 + parseInt(depMM, 10);
+                const arrMin = parseInt(arrHH, 10) * 60 + parseInt(arrMM, 10);
+                let arrDate = curDate;
+                if (arrMin < depMin) {
+                    const d = new Date(Date.UTC(curDate.y, curDate.m - 1, curDate.d + 1));
+                    arrDate = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+                }
+                const arrDateStr = `${arrDate.y}-${pad(arrDate.m)}-${pad(arrDate.d)}`;
+
+                events.push({
+                    type: 'flight',
+                    departureTime: `${depDateStr}T${depHH}:${depMM}:00`,
+                    arrivalTime:   `${arrDateStr}T${arrHH}:${arrMM}:00`,
+                    departureAirport: dep, arrivalAirport: arr,
+                    flightNumber: `${carrier}${fltNum}`,
+                    tail: equip.toUpperCase(),
+                    trip: tripId, dh: !!dhFlag, blockMinutes: null,
+                });
+
+                curDate = arrDate; // next leg under the same Rpt- continues from here
+            }
+            continue;
+        }
+
+        // Non-flying day -- classify by the last meaningful line of DESCRIPTION.
+        const descLines2 = description.split('\n').map(l => l.trim()).filter(Boolean);
+        const label = (descLines2[descLines2.length - 1] || '').toUpperCase();
+        if (!label) continue;
+
+        // These markers have no TZID and a "prev-day 23:00 to this-day 22:59" boundary --
+        // DTEND's date is the nominal calendar day the marker applies to.
+        const dtendRaw = lines.find(l => /^DTEND/i.test(l)) || '';
+        const dtendVal = dtendRaw.split(':').slice(1).join(':');
+        const dateSrc = /^\d{8}/.test(dtendVal) ? dtendVal : dtstartVal;
+        const y = dateSrc.slice(0, 4), m = dateSrc.slice(4, 6), d = dateSrc.slice(6, 8);
+        const isoDate = `${y}-${m}-${d}T00:00:00`;
+
+        if (/VACATION/.test(label)) {
+            events.push({ type: 'vacation', departureTime: isoDate });
+        } else if (/TRAINING|SIMULATOR|OPERATING EXPERIENCE/.test(label)) {
+            events.push({ type: 'training', departureTime: isoDate });
+        }
+        // else: skip -- sick, pay adjustments, reserve-day-off markers, misc admin codes
+    }
+
+    return events;
+}
+
 function formatICSDatetime(s) {
     if (/^\d{8}T\d{6}Z$/.test(s)) {
         const y = s.substring(0, 4), m = s.substring(4, 6), d = s.substring(6, 8);
@@ -1327,6 +1453,8 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                 } else if (filename.endsWith('.ics')) {
                     events = parserType === 'ics_rosterbuster'
                         ? parseRosterBusterICS(fileContent)
+                        : parserType === 'ics_delta_micrew'
+                        ? parseDeltaMiCrewICS(fileContent)
                         : (parserType === 'ics_scx' || parserType === 'ics_ecrew')
                         ? parseECrewICS(fileContent, airlineCode, ECREW_IATA_ALIASES[airlineCode] || [])
                         : parseICS(fileContent);
@@ -1606,8 +1734,13 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
         });
     });
     if (!url) throw new Error('No ICS URL configured');
+    // Apple/iCloud publishes calendar subscription links as webcal:// -- same protocol as
+    // https, just a different scheme name signaling "subscribe" to calendar apps. Node's
+    // fetch doesn't know that scheme, so normalize it here (the one place all sync paths
+    // funnel through: manual sync, auto-sync scheduler, and upload-triggered resync).
+    const fetchUrl = url.replace(/^webcal:\/\//i, 'https://');
 
-    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const resp = await fetch(fetchUrl, { signal: AbortSignal.timeout(15000) });
     if (!resp.ok) throw Object.assign(new Error(`ICS fetch returned ${resp.status}`), { status: resp.status });
     const icsText = await resp.text();
 
@@ -1622,6 +1755,8 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
     const resolvedCode = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
     const events = resolvedParser === 'ics_rosterbuster'
         ? parseRosterBusterICS(icsText)
+        : resolvedParser === 'ics_delta_micrew'
+        ? parseDeltaMiCrewICS(icsText)
         : (resolvedParser === 'ics_scx' || resolvedParser === 'ics_ecrew')
         ? parseECrewICS(icsText, resolvedCode, ECREW_IATA_ALIASES[resolvedCode] || [])
         : parseICS(icsText);

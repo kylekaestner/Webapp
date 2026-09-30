@@ -260,6 +260,26 @@ Found this exact way: reserve (`🛰`) support didn't exist until 2026-09-21 —
 
 **The trip-numbering pass after parsing only makes sense for flights.** It assigns synthetic sequential trip numbers (not real airline pairing IDs) by walking all events in departure-time order and bumping the counter on a new day's STL departure. Any non-flight event type added to this parser must be excluded from that loop (`trip` stays `null`) — otherwise it consumes a trip-number increment and shifts every subsequent flight's trip number. Reserve is already excluded; keep that pattern if training/vacation/etc. ever get added here too.
 
+### Delta "MiCrew" ICS parser (`parseDeltaMiCrewICS`, server.js) — `parser_type: 'ics_delta_micrew'`
+
+Added 2026-09-30, built against one real Delta pilot's published iCloud calendar (confirmed genuine via `X-APPLE-CREATOR-IDENTITY:com.delta.micrew.prod`), before he had a CrewSync account. **Structurally different from every other ICS source in this app: each `VEVENT` is an entire multi-day trip/pairing, not one flight leg.** `SUMMARY` is just a compact one-liner (e.g. `5086 LAX, MCO (1020-1539)`); the actual leg-by-leg itinerary lives as free text inside `DESCRIPTION`:
+```
+Rpt- 1020 01JUL
+DL673       ATL-LAX     11:15-12:53   3NE
+LAYOVER   16:37/LAX
+...
+Rpt- 0600 02JUL
+DL482       LAX-JAX     07:01-15:25   3NE
+DL482       JAX-MCO     16:26-17:18   3NE
+```
+The parser walks each `DESCRIPTION` line-by-line, tracking a current calendar date that advances on each `Rpt-` line (report day) and rolls forward mid-leg if a leg's arrival clock time is numerically earlier than its departure (crossed midnight). Deadhead legs are prefixed `D ` (single) or `DD ` (double) before the flight number — **the regex requires mandatory whitespace after the D/DD** so it can't accidentally consume the leading `D` of `DL` on a normal leg (verified against real deadhead and non-deadhead examples before shipping, since that's exactly the kind of subtle regex trap that produced silent data loss elsewhere before). Times in the description are already local to each leg's own airport, matching CrewSync's local-time storage convention directly — no timezone conversion needed, unlike the eCrew/RosterBuster parsers.
+
+**Non-flying days use short, undocumented codes** (`SUMMARY` like `XX`, `PVAC`, `IOE`, `20TR`) whose actual meaning is the *last line* of `DESCRIPTION` (e.g. `RESERVE DAY OFF`, `PRIMARY VACATION DAY`, `INITIAL OPERATING EXPERIENCE`, `320 TRAINING DAY`). Classified by keyword match on that text, not the code — the codes aren't documented anywhere accessible and vary a lot (payroll adjustments, personal drops, sim periods, parental leave, etc.). Only `VACATION`- and `TRAINING`/`SIMULATOR`/`OPERATING EXPERIENCE`-keyword matches produce a segment (`vacation`/`training` respectively); **everything else is skipped entirely, including `RESERVE DAY OFF` and `RESERVE GOLDEN OFF DAY`** — both are days OFF from reserve, not on-call days, so storing them as `reserve` segments would have been wrong.
+
+**Reserve (on-call) detection was deliberately NOT built.** The one real feed this was built against had zero events showing an actual on-call window with times (unlike Drew's RosterBuster feed's explicit `LCR` blocks) — that pilot hadn't been on reserve since 2023, so there was no ground truth to build against, and guessing at how Delta represents on-call days (a distinct code that just didn't appear in this export window, vs. an unmarked day implicitly meaning "available") would have been exactly the kind of blind guess that caused problems before. **Before adding reserve support here, get a real feed from a pilot who's currently on a reserve line** and check what an actual on-call day looks like in `DESCRIPTION`/`SUMMARY` — don't assume it matches RosterBuster's or eCrew's conventions.
+
+Wired identically to the RosterBuster parser: `parser_type = 'ics_delta_micrew'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`AIRLINE_OPTIONS` in app.html, `icao: 'DAL'`) which shows the generic ICS URL field. One Delta-specific wrinkle: iCloud publishes these as `webcal://` links — `syncPilotICS()` normalizes that to `https://` before fetching, since Node's `fetch` doesn't understand the `webcal` scheme.
+
 ### `pilotsCache` invalidation
 
 `pilotsCache[key]` is set once per page load (or after upload/sync). The "Refresh" button on Crossings calls `computeOverlap()` but does **not** clear the cache — it re-runs `buildGroundPeriods` on cached data. A stale cache can make crossings appear wrong even after a schedule fix. To force-refresh: reload the page.
@@ -624,7 +644,7 @@ Accessible from Profile Sheet → "★ Manage Users" (admin only). Two tabs:
 
 **Edit/Add User modal (`#edit-user-modal`):**
 - View-only toggle (👁 mode): hides pilot-specific fields (base, home_airport, airline, role), marks user as `role='viewer'`.
-- Airline selector determines `parser_type`: GoJet→`csv`, SkyWest→`vcs_skywest`, Republic→`csv`, SunCountry→`ics_scx`, RosterBuster→`ics_rosterbuster`, Other→`other`.
+- Airline selector determines `parser_type`: GoJet→`csv`, SkyWest→`vcs_skywest`, Republic→`csv`, SunCountry→`ics_scx`, RosterBuster→`ics_rosterbuster`, Delta Air Lines (MiCrew)→`ics_delta_micrew`, Other→`other`.
 - When RosterBuster selected, shows ICS URL field.
 - `saveUser()` → POST `/api/pilots` (new) or PUT `/api/pilots/:key` (edit). Auto-generates pilot_key from first name (lowercase, deduped).
 - After save: alerts user of generated `?u=TOKEN` personal link to share.
