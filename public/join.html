@@ -203,7 +203,7 @@
 
                 <div id="sched-ics-section">
                     <label class="field-label" id="sched-ics-label">ICS Calendar URL</label>
-                    <input class="field-input" type="url" id="icsUrl" placeholder="https://…/calendar.ics">
+                    <input class="field-input" type="url" id="icsUrl" placeholder="https://… or webcal://…">
                     <p class="text-[11px] text-zinc-600 mt-1.5 leading-relaxed" id="sched-ics-hint">RosterBuster, Google Calendar, and most airline apps support ICS export.</p>
                 </div>
             </div>
@@ -372,8 +372,12 @@
                 if (!data.success) throw new Error(data.error || 'Failed to create account');
 
                 if (!skipSchedule) {
-                    const file   = document.getElementById('scheduleFile').files[0];
-                    const icsUrl = document.getElementById('icsUrl').value.trim();
+                    const file = document.getElementById('scheduleFile').files[0];
+                    // iCloud (Delta MiCrew) publishes subscription links as webcal:// -- same
+                    // protocol as https, just a different scheme name for "subscribe to this
+                    // calendar." The server already normalizes this in syncPilotICS(), but do
+                    // it here too so the request is explicit rather than relying on that alone.
+                    const icsUrl = document.getElementById('icsUrl').value.trim().replace(/^webcal:\/\//i, 'https://');
                     if (file) {
                         const fd = new FormData();
                         fd.append('file', file);
