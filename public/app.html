@@ -1605,19 +1605,19 @@
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
                 <select id="edit-user-airline-sel" onchange="_onAirlineChange()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
                     <option value="">— Select airline —</option>
-                    <option value="GJS">GoJet Services</option>
+                    <option value="GJS">GoJet Airlines</option>
                     <option value="SKW">SkyWest Airlines</option>
                     <option value="RPA">Republic Airways</option>
                     <option value="SCX">Sun Country Airlines</option>
-                    <option value="RB">RosterBuster (subscription)</option>
+                    <option value="GTI">Atlas Air</option>
                     <option value="DAL">Delta Air Lines (MiCrew)</option>
                     <option value="OTHER">Other / Auto-detect</option>
                 </select>
             </div>
             <div id="edit-user-ics-row" class="hidden space-y-1">
-                <label class="text-[9px] font-black text-zinc-500 uppercase block">ICS Calendar URL</label>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block" id="edit-user-ics-label">ICS Calendar URL</label>
                 <input id="edit-user-ics-url" type="url" placeholder="https://…" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
-                <p class="text-[10px] text-zinc-600">Paste the private subscription link from your airline's scheduling app.</p>
+                <p class="text-[10px] text-zinc-600" id="edit-user-ics-hint">Paste the private subscription link from your airline's scheduling app.</p>
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Role / Description</label>
@@ -8457,25 +8457,37 @@ let _blockUserEdited = false;
 
         let _editUserIsViewer = false;
 
+        // Kept in sync with the company list in join.html's join flow. GoJet is one
+        // company with one method (RosterBuster ICS) here now -- it used to be split
+        // into a separate "GoJet Services" (csv) and "RosterBuster (subscription)"
+        // pseudo-airline entry, which was really just the same airline shown twice.
         const AIRLINE_OPTIONS = [
-            { icao: 'GJS',   dbCode: 'GJS', parser: 'csv',             needsIcs: false },
-            { icao: 'SKW',   dbCode: 'SKW', parser: 'vcs_skywest',      needsIcs: false },
-            { icao: 'RPA',   dbCode: 'RPA', parser: 'csv',              needsIcs: false },
-            { icao: 'SCX',   dbCode: 'SCX', parser: 'ics_scx',          needsIcs: true  },
-            { icao: 'GTI',   dbCode: 'GTI', parser: 'ics_ecrew',         needsIcs: true  },
-            { icao: 'RB',    dbCode: '',    parser: 'ics_rosterbuster',  needsIcs: true  },
-            { icao: 'DAL',   dbCode: 'DAL', parser: 'ics_delta_micrew',  needsIcs: true  },
-            { icao: 'OTHER', dbCode: '',    parser: 'other',            needsIcs: false },
+            { icao: 'GJS',   dbCode: 'GJS', parser: 'ics_rosterbuster', needsIcs: true,
+              icsLabel: 'RosterBuster ICS URL',
+              icsHint: 'From RosterBuster: Settings → Calendar Sync → copy the subscription link.' },
+            { icao: 'SKW',   dbCode: 'SKW', parser: 'vcs_skywest', needsIcs: false },
+            { icao: 'RPA',   dbCode: 'RPA', parser: 'csv',         needsIcs: false },
+            { icao: 'SCX',   dbCode: 'SCX', parser: 'ics_scx',     needsIcs: true,
+              icsLabel: 'eCrew ICS URL', icsHint: 'The calendar subscription link from eCrew.' },
+            { icao: 'GTI',   dbCode: 'GTI', parser: 'ics_ecrew',   needsIcs: true,
+              icsLabel: 'eCrew ICS URL', icsHint: 'The calendar subscription link from eCrew.' },
+            { icao: 'DAL',   dbCode: 'DAL', parser: 'ics_delta_micrew', needsIcs: true,
+              icsLabel: 'MiCrew ICS URL', icsHint: 'The published calendar subscription link from MiCrew.' },
+            { icao: 'OTHER', dbCode: '',    parser: 'other', needsIcs: false },
         ];
 
         function _onAirlineChange() {
             const val = document.getElementById('edit-user-airline-sel').value;
             const opt = AIRLINE_OPTIONS.find(o => o.icao === val);
             document.getElementById('edit-user-ics-row').classList.toggle('hidden', !opt?.needsIcs);
+            document.getElementById('edit-user-ics-label').textContent = opt?.icsLabel || 'ICS Calendar URL';
+            document.getElementById('edit-user-ics-hint').textContent  = opt?.icsHint
+                || "Paste the private subscription link from your airline's scheduling app.";
         }
 
         function _airlineSelectValue(airlineCode, parserType) {
-            if (parserType === 'ics_rosterbuster') return 'RB';
+            const byParser = AIRLINE_OPTIONS.find(o => o.parser === parserType && o.parser !== 'other');
+            if (byParser) return byParser.icao;
             const opt = AIRLINE_OPTIONS.find(o => o.icao === airlineCode);
             return opt ? opt.icao : 'OTHER';
         }
