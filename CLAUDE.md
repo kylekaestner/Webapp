@@ -272,7 +272,9 @@ Rpt- 0600 02JUL
 DL482       LAX-JAX     07:01-15:25   3NE
 DL482       JAX-MCO     16:26-17:18   3NE
 ```
-The parser walks each `DESCRIPTION` line-by-line, tracking a current calendar date that advances on each `Rpt-` line (report day) and rolls forward mid-leg if a leg's arrival clock time is numerically earlier than its departure (crossed midnight). Times in the description are already local to each leg's own airport, matching CrewSync's local-time storage convention directly — no timezone conversion needed, unlike the eCrew/RosterBuster parsers.
+The parser walks each `DESCRIPTION` line-by-line, tracking a current calendar date that advances on each `Rpt-` line (report day) and rolls forward mid-leg if a leg's arrival clock time is numerically earlier than its departure (crossed midnight). Times in the description are already local to each leg's own airport, matching CrewSync's local-time storage convention directly — no timezone conversion needed for the *stored* departure/arrival strings, unlike the eCrew/RosterBuster parsers.
+
+**`blockMinutes` still needs real timezone math even though storage doesn't.** The frontend's `calcBlockMins()` only computes a correct duration from stored local-time strings when both ends share a timezone (or the segment is manual, which gets its own airport-aware path) — for a normal synced segment it just does `new Date(arrivalTime) - new Date(departureTime)` on the two local strings directly, which is silently wrong by the UTC offset difference whenever a leg crosses timezones (most of this network). **Found live**: this originally shipped with every leg's `blockMinutes: null`, relying on that fallback, and produced wrong block times on real schedules (e.g. ATL→LAX) before being caught and fixed. The parser now computes real `blockMinutes` itself via `_aptTimezone[dep]`/`_aptTimezone[arr]` (the airport DB's IANA timezone, already loaded for other parsers) and `localTZToUTC()`, so a correct value is always stored and the frontend's naive fallback is never actually exercised. **Any new local-time-based parser must do the same** — don't leave `blockMinutes: null` for real flight legs and assume the frontend will compute it correctly; it won't, for any leg that changes timezone.
 
 **Leg-line prefix letters (optional, before the carrier code) — found by missing-data reports, not documentation, since none exists for this format:**
 - `D ` / `DD ` — deadhead on a Delta-numbered flight (e.g. `D DL1437`).
@@ -306,6 +308,8 @@ A second `VEVENT` type, `UID:Layover-*` (`SUMMARY: Layover in XXX`), is purely i
 
 Fields taken from `DESCRIPTION`: `SEQ#` → `trip` (pairing number), `Flight#` → flight number (prefixed `AA` since the feed itself never includes a carrier letter code), `Stations: DEP→ARR` → departure/arrival airports (unicode `→`, matched loosely in case the separator ever varies).
 
+`blockMinutes` is computed via `_aptTimezone`/`localTZToUTC` (same as Delta's parser — see its "still needs real timezone math" note above), not left `null`. `DTSTART`/`DTEND` are already `YYYYMMDDTHHMMSS` with no reformatting needed before passing to `localTZToUTC`.
+
 **Not seen in the one feed this was built against, so NOT handled — don't guess, get a real example first (same reasoning as the Delta parser's original reserve deferral):** deadhead legs (no example had one, and it's unclear what would mark it — not even an `I`/`D`/`O`-style prefix exists in this format since each VEVENT is already a single leg with no shared prefix line), reserve/on-call days, vacation/training/sick/any other non-flying marker, and equipment/tail number (never present in `DESCRIPTION` here). If a pilot using this parser reports a missing day or an obviously-wrong deadhead flag, the fix is the same pattern used throughout this file: fetch the raw feed directly and read what's actually there rather than assuming it matches another airline's convention.
 
 Wired identically to the Delta parser: `parser_type = 'ics_american'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`icao: 'AAL'`) and the join flow's company selector, both showing a "MobileCCI ICS URL" field.
@@ -336,6 +340,8 @@ Southwest's trips routinely cross multiple zones in a single leg (`CDT`→`EDT` 
 **Deadhead detection was NOT built.** The per-duty-day summary line sometimes carries a trailing letter (`D`/`P`/`M`/`A`, e.g. `Credit 7.68  D`), and `D` plausibly means deadhead, but it's attached to the **whole day's duty period**, which can span several legs — marking every leg that day as DH would likely be wrong as often as right. Don't guess here; wait for a real example that disambiguates which specific leg within a "D" day is the deadhead.
 
 **`GDO` ("Guaranteed Day Off") is its own single-day `VEVENT`** (`LOCATION:GDO`, not `Trip:...`), with no flight legs — skipped entirely, same treatment as Delta's `RESERVE DAY OFF`: the day defaults to off via the absence of any segment, nothing needs to be stored.
+
+`blockMinutes` is `Math.round((arrUTC - depUTC) / 60000)`, reusing the real UTC instants already computed above for date-rollover (see Delta's "still needs real timezone math" note) — no extra airport-timezone lookup needed here since the per-leg `TZ_OFFSET` abbreviation already gives real UTC directly.
 
 Wired identically to the Delta/American parsers: `parser_type = 'ics_southwest'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`icao: 'SWA'`) and the join flow's company selector, both showing a "CrewHub ICS URL" field.
 

@@ -293,6 +293,24 @@ function parseDeltaMiCrewICS(text) {
                     return { depDateStr, arrDateStr, arrDate };
                 };
 
+                // Real block time via each airport's own IANA timezone (_aptTimezone, built at
+                // module load from the airport DB) -- NOT a naive diff of the stored local-time
+                // strings, which would be wrong for any leg that crosses timezones (the frontend's
+                // fallback calcBlockMins() only does that naive diff for non-manual segments, so a
+                // parser that leaves blockMinutes null is implicitly relying on same-timezone legs
+                // only, which is false for most of Delta's network).
+                const computeBlockMinutes = (depD, depHH, depMM, depApt, arrD, arrHH, arrMM, arrApt) => {
+                    const depTZ = _aptTimezone[depApt];
+                    const arrTZ = _aptTimezone[arrApt];
+                    if (!depTZ || !arrTZ) return null;
+                    try {
+                        const depUTC = localTZToUTC(`${depD.y}${pad(depD.m)}${pad(depD.d)}T${depHH}${depMM}00`, depTZ);
+                        const arrUTC = localTZToUTC(`${arrD.y}${pad(arrD.m)}${pad(arrD.d)}T${arrHH}${arrMM}00`, arrTZ);
+                        const mins = Math.round((new Date(arrUTC) - new Date(depUTC)) / 60000);
+                        return mins > 0 ? mins : null;
+                    } catch (e) { return null; }
+                };
+
                 const groundM = line.match(GROUND_RE);
                 if (groundM && curDate) {
                     const [, dep, arr, depHH, depMM, arrHH, arrMM] = groundM;
@@ -312,6 +330,7 @@ function parseDeltaMiCrewICS(text) {
                 if (!legM || !curDate) continue;
                 const [, dhFlag, carrier, fltNum, dep, arr, depHH, depMM, arrHH, arrMM, equip] = legM;
                 const isDH = dhFlag === 'D' || dhFlag === 'DD' || dhFlag === 'O';
+                const depDateForBlock = curDate;
                 const { depDateStr, arrDateStr, arrDate } = computeDates(depHH, depMM, arrHH, arrMM);
 
                 events.push({
@@ -321,7 +340,8 @@ function parseDeltaMiCrewICS(text) {
                     departureAirport: dep, arrivalAirport: arr,
                     flightNumber: `${carrier}${fltNum}`,
                     tail: equip ? equip.toUpperCase() : '',
-                    trip: tripId, dh: isDH, blockMinutes: null,
+                    trip: tripId, dh: isDH,
+                    blockMinutes: computeBlockMinutes(depDateForBlock, depHH, depMM, dep, arrDate, arrHH, arrMM, arr),
                 });
 
                 curDate = arrDate; // next leg under the same Rpt- continues from here
@@ -441,17 +461,35 @@ function parseAmericanICS(text) {
             continue;
         }
 
+        const depApt = stnM[1].toUpperCase();
+        const arrApt = stnM[2].toUpperCase();
+        // Real block time via each airport's own IANA timezone -- dtstartVal/dtendVal are
+        // already "YYYYMMDDTHHMMSS", exactly what localTZToUTC expects, so no reformatting
+        // needed. A naive diff of the stored local-time strings (what the frontend's fallback
+        // does for any segment with blockMinutes left null) would be wrong for any leg that
+        // changes timezone, which is most of this feed (PHL based, flies transcontinental).
+        let blockMinutes = null;
+        const depTZ = _aptTimezone[depApt], arrTZ = _aptTimezone[arrApt];
+        if (depTZ && arrTZ) {
+            try {
+                const depUTC = localTZToUTC(dtstartVal, depTZ);
+                const arrUTC = localTZToUTC(dtendVal, arrTZ);
+                const mins = Math.round((new Date(arrUTC) - new Date(depUTC)) / 60000);
+                blockMinutes = mins > 0 ? mins : null;
+            } catch (e) { /* leave null */ }
+        }
+
         events.push({
             type: 'flight',
             departureTime: toLocalIso(dtstartVal),
             arrivalTime:   toLocalIso(dtendVal),
-            departureAirport: stnM[1].toUpperCase(),
-            arrivalAirport:   stnM[2].toUpperCase(),
+            departureAirport: depApt,
+            arrivalAirport:   arrApt,
             flightNumber: `AA${fltM[1]}`,
             tail: '',
             trip: seqM ? seqM[1] : null,
             dh: false,
-            blockMinutes: null,
+            blockMinutes,
         });
     }
 
@@ -608,7 +646,13 @@ function parseSouthwestICS(text) {
                 departureAirport: dep, arrivalAirport: arr,
                 flightNumber: `WN${fltRaw}`,
                 tail: '',
-                trip: tripId, dh: false, blockMinutes: null,
+                trip: tripId, dh: false,
+                // depUTC/arrUTC above are already real UTC instants (computed from the TZ_OFFSET
+                // abbreviation table for date-rollover purposes) -- reuse them directly rather
+                // than letting the frontend fall back to a naive local-string diff, which would
+                // be wrong for any leg that changes timezone (common here: CDT/EDT/MDT/PDT all
+                // appear in the same trip).
+                blockMinutes: Math.round((arrUTC - depUTC) / 60000) || null,
             });
 
             curDate = arrDate; // next leg (same or next duty day) continues from the arrival date
