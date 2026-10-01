@@ -11,12 +11,19 @@ A private pilot scheduling and crew coordination web app. Tracks flight schedule
 ├── db.js              # SQLite init and schema
 ├── dispatch.db        # SQLite database (auto-created)
 ├── airports.dat       # OpenFlights airport database (coords + timezones)
+├── data/              # airports.json (city labels) + airports_raw.csv (OurAirports source)
+├── scripts/           # build-airports.js, gen-icons.js, import-intel.js
 ├── public/
-│   ├── app.html       # Main app (calendar, map, list, overlap)
+│   ├── app.html       # Main app (calendar, map, list, overlap, intel) -- single file, all JS inline
 │   ├── join.html      # New pilot onboarding form
-│   └── index.html     # Landing page
+│   ├── landing.html   # Public landing page
+│   ├── manual.html    # User manual / help page
+│   ├── airports.json  # Client-side airport coordinate lookup
+│   └── frat-autofill.user.js  # Tampermonkey userscript (Kyle only) -- see CLAUDE.md
 └── README.md
 ```
+
+See `CLAUDE.md` for the full, actively-maintained technical reference (data flow, every parser's quirks, the friends/visibility system, live-tracking internals, etc.) -- this README is a lighter overview.
 
 ---
 
@@ -41,7 +48,10 @@ Server starts on port 3000. Database auto-initializes on first run.
   - *My Routes* — single pilot's month
   - *All Crew — Day* — all pilots on one map for a selected day
   - *All Crew — Month* — everyone's routes for the month, click route lines for details
-- **Location Overlap** — shows when any two pilots are in the same city/airport
+- **Crew Planning** — two tabs:
+  - *Crossings* — shows when any two pilots are in the same city/airport at the same time
+  - *Off Days* — finds days every selected pilot is simultaneously off, list or calendar view
+- **Crew Intel** — crowd-sourced hotel/food/activity/tip entries per airport, with upvote/downvote and map view
 
 ### Schedule Sync & Upload
 - **Auto-sync** — ICS-based schedules sync automatically at 06:00, 14:00, and 22:00 UTC
@@ -80,6 +90,18 @@ Add flights manually for any pilot in four categories:
 - Bottom nav bar: Calendar, List, Map, Overlap, Upload/Sync
 - One-tap sync for ICS pilots; upload for CSV/VCS pilots
 
+### Identity & access
+Three kinds of logged-in identity, resolved from a URL token (`?u=TOKEN`):
+- **Pilot** — sees their own schedule plus any pilot they've friended (mutual, accepted request required)
+- **Viewer** — a read-only guest account; also friend-gated, but admin-assigned only (no self-service request/accept UI)
+- **Admin** — sees everyone unconditionally, manages users/parsers/friendships from the admin panel
+
+A pilot or viewer only sees another pilot's schedule once an accepted friendship exists between them — sent/accepted via the Friends panel (pilots) or assigned directly by admin (viewers, or as an override for pilots). Friend request/accept events generate in-app notifications (bell icon + a small badge on the profile avatar for pending requests).
+
+### Notifications
+- In-app notification bell with unread badge; crossing alerts and friend-request events land here
+- Web Push supported (requires HTTPS for the service worker to register — not active until the app is served over SSL)
+
 ---
 
 ## Schedule Parsers
@@ -114,30 +136,70 @@ ICS subscription URL from calendar publish. Each `VEVENT` is a duty period; indi
 
 Each airport's timezone is resolved from `airports.dat` for accurate UTC conversion of local leg times.
 
+### ICS (Delta MiCrew / American MobileCCI / Southwest CrewHub)
+Three more `.ics`-based parsers, each built against one real pilot's feed for that carrier. Each has carrier-specific quirks (multi-day pairings in one `VEVENT` for Delta/Southwest vs. one leg per `VEVENT` for American, timezone-abbreviation-per-leg for Southwest, etc.) — see `CLAUDE.md` for the full details on deadhead/reserve detection and known gaps per parser. American and Southwest report unrecognized schedule items back to admin as warnings (`pilots.parser_warnings`) rather than silently dropping them.
+
 ---
 
 ## API Endpoints
 
+All endpoints below that touch a specific pilot's data require `?token=` (or `{token}` in the body), resolved to a `(pilot_key, role)` pair server-side. "Admin only" / "self or admin" notes indicate the actual access check, not just presence of a token.
+
 ```
-GET  /api/pilots                              All pilots
-GET  /api/pilots/:key                         Pilot + segments (parser_type resolved server-side)
-PUT  /api/pilots/:key                         Update pilot profile
-DEL  /api/pilots/:key                         Delete pilot
+GET  /api/pilots                              All pilots incl. tokens -- admin only
+GET  /api/pilots-directory                    Name/base/home/role/color, no tokens -- any authenticated pilot
+GET  /api/pilots/:key                         Pilot + segments -- self, admin, or an accepted friend (403 not_friends otherwise)
+PUT  /api/pilots/:key                         Update pilot profile -- self or admin (self can't change role)
+DEL  /api/pilots/:key                         Delete pilot -- admin only
+POST /api/pilots/:key/regenerate-token        Reissue login token -- admin only
+GET  /api/pilots/:key/ics-url                 Get stored ICS URL
 POST /api/pilots/:key/upload                  Upload schedule file (.ics, .csv, .vcs)
-POST /api/pilots/:key/sync-ics               Sync ICS URL (saves URL, then fetches)
+POST /api/pilots/:key/sync-ics                Sync ICS URL (saves URL, then fetches)
 POST /api/pilots/:key/add-segment             Add manual flight
 PUT  /api/pilots/:key/segments/:id            Edit manual flight
 DEL  /api/pilots/:key/segments/:id            Delete manual flight
-DEL  /api/pilots/:key/segments                Clear all segments
-POST /api/pilots/:key/sync-schedaero          Sync one month (Schedaero pilots)
-POST /api/pilots/:key/quick-sync-schedaero    Sync using saved credentials
+DEL  /api/pilots/:key/segments                Clear all non-manual segments
+POST /api/pilots/kyle/sync-schedaero          Full Schedaero sync (Kyle only)
+POST /api/pilots/kyle/quick-sync-schedaero    Sync using saved credentials (Kyle only)
 
-GET  /api/live/:hex                           ADS-B position for aircraft hex code
+GET  /api/friends                             My friends + pending incoming/outgoing
+POST /api/friends/request                     Send a friend request (auto-accepts a mutual simultaneous request)
+POST /api/friends/respond                     Accept/decline an incoming request
+DEL  /api/friends/:key                        Unfriend
+GET  /api/admin/friends/:key                  Any pilot's friends -- admin only
+POST /api/admin/friends                       Directly create an accepted friendship -- admin only
+DEL  /api/admin/friends                       Directly remove a friendship -- admin only
+GET  /api/crew-visibility                     My hidden-pilot list
+PUT  /api/crew-visibility                     Update my hidden-pilot list
 
-GET  /api/settings/:key                       Read a settings value
-POST /api/settings/:key                       Write a settings value
+GET  /api/notifications                       My notifications
+PATCH /api/notifications/read                 Mark all read
+POST /api/notifications/crossing              Broadcast crossing notifications (called after upload/sync)
+GET  /api/push/vapid-key                      Public key for Web Push subscription
+POST /api/push/subscribe                      Save a push subscription
+DEL  /api/push/subscribe                      Remove a push subscription
+
+GET  /api/intel                               Crew Intel entries (hotel/food/activity/tip)
+POST /api/intel                               Add an entry
+PUT  /api/intel/:id                           Edit an entry
+DEL  /api/intel/:id                           Delete an entry
+POST /api/intel/:id/vote                      Upvote/downvote an entry
+
+GET  /api/live-position?callsign=XX           Live ADS-B position for a callsign (polled every 8s client-side)
+POST /api/early-landing                       Report an early landing
+GET  /api/early-landings?date=YYYY-MM-DD      Callsigns confirmed landed early for a date
+
+GET  /api/settings/:key                       Read a server-side settings value
+POST /api/settings/:key                       Write a server-side settings value
 GET  /api/health                              Health check
+GET  /api/version                             App version
+
+GET  /demo                                    Read-only demo with fake pilots -- no login required
+GET  /crew-roster                             Server-rendered pilot roster + personal links -- password-protected, admin
+GET  /admin/users                             Admin user management page
 ```
+
+Not exhaustive — see `server.js` for the full route list (airport lookups, analytics, NOTAMs, a few debug/legacy endpoints).
 
 ---
 
@@ -149,29 +211,55 @@ GET  /api/health                              Health check
 | id | INTEGER PK | |
 | pilot_key | TEXT UNIQUE | Short identifier for each pilot |
 | name | TEXT | |
-| base | TEXT | Crew base (airline city) |
-| home_airport | TEXT | Where the pilot lives |
-| role | TEXT | e.g. Captain, FO |
-| parser_type | TEXT | csv, csv_skywest, vcs_skywest, ics, ics_rosterbuster, ics_scx, schedaero, other |
+| base | TEXT | Crew base (airline domicile) |
+| home_airport | TEXT | Where the pilot actually lives (may differ from base) |
+| role | TEXT | Optional cosmetic text (e.g. "Regional · STL"), **or** the literal string `'viewer'` marking a read-only guest account -- not a rank/seat designation |
+| parser_type | TEXT | `csv`, `csv_skywest`, `vcs_skywest`, `ics`, `ics_rosterbuster`, `ics_ecrew`, `ics_scx`, `ics_delta_micrew`, `ics_american`, `ics_southwest`, `schedaero`, `other` |
 | airline_code | TEXT | IATA/ICAO airline code |
-| token | TEXT | URL token for personalized bookmark |
+| color | TEXT | Hex color for map/legend/avatar display |
+| token | TEXT | URL token for personalized bookmark — the sole auth mechanism, no passwords |
+| hidden_crew | TEXT | JSON array of pilot_keys this pilot has explicitly hidden from their own calendar/map |
+| friends_seeded | INTEGER | One-time flag: has this pilot's pre-friends-system "Your Crew" toggle been imported as a starting friend list? |
+| parser_warnings | TEXT | JSON array of unrecognized items from the last parse (American/Southwest parsers only), surfaced to admin |
 | last_active | TEXT | ISO timestamp of last app access |
+
+### friend_requests
+One row per pilot pair. `status` is `'pending'` or `'accepted'` (a decline just deletes the row). A pair counts as friends once an accepted row exists in either direction. Gates `GET /api/pilots/:key` — a pilot (or admin-managed viewer) can only see another pilot's schedule once this relationship exists; admin is exempt.
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| requester_key | TEXT | |
+| recipient_key | TEXT | |
+| status | TEXT | `pending` or `accepted` |
+| created_at / responded_at | DATETIME | |
+
+### notifications
+In-app notification feed (friend requests/accepts, crossing alerts). `crossing_key` dedupes crossing notifications; left `NULL` for other types.
+
+### push_subscriptions
+Web Push subscription objects per pilot, for the notification bell's push delivery (requires HTTPS to actually activate).
+
+### crew_intel / intel_votes
+Crew Intel entries (hotel/food/activity/tip per airport) and one vote row per `(intel_id, pilot_key)` for the upvote/downvote system.
+
+### usage_events
+Lightweight event log for feature-adoption tracking (`POST /api/analytics`).
 
 ### segments
 | Column | Type | Notes |
 |--------|------|-------|
 | id | INTEGER PK | |
 | pilot_id | INTEGER FK | |
-| type | TEXT | flight, reserve, ground, hard, away |
-| departure_time | TEXT | ISO 8601 UTC |
-| arrival_time | TEXT | ISO 8601 UTC |
-| departure_airport | TEXT | IATA code |
-| arrival_airport | TEXT | IATA code |
+| type | TEXT | `flight`, `reserve`, `ground`, `hard`, `vacation`, `training` (personal/commute travel is `type: 'flight'` with `trip: 'PERSONAL'`/`'COMMUTE'`, not a separate type) |
+| departure_time | TEXT | **Local airport time, no timezone suffix** for most pilots (e.g. `2026-05-26T13:30:00`) — only Kyle's Schedaero feed stores true UTC (`Z` suffix). Never compare raw `new Date(string)` across pilots; use `flightUTCTime()`/`flightLocalDate()` client-side. |
+| arrival_time | TEXT | Same local-time convention as `departure_time` |
+| departure_airport | TEXT | IATA or ICAO code depending on source feed |
+| arrival_airport | TEXT | IATA or ICAO code depending on source feed |
 | tail | TEXT | Aircraft tail number |
-| trip | TEXT | Trip/pairing number |
+| trip | TEXT | Trip/pairing number, or `'PERSONAL'`/`'COMMUTE'` for those flight types |
 | flight_number | TEXT | |
 | is_dh | BOOLEAN | Deadhead flag |
-| is_manual | BOOLEAN | Manually added |
+| is_manual | BOOLEAN | Manually added/edited — excluded from auto-sync's delete-and-replace |
 | block_minutes | INTEGER | |
 
 ### settings
@@ -185,9 +273,13 @@ Generic key/value store for server-side configuration (sync URLs, credentials, a
 
 **Session expired for Schedaero** — Quick sync will detect this and open the modal in cookie-only mode. Paste a fresh cookie from DevTools → Network → any Schedaero request → Request Headers → Cookie.
 
-**Sync button shows "Upload Schedule"** — The pilot's `parser_type` may not be resolved correctly. Check that the pilot has a correct entry in `pilotParsers` (server.js) or in the DB.
+**Sync button shows "Upload Schedule"** — The pilot's `parser_type` is purely DB-driven (`pilots.parser_type`) — there's no hardcoded fallback table anywhere in the code anymore. Check/fix it via the admin panel's Edit User modal, or the pilot's own self-service "My Info" editor.
 
-**Reserve shows wrong location on map** — Reserve airport is set from `pilots.base`. Confirm the pilot's base is correct in the DB.
+**Reserve shows wrong location on map** — Reserve airport is set from `pilots.base` at parse time and baked into the segment — changing `base` afterward does **not** retroactively update already-stored reserve segments. Re-sync (ICS pilots) or re-upload (file-upload pilots) to pick up the new base, or patch the existing rows directly.
+
+**A pilot can't see another pilot's schedule** — They need an accepted friendship first (Friends panel in the Profile sheet, or ask admin to connect them directly via the Edit User modal). A `403 { error: 'not_friends' }` response is expected and correct in this case, not a bug.
+
+**New viewer can't see anyone** — Viewers are friend-gated too (admin-assigned only, no self-service). A newly created viewer starts with zero access until admin grants it via the Edit User modal's friend toggle list.
 
 **Database locked** — Only one server instance should be running.
 
