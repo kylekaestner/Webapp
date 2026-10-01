@@ -8940,6 +8940,26 @@ let _blockUserEdited = false;
         let _intelFormCat = 'tip';
         let _intelMap    = null;         // Leaflet map instance for intel map view
 
+        // Hides (never deletes) tips that are just generic "it's a National/State Park or
+        // National Monument" trivia a pilot could've googled themselves -- added after Drew's
+        // intel entries filled up with exactly that. Persisted per-device, defaults to hidden.
+        let _intelHideGeneric = localStorage.getItem('intel_hide_generic') !== '0';
+        const INTEL_GENERIC_RE = /\b(national\s+park|state\s+park|national\s+monument)\b/i;
+        const _isGenericParkTip = e => INTEL_GENERIC_RE.test(e.title || '') || INTEL_GENERIC_RE.test(e.body || '');
+        // Single source of truth for "what's actually shown" -- every render function below
+        // reads from this instead of _intelAll directly, so the filter applies everywhere
+        // (list, map pins, per-airport detail, counts) with one toggle.
+        function _intelVisible() {
+            const all = Array.isArray(_intelAll) ? _intelAll : [];
+            return _intelHideGeneric ? all.filter(x => !_isGenericParkTip(x)) : all;
+        }
+        function toggleIntelHideGeneric() {
+            _intelHideGeneric = !_intelHideGeneric;
+            localStorage.setItem('intel_hide_generic', _intelHideGeneric ? '1' : '0');
+            _rebuildIntelCounts();
+            renderIntel();
+        }
+
         function escapeHtml(s) {
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
@@ -9142,8 +9162,7 @@ let _blockUserEdited = false;
 
         function _rebuildIntelCounts() {
             _intelCounts = {};
-            if (!Array.isArray(_intelAll)) return;
-            _intelAll.forEach(x => { _intelCounts[x.airport_code] = (_intelCounts[x.airport_code] || 0) + 1; });
+            _intelVisible().forEach(x => { _intelCounts[x.airport_code] = (_intelCounts[x.airport_code] || 0) + 1; });
         }
 
         async function loadIntel() {
@@ -9186,8 +9205,10 @@ let _blockUserEdited = false;
             if (!header) return;
             if (_intelView === 'airports' || _intelView === 'map') {
                 const isMap = _intelView === 'map';
-                const totalEntries = Array.isArray(_intelAll) ? _intelAll.length : 0;
-                const totalAirports = Array.isArray(_intelAll) ? new Set(_intelAll.map(x => x.airport_code)).size : 0;
+                const visibleEntries = _intelVisible();
+                const totalEntries = visibleEntries.length;
+                const totalAirports = new Set(visibleEntries.map(x => x.airport_code)).size;
+                const hiddenCount = (Array.isArray(_intelAll) ? _intelAll.length : 0) - totalEntries;
                 const clearBtn = _intelSearch
                     ? `<button id="intel-search-clear" onclick="clearIntelSearch()" class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-base leading-none transition-colors">×</button>`
                     : '';
@@ -9205,6 +9226,12 @@ let _blockUserEdited = false;
                             ${!isDemo ? `<button onclick="openAddIntel()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest transition-colors">+ Add</button>` : ''}
                         </div>
                     </div>
+                    <div class="px-5 pb-2">
+                        <button onclick="toggleIntelHideGeneric()" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-bold uppercase tracking-widest transition-colors ${_intelHideGeneric ? 'border-amber-800/50 bg-amber-950/30 text-amber-400 hover:bg-amber-950/50' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}">
+                            <span>${_intelHideGeneric ? '🙈' : '👁'}</span>
+                            <span>${_intelHideGeneric ? `Hiding generic park/monument tips${hiddenCount ? ` (${hiddenCount})` : ''}` : 'Showing all tips'}</span>
+                        </button>
+                    </div>
                     ${isMap ? '' : `<div class="px-5 pb-3"><div class="relative">
                         <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                         <input id="intel-search-input" type="text" placeholder="Search airports or cities…"
@@ -9216,7 +9243,7 @@ let _blockUserEdited = false;
             } else {
                 const ap = _intelDetailAirport || '';
                 const areaLabel = _intelAreaLabel(ap);
-                const allEntries = Array.isArray(_intelAll) ? _intelAll.filter(x => x.airport_code === ap) : [];
+                const allEntries = _intelVisible().filter(x => x.airport_code === ap);
                 const catCounts = {};
                 allEntries.forEach(e => { catCounts[e.category] = (catCounts[e.category] || 0) + 1; });
                 const cats = ['all','hotel','food','activity','tip'];
@@ -9245,7 +9272,7 @@ let _blockUserEdited = false;
         function renderIntelMap() {
             const el = document.getElementById('intel-content');
             if (!el) return;
-            const items = Array.isArray(_intelAll) ? _intelAll : [];
+            const items = _intelVisible();
 
             document.getElementById('view-intel').classList.add('intel-map-mode');
             el.innerHTML = `<div id="intel-map-el"></div>`;
@@ -9355,7 +9382,7 @@ let _blockUserEdited = false;
             const el = document.getElementById('intel-content');
             if (!el) return;
             document.getElementById('view-intel').classList.remove('intel-map-mode');
-            const items = Array.isArray(_intelAll) ? _intelAll : [];
+            const items = _intelVisible();
             const byAirport = {};
             items.forEach(x => { (byAirport[x.airport_code] = byAirport[x.airport_code] || []).push(x); });
             let airports = Object.keys(byAirport).sort((a, b) => {
@@ -9409,7 +9436,7 @@ let _blockUserEdited = false;
             if (!el) return;
             document.getElementById('view-intel').classList.remove('intel-map-mode');
             const ap = _intelDetailAirport;
-            let items = Array.isArray(_intelAll) ? _intelAll.filter(x => x.airport_code === ap) : [];
+            let items = _intelVisible().filter(x => x.airport_code === ap);
             if (_intelFilter.category !== 'all') items = items.filter(x => x.category === _intelFilter.category);
             if (items.length === 0) {
                 const catMsg = _intelFilter.category !== 'all' ? `${_intelFilter.category} tips` : 'tips';
