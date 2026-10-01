@@ -290,6 +290,26 @@ The parser walks each `DESCRIPTION` line-by-line, tracking a current calendar da
 
 Wired identically to the RosterBuster parser: `parser_type = 'ics_delta_micrew'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`AIRLINE_OPTIONS` in app.html, `icao: 'DAL'`) which shows the generic ICS URL field. One Delta-specific wrinkle: iCloud publishes these as `webcal://` links — `syncPilotICS()` normalizes that to `https://` before fetching, since Node's `fetch` doesn't understand the `webcal` scheme.
 
+### American Airlines "MobileCCI" ICS parser (`parseAmericanICS`, server.js) — `parser_type: 'ics_american'`
+
+Added 2026-10-01, built against one real pilot's export (`PRODID:-//American Airlines//MobileCCI//EN`). **Much simpler shape than Delta/RosterBuster/eCrew: one `VEVENT` per flight LEG, not a whole pairing.**
+```
+UID:FLT-1791211500@mobilecci
+DTSTART:20261005T104500
+DTEND:20261005T130500
+SUMMARY:FLT 478
+DESCRIPTION:SEQ#: 10195\nFlight#: 478\nStations: PHL→PHX\nLocal Time: ...\nUTC Time: ...
+```
+`DTSTART`/`DTEND` have no `Z` or `TZID` but are confirmed **already local** (departure-airport-local for `DTSTART`, arrival-airport-local for `DTEND`), verified by checking they match `DESCRIPTION`'s "Local Time" field exactly rather than its "UTC Time" field for the same leg — no timezone conversion needed, matching CrewSync's storage convention directly like the Delta parser.
+
+A second `VEVENT` type, `UID:Layover-*` (`SUMMARY: Layover in XXX`), is purely informational and is skipped — CrewSync already computes layovers itself via `buildGroundPeriods`/`inferAwayLayovers`, so storing these too would be redundant. The parser identifies real legs by `UID` starting with `FLT-`; anything else (currently just `Layover-*`) is skipped.
+
+Fields taken from `DESCRIPTION`: `SEQ#` → `trip` (pairing number), `Flight#` → flight number (prefixed `AA` since the feed itself never includes a carrier letter code), `Stations: DEP→ARR` → departure/arrival airports (unicode `→`, matched loosely in case the separator ever varies).
+
+**Not seen in the one feed this was built against, so NOT handled — don't guess, get a real example first (same reasoning as the Delta parser's original reserve deferral):** deadhead legs (no example had one, and it's unclear what would mark it — not even an `I`/`D`/`O`-style prefix exists in this format since each VEVENT is already a single leg with no shared prefix line), reserve/on-call days, vacation/training/sick/any other non-flying marker, and equipment/tail number (never present in `DESCRIPTION` here). If a pilot using this parser reports a missing day or an obviously-wrong deadhead flag, the fix is the same pattern used throughout this file: fetch the raw feed directly and read what's actually there rather than assuming it matches another airline's convention.
+
+Wired identically to the Delta parser: `parser_type = 'ics_american'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`icao: 'AAL'`) and the join flow's company selector, both showing a "MobileCCI ICS URL" field.
+
 ### `pilotsCache` invalidation
 
 `pilotsCache[key]` is set once per page load (or after upload/sync). The "Refresh" button on Crossings calls `computeOverlap()` but does **not** clear the cache — it re-runs `buildGroundPeriods` on cached data. A stale cache can make crossings appear wrong even after a schedule fix. To force-refresh: reload the page.
@@ -654,7 +674,7 @@ Accessible from Profile Sheet → "★ Manage Users" (admin only). Two tabs:
 
 **Edit/Add User modal (`#edit-user-modal`):**
 - View-only toggle (👁 mode): hides pilot-specific fields (base, home_airport, airline, role), marks user as `role='viewer'`.
-- Airline selector determines `parser_type`: GoJet→`csv`, SkyWest→`vcs_skywest`, Republic→`csv`, SunCountry→`ics_scx`, RosterBuster→`ics_rosterbuster`, Delta Air Lines (MiCrew)→`ics_delta_micrew`, Other→`other`.
+- Airline selector determines `parser_type`: GoJet→`csv`, SkyWest→`vcs_skywest`, Republic→`csv`, SunCountry→`ics_scx`, RosterBuster→`ics_rosterbuster`, Delta Air Lines (MiCrew)→`ics_delta_micrew`, American Airlines (MobileCCI)→`ics_american`, Other→`other`.
 - When RosterBuster selected, shows ICS URL field.
 - `saveUser()` → POST `/api/pilots` (new) or PUT `/api/pilots/:key` (edit). Auto-generates pilot_key from first name (lowercase, deduped).
 - After save: alerts user of generated `?u=TOKEN` personal link to share.

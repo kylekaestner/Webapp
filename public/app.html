@@ -1611,6 +1611,7 @@
                     <option value="SCX">Sun Country Airlines</option>
                     <option value="GTI">Atlas Air</option>
                     <option value="DAL">Delta Air Lines (MiCrew)</option>
+                    <option value="AAL">American Airlines (MobileCCI)</option>
                     <option value="OTHER">Other / Auto-detect</option>
                 </select>
             </div>
@@ -8473,6 +8474,8 @@ let _blockUserEdited = false;
               icsLabel: 'eCrew ICS URL', icsHint: 'The calendar subscription link from eCrew.' },
             { icao: 'DAL',   dbCode: 'DAL', parser: 'ics_delta_micrew', needsIcs: true,
               icsLabel: 'MiCrew ICS URL', icsHint: 'The published calendar subscription link from MiCrew.' },
+            { icao: 'AAL',   dbCode: 'AAL', parser: 'ics_american', needsIcs: true,
+              icsLabel: 'MobileCCI ICS URL', icsHint: 'The published calendar subscription link from MobileCCI.' },
             { icao: 'OTHER', dbCode: '',    parser: 'other', needsIcs: false },
         ];
 

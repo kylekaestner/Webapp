@@ -372,6 +372,76 @@ function parseDeltaMiCrewICS(text) {
     return events;
 }
 
+// American Airlines "MobileCCI" ICS parser -- parser_type: 'ics_american'
+// Added 2026-10-01, built against one real pilot's export. Much simpler shape than the Delta/
+// RosterBuster/eCrew formats: one VEVENT per flight LEG (not a whole pairing), plus separate
+// "Layover-*" VEVENTs that are purely informational (CrewSync already computes layovers itself
+// via buildGroundPeriods/inferAwayLayovers, so these are skipped rather than stored).
+//   UID:FLT-1791211500@mobilecci
+//   DTSTART:20261005T104500          <- already LOCAL departure-airport time, no Z/TZID
+//   DTEND:20261005T130500            <- already LOCAL arrival-airport time
+//   SUMMARY:FLT 478
+//   DESCRIPTION:SEQ#: 10195\nFlight#: 478\nStations: PHL→PHX\nLocal Time: ...\nUTC Time: ...
+// Confirmed DTSTART/DTEND are local (not UTC) by checking they match DESCRIPTION's "Local Time"
+// field exactly, not "UTC Time" -- e.g. DTSTART 104500 matches "Local Time: ... 10:45", while
+// "UTC Time" for the same leg says 14:45. This means no timezone conversion is needed, same as
+// the Delta MiCrew parser.
+//
+// Not seen in the one feed this was built against, so NOT handled -- don't guess, get a real
+// example first (same reasoning as the Delta parser's original reserve deferral):
+//   - Deadhead legs (no example had one; unclear what SUMMARY/DESCRIPTION marks it)
+//   - Reserve/on-call days
+//   - Vacation, training, sick, or any other non-flying day marker
+//   - Equipment/tail number (DESCRIPTION never includes one in this feed)
+function parseAmericanICS(text) {
+    const events = [];
+    const unfolded = text.replace(/\r?\n[ \t]/g, '');
+    const blocks = unfolded.split(/BEGIN:VEVENT/gi).slice(1);
+
+    const toLocalIso = v => `${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}T${v.slice(9,11)}:${v.slice(11,13)}:${v.slice(13,15) || '00'}`;
+
+    for (const b of blocks) {
+        const lines = b.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const getField = (prefix) => {
+            const up = prefix.toUpperCase();
+            const ln = lines.find(l => { const u = l.toUpperCase(); return u.startsWith(up + ':') || u.startsWith(up + ';'); });
+            if (!ln) return '';
+            const ci = ln.indexOf(':');
+            return ci >= 0 ? ln.slice(ci + 1).replace(/\\,/g, ',').replace(/\\n/g, '\n') : '';
+        };
+
+        const uid = getField('UID');
+        if (!uid.startsWith('FLT-')) continue; // skips "Layover-*" and anything unrecognized
+
+        const dtstartRaw = lines.find(l => /^DTSTART/i.test(l)) || '';
+        const dtendRaw   = lines.find(l => /^DTEND/i.test(l)) || '';
+        const dtstartVal = dtstartRaw.split(':').slice(1).join(':');
+        const dtendVal   = dtendRaw.split(':').slice(1).join(':');
+        if (!/^\d{8}T\d{6}/.test(dtstartVal) || !/^\d{8}T\d{6}/.test(dtendVal)) continue;
+
+        const description = getField('DESCRIPTION');
+        const seqM = description.match(/SEQ#:\s*(\S+)/i);
+        const fltM = description.match(/Flight#:\s*(\S+)/i);
+        const stnM = description.match(/Stations:\s*([A-Z]{3}).*?([A-Z]{3})/i);
+        if (!fltM || !stnM) continue;
+
+        events.push({
+            type: 'flight',
+            departureTime: toLocalIso(dtstartVal),
+            arrivalTime:   toLocalIso(dtendVal),
+            departureAirport: stnM[1].toUpperCase(),
+            arrivalAirport:   stnM[2].toUpperCase(),
+            flightNumber: `AA${fltM[1]}`,
+            tail: '',
+            trip: seqM ? seqM[1] : null,
+            dh: false,
+            blockMinutes: null,
+        });
+    }
+
+    return events;
+}
+
 function formatICSDatetime(s) {
     if (/^\d{8}T\d{6}Z$/.test(s)) {
         const y = s.substring(0, 4), m = s.substring(4, 6), d = s.substring(6, 8);
@@ -1509,6 +1579,8 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                         ? parseRosterBusterICS(fileContent)
                         : parserType === 'ics_delta_micrew'
                         ? parseDeltaMiCrewICS(fileContent)
+                        : parserType === 'ics_american'
+                        ? parseAmericanICS(fileContent)
                         : (parserType === 'ics_scx' || parserType === 'ics_ecrew')
                         ? parseECrewICS(fileContent, airlineCode, ECREW_IATA_ALIASES[airlineCode] || [])
                         : parseICS(fileContent);
@@ -1811,6 +1883,8 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
         ? parseRosterBusterICS(icsText)
         : resolvedParser === 'ics_delta_micrew'
         ? parseDeltaMiCrewICS(icsText)
+        : resolvedParser === 'ics_american'
+        ? parseAmericanICS(icsText)
         : (resolvedParser === 'ics_scx' || resolvedParser === 'ics_ecrew')
         ? parseECrewICS(icsText, resolvedCode, ECREW_IATA_ALIASES[resolvedCode] || [])
         : parseICS(icsText);
