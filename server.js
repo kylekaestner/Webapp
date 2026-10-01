@@ -1581,29 +1581,38 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
 // once an accepted friend_requests row exists between them (see _canViewPilot above). Admin and
 // viewers are unaffected -- they still see every pilot, same as before this system existed.
 
+// Shared by GET /api/friends (caller's own list) and GET /api/admin/friends/:pilotKey (admin
+// reading any pilot's list) -- same JOIN query, just parameterized by whose rows to pull.
+function _getFriendsData(db, targetKey, cb) {
+    db.all(
+        `SELECT fr.*, p.name AS other_name FROM friend_requests fr
+         JOIN pilots p ON p.pilot_key = CASE WHEN fr.requester_key=? THEN fr.recipient_key ELSE fr.requester_key END
+         WHERE fr.requester_key=? OR fr.recipient_key=?`,
+        [targetKey, targetKey, targetKey],
+        (err, rows) => {
+            if (err) return cb(err);
+            const friends = [], incoming = [], outgoing = [];
+            rows.forEach(r => {
+                const otherKey = r.requester_key === targetKey ? r.recipient_key : r.requester_key;
+                const entry = { pilotKey: otherKey, name: r.other_name, since: r.responded_at || r.created_at };
+                if (r.status === 'accepted') friends.push(entry);
+                else if (r.requester_key === targetKey) outgoing.push(entry);
+                else incoming.push(entry);
+            });
+            cb(null, { friends, incoming, outgoing });
+        }
+    );
+}
+
 // My friends, plus pending requests in both directions.
 app.get('/api/friends', (req, res) => {
     const db = getDB();
     _resolvePilotToken(req.query.token, db, (status, msg, myKey) => {
         if (status) return res.status(status).json({ error: msg });
-        db.all(
-            `SELECT fr.*, p.name AS other_name FROM friend_requests fr
-             JOIN pilots p ON p.pilot_key = CASE WHEN fr.requester_key=? THEN fr.recipient_key ELSE fr.requester_key END
-             WHERE fr.requester_key=? OR fr.recipient_key=?`,
-            [myKey, myKey, myKey],
-            (err, rows) => {
-                if (err) return res.status(500).json({ error: err.message });
-                const friends = [], incoming = [], outgoing = [];
-                rows.forEach(r => {
-                    const otherKey = r.requester_key === myKey ? r.recipient_key : r.requester_key;
-                    const entry = { pilotKey: otherKey, name: r.other_name, since: r.responded_at || r.created_at };
-                    if (r.status === 'accepted') friends.push(entry);
-                    else if (r.requester_key === myKey) outgoing.push(entry);
-                    else incoming.push(entry);
-                });
-                res.json({ friends, incoming, outgoing });
-            }
-        );
+        _getFriendsData(db, myKey, (err, data) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(data);
+        });
     });
 });
 
@@ -1721,6 +1730,76 @@ app.post('/api/friends/seed', (req, res) => {
                 );
             });
         });
+    });
+});
+
+// ── Admin friend management ────────────────────────────────────────────────
+// Lets admin directly assign/remove a friendship between any two pilots, bypassing the
+// request/accept flow entirely -- the equivalent of the seed migration's "already accepted,
+// no human approval needed" posture, but usable any time from the admin panel instead of only
+// once at login. Every endpoint here requires callerKey === 'admin'; viewers don't get this.
+
+// Any pilot's current friends/incoming/outgoing -- powers the Friends toggle list in the admin
+// edit-user modal.
+app.get('/api/admin/friends/:pilotKey', (req, res) => {
+    const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        _getFriendsData(db, req.params.pilotKey, (err, data) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(data);
+        });
+    });
+});
+
+// Directly create an accepted friendship between pilotA and pilotB. If a pending request already
+// exists in either direction, upgrade it instead of inserting a conflicting second row.
+app.post('/api/admin/friends', (req, res) => {
+    const db = getDB();
+    const { token, pilotA, pilotB } = req.body;
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        if (!pilotA || !pilotB || pilotA === pilotB) return res.status(400).json({ error: 'Invalid pilots' });
+        db.get(
+            `SELECT * FROM friend_requests WHERE (requester_key=? AND recipient_key=?) OR (requester_key=? AND recipient_key=?)`,
+            [pilotA, pilotB, pilotB, pilotA],
+            (err, existing) => {
+                if (err) return res.status(500).json({ error: err.message });
+                if (existing) {
+                    if (existing.status === 'accepted') return res.json({ success: true, status: 'accepted' });
+                    return db.run(`UPDATE friend_requests SET status='accepted', responded_at=CURRENT_TIMESTAMP WHERE id=?`, [existing.id], err2 => {
+                        if (err2) return res.status(500).json({ error: err2.message });
+                        res.json({ success: true, status: 'accepted' });
+                    });
+                }
+                db.run(`INSERT INTO friend_requests (requester_key, recipient_key, status, responded_at) VALUES (?, ?, 'accepted', CURRENT_TIMESTAMP)`,
+                    [pilotA, pilotB], err3 => {
+                        if (err3) return res.status(500).json({ error: err3.message });
+                        res.json({ success: true, status: 'accepted' });
+                    });
+            }
+        );
+    });
+});
+
+// Directly remove any friendship (accepted or still-pending) between pilotA and pilotB.
+app.delete('/api/admin/friends', (req, res) => {
+    const db = getDB();
+    const { token, pilotA, pilotB } = req.body;
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        if (!pilotA || !pilotB) return res.status(400).json({ error: 'Invalid pilots' });
+        db.run(
+            `DELETE FROM friend_requests WHERE (requester_key=? AND recipient_key=?) OR (requester_key=? AND recipient_key=?)`,
+            [pilotA, pilotB, pilotB, pilotA],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ success: true, removed: this.changes > 0 });
+            }
+        );
     });
 });
 

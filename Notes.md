@@ -59,8 +59,6 @@
 ~~Splash screen - custom loading screen for PWA~~
 ~~Scroll to top - when switching views~~
 ~~maybe a URL like localhost:3000/join where a new user can fill out their information, preferences, and either upload their schedule OR link an .ics file where the website will figure out what to do with it and add the user~~
-
-Based on the person logged in, make their name/schedule first on the list. Look for other ways to personalize based on who's signed it. Does each user need to see everything? What's pertinent to see for planning and seeing other friend's schedules, flying, off days, meetups, etc. 
 ~~Each user's link should be a unique ID. That way people can't login to other's accounts~~
 ~~Localhost:3000/demo shows a demo version~~ (fake pilots: Alex/Morgan/Casey/Jordan with realistic schedules, read-only)
 ~~the normal localhost:3000 should be a landing page kinda like an advertisement showing the app off. With links to demo or join.~~
@@ -68,5 +66,5 @@ Based on the person logged in, make their name/schedule first on the list. Look 
 ~~You can only manually add, edit, or delete flights for yourself.~~
 ~~Same with uploading schedules Only show the pertinent way of uploading/syncing schedule and only you.~~
 
-Map date click on mobile
-overnight dots for next month.
+~~Admin can modify/assign friends for each user. I want to see what the friend request looks like. Is it a pop up? or a notification? Confirm admin has access to all users and bypasses the friends system.~~
+On first app open for a brand new user, maybe have a welcome popup with some basic tips and a link to the manual. 

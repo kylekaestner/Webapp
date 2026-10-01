@@ -1662,6 +1662,14 @@
                 <input id="edit-user-role" type="text" placeholder="Corporate · KSUS" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
         </div>
+        <!-- Admin friend management — bypasses the request/accept flow entirely. Only shown
+             when editing an existing non-viewer pilot (a brand-new pilot has no key yet to
+             attach friendships to; a viewer already sees everyone and has no friend list). -->
+        <div id="edit-user-friends-section" class="hidden space-y-1.5 pt-1 border-t border-zinc-800">
+            <p class="text-[9px] font-black text-zinc-500 uppercase tracking-widest pt-3">Friends</p>
+            <p class="text-[10px] text-zinc-600 -mt-1">Toggle to instantly add or remove a friendship — no request needed.</p>
+            <div id="edit-user-friends-list" class="space-y-1.5 max-h-40 overflow-y-auto"></div>
+        </div>
         <div id="edit-user-error" class="hidden text-xs text-red-400 font-bold"></div>
         <div class="flex gap-3 pt-1">
             <button onclick="closeEditUserModal()" class="flex-1 py-2.5 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
@@ -2059,6 +2067,16 @@
             // Demo banner
             const banner = document.getElementById('demo-banner');
             if (banner) banner.classList.toggle('hidden', !isDemo);
+
+            // Roster must be synced BEFORE building any friend-based UI below: a friend can be a
+            // newly-joined pilot that only exists in the DB, not in the hardcoded PILOT_KEYS/
+            // PILOT_NAMES. _buildCrewVisibilityUI() indexes PILOT_NAMES[friendKey] directly with
+            // no fallback -- if that pilot isn't registered yet, it throws and aborts the rest of
+            // this function (and the whole DOMContentLoaded handler after it), which is why
+            // auto-selecting your own schedule and opening the profile sheet both silently broke
+            // for any pilot whose friend list includes a non-core pilot. (Admin/viewer never hit
+            // this because visiblePilotKeys() for them is just the hardcoded PILOT_KEYS.)
+            if (!isDemo) await _syncPilotRoster();
 
             // Friends must be loaded (and, for a first-time pilot, seeded from their existing
             // "Your Crew" toggle) before _applyIdentityUI() builds the crew-visibility UI below
@@ -2470,12 +2488,13 @@
                 return;
             }
             el.innerHTML = candidates.map(p => {
-                const c  = PILOT_COLORS[p];
-                const on = visible.includes(p);
+                const c    = PILOT_COLORS[p] || '#6366f1';
+                const on   = visible.includes(p);
+                const name = PILOT_NAMES[p] || p; // defensive: a friend not yet roster-synced shouldn't crash the whole profile sheet
                 return `<label class="flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-colors ${on ? '' : 'opacity-50'}" style="background:${on ? c+'14' : 'transparent'};border:1px solid ${on ? c+'50' : '#3f3f46'}">
                     <div class="flex items-center gap-2.5">
-                        <div class="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black" style="background:${c}22;color:${c}">${PILOT_NAMES[p][0]}</div>
-                        <span class="text-sm font-black text-white">${shortName(PILOT_NAMES[p])}</span>
+                        <div class="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black" style="background:${c}22;color:${c}">${name[0]}</div>
+                        <span class="text-sm font-black text-white">${shortName(name)}</span>
                     </div>
                     <div onclick="setCrewVisible('${p}', ${!on})" class="w-11 h-6 rounded-full flex items-center transition-all cursor-pointer px-0.5 ${on ? '' : ''}" style="background:${on ? c+'cc' : '#3f3f46'}">
                         <div class="w-5 h-5 rounded-full bg-white shadow transition-transform" style="transform:translateX(${on ? '20px' : '0px'})"></div>
@@ -8562,17 +8581,72 @@ let _blockUserEdited = false;
             const toggle = document.getElementById('edit-user-viewer-toggle');
             const fields = document.getElementById('edit-user-pilot-fields');
             const row    = document.getElementById('edit-user-viewer-row');
+            const friendsSection = document.getElementById('edit-user-friends-section');
+            const editingKey = document.getElementById('edit-user-key').value;
             if (_editUserIsViewer) {
                 knob.style.transform    = 'translateX(20px)';
                 toggle.style.background = '#16a34a';
                 row.style.borderColor   = '#16a34a';
                 fields.classList.add('hidden');
+                friendsSection.classList.add('hidden');
             } else {
                 knob.style.transform    = 'translateX(0px)';
                 toggle.style.background = '#3f3f46';
                 row.style.borderColor   = '#166534';
                 fields.classList.remove('hidden');
+                if (editingKey && editingKey !== 'admin') friendsSection.classList.remove('hidden');
             }
+        }
+
+        // Admin-only friend management inside the edit-user modal — bypasses the request/accept
+        // flow (POST/DELETE /api/admin/friends create or remove an already-accepted row directly).
+        let _editUserFriendKeys = new Set(); // accepted friends of the pilot currently being edited
+
+        async function _loadEditUserFriends(pilotKey) {
+            const listEl = document.getElementById('edit-user-friends-list');
+            listEl.innerHTML = `<p class="text-xs text-zinc-600 py-1">Loading…</p>`;
+            try {
+                const data = await fetch(`${API_BASE}/admin/friends/${pilotKey}?token=${encodeURIComponent(myToken)}`).then(r => r.json());
+                _editUserFriendKeys = new Set((data.friends || []).map(f => f.pilotKey));
+            } catch {
+                _editUserFriendKeys = new Set();
+            }
+            _renderEditUserFriendsList(pilotKey);
+        }
+
+        function _renderEditUserFriendsList(pilotKey) {
+            const listEl = document.getElementById('edit-user-friends-list');
+            const candidates = _adminUsers.filter(u => u.pilot_key !== pilotKey && u.pilot_key !== 'admin' && u.role !== 'viewer');
+            if (!candidates.length) {
+                listEl.innerHTML = `<p class="text-xs text-zinc-600 py-1">No other pilots to friend yet.</p>`;
+                return;
+            }
+            listEl.innerHTML = candidates.map(u => {
+                const c  = PILOT_COLORS[u.pilot_key] || '#6366f1';
+                const on = _editUserFriendKeys.has(u.pilot_key);
+                return `<label class="flex items-center justify-between py-2 px-3 rounded-xl cursor-pointer transition-colors ${on ? '' : 'opacity-50'}" style="background:${on ? c+'14' : 'transparent'};border:1px solid ${on ? c+'50' : '#3f3f46'}">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0" style="background:${c}22;color:${c}">${(u.name || u.pilot_key)[0].toUpperCase()}</div>
+                        <span class="text-sm font-black text-white truncate">${escapeHtml(u.name || u.pilot_key)}</span>
+                    </div>
+                    <div onclick="_toggleAdminFriend('${pilotKey}', '${u.pilot_key}', ${!on})" class="w-11 h-6 rounded-full flex items-center transition-all cursor-pointer px-0.5 shrink-0" style="background:${on ? c+'cc' : '#3f3f46'}">
+                        <div class="w-5 h-5 rounded-full bg-white shadow transition-transform" style="transform:translateX(${on ? '20px' : '0px'})"></div>
+                    </div>
+                </label>`;
+            }).join('');
+        }
+
+        async function _toggleAdminFriend(pilotKey, otherKey, makeFriend) {
+            try {
+                const r = await fetch(`${API_BASE}/admin/friends`, {
+                    method: makeFriend ? 'POST' : 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, pilotA: pilotKey, pilotB: otherKey })
+                });
+                if (!r.ok) { showToast('Could not update friendship', 'error'); return; }
+                if (makeFriend) _editUserFriendKeys.add(otherKey); else _editUserFriendKeys.delete(otherKey);
+                _renderEditUserFriendsList(pilotKey);
+            } catch { showToast('Network error', 'error'); }
         }
 
         function openEditUserModal(pilotKey) {
@@ -8582,6 +8656,7 @@ let _blockUserEdited = false;
             document.getElementById('edit-user-title').textContent = pilotKey ? 'Edit User' : 'Add User';
             document.getElementById('edit-user-save-btn').textContent = pilotKey ? 'Save' : 'Add User';
 
+            const friendsSection = document.getElementById('edit-user-friends-section');
             if (pilotKey) {
                 const u = _adminUsers.find(x => x.pilot_key === pilotKey);
                 if (u) {
@@ -8604,6 +8679,12 @@ let _blockUserEdited = false;
                             .then(d => { if (d?.url) document.getElementById('edit-user-ics-url').value = d.url; })
                             .catch(() => {});
                     }
+                    if (isViewer || pilotKey === 'admin') {
+                        friendsSection.classList.add('hidden');
+                    } else {
+                        friendsSection.classList.remove('hidden');
+                        _loadEditUserFriends(pilotKey);
+                    }
                 }
             } else {
                 _toggleViewerMode(false);
@@ -8611,6 +8692,7 @@ let _blockUserEdited = false;
                 document.getElementById('edit-user-airline-sel').value = '';
                 document.getElementById('edit-user-ics-url').value = '';
                 document.getElementById('edit-user-ics-row').classList.add('hidden');
+                friendsSection.classList.add('hidden');
             }
             document.getElementById('edit-user-modal').classList.remove('hidden');
             if (!_editUserSwipeSetup) {
@@ -10855,11 +10937,10 @@ let _blockUserEdited = false;
             const mbtn = document.getElementById('mbtn-grid');
             if (mbtn) mbtn.classList.add('mbtn-active');
 
-            // Identity: must run before loadPilot so myPilot/myToken are set
+            // Identity: must run before loadPilot so myPilot/myToken are set. Also syncs the
+            // full pilot roster internally now (registers any pilots not in the hardcoded list)
+            // before it needs that data to build friend-based UI — see the comment inside it.
             await initIdentity();
-
-            // Sync full pilot roster from DB — registers any pilots not in the hardcoded list
-            if (!_isDemo) await _syncPilotRoster();
 
             // Push notifications + badge
             // Background crossing check — populates badge and may show modal

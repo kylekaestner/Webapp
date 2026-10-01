@@ -122,9 +122,26 @@ Guarded by `pilots.friends_seeded` so it can only ever run once per pilot — cr
 - Friends UI lives in the Profile sheet (`#friends-section`, above the pre-existing "Your Crew" visibility section — hidden entirely for admin/viewer/demo, since none of them have a friend requirement to manage): `renderFriendsPanel()` lists accepted friends (with Remove) and incoming requests (Accept/Decline); `#add-friend-modal` + `renderFriendSearchResults()` searches `GET /api/pilots-directory` (lazily fetched once into `_friendDirectory`) to send new requests. `_refreshFriendUI()` re-renders both the panel and the search-results list (if that modal happens to be open) after any state change.
 - `_buildCrewVisibilityUI()` now lists `visiblePilotKeys()` instead of all `VALID_PILOTS` — you can't toggle display visibility for someone you aren't friends with. Shows an empty-state pointing at the new Friends section if a pilot has zero friends yet.
 
+### Admin override — directly assign/remove friendships, bypassing request/accept
+
+Added 2026-10-01 so admin can manage the social graph without needing both pilots to act. Three admin-only endpoints (`server.js`), each gated on `_resolvePilotToken` resolving to `pilot_key === 'admin'`:
+- `GET /api/admin/friends/:pilotKey` — any pilot's friends/incoming/outgoing, via a shared `_getFriendsData(db, targetKey, cb)` helper extracted out of the pre-existing `GET /api/friends` handler (same JOIN query, just parameterized by whose rows to pull instead of always the caller's own).
+- `POST /api/admin/friends` (`{ token, pilotA, pilotB }`) — creates an **already-accepted** friendship directly, same posture as the seed migration (no human approval needed). If a pending request already exists in either direction, upgrades it instead of inserting a conflicting second row.
+- `DELETE /api/admin/friends` (same body) — removes any friendship (accepted or still-pending) between the two, either direction.
+
+Frontend: the admin "Edit User" modal (`#edit-user-modal` → new `#edit-user-friends-section`) shows a toggle-switch list of every other non-viewer pilot, styled like `_buildCrewVisibilityUI()`'s pattern, driven by `_loadEditUserFriends()`/`_renderEditUserFriendsList()`/`_toggleAdminFriend()`. Only shown when editing an existing pilot (not the new-user flow, which has no key yet to attach friendships to) and not for viewers/admin themselves. Verified end-to-end against the real endpoints with throwaway test pilots: assign, the pending-upgrade path, read-back, and remove all behave correctly; a non-admin token correctly 403s.
+
 ### Verified against the real HTTP endpoints (not just read through), with throwaway test pilots on a local server
 
 Confirmed: a non-friend fetch 403s with `not_friends`; `GET /api/pilots` 401s with no token and 403s for a non-admin token; the directory endpoint works for any authenticated pilot; send → pending → accept → both sides can now see each other; unfriend correctly revokes access both ways; the mutual-simultaneous-request auto-accept; and the seed migration adds exactly the given keys once, then no-ops (and doesn't add anything new) on a second call.
+
+### Startup-ordering bug (fixed 2026-10-01) — friend-based UI built before the roster synced
+
+`initIdentity()` used to call `_applyIdentityUI()` (which calls `_buildCrewVisibilityUI()`) before `_syncPilotRoster()` had run. `_buildCrewVisibilityUI()` indexed `PILOT_NAMES[friendKey]` with no fallback — for any pilot whose friend list includes a non-core/newly-joined pilot (not in the hardcoded `PILOT_KEYS`/`PILOT_NAMES`), this threw `undefined` **before** that pilot was registered, since registration only happened in `_syncPilotRoster()`, which ran later in the `DOMContentLoaded` handler, after `initIdentity()` returned. The thrown error aborted the rest of `initIdentity()` *and* the rest of the `DOMContentLoaded` handler after it (uncaught rejection on an unguarded `await`), so `loadPilot(defaultPilot)` never ran — the pilot's own schedule silently failed to auto-select on load, and every later call to `_applyIdentityUI()` (e.g. `openProfile()`) kept throwing the same way, so clicking the "Signed in as" button / mobile avatar did nothing, permanently, for the rest of that session.
+
+Admin/viewer never hit this — `visiblePilotKeys()` for them is just the hardcoded `PILOT_KEYS`, always already registered.
+
+**Fixed two ways:** (1) root cause — `_syncPilotRoster()` is now called inside `initIdentity()` itself, before `loadFriends()`/`_applyIdentityUI()`, instead of after `initIdentity()` returns; the redundant external call in the `DOMContentLoaded` handler was removed. (2) defense-in-depth — `_buildCrewVisibilityUI()` now falls back to the raw pilot key (`PILOT_NAMES[p] || p`) instead of indexing an unregistered name, so a similar gap in the future degrades instead of crashing the whole startup chain again.
 
 ---
 
