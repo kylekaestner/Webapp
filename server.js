@@ -1478,12 +1478,16 @@ function _resolvePilotToken(token, db, cb) {
     });
 }
 
-// Whether `viewerKey` may see `targetKey`'s schedule: admin and view-only guests see everyone
-// (unchanged from before the friends system), a pilot can always see their own, and otherwise
-// an accepted friend_requests row must exist in either direction (there's no canonical
-// requester/recipient ordering once accepted, so this checks both).
+// Whether `viewerKey` may see `targetKey`'s schedule: admin still sees everyone unconditionally,
+// a pilot (or viewer) can always see their own row, and otherwise an accepted friend_requests
+// row must exist in either direction (there's no canonical requester/recipient ordering once
+// accepted, so this checks both). View-only guests used to be exempt here too (saw every pilot
+// no matter what), but that meant a guest account had no real access boundary at all -- a viewer
+// now has to be explicitly friended, same as a real pilot, via the admin-only friend toggle (see
+// db.js's one-time viewerFriendsSeeded migration for how existing viewers' current access was
+// preserved when this changed).
 function _canViewPilot(db, viewerKey, viewerRole, targetKey, cb) {
-    if (viewerKey === 'admin' || viewerRole === 'viewer' || viewerKey === targetKey) return cb(true);
+    if (viewerKey === 'admin' || viewerKey === targetKey) return cb(true);
     db.get(
         `SELECT 1 FROM friend_requests WHERE status='accepted' AND
          ((requester_key=? AND recipient_key=?) OR (requester_key=? AND recipient_key=?))`,

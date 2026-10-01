@@ -236,6 +236,37 @@ function initDB() {
             });
             db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('coreRosterMigrated', '1')`);
         });
+
+        // One-time migration: view-only guests used to be exempt from the friends system
+        // entirely (always saw every pilot, unconditionally). Gating them the same way real
+        // pilots are gated means an existing viewer would otherwise instantly lose access to
+        // everyone the moment this ships, with no friends yet to restore it. Seed each existing
+        // viewer an already-accepted friendship with every real (non-viewer, non-admin) pilot,
+        // preserving their current full access exactly -- admin can narrow it afterward via the
+        // same per-user friend toggle already used for real pilots. Guarded by
+        // settings.viewerFriendsSeeded so it only ever runs once; a viewer created after this
+        // point starts with zero friends like any new pilot would, by design.
+        db.get(`SELECT value FROM settings WHERE key='viewerFriendsSeeded'`, (err, row) => {
+            if (err || (row && row.value === '1')) return;
+            db.all(`SELECT pilot_key FROM pilots WHERE role = 'viewer'`, (err, viewers) => {
+                if (err || !viewers || viewers.length === 0) {
+                    db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('viewerFriendsSeeded', '1')`);
+                    return;
+                }
+                db.all(`SELECT pilot_key FROM pilots WHERE pilot_key != 'admin' AND (role IS NULL OR role != 'viewer')`, (err, pilotRows) => {
+                    if (err) return;
+                    viewers.forEach(v => {
+                        (pilotRows || []).forEach(p => {
+                            db.run(
+                                `INSERT OR IGNORE INTO friend_requests (requester_key, recipient_key, status, responded_at) VALUES (?, ?, 'accepted', CURRENT_TIMESTAMP)`,
+                                [v.pilot_key, p.pilot_key]
+                            );
+                        });
+                    });
+                    db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('viewerFriendsSeeded', '1')`);
+                });
+            });
+        });
     });
 }
 
