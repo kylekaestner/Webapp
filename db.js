@@ -111,6 +111,10 @@ function initDB() {
         db.run(`ALTER TABLE pilots ADD COLUMN airline_code TEXT DEFAULT ''`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN home_airport TEXT DEFAULT ''`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN last_active TEXT`, () => {});
+        // JSON array of strings describing anything the pilot's parser couldn't recognize on
+        // its last run (new/unseen prefix, timezone abbreviation, line shape, etc.) — overwritten
+        // each upload/sync, not accumulated, so it always reflects the most recent parse only.
+        db.run(`ALTER TABLE pilots ADD COLUMN parser_warnings TEXT`, () => {});
 
         // Backfill home_airport for known pilots where it hasn't been explicitly set.
         // home_airport = where the pilot LIVES; base = airline domicile (may differ for commuters).

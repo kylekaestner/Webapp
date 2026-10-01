@@ -393,8 +393,13 @@ function parseDeltaMiCrewICS(text) {
 //   - Reserve/on-call days
 //   - Vacation, training, sick, or any other non-flying day marker
 //   - Equipment/tail number (DESCRIPTION never includes one in this feed)
+// Returns { events, warnings } -- warnings flags anything this parser doesn't yet recognize
+// (new UID prefix, or a "FLT-" event whose shape doesn't match what's expected) so a pilot
+// hitting a schedule type this was never built against surfaces instead of silently vanishing.
+// See pilots.parser_warnings (db.js) and the admin panel for where these end up.
 function parseAmericanICS(text) {
     const events = [];
+    const warnings = [];
     const unfolded = text.replace(/\r?\n[ \t]/g, '');
     const blocks = unfolded.split(/BEGIN:VEVENT/gi).slice(1);
 
@@ -411,19 +416,30 @@ function parseAmericanICS(text) {
         };
 
         const uid = getField('UID');
-        if (!uid.startsWith('FLT-')) continue; // skips "Layover-*" and anything unrecognized
+        if (!uid) continue;
+        if (uid.startsWith('Layover-')) continue; // known-benign, not a flight
+        if (!uid.startsWith('FLT-')) {
+            warnings.push(`Unrecognized event type (UID "${uid}") -- not a known FLT-/Layover- event.`);
+            continue;
+        }
 
         const dtstartRaw = lines.find(l => /^DTSTART/i.test(l)) || '';
         const dtendRaw   = lines.find(l => /^DTEND/i.test(l)) || '';
         const dtstartVal = dtstartRaw.split(':').slice(1).join(':');
         const dtendVal   = dtendRaw.split(':').slice(1).join(':');
-        if (!/^\d{8}T\d{6}/.test(dtstartVal) || !/^\d{8}T\d{6}/.test(dtendVal)) continue;
+        if (!/^\d{8}T\d{6}/.test(dtstartVal) || !/^\d{8}T\d{6}/.test(dtendVal)) {
+            warnings.push(`Flight event "${uid}" has an unrecognized DTSTART/DTEND format.`);
+            continue;
+        }
 
         const description = getField('DESCRIPTION');
         const seqM = description.match(/SEQ#:\s*(\S+)/i);
         const fltM = description.match(/Flight#:\s*(\S+)/i);
         const stnM = description.match(/Stations:\s*([A-Z]{3}).*?([A-Z]{3})/i);
-        if (!fltM || !stnM) continue;
+        if (!fltM || !stnM) {
+            warnings.push(`Flight event "${uid}" (${dtstartVal.slice(0,8)}) didn't match the expected Flight#/Stations format -- schedule may be incomplete.`);
+            continue;
+        }
 
         events.push({
             type: 'flight',
@@ -439,7 +455,7 @@ function parseAmericanICS(text) {
         });
     }
 
-    return events;
+    return { events, warnings };
 }
 
 // Southwest Airlines "CrewHub BYO" ICS parser -- parser_type: 'ics_southwest'
@@ -494,8 +510,14 @@ function parseAmericanICS(text) {
 // GDO ("Guaranteed Day Off") is its own single-day VEVENT (LOCATION:GDO, not "Trip:...") with
 // no flight legs. Skipped entirely, same as Delta's "RESERVE DAY OFF" -- the day defaults to
 // off via the absence of any segment, no need to store anything.
+// Returns { events, warnings } -- warnings flags anything this parser doesn't yet recognize
+// (a non-Trip/GDO event type, an unrecognized timezone abbreviation, or a line that looks like
+// it's trying to be a flight leg but doesn't match the expected shape) so a pilot hitting a
+// schedule type this was never built against surfaces instead of silently vanishing. See
+// pilots.parser_warnings (db.js) and the admin panel for where these end up.
 function parseSouthwestICS(text) {
     const events = [];
+    const warnings = [];
     const unfolded = text.replace(/\r?\n[ \t]/g, '');
     const blocks = unfolded.split(/BEGIN:VEVENT/gi).slice(1);
 
@@ -516,12 +538,20 @@ function parseSouthwestICS(text) {
         };
 
         const location = getField('LOCATION');
-        if (!/^Trip:/i.test(location)) continue; // skips GDO and anything else non-trip
+        if (!location) continue;
+        if (location.toUpperCase() === 'GDO') continue; // known-benign, no segment needed
+        if (!/^Trip:/i.test(location)) {
+            warnings.push(`Unrecognized schedule entry type (LOCATION "${location}") -- not a known Trip:/GDO event.`);
+            continue;
+        }
 
         const tripId = location.replace(/^Trip:\s*/i, '').trim();
         const description = getField('DESCRIPTION');
         const dtstartVal = getField('DTSTART'); // VALUE=DATE -> plain YYYYMMDD
-        if (!/^\d{8}/.test(dtstartVal)) continue;
+        if (!/^\d{8}/.test(dtstartVal)) {
+            warnings.push(`Trip "${tripId}" has an unrecognized DTSTART format.`);
+            continue;
+        }
 
         let curDate = { y: parseInt(dtstartVal.slice(0,4),10), m: parseInt(dtstartVal.slice(4,6),10), d: parseInt(dtstartVal.slice(6,8),10) };
         let prevMonth = null;
@@ -541,14 +571,26 @@ function parseSouthwestICS(text) {
             }
 
             const legM = line.match(LEG_RE);
-            if (!legM) continue;
+            if (!legM) {
+                // Flag lines that look like they're trying to be a flight leg (start with a
+                // flight-number-like token) but don't match the expected shape -- real non-leg
+                // lines (Report/Duty/Totals/Layover/hotel/phone) never start this way.
+                const firstTok = line.split(/\s+/)[0] || '';
+                if (/^\d+$/.test(firstTok) || firstTok === 'RPRT') {
+                    warnings.push(`Trip "${tripId}": line looked like a flight leg but didn't match the expected format: "${line}"`);
+                }
+                continue;
+            }
             const [, fltRaw, dep, depHH, depMM, depTz, arr, arrHH, arrMM, arrTz] = legM;
             if (!/^\d+$/.test(fltRaw)) continue; // skips "RPRT ..." show-time pseudo-legs
             if (dep === arr) continue;           // skips same-airport zero-movement rows
 
             const depOff = TZ_OFFSET[depTz.toUpperCase()];
             const arrOff = TZ_OFFSET[arrTz.toUpperCase()];
-            if (depOff === undefined || arrOff === undefined) continue; // unrecognized zone -- don't guess
+            if (depOff === undefined || arrOff === undefined) {
+                warnings.push(`Trip "${tripId}": unrecognized timezone abbreviation on flight ${fltRaw} (${depTz}/${arrTz}) -- leg skipped.`);
+                continue;
+            }
 
             const depUTC = Date.UTC(curDate.y, curDate.m - 1, curDate.d, parseInt(depHH,10), parseInt(depMM,10)) - depOff * 3600000;
             let arrDate = curDate;
@@ -573,7 +615,7 @@ function parseSouthwestICS(text) {
         }
     }
 
-    return events;
+    return { events, warnings };
 }
 
 function formatICSDatetime(s) {
@@ -1679,6 +1721,7 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
     }
 
     let events = [];
+    let warnings = [];
 
     // Get pilot first so we can use their parser_type and airline_code from DB
     db.get('SELECT id, parser_type, airline_code, base, home_airport FROM pilots WHERE pilot_key = ?', [pilotKey], async (err, pilot) => {
@@ -1709,17 +1752,19 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                     parserType = detected.parser;
                     db.run('UPDATE pilots SET parser_type = ? WHERE pilot_key = ?', [parserType, pilotKey]);
                 } else if (filename.endsWith('.ics')) {
-                    events = parserType === 'ics_rosterbuster'
-                        ? parseRosterBusterICS(fileContent)
-                        : parserType === 'ics_delta_micrew'
-                        ? parseDeltaMiCrewICS(fileContent)
-                        : parserType === 'ics_american'
-                        ? parseAmericanICS(fileContent)
-                        : parserType === 'ics_southwest'
-                        ? parseSouthwestICS(fileContent)
-                        : (parserType === 'ics_scx' || parserType === 'ics_ecrew')
-                        ? parseECrewICS(fileContent, airlineCode, ECREW_IATA_ALIASES[airlineCode] || [])
-                        : parseICS(fileContent);
+                    if (parserType === 'ics_american') {
+                        ({ events, warnings } = parseAmericanICS(fileContent));
+                    } else if (parserType === 'ics_southwest') {
+                        ({ events, warnings } = parseSouthwestICS(fileContent));
+                    } else {
+                        events = parserType === 'ics_rosterbuster'
+                            ? parseRosterBusterICS(fileContent)
+                            : parserType === 'ics_delta_micrew'
+                            ? parseDeltaMiCrewICS(fileContent)
+                            : (parserType === 'ics_scx' || parserType === 'ics_ecrew')
+                            ? parseECrewICS(fileContent, airlineCode, ECREW_IATA_ALIASES[airlineCode] || [])
+                            : parseICS(fileContent);
+                    }
                 } else if (filename.endsWith('.vcs') || (filename.endsWith('.ics') && fileContent.includes('PRODID:SkyWest Inc SkedPlus+'))) {
                     events = parseVCS_skywest(fileContent);
                 } else if (filename.endsWith('.csv')) {
@@ -1745,10 +1790,15 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
             });
         }
 
+        // Persist whatever this parse found unrecognized so it surfaces in the admin panel even
+        // if the warnings in this response are never looked at -- overwritten each upload, not
+        // accumulated (see db.js).
+        db.run('UPDATE pilots SET parser_warnings = ? WHERE id = ?', [warnings.length ? JSON.stringify(warnings) : null, pilot.id]);
+
         // Replace all non-manual events for the date range covered by this file, then insert fresh.
         // This ensures re-uploading a corrected file removes stale events from a previous broken parse.
         if (events.length === 0) {
-            return res.json({ success: true, segmentsAdded: 0, parser: parserType });
+            return res.json({ success: true, segmentsAdded: 0, parser: parserType, warnings });
         }
 
         const allTimes = events.flatMap(e => [e.departureTime, e.arrivalTime]).filter(Boolean).sort();
@@ -1769,7 +1819,7 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                         if (errors.length > 0)
                             return res.status(500).json({ error: 'Some segments failed', details: errors });
                         logEvent(pilotKey, 'upload:schedule');
-                        res.json({ success: true, segmentsAdded: events.length, parser: parserType });
+                        res.json({ success: true, segmentsAdded: events.length, parser: parserType, warnings });
                     }
                 };
 
@@ -2015,17 +2065,23 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
 
     const resolvedParser = pilotParsers[pilotKey] || pilot.parser_type || 'ics';
     const resolvedCode = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
-    const events = resolvedParser === 'ics_rosterbuster'
-        ? parseRosterBusterICS(icsText)
-        : resolvedParser === 'ics_delta_micrew'
-        ? parseDeltaMiCrewICS(icsText)
-        : resolvedParser === 'ics_american'
-        ? parseAmericanICS(icsText)
-        : resolvedParser === 'ics_southwest'
-        ? parseSouthwestICS(icsText)
-        : (resolvedParser === 'ics_scx' || resolvedParser === 'ics_ecrew')
-        ? parseECrewICS(icsText, resolvedCode, ECREW_IATA_ALIASES[resolvedCode] || [])
-        : parseICS(icsText);
+    let events, warnings = [];
+    if (resolvedParser === 'ics_american') {
+        ({ events, warnings } = parseAmericanICS(icsText));
+    } else if (resolvedParser === 'ics_southwest') {
+        ({ events, warnings } = parseSouthwestICS(icsText));
+    } else {
+        events = resolvedParser === 'ics_rosterbuster'
+            ? parseRosterBusterICS(icsText)
+            : resolvedParser === 'ics_delta_micrew'
+            ? parseDeltaMiCrewICS(icsText)
+            : (resolvedParser === 'ics_scx' || resolvedParser === 'ics_ecrew')
+            ? parseECrewICS(icsText, resolvedCode, ECREW_IATA_ALIASES[resolvedCode] || [])
+            : parseICS(icsText);
+    }
+    // Persist whatever this parse found unrecognized so it surfaces in the admin panel even
+    // for an unattended auto-sync -- overwritten each run, not accumulated (see db.js).
+    db.run('UPDATE pilots SET parser_warnings = ? WHERE id = ?', [warnings.length ? JSON.stringify(warnings) : null, pilot.id]);
 
     const pilotBase = pilot.base || '';
     if (pilotBase) {
@@ -2072,7 +2128,7 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
         });
     }
 
-    if (events.length === 0) return { success: true, segmentsAdded: 0 };
+    if (events.length === 0) return { success: true, segmentsAdded: 0, warnings };
 
     await Promise.all(events.map(ev => new Promise((resolve, reject) => {
         const key = `${ev.type}|${ev.departureTime || ''}|${ev.departureAirport || ''}`;
@@ -2092,7 +2148,7 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
         }
     })));
 
-    return { success: true, segmentsAdded: events.length };
+    return { success: true, segmentsAdded: events.length, warnings };
 }
 
 // ICS sync endpoint — saves URL then delegates to syncPilotICS

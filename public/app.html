@@ -7107,6 +7107,9 @@
             
             if (result && result.success) {
                 showToast(`Schedule uploaded — ${result.segmentsAdded} segments added for ${uploadPilot}`);
+                if (myPilot === null && !myViewer && result.warnings && result.warnings.length) {
+                    showToast(`⚠ ${result.warnings.length} unrecognized item${result.warnings.length > 1 ? 's' : ''} in this schedule — see Admin → Manage Users for details.`, 'info', 6000);
+                }
                 // If the uploaded pilot is currently viewed, reload their data
                 if (uploadPilot === currentPilot) {
                     loadPilot(currentPilot);
@@ -7757,6 +7760,9 @@ let _blockUserEdited = false;
             const result = await uploadPilotSchedule(uploadPilot, file);
             if (result && result.success) {
                 showToast(`Schedule uploaded — ${result.segmentsAdded} segments for ${uploadPilot}`);
+                if (myPilot === null && !myViewer && result.warnings && result.warnings.length) {
+                    showToast(`⚠ ${result.warnings.length} unrecognized item${result.warnings.length > 1 ? 's' : ''} in this schedule — see Admin → Manage Users for details.`, 'info', 6000);
+                }
                 if (uploadPilot === currentPilot) loadPilot(currentPilot);
             } else {
                 showToast('Upload failed — check the browser console for details.', 'error');
@@ -8007,6 +8013,9 @@ let _blockUserEdited = false;
                 if (result.success) {
                     closeGenericICSModal();
                     showToast(`Schedule synced — ${result.segmentsAdded} segments updated`);
+                    if (myPilot === null && !myViewer && result.warnings && result.warnings.length) {
+                        showToast(`⚠ ${result.warnings.length} unrecognized item${result.warnings.length > 1 ? 's' : ''} in this schedule — see Admin → Manage Users for details.`, 'info', 6000);
+                    }
                     loadPilot(pilotKey);
                 } else {
                     errEl.textContent = result.error || 'Sync failed';
@@ -8229,6 +8238,8 @@ let _blockUserEdited = false;
                 const subtext = isViewer
                     ? `${u.pilot_key} · View only`
                     : `${u.pilot_key} · base ${u.base || '—'}${u.home_airport && u.home_airport !== u.base ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'csv'}`;
+                let warnCount = 0;
+                try { warnCount = u.parser_warnings ? JSON.parse(u.parser_warnings).length : 0; } catch { warnCount = 0; }
                 return `<div class="bg-zinc-800/60 border border-zinc-700/60 rounded-xl p-3.5 space-y-2.5" style="${isViewer ? 'border-color:#166534' : ''}">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-3">
@@ -8243,6 +8254,9 @@ let _blockUserEdited = false;
                             <button onclick="confirmDeleteUser('${u.pilot_key}','${u.name}')" class="px-2.5 py-1.5 border border-zinc-700 text-zinc-500 hover:border-red-700 hover:text-red-400 rounded-lg text-[10px] font-black uppercase transition-colors">Del</button>
                         </div>
                     </div>
+                    ${warnCount ? `<button onclick="showParserWarnings('${u.pilot_key}')" class="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-950/40 border border-amber-800/50 text-amber-400 text-[10px] font-bold text-left hover:bg-amber-950/60 transition-colors">
+                        <span>⚠</span><span>Schedule has ${warnCount} unrecognized item${warnCount > 1 ? 's' : ''} — tap to view</span>
+                    </button>` : ''}
                     <div class="flex items-center gap-2">
                         <div class="flex-1 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400 overflow-hidden text-ellipsis whitespace-nowrap">${link}</div>
                         <button onclick="copyText('${link}').then(ok=>showToast(ok?'Link copied':'Copy failed','info',2000))" class="px-2.5 py-1.5 border border-zinc-600 text-zinc-400 hover:border-blue-500 hover:text-blue-400 rounded-lg text-[10px] font-black uppercase transition-colors shrink-0">Copy</button>
@@ -8250,6 +8264,17 @@ let _blockUserEdited = false;
                     </div>
                 </div>`;
             }).join('');
+        }
+
+        // Shows the raw list of unrecognized schedule items flagged by a pilot's last
+        // upload/sync (American/Southwest parsers so far -- see pilots.parser_warnings).
+        function showParserWarnings(pilotKey) {
+            const u = _adminUsers.find(x => x.pilot_key === pilotKey);
+            if (!u || !u.parser_warnings) return;
+            let list = [];
+            try { list = JSON.parse(u.parser_warnings); } catch { list = []; }
+            if (!list.length) return;
+            alert(`${u.name} — unrecognized schedule items:\n\n${list.map((w, i) => `${i + 1}. ${w}`).join('\n\n')}`);
         }
 
         // ── Admin Dashboard ───────────────────────────────────────────────

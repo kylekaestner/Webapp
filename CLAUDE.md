@@ -339,6 +339,19 @@ Southwest's trips routinely cross multiple zones in a single leg (`CDT`→`EDT` 
 
 Wired identically to the Delta/American parsers: `parser_type = 'ics_southwest'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`icao: 'SWA'`) and the join flow's company selector, both showing a "CrewHub ICS URL" field.
 
+### Parser warnings — flagging unrecognized schedule items (American + Southwest only, so far)
+
+Both of these parsers were built against exactly one real feed each, which inevitably means they don't cover every event type or line shape that airline's export can produce (deadheads, reserve, a new timezone abbreviation, a malformed leg line, etc.). Rather than let an unrecognized item vanish silently and wait for someone to notice a day is missing, `parseAmericanICS`/`parseSouthwestICS` return `{ events, warnings }` instead of a bare array — `warnings` is a list of plain-English strings describing anything skipped because it didn't match a known shape (an unrecognized `UID`/`LOCATION` type, an unrecognized timezone abbreviation, a line that looks like it's trying to be a flight leg but doesn't parse). Every other parser in this file still returns a bare array — this is deliberately scoped to just these two, not a system-wide refactor.
+
+**Where warnings go:**
+- `pilots.parser_warnings` (TEXT column, db.js) stores the most recent parse's warnings as a JSON array — **overwritten every parse, never accumulated**, both from the upload handler and `syncPilotICS()` (so an unattended auto-sync still records findings even with no one watching).
+- The upload (`POST /:pilotKey/upload`) and sync (`POST /:pilotKey/sync-ics`, and `syncPilotICS()`'s return value generally) responses also include `warnings` directly, for immediate feedback right after a manual action.
+- **Admin-only, by design — regular pilots and viewers never see this.** `app.html`'s admin Users list (`renderAdminUserList`) shows an amber "⚠ N unrecognized items" badge on any pilot whose `parser_warnings` is non-empty, tappable (`showParserWarnings()`) to see the full list via `alert()`. The upload/sync success toasts in `handleUpload()`, `handleMobileUpload()`, and `syncGenericICS()` also surface a warning count immediately — gated behind `myPilot === null && !myViewer` (true admin only, not just "no pilot identity" since a viewer also has `myPilot === null`) since a pilot uploading their own schedule has no need to know their deadhead/reserve detection is incomplete; that's an admin/developer concern until a parser fix ships.
+
+**Known, already-understood warning** (not a new gap, don't re-investigate it as one): Southwest's sample feed always flags `Trip "DP36": line looked like a flight leg but didn't match the expected format: "4202 MCO  EDT   MCO  EDT"` — this is the documented blank-time equipment-swap artifact (see the Southwest section above), immediately followed by a second real `4202` row that parses fine. Expected noise for that specific trip, not a sign of broken parsing.
+
+If this pattern proves useful, extending it to the other parsers (Delta, RosterBuster, eCrew) that currently also silently skip unrecognized lines would be a reasonable next step — not done yet, scope this out explicitly before doing it rather than assuming it's wanted everywhere.
+
 ### `pilotsCache` invalidation
 
 `pilotsCache[key]` is set once per page load (or after upload/sync). The "Refresh" button on Crossings calls `computeOverlap()` but does **not** clear the cache — it re-runs `buildGroundPeriods` on cached data. A stale cache can make crossings appear wrong even after a schedule fix. To force-refresh: reload the page.
