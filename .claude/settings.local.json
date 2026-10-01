@@ -27,7 +27,8 @@
       "Bash(git push *)",
       "Bash(curl -s http://167.71.107.245:3000/api/pilots/brett)",
       "Bash(curl -s -X POST http://167.71.107.245:3000/api/pilots/brett/sync-ics)",
-      "Bash(curl -s \"https://p150-caldav.icloud.com/published/2/ODYwODQ4OTEyODg2MDg0OIjvZKhvVtFtEQQ3fN01xISGJZHWRtJ56kwtXBOOsWkBBVN1eUsYnOmwMMNKE91F3pf__zvaTEJA4W1ifTz_JeU\")"
+      "Bash(curl -s \"https://p150-caldav.icloud.com/published/2/ODYwODQ4OTEyODg2MDg0OIjvZKhvVtFtEQQ3fN01xISGJZHWRtJ56kwtXBOOsWkBBVN1eUsYnOmwMMNKE91F3pf__zvaTEJA4W1ifTz_JeU\")",
+      "Bash(ssh root@167.71.107.245:*)"
     ]
   }
 }
