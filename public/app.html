@@ -5997,8 +5997,9 @@
                 const depTime = flightUTCTime(f.departureTime, f.departureAirport) || new Date(f.departureTime);
                 const arrTime = flightUTCTime(f.arrivalTime || f.departureTime, f.arrivalAirport) || new Date(f.arrivalTime || f.departureTime);
                 const _cs = deriveCallsign(f, f.pilotKey);
-                const isActive = !_landedEarly.has(_cs) && depTime <= now && now <= new Date(arrTime.getTime() + 20 * 60000);
-                const isPast   = !isActive && depTime <= now && arrTime < now;
+                const landedEarly = _landedEarly.has(_cs);
+                const isActive = !landedEarly && depTime <= now && now <= new Date(arrTime.getTime() + 20 * 60000);
+                const isPast   = !isActive && depTime <= now && (arrTime < now || landedEarly);
                 const color = PILOT_COLORS[f.pilotKey];
 
                 // Offset index within pair group
@@ -6023,7 +6024,7 @@
                 const _statusLine = isActive
                     ? `<div style="font-size:10px;color:#22c55e;font-weight:800;letter-spacing:.04em;margin-top:6px">▶ IN THE AIR</div>`
                     : isPast
-                    ? `<div style="font-size:10px;color:#3f3f46;font-weight:800;letter-spacing:.04em;margin-top:6px">✓ COMPLETED</div>`
+                    ? `<div style="font-size:10px;color:#3f3f46;font-weight:800;letter-spacing:.04em;margin-top:6px">✓ ${landedEarly ? 'LANDED EARLY' : 'COMPLETED'}</div>`
                     : `<div style="font-size:10px;color:#3b82f6;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTS IN ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>`;
                 const _depCity = _intelAreaLabel(f.departureAirport) || f.departureAirport;
                 const _arrCity = _intelAreaLabel(f.arrivalAirport) || f.arrivalAirport;
