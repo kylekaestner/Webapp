@@ -569,11 +569,6 @@
                             <td class="py-2.5 text-zinc-400">Export from CrewPortal as CSV (Long format)</td>
                         </tr>
                         <tr>
-                            <td class="py-2.5 pr-4"><span class="chip chip-amber">PDF (Netline)</span></td>
-                            <td class="py-2.5 pr-4 text-zinc-400">Any Netline-based carrier</td>
-                            <td class="py-2.5 text-zinc-400">Download the monthly schedule PDF from Netline</td>
-                        </tr>
-                        <tr>
                             <td class="py-2.5 pr-4"><span class="chip chip-zinc">Other / Auto-detect</span></td>
                             <td class="py-2.5 pr-4 text-zinc-400">Not listed above</td>
                             <td class="py-2.5 text-zinc-400">Upload any .ics, .vcs, or .csv export — the format is identified automatically on first upload</td>
@@ -581,7 +576,7 @@
                     </tbody>
                 </table>
             </div>
-            <p class="text-xs text-zinc-500 mb-6">Each of these (except Other/PDF, which auto-detect from the file itself) is selected as a company on the <a href="/join" target="_blank">join page</a> or from the admin panel — picking a company shows only the schedule-input field that airline actually needs.</p>
+            <p class="text-xs text-zinc-500 mb-6">Each of these (except Other, which auto-detects from the file itself) is selected as a company on the <a href="/join" target="_blank">join page</a> or from the admin panel — picking a company shows only the schedule-input field that airline actually needs.</p>
 
             <div class="callout callout-blue">
                 <strong>Adding a new airline?</strong> If your scheduling system isn't listed, contact the admin. The app is designed to be extended — new parsers can be added without changing anything for existing pilots.
@@ -591,7 +586,7 @@
             <p>Different formats store times differently, and the app handles both automatically:</p>
             <ul>
                 <li><strong>UTC-based (ICS, direct sync)</strong> — Times have a Z suffix indicating UTC. The app converts to local airport time for display and uses true UTC for crossing computation.</li>
-                <li><strong>Local-time-based (CSV, PDF)</strong> — Times are stored in the local time of the departure or arrival airport with no timezone indicator. The app uses a global airport database to determine the correct timezone for each airport, ensuring crossing windows are computed accurately even across timezone boundaries.</li>
+                <li><strong>Local-time-based (CSV)</strong> — Times are stored in the local time of the departure or arrival airport with no timezone indicator. The app uses a global airport database to determine the correct timezone for each airport, ensuring crossing windows are computed accurately even across timezone boundaries.</li>
             </ul>
 
             <h3>Direct sync (corporate ops)</h3>
@@ -623,7 +618,7 @@
                         <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                     </summary>
                     <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
-                        It depends on the pilot's schedule source. Pilots using ICS-based systems (RosterBuster, SunCountry, and similar) are synced automatically three times a day — roughly 6 AM, 2 PM, and 10 PM UTC. Corporate pilots using direct Schedaero sync follow the same schedule. For CSV/PDF uploads, data only updates when the pilot manually uploads a new file or triggers a sync. Direct sync can also be triggered on demand with one tap from the upload sheet.
+                        It depends on the pilot's schedule source. Pilots using ICS-based systems (RosterBuster, SunCountry, and similar) are synced automatically three times a day — roughly 6 AM, 2 PM, and 10 PM UTC. Corporate pilots using direct Schedaero sync follow the same schedule. For CSV/VCS uploads, data only updates when the pilot manually uploads a new file or triggers a sync. Direct sync can also be triggered on demand with one tap from the upload sheet.
                     </div>
                 </details>
 

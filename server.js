@@ -1308,10 +1308,7 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
     return events;
 }
 
-// ===== NetLine/Crew PDF Parser (GoJet / Drew) =====
-const pdfParse = require('pdf-parse');
-const tzlookup = require('tz-lookup');
-
+// ===== Airport coordinate / timezone database =====
 // Build airport code → [lat, lon], timezone, and IATA↔ICAO maps.
 // Phase 1: airports.dat (OpenFlights) — used for timezone data which OurAirports lacks.
 // Phase 2: airports_raw.csv (OurAirports, ~85k) — broader coverage for coords.
@@ -1380,117 +1377,6 @@ function icaoToIataAirport(icao) {
     if (_icaoToIataApt[up]) return _icaoToIataApt[up];
     if (up.length === 4 && up.startsWith('K')) return up.slice(1); // US heuristic
     return up;
-}
-
-// Returns the UTC offset in minutes for an airport on a given YYYY-MM-DD date (handles DST)
-function airportUTCOffset(dateStr, airport) {
-    const coords = _aptCoords[airport?.toUpperCase()];
-    if (!coords) return 0;
-    let tz;
-    try { tz = tzlookup(coords[0], coords[1]); } catch (e) { return 0; }
-    const refUTC = new Date(`${dateStr}T12:00:00Z`);
-    const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: tz, hour: 'numeric', minute: 'numeric', hour12: false
-    }).formatToParts(refUTC);
-    const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '12');
-    const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0');
-    return (h * 60 + m) - 720;
-}
-
-async function parseNetlinePDF(buffer) {
-    const data = await pdfParse(buffer);
-    const text = data.text;
-
-    // Extract period start month/year from "Period: 01Jun26 – 30Jun26"
-    const periodMatch = text.match(/Period:\s*\d{2}([A-Za-z]{3})(\d{2})/);
-    if (!periodMatch) throw new Error('Could not find Period line in PDF');
-    const MONTH_ABBRS = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
-    let baseMonth = MONTH_ABBRS[periodMatch[1].toLowerCase()];
-    let baseYear  = 2000 + parseInt(periodMatch[2]);
-    if (!baseMonth) throw new Error('Could not parse month from PDF header');
-
-    const segments = [];
-
-    // Find every duty-start header: "Mon01 C/I", "Fri08 OPR", etc.
-    const ciRe = /(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(\d{2})\s+(?:C\/I|OPR)/g;
-    let m;
-    const duties = [];
-    while ((m = ciRe.exec(text)) !== null) {
-        duties.push({ index: m.index, day: parseInt(m[1]) });
-    }
-
-    // Detect month rollover between duties (day numbers restart at 01 after ~28-31)
-    let curMonth = baseMonth;
-    let curYear  = baseYear;
-    let prevDay  = 0;
-    const resolvedDuties = duties.map(d => {
-        if (d.day < prevDay - 15) { // rolled over to next month
-            curMonth++;
-            if (curMonth > 12) { curMonth = 1; curYear++; }
-        }
-        prevDay = d.day;
-        return { ...d, month: curMonth, year: curYear };
-    });
-
-    for (let i = 0; i < resolvedDuties.length; i++) {
-        const { index, day, month, year } = resolvedDuties[i];
-        const blockEnd = i + 1 < resolvedDuties.length ? resolvedDuties[i + 1].index : text.length;
-        const block = text.slice(index, blockEnd);
-
-        // Track the current date as we walk through legs in this duty
-        let trackDate = new Date(year, month - 1, day);
-
-        // Match G7 and DH legs in document order
-        // G7 4567 STL 0810 !0945 ORD CR7  |  DH/UA 6213 STL 1110 1325 IAH
-        // Handles: /NN day-suffix on flt num (G7 4545 /07), +N next-day marker on arr (0136+1)
-        const legRe = /(?:(G7)\s+(\d{4})(?:\s*\/\d+)?|(DH)\/([A-Z0-9]+)\s+(\d+))\s+([A-Z]{2,4})\s+!?(\d{4})\s+!?(\d{4})(?:\+\d+)?\s+([A-Z]{2,4})/g;
-        let lm;
-        while ((lm = legRe.exec(block)) !== null) {
-            const isDH    = !!lm[3];
-            const carrier = isDH ? lm[4] : 'G7';
-            const fltNum  = isDH ? lm[5] : lm[2];
-            const depApt  = lm[6];
-            const depHH   = lm[7].slice(0, 2), depMM = lm[7].slice(2);
-            const arrHH   = lm[8].slice(0, 2), arrMM = lm[8].slice(2);
-            const arrApt  = lm[9];
-
-            const depInt = parseInt(lm[7]);
-            const arrInt = parseInt(lm[8]);
-
-            const yy = trackDate.getFullYear();
-            const mo = String(trackDate.getMonth() + 1).padStart(2, '0');
-            const dd = String(trackDate.getDate()).padStart(2, '0');
-            const depTime = `${yy}-${mo}-${dd}T${depHH}:${depMM}:00`;
-
-            // If arrival HHMM is before departure HHMM, the flight crosses midnight
-            if (arrInt < depInt) {
-                trackDate = new Date(trackDate.getTime() + 86400000);
-            }
-            const ay = trackDate.getFullYear();
-            const am = String(trackDate.getMonth() + 1).padStart(2, '0');
-            const ad = String(trackDate.getDate()).padStart(2, '0');
-            const arrTime = `${ay}-${am}-${ad}T${arrHH}:${arrMM}:00`;
-
-            // Times are airport-local, so correct for timezone difference between airports
-            const depOffset = airportUTCOffset(`${yy}-${mo}-${dd}`, depApt);
-            const arrOffset = airportUTCOffset(`${ay}-${am}-${ad}`, arrApt);
-            const blockMins = Math.round((new Date(arrTime) - new Date(depTime)) / 60000) + (depOffset - arrOffset);
-
-            segments.push({
-                type: 'flight',
-                departureTime: depTime,
-                arrivalTime:   arrTime,
-                departureAirport: depApt,
-                arrivalAirport:   arrApt,
-                flightNumber: `${carrier} ${fltNum}`,
-                tail: '', trip: '',
-                dh: isDH,
-                blockMinutes: blockMins > 0 ? blockMins : null
-            });
-        }
-    }
-
-    return segments;
 }
 
 // Pilot parser configuration
@@ -1734,46 +1620,38 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
         const airlineCode = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
 
         try {
-            if (filename.endsWith('.pdf')) {
-                events = await parseNetlinePDF(req.file.buffer);
-                if (parserType === 'other') {
-                    parserType = 'pdf_netline';
-                    db.run('UPDATE pilots SET parser_type = ? WHERE pilot_key = ?', [parserType, pilotKey]);
+            const fileContent = req.file.buffer.toString('utf-8');
+            if (parserType === 'other') {
+                const detected = autoDetectParser(filename, fileContent);
+                if (!detected.parser) {
+                    db.run('UPDATE pilots SET parser_type = ? WHERE pilot_key = ?', ['pending', pilotKey]);
+                    return res.status(422).json({ error: 'Unrecognized schedule format. Your account was created — contact your admin to get your format supported.', pending: true });
                 }
-            } else {
-                const fileContent = req.file.buffer.toString('utf-8');
-                if (parserType === 'other') {
-                    const detected = autoDetectParser(filename, fileContent);
-                    if (!detected.parser) {
-                        db.run('UPDATE pilots SET parser_type = ? WHERE pilot_key = ?', ['pending', pilotKey]);
-                        return res.status(422).json({ error: 'Unrecognized schedule format. Your account was created — contact your admin to get your format supported.', pending: true });
-                    }
-                    events = detected.events;
-                    parserType = detected.parser;
-                    db.run('UPDATE pilots SET parser_type = ? WHERE pilot_key = ?', [parserType, pilotKey]);
-                } else if (filename.endsWith('.ics')) {
-                    if (parserType === 'ics_american') {
-                        ({ events, warnings } = parseAmericanICS(fileContent));
-                    } else if (parserType === 'ics_southwest') {
-                        ({ events, warnings } = parseSouthwestICS(fileContent));
-                    } else {
-                        events = parserType === 'ics_rosterbuster'
-                            ? parseRosterBusterICS(fileContent)
-                            : parserType === 'ics_delta_micrew'
-                            ? parseDeltaMiCrewICS(fileContent)
-                            : (parserType === 'ics_scx' || parserType === 'ics_ecrew')
-                            ? parseECrewICS(fileContent, airlineCode, ECREW_IATA_ALIASES[airlineCode] || [])
-                            : parseICS(fileContent);
-                    }
-                } else if (filename.endsWith('.vcs') || (filename.endsWith('.ics') && fileContent.includes('PRODID:SkyWest Inc SkedPlus+'))) {
-                    events = parseVCS_skywest(fileContent);
-                } else if (filename.endsWith('.csv')) {
-                    events = parserType === 'csv_skywest'
-                        ? parseCSV_skywest(fileContent)
-                        : parseCSV(fileContent, airlineCode);
+                events = detected.events;
+                parserType = detected.parser;
+                db.run('UPDATE pilots SET parser_type = ? WHERE pilot_key = ?', [parserType, pilotKey]);
+            } else if (filename.endsWith('.ics')) {
+                if (parserType === 'ics_american') {
+                    ({ events, warnings } = parseAmericanICS(fileContent));
+                } else if (parserType === 'ics_southwest') {
+                    ({ events, warnings } = parseSouthwestICS(fileContent));
                 } else {
-                    return res.status(400).json({ error: 'Unsupported file type. Use .ics, .csv, .vcs, or .pdf' });
+                    events = parserType === 'ics_rosterbuster'
+                        ? parseRosterBusterICS(fileContent)
+                        : parserType === 'ics_delta_micrew'
+                        ? parseDeltaMiCrewICS(fileContent)
+                        : (parserType === 'ics_scx' || parserType === 'ics_ecrew')
+                        ? parseECrewICS(fileContent, airlineCode, ECREW_IATA_ALIASES[airlineCode] || [])
+                        : parseICS(fileContent);
                 }
+            } else if (filename.endsWith('.vcs') || (filename.endsWith('.ics') && fileContent.includes('PRODID:SkyWest Inc SkedPlus+'))) {
+                events = parseVCS_skywest(fileContent);
+            } else if (filename.endsWith('.csv')) {
+                events = parserType === 'csv_skywest'
+                    ? parseCSV_skywest(fileContent)
+                    : parseCSV(fileContent, airlineCode);
+            } else {
+                return res.status(400).json({ error: 'Unsupported file type. Use .ics, .csv, or .vcs' });
             }
         } catch (parseError) {
             return res.status(400).json({ error: `Parse error: ${parseError.message}` });

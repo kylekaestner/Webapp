@@ -123,7 +123,7 @@ GET  /api/pilots                              All pilots
 GET  /api/pilots/:key                         Pilot + segments (parser_type resolved server-side)
 PUT  /api/pilots/:key                         Update pilot profile
 DEL  /api/pilots/:key                         Delete pilot
-POST /api/pilots/:key/upload                  Upload schedule file (.ics, .csv, .vcs, .pdf)
+POST /api/pilots/:key/upload                  Upload schedule file (.ics, .csv, .vcs)
 POST /api/pilots/:key/sync-ics               Sync ICS URL (saves URL, then fetches)
 POST /api/pilots/:key/add-segment             Add manual flight
 PUT  /api/pilots/:key/segments/:id            Edit manual flight

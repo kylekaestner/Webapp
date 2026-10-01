@@ -191,7 +191,7 @@
             <div class="space-y-4">
                 <div id="sched-file-section">
                     <label class="field-label" id="sched-file-label">Schedule File</label>
-                    <input class="field-input" type="file" id="scheduleFile" accept=".csv,.pdf,.ics,.vcs">
+                    <input class="field-input" type="file" id="scheduleFile" accept=".csv,.ics,.vcs">
                     <p class="text-[11px] text-zinc-600 mt-1.5 leading-relaxed" id="sched-file-hint"></p>
                 </div>
 
@@ -328,7 +328,7 @@
             divider.style.display     = (method === 'both') ? 'flex' : 'none';
 
             document.getElementById('sched-file-label').textContent = info?.fileLabel || 'Schedule File';
-            document.getElementById('scheduleFile').accept          = info?.fileAccept || '.csv,.pdf,.ics,.vcs';
+            document.getElementById('scheduleFile').accept          = info?.fileAccept || '.csv,.ics,.vcs';
             document.getElementById('sched-file-hint').textContent  = info?.fileHint || '';
 
             document.getElementById('sched-ics-label').textContent = info?.icsLabel || 'ICS Calendar URL';
