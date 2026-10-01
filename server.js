@@ -226,7 +226,14 @@ function parseDeltaMiCrewICS(text) {
     const MONTH_ABBR = { JAN:1, FEB:2, MAR:3, APR:4, MAY:5, JUN:6, JUL:7, AUG:8, SEP:9, OCT:10, NOV:11, DEC:12 };
     const RPT_LINE_RE = /^Rpt-\s*(\d{4})\s+(\d{2})([A-Z]{3})/;
     const HAS_RPT_RE  = /Rpt-\s*\d{4}\s+\d{2}[A-Z]{3}/;
-    const LEG_RE = /^(?:(DD|D)\s+)?([A-Z]{2})(\d{2,5})\s+([A-Z]{3})-([A-Z]{3})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})\s+(\S+)/;
+    // Leg-line prefixes seen so far: "D"/"DD" = deadhead on a Delta-numbered flight; "O" =
+    // deadhead riding another operator's metal (e.g. "O OO3921" on a SkyWest/Delta Connection
+    // leg to reposition — confirmed DH since Delta pilots never crew regional-partner aircraft).
+    // "I" = seen on every leg of an entire real multi-day pairing (not an isolated repositioning
+    // leg), so it is NOT treated as deadhead here — likely an instructor/IOE-support marker, but
+    // unconfirmed. Mandatory whitespace after the prefix keeps it from matching the leading
+    // letter of an unprefixed operating-carrier code (e.g. plain "OO3921").
+    const LEG_RE = /^(?:(DD|D|O|I)\s+)?([A-Z]{2})(\d{2,5})\s+([A-Z]{3})-([A-Z]{3})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})\s+(\S+)/;
     const pad = n => String(n).padStart(2, '0');
 
     for (const b of blocks) {
@@ -268,6 +275,7 @@ function parseDeltaMiCrewICS(text) {
                 const legM = line.match(LEG_RE);
                 if (!legM || !curDate) continue;
                 const [, dhFlag, carrier, fltNum, dep, arr, depHH, depMM, arrHH, arrMM, equip] = legM;
+                const isDH = dhFlag === 'D' || dhFlag === 'DD' || dhFlag === 'O';
 
                 const depDateStr = `${curDate.y}-${pad(curDate.m)}-${pad(curDate.d)}`;
                 const depMin = parseInt(depHH, 10) * 60 + parseInt(depMM, 10);
@@ -286,7 +294,7 @@ function parseDeltaMiCrewICS(text) {
                     departureAirport: dep, arrivalAirport: arr,
                     flightNumber: `${carrier}${fltNum}`,
                     tail: equip.toUpperCase(),
-                    trip: tripId, dh: !!dhFlag, blockMinutes: null,
+                    trip: tripId, dh: isDH, blockMinutes: null,
                 });
 
                 curDate = arrDate; // next leg under the same Rpt- continues from here
