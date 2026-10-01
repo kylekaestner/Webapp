@@ -1647,15 +1647,15 @@
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
                 <select id="edit-user-airline-sel" onchange="_onAirlineChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
                     <option value="">— Select airline —</option>
-                    <option value="GJS">GoJet Airlines</option>
-                    <option value="SKW">SkyWest Airlines</option>
-                    <option value="RPA">Republic Airways</option>
-                    <option value="SCX">Sun Country Airlines</option>
+                    <option value="AAL">American Airlines (MobileCCI)</option>
                     <option value="GTI">Atlas Air</option>
                     <option value="DAL">Delta Air Lines (MiCrew)</option>
-                    <option value="AAL">American Airlines (MobileCCI)</option>
+                    <option value="GJS">GoJet Airlines</option>
+                    <option value="RPA">Republic Airways</option>
+                    <option value="SKW">SkyWest Airlines</option>
                     <option value="SWA">Southwest Airlines (CrewHub)</option>
                     <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
+                    <option value="SCX">Sun Country Airlines</option>
                     <option value="OTHER">Other / Auto-detect</option>
                 </select>
             </div>
@@ -1710,15 +1710,15 @@
             <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
             <select id="my-info-airline-sel" onchange="_onMyInfoAirlineChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
                 <option value="">— Select airline —</option>
-                <option value="GJS">GoJet Airlines</option>
-                <option value="SKW">SkyWest Airlines</option>
-                <option value="RPA">Republic Airways</option>
-                <option value="SCX">Sun Country Airlines</option>
+                <option value="AAL">American Airlines (MobileCCI)</option>
                 <option value="GTI">Atlas Air</option>
                 <option value="DAL">Delta Air Lines (MiCrew)</option>
-                <option value="AAL">American Airlines (MobileCCI)</option>
+                <option value="GJS">GoJet Airlines</option>
+                <option value="RPA">Republic Airways</option>
+                <option value="SKW">SkyWest Airlines</option>
                 <option value="SWA">Southwest Airlines (CrewHub)</option>
                 <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
+                <option value="SCX">Sun Country Airlines</option>
                 <option value="OTHER">Other / Auto-detect</option>
             </select>
         </div>
@@ -8601,20 +8601,21 @@ async function openAdminPanel(tab = 'users') {
         // company with one method (RosterBuster ICS) here now -- it used to be split
         // into a separate "GoJet Services" (csv) and "RosterBuster (subscription)"
         // pseudo-airline entry, which was really just the same airline shown twice.
+        // Kept alphabetical by the name shown in the dropdown (matches the <option> order in
+        // both the admin edit-user modal and the self-service My Info modal) -- Other stays last
+        // as the catch-all, per usual convention.
         const AIRLINE_OPTIONS = [
-            { icao: 'GJS',   dbCode: 'GJS', parser: 'ics_rosterbuster', needsIcs: true,
-              icsLabel: 'RosterBuster ICS URL',
-              icsHint: 'From RosterBuster: Settings → Calendar Sync → copy the subscription link.' },
-            { icao: 'SKW',   dbCode: 'SKW', parser: 'vcs_skywest', needsIcs: false },
-            { icao: 'RPA',   dbCode: 'RPA', parser: 'csv',         needsIcs: false },
-            { icao: 'SCX',   dbCode: 'SCX', parser: 'ics_scx',     needsIcs: true,
-              icsLabel: 'eCrew ICS URL', icsHint: 'The calendar subscription link from eCrew.' },
+            { icao: 'AAL',   dbCode: 'AAL', parser: 'ics_american', needsIcs: true,
+              icsLabel: 'MobileCCI ICS URL', icsHint: 'The published calendar subscription link from MobileCCI.' },
             { icao: 'GTI',   dbCode: 'GTI', parser: 'ics_ecrew',   needsIcs: true,
               icsLabel: 'eCrew ICS URL', icsHint: 'The calendar subscription link from eCrew.' },
             { icao: 'DAL',   dbCode: 'DAL', parser: 'ics_delta_micrew', needsIcs: true,
               icsLabel: 'MiCrew ICS URL', icsHint: 'The published calendar subscription link from MiCrew.' },
-            { icao: 'AAL',   dbCode: 'AAL', parser: 'ics_american', needsIcs: true,
-              icsLabel: 'MobileCCI ICS URL', icsHint: 'The published calendar subscription link from MobileCCI.' },
+            { icao: 'GJS',   dbCode: 'GJS', parser: 'ics_rosterbuster', needsIcs: true,
+              icsLabel: 'RosterBuster ICS URL',
+              icsHint: 'From RosterBuster: Settings → Calendar Sync → copy the subscription link.' },
+            { icao: 'RPA',   dbCode: 'RPA', parser: 'csv',         needsIcs: false },
+            { icao: 'SKW',   dbCode: 'SKW', parser: 'vcs_skywest', needsIcs: false },
             { icao: 'SWA',   dbCode: 'SWA', parser: 'ics_southwest', needsIcs: true,
               icsLabel: 'CrewHub ICS URL', icsHint: 'The published calendar subscription link from CrewHub.' },
             // Kyle's private corporate operator -- not a public airline, so there's no ICS URL
@@ -8625,6 +8626,8 @@ async function openAdminPanel(tab = 'users') {
             // hardcoded override protecting them, would have actually broken his Schedaero sync
             // if anyone ever saved his profile without it.
             { icao: 'SJJ',   dbCode: 'SJJ', parser: 'schedaero', needsIcs: false },
+            { icao: 'SCX',   dbCode: 'SCX', parser: 'ics_scx',     needsIcs: true,
+              icsLabel: 'eCrew ICS URL', icsHint: 'The calendar subscription link from eCrew.' },
             { icao: 'OTHER', dbCode: '',    parser: 'other', needsIcs: false },
         ];
 
