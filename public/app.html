@@ -1636,11 +1636,11 @@
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
-                    <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                    <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
                 </div>
                 <div>
                     <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
-                    <input id="edit-user-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                    <input id="edit-user-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
                 </div>
             </div>
             <div>
@@ -1699,11 +1699,11 @@
         <div class="grid grid-cols-2 gap-4">
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
-                <input id="my-info-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <input id="my-info-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
-                <input id="my-info-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <input id="my-info-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
         </div>
         <div>
@@ -5118,7 +5118,7 @@
                 const { past, future, active } = airportFlightTypes[upper];
                 const visible = (past && showPast) || (future && showFuture) || active;
 
-                const isBase = upper === pilotBase || (pilotBase.length === 4 && pilotBase[0] === 'K' && upper === pilotBase.slice(1));
+                const isBase = sameApt(upper, pilotBase);
                 const isLayover = layoverAirports.has(upper);
                 const dotColor = isBase ? '#22c55e' : isLayover ? '#f59e0b' : '#f8fafc';
                 const radius = isBase ? 7 : isLayover ? 6 : 5;
@@ -8352,7 +8352,7 @@ async function openAdminPanel(tab = 'users') {
                 const color = isViewer ? '#10b981' : (PILOT_COLORS[u.pilot_key] || '#6366f1');
                 const subtext = isViewer
                     ? `${u.pilot_key} · View only`
-                    : `${u.pilot_key} · base ${u.base || '—'}${u.home_airport && u.home_airport !== u.base ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'csv'}`;
+                    : `${u.pilot_key} · base ${u.base || '—'}${u.home_airport && !sameApt(u.home_airport, u.base) ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'csv'}`;
                 let warnCount = 0;
                 try { warnCount = u.parser_warnings ? JSON.parse(u.parser_warnings).length : 0; } catch { warnCount = 0; }
                 return `<div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4 hover:border-zinc-700 transition-colors" style="${isViewer ? 'border-color:#166534' : ''}">
