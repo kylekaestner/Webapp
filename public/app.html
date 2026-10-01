@@ -1489,18 +1489,25 @@
                 <div id="my-info-summary" class="text-xs text-zinc-400 font-bold py-1"></div>
             </div>
 
-            <!-- Friends -->
+            <!-- Friends — also doubles as crew visibility: each row carries its own show/hide
+                 toggle alongside Remove, instead of duplicating the same person in a separate
+                 "Your Crew" list right below this one. -->
             <div id="friends-section">
                 <div class="flex items-center justify-between mb-2">
                     <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Friends</label>
                     <button onclick="openAddFriendModal()" class="text-[10px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest">+ Add</button>
                 </div>
-                <p class="text-[10px] text-zinc-500 mb-3 -mt-1">Only friends can see your schedule, and you can only see theirs.</p>
+                <p class="text-[10px] text-zinc-500 mb-3 -mt-1">Only friends can see your schedule, and you can only see theirs. Use the toggle to show or hide someone in your calendar/map without unfriending them.</p>
                 <div id="friends-incoming-section" class="hidden space-y-1.5 mb-3"></div>
                 <div id="friends-list" class="space-y-2"></div>
             </div>
 
-            <!-- Crew visibility -->
+            <!-- Crew visibility — admin/viewer/demo only now. A real pilot's equivalent control
+                 lives inline in the Friends list above instead (same set of people either way, so
+                 showing a second, separate list for them was pure duplication). Admin/viewer/demo
+                 have no Friends panel of their own to fold this into (admin has no "friends"
+                 concept at all; viewers are admin-assigned, no self-service UI), so they keep this
+                 standalone section. -->
             <div id="crew-visibility-section">
                 <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Your Crew</label>
                 <p class="text-[10px] text-zinc-500 mb-3 -mt-1">Choose who you want to see in your schedule view.</p>
@@ -2315,6 +2322,11 @@
                 listEl.innerHTML = `<p class="text-xs text-zinc-500 py-1.5">No friends yet — tap + Add to send a request.</p>`;
                 return;
             }
+            // Visibility (show/hide in calendar/map) folds into this same list instead of a
+            // separate "Your Crew" section repeating the same names -- getCrewVisible() only
+            // applies to real pilots (viewers have no schedule to show/hide in the first place,
+            // see visiblePilotKeys()'s own comment), so the toggle is simply omitted for one.
+            const visible = getCrewVisible();
             const friendRows = myFriends.map(f => {
                 // Viewers are never registered into PILOT_COLORS (see visiblePilotKeys()'s own
                 // comment), so PILOT_COLORS[f.pilotKey] would always fall through to the generic
@@ -2324,13 +2336,20 @@
                 const c = f.isViewer ? '#52525b' : (PILOT_COLORS[f.pilotKey] || '#6366f1');
                 const avatarChar = f.isViewer ? '👁' : (f.name || f.pilotKey)[0].toUpperCase();
                 const viewerBadge = f.isViewer ? `<span class="text-[8px] font-black text-zinc-500 uppercase tracking-widest border border-zinc-700 rounded-full px-1.5 py-0.5 shrink-0">View Only</span>` : '';
+                const on = visible.includes(f.pilotKey);
+                const visToggle = f.isViewer ? '' : `<div onclick="setCrewVisible('${f.pilotKey}', ${!on})" title="${on ? 'Hide from your calendar/map' : 'Show in your calendar/map'}" class="w-9 h-5 rounded-full flex items-center transition-all cursor-pointer px-0.5 shrink-0" style="background:${on ? c+'cc' : '#3f3f46'}">
+                        <div class="w-4 h-4 rounded-full bg-white shadow transition-transform" style="transform:translateX(${on ? '16px' : '0px'})"></div>
+                    </div>`;
                 return `<div class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
                     <div class="flex items-center gap-2.5 min-w-0">
                         <div class="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0" style="background:${c}22;color:${c}">${avatarChar}</div>
                         <span class="text-sm font-black text-white truncate">${escapeHtml(f.name || f.pilotKey)}</span>
                         ${viewerBadge}
                     </div>
-                    <button onclick="confirmRemoveFriend('${f.pilotKey}', '${escapeHtml(f.name || f.pilotKey)}')" class="text-[9px] font-black text-zinc-600 hover:text-red-400 uppercase tracking-widest shrink-0 ml-2">Remove</button>
+                    <div class="flex items-center gap-2.5 shrink-0 ml-2">
+                        ${visToggle}
+                        <button onclick="confirmRemoveFriend('${f.pilotKey}', '${escapeHtml(f.name || f.pilotKey)}')" class="text-[9px] font-black text-zinc-600 hover:text-red-400 uppercase tracking-widest">Remove</button>
+                    </div>
                 </div>`;
             }).join('');
             const outgoingRows = myOutgoingRequests.map(r => `
@@ -2501,9 +2520,11 @@
                 if (linkSection) linkSection.classList.add('hidden');
             }
 
-            // Pilots, viewers, and admin all get crew visibility
+            // A real pilot's crew-visibility control now lives inline in the Friends list instead
+            // (see renderFriendsPanel()) -- this standalone section is only for admin/viewer/demo,
+            // who have no Friends panel of their own to fold it into.
             const cvSection = document.getElementById('crew-visibility-section');
-            if (cvSection) cvSection.classList.remove('hidden');
+            if (cvSection) cvSection.classList.toggle('hidden', !!myPilot);
 
             // Self-service base/home/airline -- real pilots only. Admin edits anyone through the
             // admin panel; viewers and demo have no schedule-source profile to maintain.
@@ -2513,8 +2534,9 @@
                 if (myPilot && !isDemo) _renderMyInfoSummary();
             }
 
-            // Friends only apply to real pilots -- admin and viewers already bypass the friend
-            // requirement server-side and see everyone, so a friend list has nothing to do for them.
+            // Self-service Friends panel is real-pilots-only. Admin bypasses the friend
+            // requirement entirely and sees everyone; viewers are friend-gated too now but
+            // admin-assigned only, with no self-service UI of their own to manage it.
             const friendsSection = document.getElementById('friends-section');
             if (friendsSection) friendsSection.classList.toggle('hidden', !myPilot || isDemo);
             const signOutBtn = document.getElementById('sign-out-btn');
@@ -2548,12 +2570,15 @@
             renderFriendsPanel();
         }
 
+        // Renders into #crew-visibility-section, which is only visible for admin/viewer/demo now
+        // (see _applyIdentityUI()'s own comment) -- a real pilot's equivalent toggle lives inline
+        // in renderFriendsPanel() instead, since for them this candidate list and the friends list
+        // are the exact same set of people. Still called unconditionally alongside
+        // renderFriendsPanel() for simplicity; it just renders into a hidden section for a pilot.
         function _buildCrewVisibilityUI() {
             const el = document.getElementById('crew-visibility-btns');
             if (!el) return;
             const visible = getCrewVisible();
-            // Pilots can only toggle visibility for someone they're actually friends with
-            // (admin + viewers are exempt from the friend requirement and still see everyone).
             const candidates = visiblePilotKeys().filter(p => p !== myPilot);
             if (candidates.length === 0 && (myPilot || myViewer)) {
                 // Viewers have no self-service Friends section (admin-assigned only), so point
