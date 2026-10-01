@@ -3635,23 +3635,6 @@ app.post('/api/join', async (req, res) => {
             function(err) {
                 if (err && err.message.includes('UNIQUE')) return tryInsert(key, attempt + 1);
                 if (err) return res.status(500).json({ error: err.message });
-                // Append new pilot's links to PILOT_LINKS.md
-                try {
-                    const linksPath = path.join(__dirname, 'PILOT_LINKS.md');
-                    const prodHost = '167.71.107.245:3000';
-                    const prodRow  = `| ${name} | http://${prodHost}/app?u=${token} |`;
-                    const localRow = `| ${name} | http://localhost:3000/app?u=${token} |`;
-                    let content = fs.readFileSync(linksPath, 'utf8');
-                    // Insert before the first Admin row (Production table), then the second (Local table)
-                    let insertedProd = false;
-                    content = content.replace(/^(\| \*\*Admin\*\* \|.*)$/gm, (match) => {
-                        if (!insertedProd) { insertedProd = true; return `${prodRow}\n${match}`; }
-                        return `${localRow}\n${match}`;
-                    });
-                    fs.writeFileSync(linksPath, content, 'utf8');
-                } catch (e) {
-                    console.error('Could not update PILOT_LINKS.md:', e.message);
-                }
                 res.json({ success: true, pilotKey: finalKey, token, link: `/app?u=${token}` });
             }
         );
