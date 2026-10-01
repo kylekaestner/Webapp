@@ -1519,12 +1519,12 @@ app.get('/api/pilots-directory', (req, res) => {
     _resolvePilotToken(req.query.token, db, (status, msg) => {
         if (status) return res.status(status).json({ error: msg });
         db.all(
-            // ORDER BY id (insertion order), not name -- this feeds _syncPilotRoster() in
-            // app.html, which builds the pill bar/sidebar roster in whatever order rows come
-            // back. id order keeps the 5 original pilots in their historical position (they
-            // were the first 5 rows ever inserted) now that they're no longer a separate
-            // hardcoded list spliced in ahead of everyone else.
-            `SELECT pilot_key, name, base, home_airport, role, color FROM pilots WHERE pilot_key != 'admin' AND (role IS NULL OR role != 'viewer') ORDER BY id`,
+            // ORDER BY name -- this feeds _syncPilotRoster() in app.html, which builds the pill
+            // bar/sidebar roster in whatever order rows come back. Alphabetical by name here,
+            // combined with _reorderPilotPills() always pinning the signed-in pilot's own pill
+            // to the front afterward, gives "you first, then the rest of your crew A-Z" with no
+            // hardcoded ordering anywhere.
+            `SELECT pilot_key, name, base, home_airport, role, color FROM pilots WHERE pilot_key != 'admin' AND (role IS NULL OR role != 'viewer') ORDER BY name`,
             (err, rows) => {
                 if (err) return res.status(500).json({ error: err.message });
                 res.json(rows);
