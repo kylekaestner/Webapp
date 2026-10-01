@@ -3003,10 +3003,6 @@
             return null;
         }
 
-        function getPilotStorageKey(pilot) {
-            return `pilot-schedule-${pilot}`;
-        }
-
         // Fetch pilot data from server
         async function fetchPilotData(pilot) {
             try {
@@ -3050,7 +3046,6 @@
                 }
 
                 const result = await response.json();
-                console.log('Upload successful:', result);
 
                 // Reload pilot data
                 await fetchPilotData(pilot);
@@ -3205,7 +3200,6 @@
                 if (pilot === myPilot) updateUploadSyncButtons(pilot);
 
                 const pilotBase = data.base || null;
-                console.log(`Loading pilot ${pilot}, base: ${pilotBase}, segments: ${segmentData.length}`);
                 segments = inferAwayLayovers(segmentData || [], pilotBase);
                 const displayName = data.name || pilot;
                 const firstName   = displayName.split(' ')[0];
@@ -4240,15 +4234,6 @@
                 if (mA && mA === mB && locA !== locB) return `${locA} · ${locB}`;
                 return null;
             }
-            // All airports in a metro group, sorted — auto-derived from METRO_GROUPS constant
-            function metroAirportList(locA, locB) {
-                const mA = METRO_GROUPS[locA], mB = METRO_GROUPS[locB];
-                const key = (mA && mA === mB) ? mA : null;
-                if (!key) return null;
-                const apts = Object.keys(METRO_GROUPS).filter(k => METRO_GROUPS[k] === key).sort();
-                return apts.length > 2 ? apts.join(' · ') : null;
-            }
-
             // For non-UTC pilots, their times are stored as local airport time but parsed by the browser
             // as if they were in the browser's timezone. Shift by the difference so UTC comparisons are correct.
             const adjustedPeriod = (k, p) => {
@@ -4786,8 +4771,6 @@
 
             if (currentView === 'map') renderMap();
         }
-
-        function toggleAllPilotsMonth() { setMapMode(mapAllMode ? 'mine' : 'month'); }
 
         function _updateCrewLegend() {
             const container = document.getElementById('legend-day-pilots');
@@ -7101,95 +7084,6 @@
             return events;
         }
 
-        // Flexible CSV parser variant for SkyWest-style exports (handles varied header names)
-        function parseCSV_skywest(text) {
-            const lines = text.split(/\r?\n/).filter(l => l.trim());
-            if (lines.length === 0) return [];
-            const headerRaw = lines.shift();
-            const header = headerRaw.split(',').map(h => h.trim().toUpperCase());
-
-            const findIdx = (aliases) => {
-                for (const a of aliases) {
-                    const up = a.toUpperCase();
-                    const i = header.indexOf(up);
-                    if (i >= 0) return i;
-                }
-                return -1;
-            };
-
-            const idxDate = findIdx(['DATE','FLIGHTDATE','SCHEDULEDATE']);
-            const idxDep = findIdx(['DEP','DEPARTURE','ORIG','ORIGIN','FROM']);
-            const idxArr = findIdx(['ARR','ARRIVAL','DEST','DESTINATION','TO']);
-            const idxDepTime = findIdx(['DEPTIME','DEP_TIME','DEPARTURETIME','DEP TIME','DEP/TIME','DEPT']);
-            const idxArrTime = findIdx(['ARRTIME','ARR_TIME','ARRIVALTIME','ARR TIME','ARR/TIME','ARRT']);
-            const idxTail = findIdx(['FCVTAIL','TAIL','AIRCRAFT','REGISTRATION']);
-            const idxDh = findIdx(['DH','DUTY','IS_DH']);
-
-            const events = [];
-
-            const toMinutes = (time) => {
-                if (!time) return 0;
-                const norm = normalizeTime(time.replace(/"/g, '').trim());
-                const [hh, mm] = norm.split(':').map(Number);
-                return hh * 60 + mm;
-            };
-
-            const addDays = (year, month, day, extraDays) => {
-                const d = new Date(Number(year), Number(month) - 1, Number(day) + extraDays);
-                const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
-                return { y, m, dd };
-            };
-
-            for (const row of lines) {
-                const cols = row.split(',');
-                const date = idxDate >= 0 ? (cols[idxDate] || '').replace(/"/g,'').trim() : '';
-                const dep = idxDep >= 0 ? (cols[idxDep] || '').replace(/"/g,'').trim() : '';
-                const arr = idxArr >= 0 ? (cols[idxArr] || '').replace(/"/g,'').trim() : '';
-                const deptime = idxDepTime >= 0 ? (cols[idxDepTime] || '').replace(/"/g,'').trim() : '';
-                const arrtime = idxArrTime >= 0 ? (cols[idxArrTime] || '').replace(/"/g,'').trim() : '';
-                const tail = idxTail >= 0 ? (cols[idxTail] || '').replace(/"/g,'').trim() : '';
-                const dh = idxDh >= 0 ? (cols[idxDh] || '').replace(/"/g,'').trim() : '';
-
-                if (!date) continue;
-
-                // Accept formats like MM/DD/YYYY or YYYY-MM-DD
-                let ym = '', mm = '', dd = '';
-                if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(date)) {
-                    const parts = date.split('/');
-                    mm = String(parts[0]).padStart(2,'0'); dd = String(parts[1]).padStart(2,'0'); ym = String(parts[2]).padStart(4,'0');
-                } else if (/\d{4}-\d{2}-\d{2}/.test(date)) {
-                    const parts = date.split('-'); ym = parts[0]; mm = parts[1]; dd = parts[2];
-                } else {
-                    // fallback: try to parse with Date
-                    const d = new Date(date);
-                    if (isNaN(d)) continue;
-                    ym = d.getFullYear(); mm = String(d.getMonth()+1).padStart(2,'0'); dd = String(d.getDate()).padStart(2,'0');
-                }
-
-                if (dep && arr) {
-                    const dt = normalizeTime(deptime);
-                    const at = normalizeTime(arrtime);
-                    let arrivalDate = { y: ym, m: mm, dd: dd };
-                    const depMinutes = toMinutes(deptime);
-                    const arrMinutes = toMinutes(arrtime);
-                    if (arrMinutes <= depMinutes) arrivalDate = addDays(ym, mm, dd, 1);
-                    const isoStart = `${ym}-${mm}-${dd}T${dt}:00`;
-                    const isoEnd = `${arrivalDate.y}-${arrivalDate.m}-${arrivalDate.dd}T${at}:00`;
-                    const isDH = dh && (dh.toUpperCase() === 'DH' || dh === '1' || dh.toLowerCase() === 'true');
-                    events.push({ type: 'flight', departureTime: isoStart, arrivalTime: isoEnd, departureAirport: dep, arrivalAirport: arr, tail, dh: isDH });
-                    continue;
-                }
-
-                if (dh && dh.toUpperCase() === 'DH') {
-                    const isoDate = `${ym}-${mm}-${dd}T00:00:00`;
-                    events.push({ type: 'hard', departureTime: isoDate });
-                    continue;
-                }
-            }
-
-            return events;
-        }
-
         function normalizeTime(t) {
             if (!t) return '00:00';
             const txt = t.trim().replace(/[^\d:]/g, '');
@@ -7209,9 +7103,7 @@
             const file = input.files[0];
             // Get selected pilot from dropdown
             const uploadPilot = document.getElementById('upload-pilot-select').value;
-            
-            console.log(`Uploading ${file.name} for pilot ${uploadPilot}...`);
-            
+
             const result = await uploadPilotSchedule(uploadPilot, file);
             
             if (result && result.success) {
@@ -9892,15 +9784,6 @@ async function openAdminPanel(tab = 'users') {
                     </div>
                 </div>`;
             }).join('')}</div>`;
-        }
-
-        function toggleIntelEntry(id) {
-            const body = document.getElementById(`intel-body-${id}`);
-            const arr  = document.getElementById(`intel-arr-${id}`);
-            if (!body) return;
-            const opening = body.classList.contains('hidden');
-            body.classList.toggle('hidden', !opening);
-            if (arr) arr.style.transform = opening ? 'rotate(180deg)' : '';
         }
 
         function setIntelView(view) {
