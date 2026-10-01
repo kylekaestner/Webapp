@@ -233,7 +233,13 @@ function parseDeltaMiCrewICS(text) {
     // leg), so it is NOT treated as deadhead here — likely an instructor/IOE-support marker, but
     // unconfirmed. Mandatory whitespace after the prefix keeps it from matching the leading
     // letter of an unprefixed operating-carrier code (e.g. plain "OO3921").
-    const LEG_RE = /^(?:(DD|D|O|I)\s+)?([A-Z]{2})(\d{2,5})\s+([A-Z]{3})-([A-Z]{3})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})\s+(\S+)/;
+    // Trailing equipment code is optional: a handful of real legs (e.g. an int'l DL156 JFK-ACC)
+    // have no equipment field at all — requiring one there silently dropped the whole leg.
+    const LEG_RE = /^(?:(DD|D|O|I)\s+)?([A-Z]{2})(\d{2,5})\s+([A-Z]{3})-([A-Z]{3})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})(?:\s+(\S+))?/;
+    // "G 0000  HPN-JFK  14:20-16:20" -- ground transport between a pairing's airports. Unlike
+    // D/O/I, "G" isn't a prefix in front of a real carrier code: "0000" is a placeholder flight
+    // number standing in for "no flight," so this needs its own pattern rather than fitting LEG_RE.
+    const GROUND_RE = /^G\s+0+\s+([A-Z]{3})-([A-Z]{3})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})/;
     const pad = n => String(n).padStart(2, '0');
 
     for (const b of blocks) {
@@ -272,20 +278,41 @@ function parseDeltaMiCrewICS(text) {
                     prevMonth = mon;
                     continue;
                 }
+                // Compute the leg's date range, rolling curDate forward across midnight --
+                // shared by both the ground and flight branches below.
+                const computeDates = (depHH, depMM, arrHH, arrMM) => {
+                    const depDateStr = `${curDate.y}-${pad(curDate.m)}-${pad(curDate.d)}`;
+                    const depMin = parseInt(depHH, 10) * 60 + parseInt(depMM, 10);
+                    const arrMin = parseInt(arrHH, 10) * 60 + parseInt(arrMM, 10);
+                    let arrDate = curDate;
+                    if (arrMin < depMin) {
+                        const d = new Date(Date.UTC(curDate.y, curDate.m - 1, curDate.d + 1));
+                        arrDate = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+                    }
+                    const arrDateStr = `${arrDate.y}-${pad(arrDate.m)}-${pad(arrDate.d)}`;
+                    return { depDateStr, arrDateStr, arrDate };
+                };
+
+                const groundM = line.match(GROUND_RE);
+                if (groundM && curDate) {
+                    const [, dep, arr, depHH, depMM, arrHH, arrMM] = groundM;
+                    const { depDateStr, arrDateStr, arrDate } = computeDates(depHH, depMM, arrHH, arrMM);
+                    events.push({
+                        type: 'ground',
+                        departureTime: `${depDateStr}T${depHH}:${depMM}:00`,
+                        arrivalTime:   `${arrDateStr}T${arrHH}:${arrMM}:00`,
+                        departureAirport: dep, arrivalAirport: arr,
+                        flightNumber: 'GRND', tail: '', trip: tripId, dh: false, blockMinutes: null,
+                    });
+                    curDate = arrDate;
+                    continue;
+                }
+
                 const legM = line.match(LEG_RE);
                 if (!legM || !curDate) continue;
                 const [, dhFlag, carrier, fltNum, dep, arr, depHH, depMM, arrHH, arrMM, equip] = legM;
                 const isDH = dhFlag === 'D' || dhFlag === 'DD' || dhFlag === 'O';
-
-                const depDateStr = `${curDate.y}-${pad(curDate.m)}-${pad(curDate.d)}`;
-                const depMin = parseInt(depHH, 10) * 60 + parseInt(depMM, 10);
-                const arrMin = parseInt(arrHH, 10) * 60 + parseInt(arrMM, 10);
-                let arrDate = curDate;
-                if (arrMin < depMin) {
-                    const d = new Date(Date.UTC(curDate.y, curDate.m - 1, curDate.d + 1));
-                    arrDate = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
-                }
-                const arrDateStr = `${arrDate.y}-${pad(arrDate.m)}-${pad(arrDate.d)}`;
+                const { depDateStr, arrDateStr, arrDate } = computeDates(depHH, depMM, arrHH, arrMM);
 
                 events.push({
                     type: 'flight',
@@ -293,7 +320,7 @@ function parseDeltaMiCrewICS(text) {
                     arrivalTime:   `${arrDateStr}T${arrHH}:${arrMM}:00`,
                     departureAirport: dep, arrivalAirport: arr,
                     flightNumber: `${carrier}${fltNum}`,
-                    tail: equip.toUpperCase(),
+                    tail: equip ? equip.toUpperCase() : '',
                     trip: tripId, dh: isDH, blockMinutes: null,
                 });
 
@@ -302,15 +329,34 @@ function parseDeltaMiCrewICS(text) {
             continue;
         }
 
+        const dtendRaw = lines.find(l => /^DTEND/i.test(l)) || '';
+        const dtendVal = dtendRaw.split(':').slice(1).join(':');
+
+        // Reserve on-call window: SUMMARY "LC" (Pilot Long Call) / "SC" (Short Call), each
+        // with a real DTSTART/DTEND window (not the full-day pattern below) that directly IS
+        // the on-call period -- confirmed against a real feed where every LC block is followed,
+        // starting the very next minute, by a "Pilot ... Rest" marker once the window lapses.
+        // No airport is given here; the upload/sync handler fills departure/arrival from the
+        // pilot's base (same fallback the VCS parser's bare "RE" reserve blocks already use).
+        if (summary === 'LC' || summary === 'SC') {
+            const toLocalIso = v => `${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}T${v.slice(9,11)||'00'}:${v.slice(11,13)||'00'}:${v.slice(13,15)||'00'}`;
+            events.push({
+                type: 'reserve',
+                departureTime: toLocalIso(dtstartVal),
+                arrivalTime: /^\d{8}/.test(dtendVal) ? toLocalIso(dtendVal) : null,
+                departureAirport: '', arrivalAirport: '',
+                flightNumber: summary, tail: '', trip: null, dh: false, blockMinutes: null,
+            });
+            continue;
+        }
+
         // Non-flying day -- classify by the last meaningful line of DESCRIPTION.
         const descLines2 = description.split('\n').map(l => l.trim()).filter(Boolean);
         const label = (descLines2[descLines2.length - 1] || '').toUpperCase();
         if (!label) continue;
 
-        // These markers have no TZID and a "prev-day 23:00 to this-day 22:59" boundary --
+        // These full-day markers have no TZID and a "prev-day 23:00 to this-day 22:59" boundary --
         // DTEND's date is the nominal calendar day the marker applies to.
-        const dtendRaw = lines.find(l => /^DTEND/i.test(l)) || '';
-        const dtendVal = dtendRaw.split(':').slice(1).join(':');
         const dateSrc = /^\d{8}/.test(dtendVal) ? dtendVal : dtstartVal;
         const y = dateSrc.slice(0, 4), m = dateSrc.slice(4, 6), d = dateSrc.slice(6, 8);
         const isoDate = `${y}-${m}-${d}T00:00:00`;
@@ -320,7 +366,7 @@ function parseDeltaMiCrewICS(text) {
         } else if (/TRAINING|SIMULATOR|OPERATING EXPERIENCE/.test(label)) {
             events.push({ type: 'training', departureTime: isoDate });
         }
-        // else: skip -- sick, pay adjustments, reserve-day-off markers, misc admin codes
+        // else: skip -- sick, pay adjustments, reserve-day-off/rest markers, misc admin codes
     }
 
     return events;
