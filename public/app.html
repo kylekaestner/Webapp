@@ -1653,8 +1653,9 @@
             </div>
         </div>
         <!-- Admin friend management — bypasses the request/accept flow entirely. Only shown
-             when editing an existing non-viewer pilot (a brand-new pilot has no key yet to
-             attach friendships to; a viewer already sees everyone and has no friend list). -->
+             when editing an existing pilot or viewer (a brand-new user has no key yet to attach
+             friendships to). Viewers are friend-gated too now, admin-assigned only — this is the
+             only way to grant a viewer visibility into a specific pilot's schedule. -->
         <div id="edit-user-friends-section" class="hidden space-y-1.5 pt-2 border-t border-zinc-800">
             <p class="text-[9px] font-black text-zinc-500 uppercase tracking-widest pt-4">Friends</p>
             <p class="text-[10px] text-zinc-600 -mt-1">Toggle to instantly add or remove a friendship — no request needed.</p>
@@ -2140,7 +2141,8 @@
         // place that used to loop over all PILOT_KEYS (crossings, off days, the calendar's
         // background prefetch) needs to loop over this instead, or it'll just collect 403s.
         function visiblePilotKeys() {
-            if (myPilot === null) return [...PILOT_KEYS]; // admin or viewer — both still see everyone
+            if (myPilot === null && !myViewer) return [...PILOT_KEYS]; // admin only — sees everyone unconditionally
+            if (myViewer) return myFriends.map(f => f.pilotKey); // viewer — gated by admin-assigned friends only, no self
             return [myPilot, ...myFriends.map(f => f.pilotKey)];
         }
 
@@ -2149,7 +2151,7 @@
         }
 
         async function loadFriends() {
-            if (!myPilot || isDemo) { myFriends = []; myIncomingRequests = []; myOutgoingRequests = []; return; }
+            if ((!myPilot && !myViewer) || isDemo) { myFriends = []; myIncomingRequests = []; myOutgoingRequests = []; return; }
             try {
                 const data = await fetch(`/api/friends?token=${encodeURIComponent(myToken)}`).then(r => r.json());
                 myFriends = data.friends || [];
@@ -2521,8 +2523,13 @@
             // Pilots can only toggle visibility for someone they're actually friends with
             // (admin + viewers are exempt from the friend requirement and still see everyone).
             const candidates = visiblePilotKeys().filter(p => p !== myPilot);
-            if (myPilot && candidates.length === 0) {
-                el.innerHTML = `<p class="text-xs text-zinc-500 px-1 py-2">No friends yet — add some from the Friends section above to see them here.</p>`;
+            if (candidates.length === 0 && (myPilot || myViewer)) {
+                // Viewers have no self-service Friends section (admin-assigned only), so point
+                // them at the right place instead of the pilot-facing "add some" copy below.
+                const msg = myViewer
+                    ? 'No pilots shared with you yet — ask your admin to grant access.'
+                    : 'No friends yet — add some from the Friends section above to see them here.';
+                el.innerHTML = `<p class="text-xs text-zinc-500 px-1 py-2">${msg}</p>`;
                 return;
             }
             el.innerHTML = candidates.map(p => {
@@ -5662,6 +5669,29 @@
                 markers.forEach((m, i) => m.setLatLng([lat, lon + WORLD_OFFSETS[i] * 360]));
             const setAllIcon = (icon) => markers.forEach(m => m.setIcon(icon));
 
+            // Ends tracking for THIS flight only -- removes its own markers/arc/trail layers and
+            // updates its own popup status text directly, without calling the global renderMap().
+            // Every "give up" branch below used to call renderMap() to reflect its own flight's
+            // new status, but that function does a full stopLivePollers() + wipe-everything +
+            // redraw-everything pass -- which also tears down and restarts every OTHER flight
+            // currently being live-tracked, even though nothing was wrong with them. Confirmed
+            // live: two unrelated live flights would disappear and restart simultaneously the
+            // moment either one's poller decided to give up, which looked like a shared ADS-B
+            // outage but was actually this flight's own cleanup taking the whole map down with it.
+            const finishTracking = (savedEarly) => {
+                clearInterval(_livePollers[callsign]);
+                delete _livePollers[callsign];
+                _liveLabels.delete(callsign);
+                delete _liveLayersByCallsign[callsign];
+                _departureDelays.delete(callsign);
+                markers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
+                removeArc();
+                if (flownLines) { flownLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} }); flownLines = null; }
+                if (remainLines) { remainLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} }); remainLines = null; }
+                if (hereNowMarkers.length) { hereNowMarkers.forEach(m => { try { map.removeLayer(m); } catch (_) {} }); hereNowMarkers.length = 0; }
+                updateHitPopupStatus(savedEarly ? '✓ LANDED EARLY' : '✓ COMPLETED', '#3f3f46');
+            };
+
             const update = async () => {
                 try {
                     const _depQs = scheduledDepUTC ? `&depTime=${Math.floor(scheduledDepUTC.getTime()/1000)}` : '';
@@ -5669,12 +5699,9 @@
 
                     // Server confirmed the plane is parked — flight complete
                     if (d.parked) {
-                        clearInterval(_livePollers[callsign]);
-                        delete _livePollers[callsign];
-                        _liveLabels.delete(callsign);
-                        delete _liveLayersByCallsign[callsign];
-                        if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
-                        renderMap();
+                        const early = scheduledArrUTC && new Date() < scheduledArrUTC;
+                        if (early) _saveLandedEarly(callsign);
+                        finishTracking(early);
                         return;
                     }
 
@@ -5700,26 +5727,16 @@
                         // After a few misses, remove the scheduled arc + plane icon so we don't
                         // show a misleading "in progress" view.
                         if (!confirmedAirborne && d.hadTrail && missCount >= 3) {
-                            removeArc();
-                            markers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
-                            if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
-                            _departureDelays.delete(callsign);
-                            clearInterval(_livePollers[callsign]);
-                            delete _livePollers[callsign];
-                            _liveLabels.delete(callsign);
-                            delete _liveLayersByCallsign[callsign];
-                            renderMap();
+                            const early = scheduledArrUTC && new Date() < scheduledArrUTC;
+                            if (early) _saveLandedEarly(callsign);
+                            finishTracking(early);
                             return;
                         }
                         // Was airborne + server's trail gone (parked confirmed server-side) → done
                         if (confirmedAirborne && !d.hadTrail && missCount >= 3) {
-                            if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
-                            _departureDelays.delete(callsign);
-                            clearInterval(_livePollers[callsign]);
-                            delete _livePollers[callsign];
-                            _liveLabels.delete(callsign);
-                            delete _liveLayersByCallsign[callsign];
-                            renderMap();
+                            const early = scheduledArrUTC && new Date() < scheduledArrUTC;
+                            if (early) _saveLandedEarly(callsign);
+                            finishTracking(early);
                             return;
                         }
                         // Was airborne, lost signal — treat as probably landed and stop tracking.
@@ -5732,23 +5749,15 @@
                         const minsToSchedArr = scheduledArrUTC ? (scheduledArrUTC.getTime() - Date.now()) / 60000 : -Infinity;
                         const probablyLandedThreshold = minsToSchedArr > 15 ? 38 /* ~5 min */ : 5 /* ~40s */;
                         if (confirmedAirborne && missCount >= probablyLandedThreshold) {
-                            if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
-                            _departureDelays.delete(callsign);
-                            clearInterval(_livePollers[callsign]);
-                            delete _livePollers[callsign];
-                            _liveLabels.delete(callsign);
-                            delete _liveLayersByCallsign[callsign];
-                            renderMap();
+                            const early = scheduledArrUTC && new Date() < scheduledArrUTC;
+                            if (early) _saveLandedEarly(callsign);
+                            finishTracking(early);
                             return;
                         }
                         if (scheduledArrUTC) {
                             const pastArr = new Date() > scheduledArrUTC;
                             if (pastArr && (missCount >= 3 || new Date() > new Date(scheduledArrUTC.getTime() + 30 * 60000))) {
-                                clearInterval(_livePollers[callsign]);
-                                delete _livePollers[callsign];
-                                _liveLabels.delete(callsign);
-                                delete _liveLayersByCallsign[callsign];
-                                renderMap();
+                                finishTracking(false);
                             }
                         }
                         return;
@@ -8633,7 +8642,10 @@ async function openAdminPanel(tab = 'users') {
                 toggle.style.background = '#16a34a';
                 row.style.borderColor   = '#16a34a';
                 fields.classList.add('hidden');
-                friendsSection.classList.add('hidden');
+                // Viewers are friend-gated now too (admin-assigned only, no self-service) --
+                // still show the toggle list so admin can actually grant them access to someone.
+                if (editingKey && editingKey !== 'admin') friendsSection.classList.remove('hidden');
+                else friendsSection.classList.add('hidden');
             } else {
                 knob.style.transform    = 'translateX(0px)';
                 toggle.style.background = '#3f3f46';
@@ -8724,7 +8736,7 @@ async function openAdminPanel(tab = 'users') {
                             .then(d => { if (d?.url) document.getElementById('edit-user-ics-url').value = d.url; })
                             .catch(() => {});
                     }
-                    if (isViewer || pilotKey === 'admin') {
+                    if (pilotKey === 'admin') {
                         friendsSection.classList.add('hidden');
                     } else {
                         friendsSection.classList.remove('hidden');
