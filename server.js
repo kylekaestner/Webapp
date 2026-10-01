@@ -1893,10 +1893,21 @@ app.get('/api/pilots/:pilotKey/here-now', (req, res) => {
             const lastFlight = completedFlights.length > 0 ? completedFlights[completedFlights.length - 1] : null;
             const lastArrival = lastFlight ? lastFlight.arr_airport : null;
 
+            // Strip a leading K/C from a 4-char code so KSUS === SUS -- mirrors app.html's
+            // normApt()/sameApt(). Needed because a pilot's stored flight segments can be in a
+            // different airport-code format than their profile's base/home_airport (e.g. Kyle's
+            // Schedaero feed uses full ICAO on every leg, independent of whichever format his
+            // profile fields happen to be saved in) -- this endpoint used to compare them raw,
+            // which could report atHome/atBase false for a real match.
+            const normApt = code => {
+                if (!code) return '';
+                const u = code.toUpperCase().trim();
+                return (u.length === 4 && (u[0] === 'K' || u[0] === 'C')) ? u.slice(1) : u;
+            };
             const home = pilot.home_airport || null;
             const base = pilot.base || null;
-            const atHome = lastArrival && home && lastArrival.toUpperCase() === home.toUpperCase();
-            const atBase = lastArrival && base && lastArrival.toUpperCase() === base.toUpperCase();
+            const atHome = !!(lastArrival && home && normApt(lastArrival) === normApt(home));
+            const atBase = !!(lastArrival && base && normApt(lastArrival) === normApt(base));
 
             // Active flights (dep past, arr future)
             const activeFlights = flights.filter(f => f.dep_past && f.arr_past === false);
