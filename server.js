@@ -1594,6 +1594,27 @@ function _notifyPilot(db, pilotKey, title, body, url = '/app') {
     );
 }
 
+// Crew visibility defaults to visible the instant a friendship exists (app.html's
+// getCrewVisible() only ever excludes keys explicitly listed in hidden_crew) -- but unfriending
+// someone explicitly adds them to hidden_crew (app.html's removeFriend()), and nothing ever
+// cleared that out again. Re-friending the same person later left them silently toggled off
+// despite being a brand-new friendship, because the stale hidden_crew entry from the earlier
+// unfriend was still sitting there. Called for both parties whenever a friendship newly becomes
+// accepted, regardless of which of the three paths (request auto-accept, respond-accept,
+// admin-assign) created it, and regardless of which side is the one taking the action -- the
+// other party's own hidden_crew needs the same cleanup even though they aren't the caller here.
+function _unhideFromEachOther(db, keyA, keyB) {
+    [[keyA, keyB], [keyB, keyA]].forEach(([self, other]) => {
+        db.get(`SELECT hidden_crew FROM pilots WHERE pilot_key=?`, [self], (err, row) => {
+            if (err || !row) return;
+            let hidden;
+            try { hidden = row.hidden_crew ? JSON.parse(row.hidden_crew) : []; } catch { hidden = []; }
+            if (!Array.isArray(hidden) || !hidden.includes(other)) return;
+            db.run(`UPDATE pilots SET hidden_crew=? WHERE pilot_key=?`, [JSON.stringify(hidden.filter(k => k !== other)), self]);
+        });
+    });
+}
+
 // Shared by GET /api/friends (caller's own list) and GET /api/admin/friends/:pilotKey (admin
 // reading any pilot's list) -- same JOIN query, just parameterized by whose rows to pull.
 function _getFriendsData(db, targetKey, cb) {
@@ -1655,6 +1676,7 @@ app.post('/api/friends/request', (req, res) => {
                         return db.run(`UPDATE friend_requests SET status='accepted', responded_at=CURRENT_TIMESTAMP WHERE id=?`, [existing.id], err2 => {
                             if (err2) return res.status(500).json({ error: err2.message });
                             res.json({ success: true, status: 'accepted' });
+                            _unhideFromEachOther(db, myKey, targetKey);
                             db.get('SELECT name FROM pilots WHERE pilot_key=?', [myKey], (_, row) => {
                                 _notifyPilot(db, targetKey, 'Friend request accepted', `${row?.name || myKey} accepted your friend request.`);
                             });
@@ -1689,6 +1711,7 @@ app.post('/api/friends/respond', (req, res) => {
                     if (err) return res.status(500).json({ error: err.message });
                     if (this.changes === 0) return res.status(404).json({ error: 'No pending request found' });
                     res.json({ success: true });
+                    _unhideFromEachOther(db, myKey, requesterKey);
                     db.get('SELECT name FROM pilots WHERE pilot_key=?', [myKey], (_, row) => {
                         _notifyPilot(db, requesterKey, 'Friend request accepted', `${row?.name || myKey} accepted your friend request.`);
                     });
@@ -1797,6 +1820,7 @@ app.post('/api/admin/friends', (req, res) => {
             (err, existing) => {
                 if (err) return res.status(500).json({ error: err.message });
                 const notifyBoth = () => {
+                    _unhideFromEachOther(db, pilotA, pilotB);
                     db.all(`SELECT pilot_key, name FROM pilots WHERE pilot_key IN (?, ?)`, [pilotA, pilotB], (_, rows) => {
                         const nameOf = k => rows?.find(r => r.pilot_key === k)?.name || k;
                         _notifyPilot(db, pilotA, 'New connection', `Your admin connected you with ${nameOf(pilotB)}.`);
