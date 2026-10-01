@@ -2391,11 +2391,11 @@
         }
 
         function _applyIdentityUI() {
-            const color    = myPilot ? PILOT_COLORS[myPilot] : myViewer ? '#10b981' : '#6366f1';
+            const color    = myPilot ? PILOT_COLORS[myPilot] : myViewer ? '#10b981' : isDemo ? '#6366f1' : '#6366f1';
             const initials = myPilot ? PILOT_NAMES[myPilot].split(' ').map(w => w[0]).join('')
-                           : myViewer ? myViewerName.split(' ').map(w => w[0]).join('') : '★';
-            const name     = myPilot ? PILOT_NAMES[myPilot] : myViewer ? myViewerName : 'Admin';
-            const role     = myPilot ? PILOT_ROLES[myPilot] : myViewer ? 'View only' : 'All access · no identity set';
+                           : myViewer ? myViewerName.split(' ').map(w => w[0]).join('') : isDemo ? 'D' : '★';
+            const name     = myPilot ? PILOT_NAMES[myPilot] : myViewer ? myViewerName : isDemo ? 'Demo' : 'Admin';
+            const role     = myPilot ? PILOT_ROLES[myPilot] : myViewer ? 'View only' : isDemo ? 'Demo preview' : 'All access · no identity set';
 
             // Mobile header avatar
             const av = document.getElementById('identity-avatar');
@@ -2413,7 +2413,7 @@
             const sidebarNm = document.getElementById('sidebar-identity-name');
             if (sidebarEl) sidebarEl.classList.remove('hidden');
             if (sidebarAv) { sidebarAv.textContent = initials; sidebarAv.style.background = color + '22'; sidebarAv.style.color = color; }
-            if (sidebarNm) sidebarNm.textContent = myPilot ? PILOT_NAMES[myPilot].split(' ')[0] : myViewer ? myViewerName.split(' ')[0] : 'Admin';
+            if (sidebarNm) sidebarNm.textContent = myPilot ? PILOT_NAMES[myPilot].split(' ')[0] : myViewer ? myViewerName.split(' ')[0] : isDemo ? 'Demo' : 'Admin';
 
             // Profile sheet
             const pAv = document.getElementById('profile-avatar');

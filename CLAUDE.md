@@ -815,6 +815,16 @@ Tampermonkey userscript (Kyle only) that autofills PRISM SMS (`prismsms.argus.ae
 
 ---
 
+## Demo mode (`/demo` route)
+
+`demo-data.js` generates fake pilots (`alex`, `morgan`, `casey`, `jordan`) for the read-only `/demo` preview. `GET /api/demo/pilots/:key` calls `buildDemoSegments()` fresh on every request (not cached at module load), so the server never serves stale demo data no matter how long it's been running.
+
+**Three-month window, not one.** `buildDemoSegments()` generates data for the previous, current, and next month (relative to the server's own clock) and concatenates them per pilot — it does not generate just "the current month." A single-month window was tried first and found insufficient: the server computes "now" using its own clock (UTC on the prod droplet), which can disagree with a visitor's local calendar near a month boundary — e.g. the server has already rolled into the next month (past midnight UTC) while a US-timezone visitor's local evening is still the previous day. Their browser would default to viewing "their" current month while the demo data was anchored to the server's, leaving the view blank. The three-month window makes this mismatch irrelevant since both interpretations of "today" always fall inside the generated range. `anchorForMonthOffset(n)` returns the 15th of the month `n` months from now; `buildForAnchor(ANCHOR, idStart)` builds one month's segments for all four pilots (the `idStart` param keeps segment ids unique across the three calls — 1000/2000/3000).
+
+**Identity display:** `/demo` has no login token, so `myPilot`/`myViewer` are both falsy — the same state as a real admin session. `_applyIdentityUI()` checks `isDemo` before falling back to the admin label, showing "Demo" instead of "Admin" in the sidebar/profile identity display. If adding new identity-driven UI text elsewhere, check `isDemo` the same way rather than assuming `!myPilot && !myViewer` always means admin.
+
+---
+
 ## Offline / connectivity
 
 `#offline-banner` (red bar at top) appears when browser goes offline (`window.addEventListener('offline')`). Slides down from top. Disappears on `'online'` event.

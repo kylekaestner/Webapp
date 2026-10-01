@@ -15,24 +15,23 @@ const DEMO_PILOTS = {
     jordan: { pilot_key: 'jordan', name: 'Jordan Ellis',  base: 'JFK' },
 };
 
-function currentAnchor() {
+function anchorForMonthOffset(offset) {
     const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-15`;
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 15);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-15`;
 }
 
-// Builds all four pilots' demo segments fresh, anchored to the current month.
-// Called per-request (see server.js) rather than once at module load, so the
-// demo never goes stale no matter how long the server stays up between deploys.
-function buildDemoSegments() {
-    const ANCHOR = currentAnchor();
-
+// Builds one month's worth of segments for all four pilots, anchored to the
+// 15th of whichever month ANCHOR falls in. idStart keeps ids unique when this
+// is called multiple times (see buildDemoSegments below).
+function buildForAnchor(ANCHOR, idStart) {
     function dt(base, n, hhmm) {
         const d = new Date(base + 'T12:00:00Z');
         d.setUTCDate(d.getUTCDate() + n);
         return `${d.toISOString().slice(0, 10)}T${hhmm}:00`;
     }
 
-    let _id = 1000;
+    let _id = idStart;
     function seg(pilotId, type, n0, hhmm0, n1, hhmm1, dep, arr, opts = {}) {
         return {
             id: ++_id,
@@ -263,6 +262,25 @@ const jordan = [
 ];
 
     return { alex, morgan, casey, jordan };
+}
+
+// Builds three months (prior, current, next) of segments per pilot and
+// concatenates them. A single current-month window isn't enough: the server
+// computes "now" in its own clock/timezone, which can disagree with a
+// visitor's local date near a month boundary (e.g. server already past
+// midnight UTC into the next month while the visitor's local evening is
+// still the previous day) — a one-month window would then be blank for
+// whichever month the visitor is actually looking at. Three months covers
+// that mismatch regardless of which side of the boundary either clock is on.
+function buildDemoSegments() {
+    const a = buildForAnchor(anchorForMonthOffset(-1), 1000);
+    const b = buildForAnchor(anchorForMonthOffset(0), 2000);
+    const c = buildForAnchor(anchorForMonthOffset(1), 3000);
+    const merged = {};
+    for (const key of Object.keys(DEMO_PILOTS)) {
+        merged[key] = [...a[key], ...b[key], ...c[key]];
+    }
+    return merged;
 }
 
 module.exports = { DEMO_PILOTS, buildDemoSegments };
