@@ -6974,6 +6974,14 @@
             attachTooltips();
             // start live ADS-B polling for any active flights in calendar/list
             if (currentView === 'grid' || currentView === 'list') startCalListLivePolling();
+            // Grid cells scroll their own flight list independently (.overflow-y-auto per day) --
+            // a live leg later in the day can load scrolled out of view behind earlier legs.
+            // scrollIntoView with 'nearest' scrolls just that cell's internal list, not the page.
+            if (currentView === 'grid') {
+                gridContainer.querySelectorAll('.flight-item.active-leg').forEach(el => {
+                    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                });
+            }
         }
 
         // ── Client-side parsers ──────────────────────────────────────────────
