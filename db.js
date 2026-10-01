@@ -156,6 +156,12 @@ function initDB() {
         // consistent with a friends-based model where befriending someone should show them
         // immediately, not require a second manual toggle. See GET/PUT /api/crew-visibility.
         db.run(`ALTER TABLE pilots ADD COLUMN hidden_crew TEXT DEFAULT '[]'`, () => {});
+        // Pilot's brand color (hex), used for map arcs/legends/pill highlights throughout the
+        // app. Previously hardcoded per pilot_key in app.html (PILOT_COLORS) with no DB backing
+        // at all -- see the one-time coreRosterMigrated backfill below for where the original
+        // values get copied in. NULL means "no assigned color yet"; the frontend falls back to
+        // its auto-assigned rotating palette (_assignColor()) for any pilot without one.
+        db.run(`ALTER TABLE pilots ADD COLUMN color TEXT`, () => {});
 
         // Backfill home_airport for known pilots where it hasn't been explicitly set.
         // home_airport = where the pilot LIVES; base = airline domicile (may differ for commuters).
@@ -192,6 +198,43 @@ function initDB() {
             } else {
                 console.log('Pilots table initialized');
             }
+        });
+
+        // One-time migration: copy the original hardcoded pilot config (server.js's old
+        // pilotParsers/pilotAirlineCodes maps, and app.html's old PILOT_COLORS/PILOT_ROLES
+        // objects) into the DB, then stop treating these 5-9 pilots as special. Before this,
+        // the real values lived only in source code and silently overrode whatever was in these
+        // DB columns -- which is exactly why the admin panel showed Drew as "Republic Airways"
+        // (his real airline, GoJet, was never written to his DB row) and why editing these
+        // pilots' airline through the admin panel didn't actually change their real parsing.
+        // Guarded by settings.coreRosterMigrated so it only ever runs once -- after that, these
+        // columns are normal, admin-editable pilot data like any other pilot's, and this block
+        // must never overwrite a since-customized value.
+        db.get(`SELECT value FROM settings WHERE key='coreRosterMigrated'`, (err, row) => {
+            if (err || (row && row.value === '1')) return;
+            const knownParsers = { kyle: 'schedaero', adam: 'csv', sam: 'csv', logan: 'vcs_skywest', drew: 'ics_rosterbuster' };
+            const knownAirlineCodes = { kyle: 'SJJ', adam: 'RPA', sam: 'RPA', logan: 'SKW', drew: 'GJS' };
+            const knownColors = {
+                kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185',
+                brett: '#10b981', hunter: '#f59e0b', nick: '#e879f9', jack: '#38bdf8'
+            };
+            const knownRoles = {
+                kyle: 'Corporate · SUS', adam: 'Regional · TUL', sam: 'Regional · STL',
+                logan: 'Regional · PHX', drew: 'Regional · STL'
+            };
+            Object.entries(knownParsers).forEach(([key, parserType]) => {
+                db.run(`UPDATE pilots SET parser_type=? WHERE pilot_key=?`, [parserType, key]);
+            });
+            Object.entries(knownAirlineCodes).forEach(([key, code]) => {
+                db.run(`UPDATE pilots SET airline_code=? WHERE pilot_key=?`, [code, key]);
+            });
+            Object.entries(knownColors).forEach(([key, color]) => {
+                db.run(`UPDATE pilots SET color=? WHERE pilot_key=? AND (color IS NULL OR color='')`, [color, key]);
+            });
+            Object.entries(knownRoles).forEach(([key, role]) => {
+                db.run(`UPDATE pilots SET role=? WHERE pilot_key=? AND (role IS NULL OR role='')`, [role, key]);
+            });
+            db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('coreRosterMigrated', '1')`);
         });
     });
 }

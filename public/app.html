@@ -503,26 +503,7 @@
 
         <div id="sidebar-pilot-list" class="px-3 pb-3 space-y-0.5 mt-2">
             <p class="text-[9px] font-bold text-zinc-600 uppercase tracking-widest px-2 pt-1 pb-2">Crew</p>
-            <button onclick="loadPilot('kyle')" id="pilot-kyle" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);color:#3b82f6">K</span>
-                <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Kyle Kaestner</span>
-            </button>
-            <button onclick="loadPilot('adam')" id="pilot-adam" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(45,212,191,0.15);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf">A</span>
-                <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Adam Burke</span>
-            </button>
-            <button onclick="loadPilot('sam')" id="pilot-sam" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(249,115,22,0.15);border:1px solid rgba(249,115,22,0.3);color:#f97316">S</span>
-                <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Sam Byrne</span>
-            </button>
-            <button onclick="loadPilot('logan')" id="pilot-logan" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(129,140,248,0.15);border:1px solid rgba(129,140,248,0.3);color:#818cf8">L</span>
-                <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Logan Hine</span>
-            </button>
-            <button onclick="loadPilot('drew')" id="pilot-drew" class="pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5">
-                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:rgba(251,113,133,0.15);border:1px solid rgba(251,113,133,0.3);color:#fb7185">D</span>
-                <span class="text-[13px] font-semibold text-zinc-300 text-left truncate">Drew Sinelli</span>
-            </button>
+            <!-- Populated entirely by _syncPilotRoster() from the DB -- no hardcoded pilots here. -->
         </div>
 
         </div><!-- end scrollable area -->
@@ -613,11 +594,7 @@
 
         <!-- Mobile pilot selector bar -->
         <div id="mobile-pilot-bar" class="md:hidden flex gap-2 px-3 py-2 bg-zinc-950 border-b border-zinc-800 shrink-0 overflow-x-auto">
-            <button onclick="loadPilot('kyle')" id="mpilot-kyle" class="mpilot-btn flex-none px-4 py-2.5 rounded-full border border-zinc-700 text-sm font-black text-zinc-400 whitespace-nowrap">Kyle</button>
-            <button onclick="loadPilot('adam')" id="mpilot-adam" class="mpilot-btn flex-none px-4 py-2.5 rounded-full border border-zinc-700 text-sm font-black text-zinc-400 whitespace-nowrap">Adam</button>
-            <button onclick="loadPilot('sam')" id="mpilot-sam" class="mpilot-btn flex-none px-4 py-2.5 rounded-full border border-zinc-700 text-sm font-black text-zinc-400 whitespace-nowrap">Sam</button>
-            <button onclick="loadPilot('logan')" id="mpilot-logan" class="mpilot-btn flex-none px-4 py-2.5 rounded-full border border-zinc-700 text-sm font-black text-zinc-400 whitespace-nowrap">Logan</button>
-            <button onclick="loadPilot('drew')" id="mpilot-drew" class="mpilot-btn flex-none px-4 py-2.5 rounded-full border border-zinc-700 text-sm font-black text-zinc-400 whitespace-nowrap">Drew</button>
+            <!-- Populated entirely by _syncPilotRoster() from the DB -- no hardcoded pilots here. -->
         </div>
 
         <!-- Mobile next flight strip (signed-in pilots only, hidden when no upcoming flight) -->
@@ -1517,6 +1494,16 @@
                 <p class="text-[10px] text-zinc-500 mt-2">Bookmark this link or add it to your Home Screen — opening it signs you in automatically.</p>
             </div>
 
+            <!-- My Info: self-service base/home/airline. Moved, changed crew base, or started
+                 flying for a new carrier -- update it here instead of asking an admin. -->
+            <div id="my-info-section" class="hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">My Info</label>
+                    <button onclick="openEditMyInfoModal()" class="text-[10px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest">Edit</button>
+                </div>
+                <div id="my-info-summary" class="text-xs text-zinc-400 font-bold py-1"></div>
+            </div>
+
             <!-- Friends -->
             <div id="friends-section">
                 <div class="flex items-center justify-between mb-2">
@@ -1668,6 +1655,7 @@
                     <option value="DAL">Delta Air Lines (MiCrew)</option>
                     <option value="AAL">American Airlines (MobileCCI)</option>
                     <option value="SWA">Southwest Airlines (CrewHub)</option>
+                    <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
                     <option value="OTHER">Other / Auto-detect</option>
                 </select>
             </div>
@@ -1690,6 +1678,56 @@
             <div id="edit-user-friends-list" class="space-y-1.5 max-h-60 overflow-y-auto"></div>
         </div>
         <div id="edit-user-error" class="hidden text-xs text-red-400 font-bold"></div>
+    </div>
+    </div>
+</div>
+
+<!-- Edit My Info Modal — self-service: base, home airport, airline/carrier. Same full-page
+     shell as the admin edit-user modal, scoped down to exactly what a pilot may change about
+     their own profile (no name/role -- role is a permission level, admin-only). -->
+<div id="edit-my-info-modal" class="hidden fixed inset-0 z-[1003] bg-zinc-950 flex flex-col">
+    <div class="shrink-0 border-b border-zinc-800 flex items-center justify-between px-4 md:px-8 pb-3 gap-3" style="padding-top:max(1rem,env(safe-area-inset-top))">
+        <div class="flex items-center gap-3 min-w-0">
+            <button onclick="closeEditMyInfoModal()" class="w-10 h-10 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors text-lg shrink-0">←</button>
+            <h2 class="text-lg md:text-xl font-black text-white truncate">My Info</h2>
+        </div>
+        <button id="my-info-save-btn" onclick="saveMyInfo()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors shadow-lg shadow-indigo-950/40 shrink-0">Save</button>
+    </div>
+    <div class="overflow-y-auto flex-1 min-h-0 p-4 md:p-8" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+    <div class="max-w-xl mx-auto space-y-5">
+        <p class="text-[10px] text-zinc-500">Moved, changed crew base, or started flying for a new carrier? Update it here.</p>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
+                <input id="my-info-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
+                <input id="my-info-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+        </div>
+        <div>
+            <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
+            <select id="my-info-airline-sel" onchange="_onMyInfoAirlineChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                <option value="">— Select airline —</option>
+                <option value="GJS">GoJet Airlines</option>
+                <option value="SKW">SkyWest Airlines</option>
+                <option value="RPA">Republic Airways</option>
+                <option value="SCX">Sun Country Airlines</option>
+                <option value="GTI">Atlas Air</option>
+                <option value="DAL">Delta Air Lines (MiCrew)</option>
+                <option value="AAL">American Airlines (MobileCCI)</option>
+                <option value="SWA">Southwest Airlines (CrewHub)</option>
+                <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
+                <option value="OTHER">Other / Auto-detect</option>
+            </select>
+        </div>
+        <div id="my-info-ics-row" class="hidden space-y-1">
+            <label class="text-[9px] font-black text-zinc-500 uppercase block" id="my-info-ics-label">ICS Calendar URL</label>
+            <input id="my-info-ics-url" type="url" placeholder="https://…" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            <p class="text-[10px] text-zinc-600" id="my-info-ics-hint">Paste the private subscription link from your airline's scheduling app.</p>
+        </div>
+        <div id="my-info-error" class="hidden text-xs text-red-400 font-bold"></div>
     </div>
     </div>
 </div>
@@ -1958,30 +1996,29 @@
         let mapDayDate = _localToday();
 
         // PILOT_KEYS is the authoritative ordered list of pilot keys for the session.
-        // _syncPilotRoster() pushes additional pilots (e.g. Brett) after startup.
+        // Demo mode still starts with its fake fixture pilots (there's no real DB roster to load
+        // for /demo). For a real session, this starts EMPTY and is populated entirely by
+        // _syncPilotRoster() from /api/pilots-directory inside initIdentity() -- including the
+        // 5 original pilots, which used to be hardcoded here directly. That hardcoding is what
+        // caused the admin panel's airline/role display bugs (see db.js's coreRosterMigrated
+        // migration): their real config lived only in source code, not in the DB the admin panel
+        // actually reads, so editing them there silently did nothing. Now every pilot, old or
+        // newly joined, goes through the exact same DB-backed registration path.
         // VALID_PILOTS is the same array reference -- always treat them as identical.
-        const PILOT_KEYS   = _isDemo ? ['alex','morgan','casey','jordan'] : ['kyle','adam','sam','logan','drew'];
+        const PILOT_KEYS   = _isDemo ? ['alex','morgan','casey','jordan'] : [];
         const VALID_PILOTS = PILOT_KEYS;
 
-        // PILOT_COLORS / PILOT_NAMES / PILOT_ROLES / PILOT_HOME are plain objects
-        // so _syncPilotRoster() can add new entries for dynamically joined pilots.
+        // PILOT_COLORS / PILOT_NAMES / PILOT_ROLES / PILOT_HOME are plain objects, populated by
+        // _syncPilotRoster() (see above) for a real session, or the fake demo roster below.
         const PILOT_COLORS = _isDemo
             ? { alex: '#3b82f6', morgan: '#2dd4bf', casey: '#f97316', jordan: '#818cf8' }
-            : { kyle: '#3b82f6', adam: '#2dd4bf', sam: '#f97316', logan: '#818cf8', drew: '#fb7185',
-                brett: '#10b981', hunter: '#f59e0b', nick: '#e879f9', jack: '#38bdf8' };
-        // Rotating palette for any future dynamically-joined pilots not listed above
+            : {};
+        // Rotating palette for any pilot without a `color` set in the DB
         const _dynamicColorPool = ['#a3e635','#c084fc','#f43f5e','#06b6d4','#ff8c42','#7dd3fc','#4ade80','#e879f9'];
-        // Sync hardcoded sidebar avatar circles with PILOT_COLORS so they always match maps
-        (function() { Object.entries(PILOT_COLORS).forEach(([key, color]) => {
-            const btn = document.getElementById(`pilot-${key}`);
-            if (!btn) return;
-            const circle = btn.querySelector('span[style]');
-            if (circle) { circle.style.background = color + '26'; circle.style.borderColor = color + '50'; circle.style.color = color; }
-        }); })();
         const hiddenPilots = new Set(); // pilot keys toggled off in the map legend
         const PILOT_NAMES = _isDemo
             ? { alex: 'Alex Rivera', morgan: 'Morgan Tate', casey: 'Casey Walsh', jordan: 'Jordan Ellis' }
-            : { kyle: 'Kyle Kaestner', adam: 'Adam Burke', sam: 'Sam Byrne', logan: 'Logan Hine', drew: 'Drew Sinelli' };
+            : {};
         function shortName(full) {
             if (!full) return full;
             const parts = String(full).trim().split(/\s+/);
@@ -1989,17 +2026,17 @@
         }
         const PILOT_ROLES = _isDemo
             ? { alex: 'Major · ORD', morgan: 'Major · ATL', casey: 'Low-Cost · DEN', jordan: 'Major · JFK' }
-            : { kyle: 'Corporate · SUS', adam: 'Regional · TUL', sam: 'Regional · STL', logan: 'Regional · PHX', drew: 'Regional · STL' };
+            : {};
         const PILOT_HOME = _isDemo
             ? { alex: 'ORD', morgan: 'ATL', casey: 'DEN', jordan: 'JFK' }
-            : { kyle: 'SUS', drew: 'STL', sam: 'STL', adam: 'TUL', logan: 'PHX' };
+            : {};
 
         // ── Identity system ───────────────────────────────────────────────
         // Execution order at startup:
         //   initIdentity() -> _syncPilotRoster() -> loadPilot(defaultPilot)
-        // initIdentity() sets myPilot / myToken / isDemo, registers the signed-in
-        // pilot into PILOT_KEYS if they joined after the hardcoded list was written,
-        // and applies all identity-driven UI (avatar, upload locks, add-flight gate).
+        // initIdentity() sets myPilot / myToken / isDemo, calls _syncPilotRoster() to load the
+        // entire pilot roster (including the signed-in pilot) from the DB, and applies all
+        // identity-driven UI (avatar, upload locks, add-flight gate).
         let myPilot      = null;  // who you ARE (null = admin or viewer)
         let myToken      = null;  // token from URL -- kept for personal link copy
         let isDemo       = false; // read-only demo mode (/demo route)
@@ -2038,35 +2075,10 @@
                         } else {
                             myPilot = data.pilotKey;
                         }
-                        // Dynamically register pilot if not in the hardcoded list (e.g., newly joined)
-                        if (myPilot && !PILOT_KEYS.includes(myPilot)) {
-                            const firstName = (data.name || myPilot).split(' ')[0];
-                            PILOT_KEYS.push(myPilot);
-                            PILOT_NAMES[myPilot] = data.name || myPilot;
-                            PILOT_HOME[myPilot]  = data.home_airport || '';
-                            PILOT_ROLES[myPilot] = data.base || '';
-                            PILOT_COLORS[myPilot] = '#6366f1';
-                            // Add pill buttons to DOM
-                            const mobileBar = document.getElementById('mobile-pilot-bar');
-                            if (mobileBar && !document.getElementById(`mpilot-${myPilot}`)) {
-                                const mb = document.createElement('button');
-                                mb.onclick = () => loadPilot(myPilot);
-                                mb.id = `mpilot-${myPilot}`;
-                                mb.className = 'mpilot-btn flex-none px-4 py-2.5 rounded-full border border-zinc-700 text-sm font-black text-zinc-400 whitespace-nowrap';
-                                mb.textContent = firstName;
-                                mobileBar.appendChild(mb);
-                            }
-                            const sidebarList = document.getElementById('sidebar-pilot-list');
-                            if (sidebarList && !document.getElementById(`pilot-${myPilot}`)) {
-                                const db = document.createElement('button');
-                                db.onclick = () => loadPilot(myPilot);
-                                db.id = `pilot-${myPilot}`;
-                                db.className = 'pilot-avatar-btn w-full flex items-center gap-3 px-2.5 py-2.5';
-                                const pc = PILOT_COLORS[myPilot] || '#6366f1';
-                                db.innerHTML = `<span class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background:${pc}26;border:1px solid ${pc}50;color:${pc}">${firstName[0]}</span><span class="text-[13px] font-semibold text-zinc-300 text-left truncate">${PILOT_NAMES[myPilot]}</span>`;
-                                sidebarList.appendChild(db);
-                            }
-                        }
+                        // Pilot registration into PILOT_KEYS/NAMES/HOME/ROLES/COLORS (and the
+                        // matching pill-bar/sidebar DOM buttons) happens uniformly for every
+                        // pilot, including this one, via _syncPilotRoster() right below --
+                        // there's no separate hardcoded-vs-dynamic distinction anymore.
                     } else {
                         // Token invalid — clear stored token so we don't loop
                         localStorage.removeItem('crewsync_token');
@@ -2084,14 +2096,13 @@
             const banner = document.getElementById('demo-banner');
             if (banner) banner.classList.toggle('hidden', !isDemo);
 
-            // Roster must be synced BEFORE building any friend-based UI below: a friend can be a
-            // newly-joined pilot that only exists in the DB, not in the hardcoded PILOT_KEYS/
-            // PILOT_NAMES. _buildCrewVisibilityUI() indexes PILOT_NAMES[friendKey] directly with
-            // no fallback -- if that pilot isn't registered yet, it throws and aborts the rest of
-            // this function (and the whole DOMContentLoaded handler after it), which is why
-            // auto-selecting your own schedule and opening the profile sheet both silently broke
-            // for any pilot whose friend list includes a non-core pilot. (Admin/viewer never hit
-            // this because visiblePilotKeys() for them is just the hardcoded PILOT_KEYS.)
+            // Roster must be synced BEFORE building any friend-based UI below: PILOT_KEYS/
+            // PILOT_NAMES start empty, and a friend's name isn't registered until this runs.
+            // _buildCrewVisibilityUI() indexes PILOT_NAMES[friendKey] directly with a fallback to
+            // the raw key now (see its own comment) -- but historically had no fallback at all,
+            // so calling this out of order once threw and aborted the rest of this function (and
+            // the whole DOMContentLoaded handler after it), which silently broke both schedule
+            // auto-select and the profile sheet for the affected pilot. Keep this ordering.
             if (!isDemo) await _syncPilotRoster();
 
             // Friends must be loaded (and, for a first-time pilot, seeded from their existing
@@ -2467,6 +2478,14 @@
             // Pilots, viewers, and admin all get crew visibility
             const cvSection = document.getElementById('crew-visibility-section');
             if (cvSection) cvSection.classList.remove('hidden');
+
+            // Self-service base/home/airline -- real pilots only. Admin edits anyone through the
+            // admin panel; viewers and demo have no schedule-source profile to maintain.
+            const myInfoSection = document.getElementById('my-info-section');
+            if (myInfoSection) {
+                myInfoSection.classList.toggle('hidden', !myPilot || isDemo);
+                if (myPilot && !isDemo) _renderMyInfoSummary();
+            }
 
             // Friends only apply to real pilots -- admin and viewers already bypass the friend
             // requirement server-side and see everyone, so a friend list has nothing to do for them.
@@ -2904,8 +2923,6 @@
             'YOT': 'Ottawa Area', 'YCA': 'Calgary Area', 'YEA': 'Edmonton Area',
         };
 
-        const PILOT_HOMES   = { kyle: 'SUS', adam: 'TUL', sam: 'STL', logan: 'PHX', drew: 'STL' };
-        const PILOT_CARRIER = { kyle: 'SJJ', adam: 'RPA', sam: 'RPA', logan: 'SKW', drew: 'GJS' };
         const IATA_TO_CALLSIGN = {
             // Regionals (existing crew airlines)
             G7: 'GJS', OO: 'SKW', YX: 'RPA', '9E': 'FLG',
@@ -2930,7 +2947,7 @@
         function sameApt(a, b) { return !!a && !!b && normApt(a) === normApt(b); }
         function isHomeAirport(airport, pilotKey) {
             if (!airport) return false;
-            const homes = PILOT_HOME_AIRPORTS[pilotKey] || (PILOT_HOME[pilotKey] ? [PILOT_HOME[pilotKey]] : null) || (PILOT_HOMES[pilotKey] ? [PILOT_HOMES[pilotKey]] : []);
+            const homes = PILOT_HOME_AIRPORTS[pilotKey] || (PILOT_HOME[pilotKey] ? [PILOT_HOME[pilotKey]] : []);
             return homes.some(h => sameApt(h, airport));
         }
         function isBaseAirport(airport, pilotKey) {
@@ -5121,7 +5138,7 @@
             });
 
             // Current position pin
-            const home = PILOT_HOMES[currentPilot] || null;
+            const home = PILOT_HOME[currentPilot] || null;
             const allFlightsSorted = allFlights.slice().sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
             const isAirborne = allFlightsSorted.some(f => {
                 const d = flightUTCTime(f.departureTime, f.departureAirport);
@@ -5356,11 +5373,10 @@
         // ── Live flight tracking (OpenSky Network) ────────────────────────
         // deriveCallsign: converts a stored flight number to the ICAO callsign
         // used by OpenSky (e.g. 'RPA1234' -> 'RPA1234', 'SKW567' -> 'SKW567').
-        // PILOT_CARRIER maps pilot keys to their operator ICAO (kyle='SJJ', etc.).
         // Returns null if no flight number -- single-aircraft ops have no callsign.
         function deriveCallsign(seg, pilotKey) {
             const fn = (seg.flightNumber || seg.flight_number || '').replace(/\s/g, '').toUpperCase();
-            const carrier = PILOT_CARRIER[pilotKey] || pilotsCache[pilotKey]?.airline_code || '';
+            const carrier = pilotsCache[pilotKey]?.airline_code || '';
             if (fn) return normalizeFlightNum(fn, carrier) || null;
             if (pilotKey === 'kyle') {
                 const digits = (seg.tail || '').replace(/\D/g, '');
@@ -6082,7 +6098,7 @@
 
                     const pilotName = (PILOT_NAMES[pilotKey] || pilotKey).split(' ')[0];
                     const pilotColor = PILOT_COLORS[pilotKey] || '#94a3b8';
-                    const homeCode   = PILOT_HOME[pilotKey] || PILOT_HOMES[pilotKey] || null;
+                    const homeCode   = PILOT_HOME[pilotKey] || null;
 
                     const pilotFlights = segs
                         .filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime)
@@ -8601,6 +8617,14 @@ async function openAdminPanel(tab = 'users') {
               icsLabel: 'MobileCCI ICS URL', icsHint: 'The published calendar subscription link from MobileCCI.' },
             { icao: 'SWA',   dbCode: 'SWA', parser: 'ics_southwest', needsIcs: true,
               icsLabel: 'CrewHub ICS URL', icsHint: 'The published calendar subscription link from CrewHub.' },
+            // Kyle's private corporate operator -- not a public airline, so there's no ICS URL
+            // field for it (sync happens via the separate Schedaero modal/quick-sync buttons,
+            // gated elsewhere purely on parser_type === 'schedaero'). This option exists so his
+            // profile has a real, selectable match instead of silently falling through to
+            // "Other" -- which, now that parser_type/airline_code are plain DB columns with no
+            // hardcoded override protecting them, would have actually broken his Schedaero sync
+            // if anyone ever saved his profile without it.
+            { icao: 'SJJ',   dbCode: 'SJJ', parser: 'schedaero', needsIcs: false },
             { icao: 'OTHER', dbCode: '',    parser: 'other', needsIcs: false },
         ];
 
@@ -8773,7 +8797,7 @@ async function openAdminPanel(tab = 'users') {
                     const r = await fetch(`${API_BASE}/pilots/${pilotKey}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name: `${firstName} ${lastName}`.trim(), base, homeAirport, role, parserType: parser, airlineCode: airline })
+                        body: JSON.stringify({ token: myToken, name: `${firstName} ${lastName}`.trim(), base, homeAirport, role, parserType: parser, airlineCode: airline })
                     });
                     if (!r.ok) { errEl.textContent = 'Save failed — try again'; errEl.classList.remove('hidden'); return; }
                 } else {
@@ -8806,11 +8830,112 @@ async function openAdminPanel(tab = 'users') {
             finally { saveBtn.textContent = pilotKey ? 'Save' : 'Add User'; saveBtn.disabled = false; }
         }
 
+        // ── Self-service profile editing (base / home / airline) ──────────────
+        // Lets a pilot update their own base, home airport, and carrier without going through
+        // admin -- for when they move, change crew base, or start flying for a new airline.
+        // Reuses the same PUT /api/pilots/:key endpoint the admin edit-user modal uses, but a
+        // self-edit can't touch `role` (server-enforced too) since that's a permission level.
+        function _renderMyInfoSummary() {
+            const el = document.getElementById('my-info-summary');
+            if (!el || !myPilot) return;
+            const p = pilotsCache[myPilot];
+            if (!p) { el.textContent = ''; return; }
+            const opt = AIRLINE_OPTIONS.find(o => o.icao === (p.airline_code || ''));
+            const airlineLabel = (opt && opt.icao !== 'OTHER')
+                ? document.querySelector(`#edit-user-airline-sel option[value="${opt.icao}"]`)?.textContent
+                : null;
+            el.textContent = `${p.base || '—'} base · ${p.home_airport || '—'} home${airlineLabel ? ' · ' + airlineLabel : ''}`;
+        }
+
+        async function openEditMyInfoModal() {
+            if (!myPilot) return;
+            document.getElementById('my-info-error').classList.add('hidden');
+            let pilot = pilotsCache[myPilot];
+            if (!pilot) {
+                try { pilot = await fetch(`${API_BASE}/pilots/${myPilot}?token=${encodeURIComponent(myToken)}`).then(r => r.json()); }
+                catch { pilot = {}; }
+            }
+            document.getElementById('my-info-base').value = pilot?.base || '';
+            document.getElementById('my-info-home').value = pilot?.home_airport || '';
+            const asel = _airlineSelectValue(pilot?.airline_code || '', pilot?.parser_type || '');
+            document.getElementById('my-info-airline-sel').value = asel;
+            _onMyInfoAirlineChange();
+            document.getElementById('my-info-ics-url').value = '';
+            const aopt = AIRLINE_OPTIONS.find(o => o.icao === asel);
+            if (aopt?.needsIcs) {
+                fetch(`${API_BASE}/pilots/${myPilot}/ics-url`)
+                    .then(r => r.ok ? r.json() : null)
+                    .then(d => { if (d?.url) document.getElementById('my-info-ics-url').value = d.url; })
+                    .catch(() => {});
+            }
+            document.getElementById('edit-my-info-modal').classList.remove('hidden');
+        }
+
+        function _onMyInfoAirlineChange() {
+            const val = document.getElementById('my-info-airline-sel').value;
+            const opt = AIRLINE_OPTIONS.find(o => o.icao === val);
+            document.getElementById('my-info-ics-row').classList.toggle('hidden', !opt?.needsIcs);
+            document.getElementById('my-info-ics-label').textContent = opt?.icsLabel || 'ICS Calendar URL';
+            document.getElementById('my-info-ics-hint').textContent  = opt?.icsHint
+                || "Paste the private subscription link from your airline's scheduling app.";
+        }
+
+        function closeEditMyInfoModal() {
+            document.getElementById('edit-my-info-modal').classList.add('hidden');
+        }
+
+        async function saveMyInfo() {
+            if (!myPilot) return;
+            const base        = document.getElementById('my-info-base').value.trim();
+            const homeAirport = document.getElementById('my-info-home').value.trim();
+            const airlineSel  = document.getElementById('my-info-airline-sel').value;
+            const airlineOpt  = AIRLINE_OPTIONS.find(o => o.icao === airlineSel) || { dbCode: '', parser: 'other', needsIcs: false };
+            const airline     = airlineOpt.dbCode || '';
+            const parser      = airlineOpt.parser;
+            const icsUrl      = airlineOpt.needsIcs ? document.getElementById('my-info-ics-url').value.trim() : '';
+            const errEl       = document.getElementById('my-info-error');
+            const saveBtn     = document.getElementById('my-info-save-btn');
+
+            errEl.classList.add('hidden');
+            saveBtn.textContent = 'Saving…';
+            saveBtn.disabled = true;
+
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, name: PILOT_NAMES[myPilot] || myPilot, base, homeAirport, parserType: parser, airlineCode: airline })
+                });
+                if (!r.ok) { errEl.textContent = 'Save failed — try again'; errEl.classList.remove('hidden'); return; }
+
+                if (icsUrl) {
+                    saveBtn.textContent = 'Syncing…';
+                    const syncR = await fetch(`${API_BASE}/pilots/${myPilot}/sync-ics`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: icsUrl })
+                    });
+                    if (!syncR.ok) {
+                        const syncErr = await syncR.json().catch(() => ({}));
+                        errEl.textContent = `Saved, but sync failed: ${syncErr.error || 'Unknown'}`;
+                        errEl.classList.remove('hidden');
+                    }
+                }
+
+                PILOT_HOME[myPilot] = homeAirport || PILOT_HOME[myPilot];
+                closeEditMyInfoModal();
+                await loadPilot(myPilot);
+                _renderMyInfoSummary();
+                updateUploadSyncButtons(myPilot);
+                if (!errEl.textContent) showToast('Your info was updated');
+            } catch { errEl.textContent = 'Network error'; errEl.classList.remove('hidden'); }
+            finally { saveBtn.textContent = 'Save'; saveBtn.disabled = false; }
+        }
+
         async function confirmDeleteUser(pilotKey, name) {
             const ok = await showConfirm(`Delete ${name}?`, 'This will permanently remove their account and all schedule data.');
             if (!ok) return;
             try {
-                const r = await fetch(`${API_BASE}/pilots/${pilotKey}`, { method: 'DELETE' });
+                const r = await fetch(`${API_BASE}/pilots/${pilotKey}?token=${encodeURIComponent(myToken)}`, { method: 'DELETE' });
                 if (!r.ok) { showToast('Delete failed', 'error'); return; }
                 await loadAdminUsers();
                 showToast(`${name} deleted`);
@@ -8821,7 +8946,7 @@ async function openAdminPanel(tab = 'users') {
             const ok = await showConfirm(`New link for ${name}?`, 'Their old link will stop working immediately.', { label: 'Regenerate', danger: false });
             if (!ok) return;
             try {
-                const r = await fetch(`${API_BASE}/pilots/${pilotKey}/regenerate-token`, { method: 'POST' });
+                const r = await fetch(`${API_BASE}/pilots/${pilotKey}/regenerate-token?token=${encodeURIComponent(myToken)}`, { method: 'POST' });
                 if (!r.ok) { showToast('Failed to regenerate link', 'error'); return; }
                 await loadAdminUsers();
                 showToast(`New link generated for ${name}`);
@@ -11009,12 +11134,15 @@ async function openAdminPanel(tab = 'users') {
             }
         });
 
-        // _syncPilotRoster -- called once at startup (non-demo only).
-        // Fetches /api/pilots and pushes any pilot not in PILOT_KEYS into:
+        // _syncPilotRoster -- called once at startup (non-demo only), inside initIdentity()
+        // before any pilot-dependent UI builds. The ONLY source of the pilot roster -- PILOT_KEYS
+        // starts empty for a real session, so this registers every pilot from the DB
+        // (/api/pilots-directory), old and new alike, into:
         //   PILOT_KEYS, PILOT_NAMES, PILOT_ROLES, PILOT_HOME, PILOT_COLORS
-        // Also creates DOM pill buttons for them, then calls _rebuildPilotDropdowns()
-        // so add-flight and upload selects include the full current roster.
-        // This is how newly joined pilots (e.g. Brett) appear without code changes.
+        // Also creates each one's pill-bar/sidebar DOM buttons (there are no static ones left in
+        // the HTML), then calls _rebuildPilotDropdowns() so add-flight and upload selects include
+        // the full current roster. This is how a newly joined pilot (or Kyle, Adam, Sam, Logan,
+        // Drew -- no longer special-cased) appears, purely from what's in the pilots table.
         async function _syncPilotRoster() {
             try {
                 const pilots = await fetch(`/api/pilots-directory?token=${encodeURIComponent(myToken)}`).then(r => r.json());
@@ -11027,7 +11155,7 @@ async function openAdminPanel(tab = 'users') {
                         PILOT_NAMES[key]  = p.name || key;
                         PILOT_HOME[key]   = p.home_airport || p.base || '';
                         PILOT_ROLES[key]  = p.role || p.base || '';
-                        PILOT_COLORS[key] = _assignColor(key);
+                        PILOT_COLORS[key] = p.color || _assignColor(key);
                         // Add pill buttons to DOM
                         const mobileBar = document.getElementById('mobile-pilot-bar');
                         if (mobileBar && !document.getElementById(`mpilot-${key}`)) {

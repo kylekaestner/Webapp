@@ -1423,23 +1423,6 @@ function icaoToIataAirport(icao) {
     return up;
 }
 
-// Pilot parser configuration
-const pilotParsers = {
-    kyle: 'schedaero',
-    adam: 'csv',
-    sam: 'csv',
-    logan: 'vcs_skywest',
-    drew: 'ics_rosterbuster'
-};
-
-const pilotAirlineCodes = {
-    kyle: 'SJJ',
-    adam: 'RPA',
-    sam: 'RPA',
-    logan: 'SKW',
-    drew: 'GJS'
-};
-
 // Operating code aliases for eCrew airlines, keyed by main ICAO code.
 // Each alias maps a prefix found in the schedule → the ICAO prefix to store.
 // Numeric-only codes always get the main ICAO prefix.
@@ -1448,9 +1431,14 @@ const ECREW_IATA_ALIASES = {
     'GTI': { 'PAC': 'PAC', '5Y': 'GTI', 'PO': 'PAC' }, // Atlas: PAC stays PAC, 5Y→GTI, PO (Polar IATA)→PAC
 };
 
+// Every pilot's real parser type and airline code live in the pilots table itself (parser_type,
+// airline_code columns) -- this used to be hardcoded here for kyle/adam/sam/logan/drew, silently
+// overriding whatever was in their DB row, which went stale (see db.js's one-time
+// coreRosterMigrated backfill, which copied the original hardcoded values in before this was
+// removed). getParserForPilot stays as a named function (rather than inlining pilotRow.parser_type
+// everywhere) so every call site reads it the same way.
 function getParserForPilot(pilotKey, pilotRow) {
-    // Prefer hardcoded config for existing pilots; use DB value for new ones
-    return pilotParsers[pilotKey] || (pilotRow?.parser_type) || 'csv';
+    return pilotRow?.parser_type || 'csv';
 }
 
 function autoDetectParser(filename, fileContent) {
@@ -1516,21 +1504,7 @@ app.get('/api/pilots', (req, res) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
-            // Resolve parser_type/airline_code the same way GET /api/pilots/:pilotKey does --
-            // the 5 original pilots (kyle/adam/sam/logan/drew) have their real values hardcoded
-            // in pilotParsers/pilotAirlineCodes, which always wins over whatever's in the DB
-            // column (those columns were never kept in sync, since the hardcoded map made them
-            // irrelevant for actual parsing). Returning the raw row here showed the admin panel
-            // stale/default DB values instead of what's actually used to parse each pilot's
-            // schedule -- e.g. Drew's DB row defaulted to parser_type='csv', which the airline
-            // dropdown resolves to "Republic Airways" (the only option whose parser is 'csv'),
-            // even though Drew is really GoJet via the hardcoded ics_rosterbuster override.
-            const resolved = rows.map(row => ({
-                ...row,
-                parser_type: getParserForPilot(row.pilot_key, row),
-                airline_code: pilotAirlineCodes[row.pilot_key] || row.airline_code || '',
-            }));
-            res.json(resolved);
+            res.json(rows);
         });
     });
 });
@@ -1545,7 +1519,12 @@ app.get('/api/pilots-directory', (req, res) => {
     _resolvePilotToken(req.query.token, db, (status, msg) => {
         if (status) return res.status(status).json({ error: msg });
         db.all(
-            `SELECT pilot_key, name, base, home_airport, role FROM pilots WHERE pilot_key != 'admin' AND (role IS NULL OR role != 'viewer') ORDER BY name`,
+            // ORDER BY id (insertion order), not name -- this feeds _syncPilotRoster() in
+            // app.html, which builds the pill bar/sidebar roster in whatever order rows come
+            // back. id order keeps the 5 original pilots in their historical position (they
+            // were the first 5 rows ever inserted) now that they're no longer a separate
+            // hardcoded list spliced in ahead of everyone else.
+            `SELECT pilot_key, name, base, home_airport, role, color FROM pilots WHERE pilot_key != 'admin' AND (role IS NULL OR role != 'viewer') ORDER BY id`,
             (err, rows) => {
                 if (err) return res.status(500).json({ error: err.message });
                 res.json(rows);
@@ -1580,10 +1559,8 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
                     if (err) {
                         return res.status(500).json({ error: err.message });
                     }
-                    // Resolve parser and airline code — hardcoded map takes precedence over DB for existing pilots
                     const resolvedParser = getParserForPilot(pilotKey, pilot);
-                    const resolvedCode   = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
-                    res.json({ ...pilot, parser_type: resolvedParser, airline_code: resolvedCode, segments });
+                    res.json({ ...pilot, parser_type: resolvedParser, airline_code: pilot.airline_code || '', segments });
                 });
             });
         });
@@ -1997,7 +1974,7 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
         // Detect file type and parse using pilot's stored parser_type + airline_code
         const filename = req.file.originalname.toLowerCase();
         let parserType = getParserForPilot(pilotKey, pilot);
-        const airlineCode = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
+        const airlineCode = pilot.airline_code || '';
 
         try {
             const fileContent = req.file.buffer.toString('utf-8');
@@ -2216,46 +2193,69 @@ app.delete('/api/pilots/:pilotKey/segments/:id', (req, res) => {
 });
 
 // Update pilot info (admin)
+// Admin can edit any pilot. A pilot can edit their own profile (base/home/airline/parser) --
+// this used to have NO auth check at all, meaning anyone who knew or guessed a pilot_key could
+// rewrite that pilot's profile with a plain PUT and no token. Now gated via _resolvePilotToken;
+// a self-edit additionally can't touch `role`, since that's a permission level (viewer vs pilot),
+// not personal info -- only admin may change it.
 app.put('/api/pilots/:pilotKey', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
     if (pilotKey === 'admin') return res.status(400).json({ error: 'Cannot modify admin' });
-    const { name, base, homeAirport, role, parserType, airlineCode } = req.body;
-    if (!name) return res.status(400).json({ error: 'name required' });
-    db.run(
-        `UPDATE pilots SET name=?, base=?, home_airport=?, role=?, parser_type=?, airline_code=? WHERE pilot_key=?`,
-        [name.trim(), (base || '').toUpperCase().trim(), (homeAirport || '').toUpperCase().trim(),
-         (role || '').trim(), (parserType || 'csv').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey],
-        function(err) {
+    const { token, name, base, homeAirport, role, parserType, airlineCode } = req.body;
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        const isAdmin = callerKey === 'admin';
+        if (!isAdmin && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to edit this pilot' });
+        if (!name) return res.status(400).json({ error: 'name required' });
+        const sql = isAdmin
+            ? `UPDATE pilots SET name=?, base=?, home_airport=?, role=?, parser_type=?, airline_code=? WHERE pilot_key=?`
+            : `UPDATE pilots SET name=?, base=?, home_airport=?, parser_type=?, airline_code=? WHERE pilot_key=?`;
+        const params = isAdmin
+            ? [name.trim(), (base || '').toUpperCase().trim(), (homeAirport || '').toUpperCase().trim(),
+               (role || '').trim(), (parserType || 'csv').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey]
+            : [name.trim(), (base || '').toUpperCase().trim(), (homeAirport || '').toUpperCase().trim(),
+               (parserType || 'csv').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey];
+        db.run(sql, params, function(err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
             res.json({ success: true });
-        }
-    );
+        });
+    });
 });
 
-// Delete pilot and their segments (admin)
+// Delete pilot and their segments (admin-only -- was previously callable by anyone with no
+// token at all, same gap the PUT endpoint above had).
 app.delete('/api/pilots/:pilotKey', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
     if (pilotKey === 'admin') return res.status(400).json({ error: 'Cannot delete admin' });
-    db.run(`DELETE FROM pilots WHERE pilot_key=?`, [pilotKey], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
-        res.json({ success: true });
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        db.run(`DELETE FROM pilots WHERE pilot_key=?`, [pilotKey], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
+            res.json({ success: true });
+        });
     });
 });
 
-// Regenerate login token (admin)
+// Regenerate login token (admin-only -- same previously-missing auth as above; this one's
+// especially sensitive since it silently invalidates and reissues someone else's login link).
 app.post('/api/pilots/:pilotKey/regenerate-token', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
     if (pilotKey === 'admin') return res.status(400).json({ error: 'Cannot modify admin' });
-    const token = generateToken();
-    db.run(`UPDATE pilots SET token=? WHERE pilot_key=?`, [token, pilotKey], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
-        res.json({ success: true, token });
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        const token = generateToken();
+        db.run(`UPDATE pilots SET token=? WHERE pilot_key=?`, [token, pilotKey], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
+            res.json({ success: true, token });
+        });
     });
 });
 
@@ -2321,8 +2321,8 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
     });
     if (!pilot) throw new Error('Pilot not found');
 
-    const resolvedParser = pilotParsers[pilotKey] || pilot.parser_type || 'ics';
-    const resolvedCode = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
+    const resolvedParser = pilot.parser_type || 'ics';
+    const resolvedCode = pilot.airline_code || '';
     let events, warnings = [];
     if (resolvedParser === 'ics_american') {
         ({ events, warnings } = parseAmericanICS(icsText));
@@ -2933,7 +2933,7 @@ async function runActiveFlightPoller() {
             if (err || !rows || rows.length === 0) return;
             const polled = new Set();
             for (const row of rows) {
-                const airlineCode = (pilotAirlineCodes[row.pilot_key] || row.airline_code || '').toUpperCase();
+                const airlineCode = (row.airline_code || '').toUpperCase();
                 let flightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
                 // Strip airline prefix if the DB already stores it (e.g. "SKW5613" → "5613")
                 if (airlineCode && flightNum.startsWith(airlineCode)) flightNum = flightNum.slice(airlineCode.length);
