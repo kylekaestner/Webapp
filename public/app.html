@@ -5088,6 +5088,19 @@
                     const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                     return (d && d > now) || (a && a > now);
                 });
+                // Whether this route pair ALSO has at least one already-completed leg this month,
+                // checked independently of hasFuture -- a city pair flown earlier this month and
+                // scheduled again later (a recurring pairing) is both. Previously allPast (exactly
+                // !hasFuture) swept a mixed group entirely into the "upcoming" bucket below, hiding
+                // an already-completed leg from the Flown filter entirely. Confirmed live: Mark's
+                // CLE-ATL flown today was invisible under "Flown" solely because he also has a
+                // CLE-ATL leg later this month -- the one shared arc per route pair only ever
+                // carried a single status before.
+                const hasPast = !hasActive && legs.some(f => {
+                    const d = flightUTCTime(f.departureTime, f.departureAirport);
+                    const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                    return d && a && a < now;
+                });
                 const allPast   = !hasActive && !hasFuture;
 
                 const color   = hasActive ? '#22c55e' : hasFuture ? '#3b82f6' : '#6b7280';
@@ -5127,9 +5140,12 @@
                 `;
                 hitLines.forEach(h => h.bindPopup(routePopup, { className: 'dark-popup' }));
 
-                const showLine = (allPast && showPast) || (!allPast && showFuture) || hasActive;
-                if (allPast) { routeLines.forEach(l => mapLayers.past.push(l)); hitLines.forEach(h => mapLayers.past.push(h)); }
-                else { routeLines.forEach(l => mapLayers.future.push(l)); hitLines.forEach(h => mapLayers.future.push(h)); }
+                // A mixed route (hasPast AND hasFuture both true) now belongs to both buckets --
+                // registered in both mapLayers.past and mapLayers.future so either filter toggle
+                // independently affects it, and visible when either filter that applies is on.
+                const showLine = hasActive || (hasPast && showPast) || (hasFuture && showFuture);
+                if (hasPast || (!hasFuture && !hasActive)) { routeLines.forEach(l => mapLayers.past.push(l)); hitLines.forEach(h => mapLayers.past.push(h)); }
+                if (hasFuture || hasActive) { routeLines.forEach(l => mapLayers.future.push(l)); hitLines.forEach(h => mapLayers.future.push(h)); }
                 if (showLine) { routeLines.forEach(l => l.addTo(map)); hitLines.forEach(h => h.addTo(map)); }
 
                 // Airplane icon for any active leg
