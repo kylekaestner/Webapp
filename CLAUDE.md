@@ -803,11 +803,11 @@ With both ON (the default), roughly half of all intel entries (212 of 434 at las
 
 ---
 
-## Admin panel (`openAdminPanel()`, ~line 7508)
+## Admin panel (`openAdminPanel()`, ~line 8255)
 
-Accessible from Profile Sheet → "★ Manage Users" (admin only). Two tabs:
+Accessible from Profile Sheet → "★ Admin Panel" (admin only). Redesigned 2026-10-01 from a small centered modal into a full-page takeover (`#admin-panel`, `position:fixed;inset:0`) with a header (back arrow, "Admin" title, prominent "+ Add User") and a big Users/Dashboard tab switcher (`switchAdminTab()`) so both tabs live in one view instead of two separate profile-sheet buttons each opening their own modal.
 
-**Users tab:** Lists all pilots/viewers from `/api/pilots`. Per user: initials avatar, name, key, base, home_airport, role, parser type, token, last-active. Edit/delete buttons. "+ Add User" opens `#edit-user-modal`.
+**Users tab:** `loadAdminUsers()` fetches `/api/pilots`, rendered by `renderAdminUserList()` as a responsive card grid (`#admin-user-grid`, 1/2/3 columns by screen size) instead of a cramped list — bigger avatars, full-width icon-labeled Edit/Delete buttons (previously tiny `Edit`/`Del` text links), a Copy/Regenerate icon pair for the login link, and a persistent search box (`#admin-user-search` → `filterAdminUsers()`) filtering by name or key, kept outside the regenerated grid markup so it never loses focus on keystroke.
 
 **Dashboard tab:** App stats — total segments, pilots, segments per pilot, last sync times.
 
@@ -815,8 +815,13 @@ Accessible from Profile Sheet → "★ Manage Users" (admin only). Two tabs:
 - View-only toggle (👁 mode): hides pilot-specific fields (base, home_airport, airline, role), marks user as `role='viewer'`.
 - Airline selector determines `parser_type`: GoJet→`ics_rosterbuster`, SkyWest→`vcs_skywest`, Republic→`csv`, Sun Country→`ics_scx`, Atlas Air→`ics_ecrew`, Delta Air Lines (MiCrew)→`ics_delta_micrew`, American Airlines (MobileCCI)→`ics_american`, Southwest Airlines (CrewHub)→`ics_southwest`, Other→`other`. (GoJet used to be split into a separate "GoJet Services" (`csv`) and "RosterBuster (subscription)" option — consolidated into the single RosterBuster-ICS option above; this line previously still listed the pre-consolidation `csv` value.)
 - When RosterBuster selected, shows ICS URL field.
+- Friends toggle list (`#edit-user-friends-section`) — see "Admin override" under Friends system above.
 - `saveUser()` → POST `/api/pilots` (new) or PUT `/api/pilots/:key` (edit). Auto-generates pilot_key from first name (lowercase, deduped).
 - After save: alerts user of generated `?u=TOKEN` personal link to share.
+
+**Airline/parser display bug (fixed 2026-10-01) — admin panel showed the wrong airline for the 5 original pilots.** `server.js` has a hardcoded `pilotParsers`/`pilotAirlineCodes` map for `kyle`/`adam`/`sam`/`logan`/`drew` (their real parser/airline, e.g. Drew → `ics_rosterbuster`/`GJS` for GoJet) that always wins over whatever's in the `pilots.parser_type`/`airline_code` DB columns — `getParserForPilot()` already does this resolution for the per-pilot endpoint. But `GET /api/pilots` (the admin list) used to `SELECT *` and return the **raw, unresolved** DB columns, which for these 5 pilots were stale/defaulted values never kept in sync (irrelevant for real parsing since the hardcoded map overrode them anyway, but very relevant for display). Since `RPA` (Republic) is the only `AIRLINE_OPTIONS` entry with `parser: 'csv'`, and `'csv'` is the DB's default `parser_type`, every pilot whose raw DB value was still at that default showed as "Republic Airways" in the admin panel's airline dropdown regardless of their real airline — this is why Drew showed Republic instead of GoJet. Kyle's case is slightly different: his real parser (`schedaero`) and airline code (`SJJ`, SpiritJets — a private Part 91/135 operator with no public ICAO, intentionally not in `AIRLINE_OPTIONS`) don't match anything in the dropdown even once correctly resolved, so he now correctly falls through to "Other / Auto-detect" instead of the same false "Republic" match. Fixed by having `GET /api/pilots` map each row through the same `getParserForPilot()`/`pilotAirlineCodes` resolution as the per-pilot endpoint before responding — no DB data needed fixing, since the hardcoded map was always the source of truth; the admin list just wasn't reading it. Verified against the real endpoint: Drew now resolves to `ics_rosterbuster`/`GJS`, Kyle to `schedaero`/`SJJ`, matching the hardcoded config exactly.
+
+**`role` (admin panel's "Role / Description" field) is optional, cosmetic metadata, not load-bearing.** It only ever surfaces in two places, both gracefully blank-safe: the Profile sheet's subtitle under the signed-in pilot's name, and a small gray label next to a pilot's name on a Crossings detail card (`role ? ... : ''`). Nothing in parsing, sync, access control, or the friends system reads it. A blank value (as seeded for the 5 original pilots, who were never given one at creation) is completely safe — it just means that cosmetic label doesn't render. Filling it in (e.g. "Republic · LGA") is optional polish, not a fix for anything broken.
 
 ---
 

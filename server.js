@@ -1516,7 +1516,21 @@ app.get('/api/pilots', (req, res) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
-            res.json(rows);
+            // Resolve parser_type/airline_code the same way GET /api/pilots/:pilotKey does --
+            // the 5 original pilots (kyle/adam/sam/logan/drew) have their real values hardcoded
+            // in pilotParsers/pilotAirlineCodes, which always wins over whatever's in the DB
+            // column (those columns were never kept in sync, since the hardcoded map made them
+            // irrelevant for actual parsing). Returning the raw row here showed the admin panel
+            // stale/default DB values instead of what's actually used to parse each pilot's
+            // schedule -- e.g. Drew's DB row defaulted to parser_type='csv', which the airline
+            // dropdown resolves to "Republic Airways" (the only option whose parser is 'csv'),
+            // even though Drew is really GoJet via the hardcoded ics_rosterbuster override.
+            const resolved = rows.map(row => ({
+                ...row,
+                parser_type: getParserForPilot(row.pilot_key, row),
+                airline_code: pilotAirlineCodes[row.pilot_key] || row.airline_code || '',
+            }));
+            res.json(resolved);
         });
     });
 });
