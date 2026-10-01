@@ -442,6 +442,140 @@ function parseAmericanICS(text) {
     return events;
 }
 
+// Southwest Airlines "CrewHub BYO" ICS parser -- parser_type: 'ics_southwest'
+// Added 2026-10-01, built against one real pilot's export (PRODID: Apple's own, but
+// X-APPLE-CREATOR-IDENTITY: com.swalife.crewhub and the DESCRIPTION footer "Synced from
+// CrewHub BYO" confirm the source). Structurally like the Delta MiCrew parser -- each VEVENT
+// is a whole multi-day trip, not one leg -- but with two differences that matter:
+//   1. LOCATION gives the trip number directly ("Trip: DA9X"), no need to pull it from SUMMARY.
+//   2. Every leg's dep/arr time carries its OWN timezone abbreviation (CDT/EDT/MDT/...),
+//      unlike Delta's bare "HH:MM-HH:MM" with no zone marker. Since Southwest's trips routinely
+//      cross multiple zones per leg (e.g. CDT->EDT on a single hop), naive "did the clock go
+//      backwards" rollover detection (fine for Delta, where adjacent legs are closer in zone)
+//      isn't reliable here -- this parser instead converts each endpoint to real UTC using a
+//      fixed abbreviation->offset table (the abbreviation itself already encodes DST, so no
+//      IANA/date-math lookup is needed) and compares in UTC to decide if a leg's arrival lands
+//      on the next calendar day, then re-localizes to the arrival airport's own date for the
+//      next leg's baseline. The times stored are still the given local HH:MM values directly
+//      (CrewSync's convention), never the UTC-converted ones -- UTC is only an intermediate
+//      used to get the DATE right.
+//
+// DESCRIPTION shape (unfolded, \n-joined):
+//   LOCAL
+//   Mon Oct 19
+//   Report 06:20 CDT
+//   3617 DAL 07:20 CDT   DCA 11:10 EDT
+//   1513 DCA 11:50 EDT   MSY 13:40 CDT
+//   Duty 7:50 Block 5:40 Credit 6.70
+//   Layover 15hr 25m
+//   New Orleans Marriott Downtown
+//   (504) 581-1000
+//   ...
+//   Totals: Duty 21:45 Block 15:30 Credit 20.30
+//
+// DTSTART;VALUE=DATE / DTEND;VALUE=DATE give the trip's overall start/end calendar date
+// directly (no time component) -- used as the real anchor for the first day header, removing
+// the year-guessing Delta's parser needs (though month-rollover tracking across a long trip
+// is kept for safety, same pattern as Delta).
+//
+// "RPRT TPA 06:30 EDT   TPA 06:30 EDT" and similar same-airport zero-movement rows (seen once,
+// alongside a real report-time marker) are skipped: the leading token isn't a real flight
+// number (non-numeric), and a numeric-only check on it is enough to filter these out without
+// a same-airport special case. A row with blank times (e.g. "4202 MCO  EDT   MCO  EDT",
+// immediately followed by a second "4202" row with real times -- apparently an equipment-swap
+// artifact) is skipped automatically since the regex requires real HH:MM digits at both ends.
+//
+// Deadhead detection was NOT built. The per-duty-day summary line sometimes carries a trailing
+// letter (D/P/M/A, e.g. "Credit 7.68  D"), and "D" plausibly means deadhead, but it's attached
+// to the WHOLE day's duty period (which can span several legs), not to one specific leg --
+// marking every leg that day as DH would likely be wrong as often as right. Don't guess here;
+// wait for a real example that disambiguates which leg within a "D" day is the deadhead.
+//
+// GDO ("Guaranteed Day Off") is its own single-day VEVENT (LOCATION:GDO, not "Trip:...") with
+// no flight legs. Skipped entirely, same as Delta's "RESERVE DAY OFF" -- the day defaults to
+// off via the absence of any segment, no need to store anything.
+function parseSouthwestICS(text) {
+    const events = [];
+    const unfolded = text.replace(/\r?\n[ \t]/g, '');
+    const blocks = unfolded.split(/BEGIN:VEVENT/gi).slice(1);
+
+    const MONTH_ABBR = { JAN:1, FEB:2, MAR:3, APR:4, MAY:5, JUN:6, JUL:7, AUG:8, SEP:9, OCT:10, NOV:11, DEC:12 };
+    const DAY_HEADER_RE = /^[A-Za-z]{3}\.?\s+([A-Za-z]{3})\.?\s+(\d{1,2})\b/;
+    const LEG_RE = /^(\S+)\s+([A-Z]{3})\s+(\d{2}):(\d{2})\s+([A-Z]{2,4})\s+([A-Z]{3})\s+(\d{2}):(\d{2})\s+([A-Z]{2,4})\s*$/;
+    const TZ_OFFSET = { EST:-5, EDT:-4, CST:-6, CDT:-5, MST:-7, MDT:-6, PST:-8, PDT:-7, AKST:-9, AKDT:-8, HST:-10, AST:-4, ADT:-3 };
+    const pad = n => String(n).padStart(2, '0');
+
+    for (const b of blocks) {
+        const lines = b.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const getField = (prefix) => {
+            const up = prefix.toUpperCase();
+            const ln = lines.find(l => { const u = l.toUpperCase(); return u.startsWith(up + ':') || u.startsWith(up + ';'); });
+            if (!ln) return '';
+            const ci = ln.indexOf(':');
+            return ci >= 0 ? ln.slice(ci + 1).replace(/\\,/g, ',').replace(/\\n/g, '\n') : '';
+        };
+
+        const location = getField('LOCATION');
+        if (!/^Trip:/i.test(location)) continue; // skips GDO and anything else non-trip
+
+        const tripId = location.replace(/^Trip:\s*/i, '').trim();
+        const description = getField('DESCRIPTION');
+        const dtstartVal = getField('DTSTART'); // VALUE=DATE -> plain YYYYMMDD
+        if (!/^\d{8}/.test(dtstartVal)) continue;
+
+        let curDate = { y: parseInt(dtstartVal.slice(0,4),10), m: parseInt(dtstartVal.slice(4,6),10), d: parseInt(dtstartVal.slice(6,8),10) };
+        let prevMonth = null;
+
+        const descLines = description.split('\n').map(l => l.trim());
+        for (const line of descLines) {
+            const hdrM = line.match(DAY_HEADER_RE);
+            if (hdrM) {
+                const mon = MONTH_ABBR[hdrM[1].toUpperCase()];
+                const day = parseInt(hdrM[2], 10);
+                if (!mon) continue;
+                let year = curDate.y;
+                if (prevMonth !== null && mon < prevMonth) year++; // trip spans New Year's
+                curDate = { y: year, m: mon, d: day };
+                prevMonth = mon;
+                continue;
+            }
+
+            const legM = line.match(LEG_RE);
+            if (!legM) continue;
+            const [, fltRaw, dep, depHH, depMM, depTz, arr, arrHH, arrMM, arrTz] = legM;
+            if (!/^\d+$/.test(fltRaw)) continue; // skips "RPRT ..." show-time pseudo-legs
+            if (dep === arr) continue;           // skips same-airport zero-movement rows
+
+            const depOff = TZ_OFFSET[depTz.toUpperCase()];
+            const arrOff = TZ_OFFSET[arrTz.toUpperCase()];
+            if (depOff === undefined || arrOff === undefined) continue; // unrecognized zone -- don't guess
+
+            const depUTC = Date.UTC(curDate.y, curDate.m - 1, curDate.d, parseInt(depHH,10), parseInt(depMM,10)) - depOff * 3600000;
+            let arrDate = curDate;
+            let arrUTC = Date.UTC(arrDate.y, arrDate.m - 1, arrDate.d, parseInt(arrHH,10), parseInt(arrMM,10)) - arrOff * 3600000;
+            if (arrUTC <= depUTC) {
+                const d = new Date(Date.UTC(curDate.y, curDate.m - 1, curDate.d + 1));
+                arrDate = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+                arrUTC = Date.UTC(arrDate.y, arrDate.m - 1, arrDate.d, parseInt(arrHH,10), parseInt(arrMM,10)) - arrOff * 3600000;
+            }
+
+            events.push({
+                type: 'flight',
+                departureTime: `${curDate.y}-${pad(curDate.m)}-${pad(curDate.d)}T${depHH}:${depMM}:00`,
+                arrivalTime:   `${arrDate.y}-${pad(arrDate.m)}-${pad(arrDate.d)}T${arrHH}:${arrMM}:00`,
+                departureAirport: dep, arrivalAirport: arr,
+                flightNumber: `WN${fltRaw}`,
+                tail: '',
+                trip: tripId, dh: false, blockMinutes: null,
+            });
+
+            curDate = arrDate; // next leg (same or next duty day) continues from the arrival date
+        }
+    }
+
+    return events;
+}
+
 function formatICSDatetime(s) {
     if (/^\d{8}T\d{6}Z$/.test(s)) {
         const y = s.substring(0, 4), m = s.substring(4, 6), d = s.substring(6, 8);
@@ -1581,6 +1715,8 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
                         ? parseDeltaMiCrewICS(fileContent)
                         : parserType === 'ics_american'
                         ? parseAmericanICS(fileContent)
+                        : parserType === 'ics_southwest'
+                        ? parseSouthwestICS(fileContent)
                         : (parserType === 'ics_scx' || parserType === 'ics_ecrew')
                         ? parseECrewICS(fileContent, airlineCode, ECREW_IATA_ALIASES[airlineCode] || [])
                         : parseICS(fileContent);
@@ -1885,6 +2021,8 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
         ? parseDeltaMiCrewICS(icsText)
         : resolvedParser === 'ics_american'
         ? parseAmericanICS(icsText)
+        : resolvedParser === 'ics_southwest'
+        ? parseSouthwestICS(icsText)
         : (resolvedParser === 'ics_scx' || resolvedParser === 'ics_ecrew')
         ? parseECrewICS(icsText, resolvedCode, ECREW_IATA_ALIASES[resolvedCode] || [])
         : parseICS(icsText);

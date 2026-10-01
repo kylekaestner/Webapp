@@ -1612,6 +1612,7 @@
                     <option value="GTI">Atlas Air</option>
                     <option value="DAL">Delta Air Lines (MiCrew)</option>
                     <option value="AAL">American Airlines (MobileCCI)</option>
+                    <option value="SWA">Southwest Airlines (CrewHub)</option>
                     <option value="OTHER">Other / Auto-detect</option>
                 </select>
             </div>
@@ -8476,6 +8477,8 @@ let _blockUserEdited = false;
               icsLabel: 'MiCrew ICS URL', icsHint: 'The published calendar subscription link from MiCrew.' },
             { icao: 'AAL',   dbCode: 'AAL', parser: 'ics_american', needsIcs: true,
               icsLabel: 'MobileCCI ICS URL', icsHint: 'The published calendar subscription link from MobileCCI.' },
+            { icao: 'SWA',   dbCode: 'SWA', parser: 'ics_southwest', needsIcs: true,
+              icsLabel: 'CrewHub ICS URL', icsHint: 'The published calendar subscription link from CrewHub.' },
             { icao: 'OTHER', dbCode: '',    parser: 'other', needsIcs: false },
         ];
 

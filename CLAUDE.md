@@ -310,6 +310,35 @@ Fields taken from `DESCRIPTION`: `SEQ#` → `trip` (pairing number), `Flight#` �
 
 Wired identically to the Delta parser: `parser_type = 'ics_american'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`icao: 'AAL'`) and the join flow's company selector, both showing a "MobileCCI ICS URL" field.
 
+### Southwest Airlines "CrewHub BYO" ICS parser (`parseSouthwestICS`, server.js) — `parser_type: 'ics_southwest'`
+
+Added 2026-10-01, built against one real pilot's export (`X-APPLE-CREATOR-IDENTITY:com.swalife.crewhub`, DESCRIPTION footer "Synced from CrewHub BYO"). **Structurally like the Delta MiCrew parser — each `VEVENT` is a whole multi-day trip, not one leg** — but with two differences:
+1. `LOCATION` gives the trip number directly (`Trip: DA9X`) — no need to pull it from `SUMMARY` like Delta.
+2. **Every leg's departure/arrival time carries its own timezone abbreviation** (`CDT`/`EDT`/`MDT`/...), unlike Delta's bare `HH:MM-HH:MM` with no zone marker:
+```
+Mon Oct 19
+Report 06:20 CDT
+3617 DAL 07:20 CDT   DCA 11:10 EDT
+1513 DCA 11:50 EDT   MSY 13:40 CDT
+Duty 7:50 Block 5:40 Credit 6.70
+Layover 15hr 25m
+...
+Totals: Duty 21:45 Block 15:30 Credit 20.30
+```
+Southwest's trips routinely cross multiple zones in a single leg (`CDT`→`EDT` on one hop above), so Delta's naive "did the clock go backwards" rollover check isn't reliable here — a short hop landing numerically "earlier" by wall-clock isn't necessarily an overnight. Instead this parser converts each endpoint to real UTC via a fixed abbreviation→offset table (the abbreviation itself already encodes DST, so no IANA timezone lookup is needed) and compares **in UTC** to decide whether a leg's arrival falls on the next calendar day, then re-localizes to the arrival airport's own date for the next leg's baseline. The stored times are still the given local `HH:MM` values directly — UTC is only an intermediate used to get the *date* right, never written to the segment.
+
+`DTSTART;VALUE=DATE`/`DTEND;VALUE=DATE` give the trip's overall start/end calendar date directly (just `YYYYMMDD`, no time) — used as the real anchor for the first day header, which is more solid than Delta's situation (no year-guessing needed), though month-rollover tracking across a long trip is kept for safety, same pattern as Delta.
+
+**Two skip cases found and handled, both from one real trip in the sample feed:**
+- `RPRT TPA 06:30 EDT   TPA 06:30 EDT` — a same-airport, non-flight "report" marker. Skipped because the leading token (`RPRT`) isn't purely numeric — real Southwest flight numbers are bare digits with no carrier letters, so a numeric-only check on the leading token cleanly filters this out without needing a same-airport special case.
+- `4202 MCO  EDT   MCO  EDT` immediately followed by a second `4202 MCO 19:36 EDT   DAL 21:17 CDT` — the first row has **blank times** (likely an equipment-swap artifact) and is skipped automatically since the leg regex requires real `HH:MM` digits at both ends; only the second, real row produces a segment.
+
+**Deadhead detection was NOT built.** The per-duty-day summary line sometimes carries a trailing letter (`D`/`P`/`M`/`A`, e.g. `Credit 7.68  D`), and `D` plausibly means deadhead, but it's attached to the **whole day's duty period**, which can span several legs — marking every leg that day as DH would likely be wrong as often as right. Don't guess here; wait for a real example that disambiguates which specific leg within a "D" day is the deadhead.
+
+**`GDO` ("Guaranteed Day Off") is its own single-day `VEVENT`** (`LOCATION:GDO`, not `Trip:...`), with no flight legs — skipped entirely, same treatment as Delta's `RESERVE DAY OFF`: the day defaults to off via the absence of any segment, nothing needs to be stored.
+
+Wired identically to the Delta/American parsers: `parser_type = 'ics_southwest'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`icao: 'SWA'`) and the join flow's company selector, both showing a "CrewHub ICS URL" field.
+
 ### `pilotsCache` invalidation
 
 `pilotsCache[key]` is set once per page load (or after upload/sync). The "Refresh" button on Crossings calls `computeOverlap()` but does **not** clear the cache — it re-runs `buildGroundPeriods` on cached data. A stale cache can make crossings appear wrong even after a schedule fix. To force-refresh: reload the page.
@@ -674,7 +703,7 @@ Accessible from Profile Sheet → "★ Manage Users" (admin only). Two tabs:
 
 **Edit/Add User modal (`#edit-user-modal`):**
 - View-only toggle (👁 mode): hides pilot-specific fields (base, home_airport, airline, role), marks user as `role='viewer'`.
-- Airline selector determines `parser_type`: GoJet→`csv`, SkyWest→`vcs_skywest`, Republic→`csv`, SunCountry→`ics_scx`, RosterBuster→`ics_rosterbuster`, Delta Air Lines (MiCrew)→`ics_delta_micrew`, American Airlines (MobileCCI)→`ics_american`, Other→`other`.
+- Airline selector determines `parser_type`: GoJet→`csv`, SkyWest→`vcs_skywest`, Republic→`csv`, SunCountry→`ics_scx`, RosterBuster→`ics_rosterbuster`, Delta Air Lines (MiCrew)→`ics_delta_micrew`, American Airlines (MobileCCI)→`ics_american`, Southwest Airlines (CrewHub)→`ics_southwest`, Other→`other`.
 - When RosterBuster selected, shows ICS URL field.
 - `saveUser()` → POST `/api/pilots` (new) or PUT `/api/pilots/:key` (edit). Auto-generates pilot_key from first name (lowercase, deduped).
 - After save: alerts user of generated `?u=TOKEN` personal link to share.

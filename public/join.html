@@ -155,13 +155,14 @@
                     <label class="field-label">Company</label>
                     <select class="field-input" id="companySel" onchange="selectCompany(this.value)">
                         <option value="">— Select your airline / operation —</option>
-                        <option value="csv">Republic Airways</option>
-                        <option value="ics_rosterbuster">GoJet Airlines</option>
-                        <option value="ics_delta_micrew">Delta Air Lines</option>
                         <option value="ics_american">American Airlines</option>
                         <option value="ics_ecrew">Atlas Air</option>
-                        <option value="ics_scx">Sun Country Airlines</option>
+                        <option value="ics_delta_micrew">Delta Air Lines</option>
+                        <option value="ics_rosterbuster">GoJet Airlines</option>
+                        <option value="csv">Republic Airways</option>
                         <option value="vcs_skywest">SkyWest Airlines</option>
+                        <option value="ics_southwest">Southwest Airlines</option>
+                        <option value="ics_scx">Sun Country Airlines</option>
                         <option value="other">Other / Not Listed</option>
                     </select>
                     <p id="parser-other-note" style="display:none;margin-top:8px;font-size:11px;color:#52525b;line-height:1.5;">Upload your schedule in the next step — we'll identify your format automatically and set up your account.</p>
@@ -268,6 +269,9 @@
             'ics_american':     { airline: 'American Airlines',    code: 'AAL', method: 'ics', appName: 'MobileCCI',
                                    icsLabel: 'MobileCCI ICS URL',
                                    icsHint: 'The published calendar subscription link from MobileCCI.' },
+            'ics_southwest':    { airline: 'Southwest Airlines',   code: 'SWA', method: 'ics', appName: 'CrewHub',
+                                   icsLabel: 'CrewHub ICS URL',
+                                   icsHint: 'The published calendar subscription link from CrewHub.' },
             'ics_ecrew':        { airline: 'Atlas Air',            code: 'GTI', method: 'ics', appName: 'eCrew',
                                    icsLabel: 'eCrew ICS URL',
                                    icsHint: 'The calendar subscription link from eCrew.' },
