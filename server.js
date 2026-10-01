@@ -2437,15 +2437,29 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
 
     const existing = await new Promise((resolve, reject) => {
         db.all(
-            'SELECT id, type, departure_time, departure_airport FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)',
+            'SELECT id, type, departure_time, departure_airport, flight_number FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)',
             [pilot.id],
             (err, rows) => { if (err) return reject(err); resolve(rows); }
         );
     });
 
     const existingMap = {};
+    // Fallback match for when a feed updates a flight's departure time after the fact (scheduled
+    // -> actual, once a leg lands and the carrier's system finalizes real block times -- normal,
+    // not an error condition). The exact-key match above would miss it entirely: the incoming
+    // event's new departureTime no longer matches the stored one, so it looked like a brand new
+    // segment -- and since stale-segment cleanup below deliberately only touches FUTURE segments
+    // (never deletes past history), the old scheduled-time row was never removed either, leaving
+    // both the stale scheduled row and the freshly-inserted actual-time row side by side. Keyed by
+    // flight number + departure airport + the *date* portion of departure time only (not the exact
+    // time), so a same-day actual-time update still resolves to the same real-world flight; the
+    // date keeps this from colliding with a later recurrence of the same flight number.
+    const existingByFlightDay = {};
     existing.forEach(s => {
         existingMap[`${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`] = s.id;
+        if (s.type === 'flight' && s.flight_number && s.departure_time) {
+            existingByFlightDay[`${s.flight_number}|${s.departure_airport || ''}|${s.departure_time.slice(0, 10)}`] = s.id;
+        }
     });
 
     const incomingKeys = new Set(events.map(ev => `${ev.type}|${ev.departureTime || ''}|${ev.departureAirport || ''}`));
@@ -2453,6 +2467,12 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
     existing.forEach(s => {
         const key = `${s.type}|${s.departure_time || ''}|${s.departure_airport || ''}`;
         if (incomingKeys.has(key)) matchedIds.add(s.id);
+    });
+    // Also protect any existing row the fallback below will update from being swept up as stale.
+    events.forEach(ev => {
+        if (ev.type !== 'flight' || !ev.flightNumber || !ev.departureTime) return;
+        const fallbackId = existingByFlightDay[`${ev.flightNumber}|${ev.departureAirport || ''}|${ev.departureTime.slice(0, 10)}`];
+        if (fallbackId) matchedIds.add(fallbackId);
     });
 
     const staleIds = existing
@@ -2472,11 +2492,16 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
 
     await Promise.all(events.map(ev => new Promise((resolve, reject) => {
         const key = `${ev.type}|${ev.departureTime || ''}|${ev.departureAirport || ''}`;
-        const existingId = existingMap[key];
+        const existingId = existingMap[key] || (ev.type === 'flight' && ev.flightNumber && ev.departureTime
+            ? existingByFlightDay[`${ev.flightNumber}|${ev.departureAirport || ''}|${ev.departureTime.slice(0, 10)}`]
+            : undefined);
         if (existingId) {
+            // Includes departure_time/departure_airport now too -- when this row was found via the
+            // flight-number/date fallback (not the exact key), those are exactly the fields that
+            // changed (scheduled -> actual) and need correcting, not just left at their old values.
             db.run(
-                `UPDATE segments SET arrival_time=?, arrival_airport=?, tail=?, trip=?, flight_number=?, is_dh=?, block_minutes=? WHERE id=?`,
-                [ev.arrivalTime||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, ev.flightNumber||null, ev.dh?1:0, ev.blockMinutes||null, existingId],
+                `UPDATE segments SET departure_time=?, departure_airport=?, arrival_time=?, arrival_airport=?, tail=?, trip=?, flight_number=?, is_dh=?, block_minutes=? WHERE id=?`,
+                [ev.departureTime||null, ev.departureAirport||null, ev.arrivalTime||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, ev.flightNumber||null, ev.dh?1:0, ev.blockMinutes||null, existingId],
                 err => { if (err) return reject(err); resolve(); }
             );
         } else {
