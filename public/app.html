@@ -5416,8 +5416,22 @@
             const distToDep  = haversineMi(lat, lon, depCoords[0], depCoords[1]);
             const distToArr  = haversineMi(lat, lon, arrCoords[0], arrCoords[1]);
             // A point on the great circle satisfies distToDep + distToArr ≈ routeDist.
-            // Allow 25% slack for ATC deviations; anything more means a different aircraft.
-            return (distToDep + distToArr) <= routeDist * 1.25;
+            // Allow slack for ATC/weather deviations; anything more means a different aircraft.
+            // A pure percentage is too tight for short regional hops: a real weather deviation
+            // tends to add a roughly fixed number of extra miles (going around a storm cell),
+            // which is a much bigger fraction of a short route than a long one. Confirmed live:
+            // Drew's real ICT-IAH flight (~540mi) went around weather and was correctly identified
+            // by ADS-B callsign, but exceeded the flat 25% slack (~135mi), which silently froze
+            // the whole live display (icon position, flown trail, remaining arc all stopped
+            // updating) instead of just skipping a route-conformance check that doesn't apply when
+            // the deviation is real, not a misidentification. This app has its own weather radar
+            // overlay specifically so a deviation like this can be seen and explained -- hiding the
+            // live track the moment a real deviation happens defeats that. Biased generous: a
+            // 300mi floor comfortably covers virtually any realistic ATC/weather reroute, and a
+            // genuinely different aircraft would still be caught since that's typically off by far
+            // more than this regardless of the route's own length.
+            const slackMi = Math.max(routeDist * 0.25, 300);
+            return (distToDep + distToArr) <= routeDist + slackMi;
         }
 
         function addRadarLayer() {
