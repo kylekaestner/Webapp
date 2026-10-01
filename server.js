@@ -2904,7 +2904,15 @@ app.get('/api/live-position', async (req, res) => {
         // we can't find it live — this lets the client know the flight already flew.
         const lastHex = _callsignToHex[callsign] || _liveCache[callsign]?.data?.hex;
         const hadTrail = !!(lastHex && Array.isArray(_posTrail[lastHex]) && _posTrail[lastHex].length >= 2);
-        return res.json({ found: false, hadTrail });
+        // Also tell it whether THIS server process has ever confirmed the aircraft airborne,
+        // independent of any single client's own poller lifetime -- a client's local
+        // hasBeenAirborne flag resets every time startLiveTracking() restarts (e.g. on a
+        // map re-render), so without this a fresh poller that hits a few misses before its
+        // first successful fix can't tell "never got airborne, flight's over" apart from
+        // "definitely airborne already, just a transient signal gap" and misclassifies a
+        // still-in-progress flight as landed early.
+        const hasBeenAirborne = !!(lastHex && _flightState[lastHex]?.hasBeenAirborne);
+        return res.json({ found: false, hadTrail, hasBeenAirborne });
     }
 
     processPositionUpdate(data, sinceUnixSec);

@@ -5633,6 +5633,13 @@
 
                     if (!d.found || d.lat == null) {
                         missCount++;
+                        // The server tracks hasBeenAirborne per-aircraft independent of any one
+                        // client's poller lifetime. Without this, a poller that just (re)started
+                        // (e.g. after a map re-render) and hits a few misses before its first
+                        // successful fix has no way to tell "this flight never got airborne, it's
+                        // over" apart from "it's definitely airborne, just a transient signal gap"
+                        // — and would misclassify a still-in-progress flight as landed early below.
+                        if (d.hasBeenAirborne) hasBeenAirborne = true;
                         // Lost signal after being airborne — remove the remaining arc, but only after
                         // a few consecutive misses (same threshold as the other miss-handling below).
                         // A single missed poll is routine (the server races two ADS-B sources and either
