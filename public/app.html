@@ -1964,6 +1964,15 @@
         const _livePollers  = {};    // callsign -> intervalId; cleared on every map render
         const _liveLabels   = new Map(); // callsign -> { markers, html, direction }
         const _landedEarly  = new Set(); // callsigns confirmed landed before scheduledArrUTC
+        // callsign -> the specific marker/arc/hit-line layer objects currently on the map for it.
+        // _livePollers is cleared on every render, so it can't reliably tell a fresh
+        // startLiveTracking() call "someone's already tracking this callsign" when two renders
+        // overlap (e.g. a slow pilot-data fetch on first load racing a second render trigger) --
+        // an older-but-faster render can finish drawing before a newer-but-slower one even starts,
+        // leaving the newer one with no way to know a duplicate already exists. This registry is
+        // the actual source of truth, independent of render timing: at most one set of layers may
+        // exist per callsign, enforced directly in startLiveTracking() itself.
+        const _liveLayersByCallsign = {};
         let   _deoverlapTimer = null;
         const _calListPollers = {}; // callsign -> intervalId for calendar/list live badges
 
@@ -5532,8 +5541,32 @@
         }
 
         function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null) {
-            if (_livePollers[callsign]) return; // already polling
-            if (_landedEarly.has(callsign)) return; // confirmed landed before scheduled arrival
+            const newRouteLines = Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
+            const newHitLines = hitLines || [];
+
+            // Confirmed landed before scheduled arrival -- don't track it, and since the caller
+            // already added these brand-new markers/arc/hit-lines to the map before calling us,
+            // remove them now or they'd sit there as an orphaned duplicate forever.
+            if (_landedEarly.has(callsign)) {
+                markers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
+                newRouteLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
+                newHitLines.forEach(h => { try { map.removeLayer(h); } catch (_) {} });
+                return;
+            }
+
+            // Tear down whatever was previously registered for this callsign, no matter what
+            // _livePollers currently says (it's cleared on every render, so it can't be trusted
+            // to detect this on its own -- see _liveLayersByCallsign's declaration comment).
+            const prev = _liveLayersByCallsign[callsign];
+            if (prev) {
+                prev.markers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
+                prev.routeLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
+                prev.hitLines.forEach(h => { try { map.removeLayer(h); } catch (_) {} });
+                clearInterval(_livePollers[callsign]);
+                delete _livePollers[callsign];
+                _liveLabels.delete(callsign);
+            }
+            _liveLayersByCallsign[callsign] = { markers, routeLines: newRouteLines, hitLines: newHitLines };
 
             if (radarOn && !radarLayer) addRadarLayer();
 
@@ -5626,6 +5659,7 @@
                         clearInterval(_livePollers[callsign]);
                         delete _livePollers[callsign];
                         _liveLabels.delete(callsign);
+                        delete _liveLayersByCallsign[callsign];
                         if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
                         renderMap();
                         return;
@@ -5662,6 +5696,7 @@
                             clearInterval(_livePollers[callsign]);
                             delete _livePollers[callsign];
                             _liveLabels.delete(callsign);
+                            delete _liveLayersByCallsign[callsign];
                             renderMap();
                             return;
                         }
@@ -5672,6 +5707,7 @@
                             clearInterval(_livePollers[callsign]);
                             delete _livePollers[callsign];
                             _liveLabels.delete(callsign);
+                            delete _liveLayersByCallsign[callsign];
                             renderMap();
                             return;
                         }
@@ -5683,6 +5719,7 @@
                             clearInterval(_livePollers[callsign]);
                             delete _livePollers[callsign];
                             _liveLabels.delete(callsign);
+                            delete _liveLayersByCallsign[callsign];
                             renderMap();
                             return;
                         }
@@ -5692,6 +5729,7 @@
                                 clearInterval(_livePollers[callsign]);
                                 delete _livePollers[callsign];
                                 _liveLabels.delete(callsign);
+                                delete _liveLayersByCallsign[callsign];
                                 renderMap();
                             }
                         }
