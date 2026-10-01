@@ -200,9 +200,18 @@
                 </div>
 
                 <div id="sched-ics-section">
-                    <label class="field-label" id="sched-ics-label">ICS Calendar URL</label>
+                    <div class="flex items-center justify-between mb-1.5" style="margin-bottom:6px">
+                        <label class="field-label" id="sched-ics-label" style="margin-bottom:0">ICS Calendar URL</label>
+                        <button type="button" onclick="toggleIcsHelp()" title="How do I get this link?"
+                            style="width:18px;height:18px;border-radius:50%;border:1.5px solid #3f3f46;background:transparent;color:#71717a;font-size:11px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:inherit;padding:0">?</button>
+                    </div>
                     <input class="field-input" type="url" id="icsUrl" placeholder="https://… or webcal://…">
                     <p class="text-[11px] text-zinc-600 mt-1.5 leading-relaxed" id="sched-ics-hint">RosterBuster, Google Calendar, and most airline apps support ICS export.</p>
+
+                    <div id="ics-help-panel" style="display:none;margin-top:10px;background:#0d0d0f;border:1.5px solid #27272a;border-radius:10px;padding:12px 13px;">
+                        <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#52525b;margin:0 0 8px;">How to get your ICS link</p>
+                        <ol id="ics-help-steps" style="font-size:12px;color:#a1a1aa;line-height:1.6;margin:0;padding-left:18px;"></ol>
+                    </div>
                 </div>
             </div>
 
@@ -249,16 +258,16 @@
             'csv':              { airline: 'Republic Airways',     code: 'RPA', method: 'file',
                                    fileLabel: 'Schedule File', fileAccept: '.csv',
                                    fileHint: 'CSV Long format export from your scheduling system.' },
-            'ics_rosterbuster': { airline: 'GoJet Airlines',       code: 'GJS', method: 'ics',
+            'ics_rosterbuster': { airline: 'GoJet Airlines',       code: 'GJS', method: 'ics', appName: 'RosterBuster',
                                    icsLabel: 'RosterBuster ICS URL',
                                    icsHint: 'From RosterBuster: Settings → Calendar Sync → copy the subscription link.' },
-            'ics_delta_micrew': { airline: 'Delta Air Lines',      code: 'DAL', method: 'ics',
+            'ics_delta_micrew': { airline: 'Delta Air Lines',      code: 'DAL', method: 'ics', appName: 'MiCrew',
                                    icsLabel: 'MiCrew ICS URL',
                                    icsHint: 'The published calendar subscription link from MiCrew.' },
-            'ics_ecrew':        { airline: 'Atlas Air',            code: 'GTI', method: 'ics',
+            'ics_ecrew':        { airline: 'Atlas Air',            code: 'GTI', method: 'ics', appName: 'eCrew',
                                    icsLabel: 'eCrew ICS URL',
                                    icsHint: 'The calendar subscription link from eCrew.' },
-            'ics_scx':          { airline: 'Sun Country Airlines', code: 'SCX', method: 'ics',
+            'ics_scx':          { airline: 'Sun Country Airlines', code: 'SCX', method: 'ics', appName: 'eCrew',
                                    icsLabel: 'eCrew ICS URL',
                                    icsHint: 'The calendar subscription link from eCrew.' },
             'vcs_skywest':      { airline: 'SkyWest Airlines',     code: 'SKW', method: 'file',
@@ -318,10 +327,24 @@
             document.getElementById('sched-ics-hint').textContent  = info?.icsHint
                 || 'RosterBuster, Google Calendar, and most airline apps support ICS export.';
 
+            const appName = info?.appName || 'your crew scheduling app';
+            document.getElementById('ics-help-steps').innerHTML = `
+                <li>In ${appName}, look for an option to export, sync, or add your schedule to a calendar app — this creates (or updates) a calendar in your phone's Calendar app.</li>
+                <li>Open the <b>Calendar</b> app → tap <b>Calendars</b> at the bottom → find that calendar in the list → tap the <b>ⓘ</b> next to it.</li>
+                <li>Turn on <b>Public Calendar</b> (iCloud calendars only) — this generates a shareable link.</li>
+                <li>Tap <b>Share Link</b>, copy it, and paste it above.</li>
+            `;
+            document.getElementById('ics-help-panel').style.display = 'none'; // collapse on every company change
+
             document.getElementById('step2-subtitle').textContent =
                 method === 'file' ? 'Upload your schedule file below. You can skip this and do it later.'
                 : method === 'ics'  ? 'Paste your ICS calendar link below. You can skip this and do it later.'
                 : 'Upload a schedule file or paste an ICS link. You can skip this and do it later.';
+        }
+
+        function toggleIcsHelp() {
+            const panel = document.getElementById('ics-help-panel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
         }
 
         function goStep(n) {
