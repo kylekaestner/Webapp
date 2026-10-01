@@ -5711,9 +5711,16 @@
                             renderMap();
                             return;
                         }
-                        // Was airborne, lost signal ~40s — almost certainly landed.
-                        // Re-render as completed so the arc stops animating.
-                        if (hasBeenAirborne && missCount >= 5) {
+                        // Was airborne, lost signal — treat as probably landed and stop tracking.
+                        // Require a much longer gap before concluding that while still well ahead
+                        // of the scheduled arrival: a real multi-minute ADS-B coverage gap mid-flight
+                        // is ordinary (regional jets especially, over sparser receiver coverage), and
+                        // a flat ~40s threshold produced a false LANDED EARLY/COMPLETED classification
+                        // for a flight confirmed still genuinely airborne, far from its destination.
+                        // Close to or past the scheduled arrival, a short gap is far more plausibly real.
+                        const minsToSchedArr = scheduledArrUTC ? (scheduledArrUTC.getTime() - Date.now()) / 60000 : -Infinity;
+                        const probablyLandedThreshold = minsToSchedArr > 15 ? 38 /* ~5 min */ : 5 /* ~40s */;
+                        if (hasBeenAirborne && missCount >= probablyLandedThreshold) {
                             if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
                             _departureDelays.delete(callsign);
                             clearInterval(_livePollers[callsign]);
@@ -6977,9 +6984,15 @@
             // Grid cells scroll their own flight list independently (.overflow-y-auto per day) --
             // a live leg later in the day can load scrolled out of view behind earlier legs.
             // scrollIntoView with 'nearest' scrolls just that cell's internal list, not the page.
+            // Deferred a frame: calling this synchronously right after the innerHTML assignment
+            // above measured against a layout the browser hadn't actually committed yet (the cell's
+            // scrollable height wasn't settled), so the scroll silently did nothing -- waiting for
+            // the next paint guarantees the real, final layout before measuring where to scroll.
             if (currentView === 'grid') {
-                gridContainer.querySelectorAll('.flight-item.active-leg').forEach(el => {
-                    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                requestAnimationFrame(() => {
+                    gridContainer.querySelectorAll('.flight-item.active-leg').forEach(el => {
+                        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    });
                 });
             }
         }
