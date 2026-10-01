@@ -106,27 +106,22 @@ A pilot or viewer only sees another pilot's schedule once an accepted friendship
 
 ## Schedule Parsers
 
-### ICS (Schedaero)
-`.ics` export from Schedaero. Parses `VEVENT` blocks with `SUMMARY` containing airport pairs and `DESCRIPTION` with tail/trip info.
+Every pilot has a `parser_type` in the DB that determines which parser runs on upload/sync — set via the admin panel's Airline/Operator dropdown (or the pilot's own self-service "My Info" editor), which maps a real company name to the actual `parser_type` string. Listed below by company, with each one's real `parser_type` value and which current pilots use it (so "what is the blank CSV one" has a concrete answer instead of a guess).
 
-### CSV (Republic/standard)
-Required columns: `DATE, DEP, ARR, DEPTIME, ARRTIME`  
-Optional: `TAIL, DH, FCVTAIL, EQP, FLIGHT, BLOCK, CREW`
+### Republic Airways — `parser_type: 'csv'`
+Required columns: `DATE, DEP, ARR, DEPTIME, ARRTIME`. Optional: `TAIL, DH, FCVTAIL, EQP, FLIGHT, BLOCK, CREW`. Times are local to the departure airport; block time pulled from the `BLOCK` column. Despite the generic-sounding `parser_type` name, this is specifically Republic's format, not a catch-all — currently used by Adam and Sam.
 
-Times are local to the departure airport. Block time pulled from `BLOCK` column.
+### SkyWest Airlines — `parser_type: 'vcs_skywest'`
+SkyWest SkedPlus+ `.vcs` export (quoted-printable encoded). Parses day headers and flight leg lines from `DESCRIPTION`. Reserve types (RE2) mapped to `type: reserve`; training pairings (IOE, TRN, and similar prefixes) supported. Currently used by Logan and Ben.
 
-### CSV (SkyWest variant)
-Flexible header matching — accepts `FLIGHTDATE|DATE`, `DEPARTURE|DEP|ORIG`, `DESTINATION|ARR|DEST`, `DEP_TIME|DEPTIME`, `ARR_TIME|ARRTIME`, `AIRCRAFT|TAIL`, `DH|DUTY`.
+**`parser_type: 'csv_skywest'` is a separate, legacy parser for an older SkyWest CSV export format — the code (`parseCSV_skywest`, server.js) still exists, but no current pilot uses it and the admin dropdown no longer offers it as an option.** Flexible header matching: `FLIGHTDATE|DATE`, `DEPARTURE|DEP|ORIG`, `DESTINATION|ARR|DEST`, `DEP_TIME|DEPTIME`, `ARR_TIME|ARRTIME`, `AIRCRAFT|TAIL`, `DH|DUTY`.
 
-### VCS (SkedPlus+)
-SkyWest SkedPlus+ `.vcs` export. Quoted-printable encoded. Parses day headers and flight leg lines from `DESCRIPTION`. Reserve types (RE2) mapped to `type: reserve`. Training pairings (IOE, TRN, and similar prefixes) are supported.
+### GoJet Airlines — `parser_type: 'ics_rosterbuster'`
+ICS subscription URL from RosterBuster, fetched on each sync. Currently used by Drew.
 
-### ICS (RosterBuster)
-ICS subscription URL stored on server, fetched on each sync.
-
-### ICS (AIMS eCrew)
-ICS subscription URL from calendar publish. Each `VEVENT` is a duty period; individual legs are parsed from the `DESCRIPTION` field.
-
+### Atlas Air — `parser_type: 'ics_ecrew'`
+### Sun Country Airlines — `parser_type: 'ics_scx'`
+Both use the same underlying AIMS eCrew parser (`parseECrewICS`), parameterized by airline code (`GTI` for Atlas, `SCX` for Sun Country) — the dropdown just offers two separate airline entries pointing at one shared parser. ICS subscription URL from calendar publish; each `VEVENT` is a duty period, with individual legs parsed from `DESCRIPTION`:
 - **Reserves** (RESR/RESP/RESA): `type: reserve`, airports from `LOCATION` field
 - **Operating flights** (numeric codes): `type: flight`, `dh: false`
 - **Deadhead flights**: `type: flight`, `dh: true`
@@ -134,10 +129,22 @@ ICS subscription URL from calendar publish. Each `VEVENT` is a duty period; indi
 - **Ground transport** (GRND####): `type: ground`, stored for map location tracking only
 - **RAP / same-airport legs**: skipped
 
-Each airport's timezone is resolved from `airports.dat` for accurate UTC conversion of local leg times.
+Each airport's timezone is resolved from `airports.dat` for accurate UTC conversion of local leg times. Currently used by Brett (Sun Country) and Hunter (should be Atlas/`ics_ecrew`, but his profile is currently mis-set to `ics_scx` — a known, not-yet-fixed data entry error; his `airline_code` of `GTI` is already correct, only `parser_type` is wrong).
 
-### ICS (Delta MiCrew / American MobileCCI / Southwest CrewHub)
-Three more `.ics`-based parsers, each built against one real pilot's feed for that carrier. Each has carrier-specific quirks (multi-day pairings in one `VEVENT` for Delta/Southwest vs. one leg per `VEVENT` for American, timezone-abbreviation-per-leg for Southwest, etc.) — see `CLAUDE.md` for the full details on deadhead/reserve detection and known gaps per parser. American and Southwest report unrecognized schedule items back to admin as warnings (`pilots.parser_warnings`) rather than silently dropping them.
+### Delta Air Lines (MiCrew) — `parser_type: 'ics_delta_micrew'`
+Currently used by Mark. See `CLAUDE.md` for the full parser detail (multi-day pairings in one `VEVENT`, deadhead/reserve detection, leg-line prefix letters).
+
+### American Airlines (MobileCCI) — `parser_type: 'ics_american'`
+One `VEVENT` per leg (not per pairing, unlike the others). No current pilot uses this one yet. Reports unrecognized schedule items back to admin as warnings (`pilots.parser_warnings`) rather than silently dropping them — see `CLAUDE.md`.
+
+### Southwest Airlines (CrewHub) — `parser_type: 'ics_southwest'`
+Multi-day pairings like Delta's, but with a timezone abbreviation on every leg instead of airport-timezone lookup. No current pilot uses this one yet. Also reports parser warnings to admin.
+
+### Kyle's SpiritJets (Corporate, Part 91/135) — `parser_type: 'schedaero'`
+Not a generic ICS/CSV parser at all — Schedaero has its own dedicated sync endpoints (`POST /api/pilots/kyle/sync-schedaero` / `quick-sync-schedaero`) and admin-panel modal, gated purely on `parser_type === 'schedaero'`. Kyle only.
+
+### Other / unrecognized — `parser_type: 'other'`
+No airline selected, or a format that doesn't match any of the above. On first upload, `autoDetectParser()` sniffs the file and tries to match it to a known format; if it can't, the pilot's upload is rejected with a message to contact admin rather than silently mis-parsed. This is also where a bare, unlabeled `.ics`/`.csv` would fall through to the generic `parseICS()`/`parseCSV()` functions — not tied to any specific real airline today.
 
 ---
 
