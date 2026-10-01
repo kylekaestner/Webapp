@@ -2146,6 +2146,7 @@
         let myFriends = [];           // [{pilotKey, name, since}] — accepted only
         let myIncomingRequests = [];  // requests sent TO me, awaiting my accept/decline
         let myOutgoingRequests = [];  // requests I sent, awaiting their accept
+        let _viewOnlyFriendsExpanded = false; // collapsed by default in renderFriendsPanel()
 
         // The set of pilot keys the current identity is actually allowed to fetch. Every
         // place that used to loop over all PILOT_KEYS (crossings, off days, the calendar's
@@ -2292,6 +2293,11 @@
             if (ok) removeFriend(targetKey);
         }
 
+        function _toggleViewOnlyFriends() {
+            _viewOnlyFriendsExpanded = !_viewOnlyFriendsExpanded;
+            renderFriendsPanel();
+        }
+
         // Renders the friends list + any pending incoming/outgoing requests in the Profile
         // sheet. Called after loadFriends() resolves and after any accept/decline/remove action.
         function renderFriendsPanel() {
@@ -2327,15 +2333,14 @@
             // applies to real pilots (viewers have no schedule to show/hide in the first place,
             // see visiblePilotKeys()'s own comment), so the toggle is simply omitted for one.
             const visible = getCrewVisible();
-            const friendRows = myFriends.map(f => {
-                // Viewers are never registered into PILOT_COLORS (see visiblePilotKeys()'s own
-                // comment), so PILOT_COLORS[f.pilotKey] would always fall through to the generic
-                // indigo default for one anyway -- use the same 👁 treatment as the crew-roster
-                // page's viewer avatars instead of a blank/default initial, plus a clear label so
-                // it reads as "this is a guest, not a crewmate" rather than looking unfinished.
+            // Viewers are never registered into PILOT_COLORS (see visiblePilotKeys()'s own
+            // comment), so PILOT_COLORS[f.pilotKey] would always fall through to the generic
+            // indigo default for one anyway -- use the same 👁 treatment as the crew-roster page's
+            // viewer avatars instead of a blank/default initial, plus a clear label so it reads as
+            // "this is a guest, not a crewmate" rather than looking unfinished.
+            const _friendRowHtml = f => {
                 const c = f.isViewer ? '#52525b' : (PILOT_COLORS[f.pilotKey] || '#6366f1');
                 const avatarChar = f.isViewer ? '👁' : (f.name || f.pilotKey)[0].toUpperCase();
-                const viewerBadge = f.isViewer ? `<span class="text-[8px] font-black text-zinc-500 uppercase tracking-widest border border-zinc-700 rounded-full px-1.5 py-0.5 shrink-0">View Only</span>` : '';
                 const on = visible.includes(f.pilotKey);
                 const visToggle = f.isViewer ? '' : `<div onclick="setCrewVisible('${f.pilotKey}', ${!on})" title="${on ? 'Hide from your calendar/map' : 'Show in your calendar/map'}" class="w-9 h-5 rounded-full flex items-center transition-all cursor-pointer px-0.5 shrink-0" style="background:${on ? c+'cc' : '#3f3f46'}">
                         <div class="w-4 h-4 rounded-full bg-white shadow transition-transform" style="transform:translateX(${on ? '16px' : '0px'})"></div>
@@ -2344,20 +2349,31 @@
                     <div class="flex items-center gap-2.5 min-w-0">
                         <div class="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0" style="background:${c}22;color:${c}">${avatarChar}</div>
                         <span class="text-sm font-black text-white truncate">${escapeHtml(f.name || f.pilotKey)}</span>
-                        ${viewerBadge}
                     </div>
                     <div class="flex items-center gap-2.5 shrink-0 ml-2">
                         ${visToggle}
                         <button onclick="confirmRemoveFriend('${f.pilotKey}', '${escapeHtml(f.name || f.pilotKey)}')" class="text-[9px] font-black text-zinc-600 hover:text-red-400 uppercase tracking-widest">Remove</button>
                     </div>
                 </div>`;
-            }).join('');
+            };
+            // Real-pilot friends render directly; view-only friends collapse under their own
+            // header instead of just sorting to the bottom, so a pilot with several admin-granted
+            // viewers doesn't have to scroll past all of them to see their actual crew.
+            const realFriends = myFriends.filter(f => !f.isViewer);
+            const viewerFriends = myFriends.filter(f => f.isViewer);
+            const friendRows = realFriends.map(_friendRowHtml).join('');
+            const viewerSection = viewerFriends.length === 0 ? '' : `
+                <button onclick="_toggleViewOnlyFriends()" class="flex items-center gap-1.5 w-full py-2 px-1 text-left">
+                    <svg class="w-2.5 h-2.5 text-zinc-500 transition-transform shrink-0" style="transform:rotate(${_viewOnlyFriendsExpanded ? '90deg' : '0deg'})" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 18l6-6-6-6"/></svg>
+                    <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">View Only · ${viewerFriends.length}</span>
+                </button>
+                ${_viewOnlyFriendsExpanded ? `<div class="space-y-2 mb-2">${viewerFriends.map(_friendRowHtml).join('')}</div>` : ''}`;
             const outgoingRows = myOutgoingRequests.map(r => `
                 <div class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-900/40 border border-zinc-800">
                     <span class="text-sm font-bold text-zinc-400">${escapeHtml(r.name || r.pilotKey)}</span>
                     <span class="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Pending</span>
                 </div>`).join('');
-            listEl.innerHTML = friendRows + outgoingRows;
+            listEl.innerHTML = friendRows + viewerSection + outgoingRows;
         }
 
         // ── Add Friend modal: search the non-sensitive pilot directory ─────────
@@ -2465,6 +2481,11 @@
             _saveCrewVisibility();
             _applyPilotPillVisibility();
             _buildCrewVisibilityUI();
+            // For a real pilot, the actual visible toggle lives inline in the Friends list now
+            // (renderFriendsPanel()), not the hidden #crew-visibility-section -- without this, the
+            // row's onclick keeps whatever "next state" value was baked in at the last real
+            // render, so a second click just re-sent the same value instead of flipping it again.
+            renderFriendsPanel();
             _updateCrewLegend();
             if (currentView === 'map' && (mapDayMode || mapAllMode)) renderMap();
             // Keep _offDayFilter in sync — remove any pilot no longer in crew visible
