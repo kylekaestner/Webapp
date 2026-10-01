@@ -1517,11 +1517,37 @@
                 <p class="text-[10px] text-zinc-500 mt-2">Bookmark this link or add it to your Home Screen — opening it signs you in automatically.</p>
             </div>
 
+            <!-- Friends -->
+            <div id="friends-section">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Friends</label>
+                    <button onclick="openAddFriendModal()" class="text-[10px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest">+ Add</button>
+                </div>
+                <p class="text-[10px] text-zinc-500 mb-3 -mt-1">Only friends can see your schedule, and you can only see theirs.</p>
+                <div id="friends-incoming-section" class="hidden space-y-1.5 mb-3"></div>
+                <div id="friends-list" class="space-y-2"></div>
+            </div>
+
             <!-- Crew visibility -->
             <div id="crew-visibility-section">
                 <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Your Crew</label>
                 <p class="text-[10px] text-zinc-500 mb-3 -mt-1">Choose who you want to see in your schedule view.</p>
                 <div class="space-y-2" id="crew-visibility-btns"></div>
+            </div>
+
+            <!-- Add Friend modal -->
+            <div id="add-friend-modal" class="hidden fixed inset-0 z-[1002] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeAddFriendModal()">
+                <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+                <div class="relative w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[80vh] flex flex-col" onclick="event.stopPropagation()">
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
+                        <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Add a Friend</h3>
+                        <button onclick="closeAddFriendModal()" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+                    </div>
+                    <div class="p-4 shrink-0">
+                        <input id="friend-search-input" type="text" placeholder="Search by name…" oninput="renderFriendSearchResults(this.value)" class="w-full bg-zinc-800 border border-zinc-700 focus:border-blue-500 rounded-xl px-3.5 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors">
+                    </div>
+                    <div id="friend-search-results" class="overflow-y-auto px-4 pb-4 space-y-1.5 flex-1"></div>
+                </div>
             </div>
 
             <!-- Notifications toggle -->
@@ -2333,6 +2359,12 @@
             const banner = document.getElementById('demo-banner');
             if (banner) banner.classList.toggle('hidden', !isDemo);
 
+            // Friends must be loaded (and, for a first-time pilot, seeded from their existing
+            // "Your Crew" toggle) before _applyIdentityUI() builds the crew-visibility UI below
+            // it, since that UI is now bounded by friendship.
+            await loadFriends();
+            await _maybeSeedFriends();
+
             _applyIdentityUI();
             _applyPilotPillVisibility();
             _reorderPilotPills();
@@ -2356,7 +2388,243 @@
             }
         }
 
-        // ── Crew visibility ───────────────────────────────────────────────
+        // ── Friends ──────────────────────────────────────────────────────────
+        // Replaces "everyone sees everyone": a real pilot can only fetch another pilot's
+        // schedule once an accepted friend_requests row exists between them (enforced
+        // server-side in GET /api/pilots/:key). Admin and view-only guests are unaffected —
+        // they still see every pilot, same as before this system existed.
+        let myFriends = [];           // [{pilotKey, name, since}] — accepted only
+        let myIncomingRequests = [];  // requests sent TO me, awaiting my accept/decline
+        let myOutgoingRequests = [];  // requests I sent, awaiting their accept
+
+        // The set of pilot keys the current identity is actually allowed to fetch. Every
+        // place that used to loop over all PILOT_KEYS (crossings, off days, the calendar's
+        // background prefetch) needs to loop over this instead, or it'll just collect 403s.
+        function visiblePilotKeys() {
+            if (myPilot === null) return [...PILOT_KEYS]; // admin or viewer — both still see everyone
+            return [myPilot, ...myFriends.map(f => f.pilotKey)];
+        }
+
+        function _pilotFetchUrl(key) {
+            return `${API_BASE}/pilots/${key}${myToken ? '?token=' + encodeURIComponent(myToken) : ''}`;
+        }
+
+        async function loadFriends() {
+            if (!myPilot || isDemo) { myFriends = []; myIncomingRequests = []; myOutgoingRequests = []; return; }
+            try {
+                const data = await fetch(`/api/friends?token=${encodeURIComponent(myToken)}`).then(r => r.json());
+                myFriends = data.friends || [];
+                myIncomingRequests = data.incoming || [];
+                myOutgoingRequests = data.outgoing || [];
+            } catch { /* leave whatever we had */ }
+        }
+
+        // One-time import of this pilot's pre-existing "Your Crew" toggle (below) as their
+        // starting friend list — see POST /api/friends/seed. Safe to call on every load; the
+        // server only actually seeds once per pilot (pilots.friends_seeded).
+        //
+        // Reads the RAW localStorage value directly rather than calling getCrewVisible() --
+        // that function now filters its result down to visiblePilotKeys() (self + friends),
+        // which at seed time is just [self], since there are no friends yet. Calling it here
+        // would clamp away the very preference this is supposed to import.
+        async function _maybeSeedFriends() {
+            if (!myPilot || isDemo) return;
+            let current = [];
+            try {
+                const stored = localStorage.getItem(_visKey());
+                if (stored) current = JSON.parse(stored).filter(p => p !== myPilot && VALID_PILOTS.includes(p));
+            } catch { /* no stored preference yet -- nothing to seed */ }
+            try {
+                const result = await fetch('/api/friends/seed', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, keys: current })
+                }).then(r => r.json());
+                if (result.seeded) await loadFriends();
+            } catch { /* not critical — they can always add friends manually */ }
+        }
+
+        async function sendFriendRequest(targetKey, btnEl) {
+            if (!myToken || isDemo) return;
+            if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Sending…'; }
+            try {
+                const resp = await fetch('/api/friends/request', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, targetKey })
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    await loadFriends();
+                    if (result.status === 'accepted') {
+                        showToast(`You and ${PILOT_NAMES[targetKey] || targetKey} are now friends!`);
+                        if (currentPilot === targetKey) loadPilot(targetKey);
+                    } else {
+                        showToast('Friend request sent');
+                        if (btnEl) btnEl.textContent = '✓ Request Sent';
+                    }
+                    _refreshFriendUI();
+                } else {
+                    showToast(result.error || 'Failed to send request', 'error');
+                    if (btnEl) { btnEl.disabled = false; btnEl.textContent = '+ Send Friend Request'; }
+                }
+            } catch {
+                showToast('Failed to send request', 'error');
+                if (btnEl) { btnEl.disabled = false; btnEl.textContent = '+ Send Friend Request'; }
+            }
+        }
+
+        async function respondFriendRequest(requesterKey, accept) {
+            if (!myToken) return;
+            try {
+                const result = await fetch('/api/friends/respond', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, requesterKey, accept })
+                }).then(r => r.json());
+                if (result.success) {
+                    showToast(accept ? `You and ${PILOT_NAMES[requesterKey] || requesterKey} are now friends!` : 'Request declined');
+                    await loadFriends();
+                    _refreshFriendUI();
+                    _buildCrewVisibilityUI();
+                }
+            } catch { showToast('Something went wrong', 'error'); }
+        }
+
+        async function removeFriend(targetKey) {
+            if (!myToken) return;
+            try {
+                const result = await fetch(`/api/friends/${encodeURIComponent(targetKey)}`, {
+                    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken })
+                }).then(r => r.json());
+                if (result.success) {
+                    showToast(`Removed ${PILOT_NAMES[targetKey] || targetKey} as a friend`);
+                    await loadFriends();
+                    setCrewVisible(targetKey, false);
+                    _refreshFriendUI();
+                }
+            } catch { showToast('Something went wrong', 'error'); }
+        }
+
+        // Refreshes both the Profile sheet's friends list and the add-friend search results
+        // (if that modal happens to be open) after any state change — request, accept, decline,
+        // remove. Cheap to call unconditionally since both checks are no-ops when not rendered.
+        function _refreshFriendUI() {
+            if (typeof renderFriendsPanel === 'function') renderFriendsPanel();
+            const modal = document.getElementById('add-friend-modal');
+            if (modal && !modal.classList.contains('hidden')) {
+                renderFriendSearchResults(document.getElementById('friend-search-input')?.value || '');
+            }
+        }
+
+        async function confirmRemoveFriend(targetKey, name) {
+            const ok = await showConfirm('Remove Friend?', `You and ${name || targetKey} will no longer be able to see each other's schedules.`, { label: 'Remove', danger: true });
+            if (ok) removeFriend(targetKey);
+        }
+
+        // Renders the friends list + any pending incoming/outgoing requests in the Profile
+        // sheet. Called after loadFriends() resolves and after any accept/decline/remove action.
+        function renderFriendsPanel() {
+            const incomingEl = document.getElementById('friends-incoming-section');
+            const listEl = document.getElementById('friends-list');
+            if (!listEl) return;
+
+            if (incomingEl) {
+                if (!myIncomingRequests.length) {
+                    incomingEl.classList.add('hidden');
+                    incomingEl.innerHTML = '';
+                } else {
+                    incomingEl.classList.remove('hidden');
+                    incomingEl.innerHTML = `<p class="text-[9px] font-black text-amber-400 uppercase tracking-widest mb-1">Requests</p>` +
+                        myIncomingRequests.map(r => `
+                            <div class="flex items-center justify-between py-2 px-3 rounded-xl bg-amber-950/20 border border-amber-800/40">
+                                <span class="text-xs font-black text-white">${escapeHtml(r.name || r.pilotKey)}</span>
+                                <div class="flex gap-1.5">
+                                    <button onclick="respondFriendRequest('${r.pilotKey}', true)" class="px-2.5 py-1 bg-green-600 hover:bg-green-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors">Accept</button>
+                                    <button onclick="respondFriendRequest('${r.pilotKey}', false)" class="px-2.5 py-1 border border-zinc-600 text-zinc-400 hover:text-red-400 hover:border-red-800 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors">Decline</button>
+                                </div>
+                            </div>
+                        `).join('');
+                }
+            }
+
+            if (!myFriends.length && !myOutgoingRequests.length) {
+                listEl.innerHTML = `<p class="text-xs text-zinc-500 py-1.5">No friends yet — tap + Add to send a request.</p>`;
+                return;
+            }
+            const friendRows = myFriends.map(f => {
+                const c = PILOT_COLORS[f.pilotKey] || '#6366f1';
+                return `<div class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0" style="background:${c}22;color:${c}">${(f.name || f.pilotKey)[0].toUpperCase()}</div>
+                        <span class="text-sm font-black text-white truncate">${escapeHtml(f.name || f.pilotKey)}</span>
+                    </div>
+                    <button onclick="confirmRemoveFriend('${f.pilotKey}', '${escapeHtml(f.name || f.pilotKey)}')" class="text-[9px] font-black text-zinc-600 hover:text-red-400 uppercase tracking-widest shrink-0 ml-2">Remove</button>
+                </div>`;
+            }).join('');
+            const outgoingRows = myOutgoingRequests.map(r => `
+                <div class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-900/40 border border-zinc-800">
+                    <span class="text-sm font-bold text-zinc-400">${escapeHtml(r.name || r.pilotKey)}</span>
+                    <span class="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Pending</span>
+                </div>`).join('');
+            listEl.innerHTML = friendRows + outgoingRows;
+        }
+
+        // ── Add Friend modal: search the non-sensitive pilot directory ─────────
+        let _friendDirectory = null; // lazy-loaded, [{pilot_key, name, ...}]
+
+        async function openAddFriendModal() {
+            document.getElementById('add-friend-modal').classList.remove('hidden');
+            document.getElementById('friend-search-input').value = '';
+            document.getElementById('friend-search-input').focus();
+            if (!_friendDirectory) {
+                try {
+                    _friendDirectory = await fetch(`/api/pilots-directory?token=${encodeURIComponent(myToken)}`).then(r => r.json());
+                } catch { _friendDirectory = []; }
+            }
+            renderFriendSearchResults('');
+        }
+        function closeAddFriendModal() {
+            document.getElementById('add-friend-modal').classList.add('hidden');
+        }
+        function renderFriendSearchResults(query) {
+            const el = document.getElementById('friend-search-results');
+            if (!el) return;
+            const q = (query || '').trim().toLowerCase();
+            const friendKeys = new Set(myFriends.map(f => f.pilotKey));
+            const outgoingKeys = new Set(myOutgoingRequests.map(r => r.pilotKey));
+            const incomingKeys = new Set(myIncomingRequests.map(r => r.pilotKey));
+            const candidates = (_friendDirectory || [])
+                .filter(p => p.pilot_key !== myPilot)
+                .filter(p => !q || (p.name || '').toLowerCase().includes(q) || p.pilot_key.toLowerCase().includes(q));
+            if (!candidates.length) {
+                el.innerHTML = `<p class="text-xs text-zinc-500 py-3 text-center">No one matches "${escapeHtml(query)}"</p>`;
+                return;
+            }
+            el.innerHTML = candidates.map(p => {
+                const c = PILOT_COLORS[p.pilot_key] || '#6366f1';
+                let actionHtml;
+                if (friendKeys.has(p.pilot_key)) {
+                    actionHtml = `<span class="text-[9px] font-black text-green-400 uppercase tracking-widest">✓ Friends</span>`;
+                } else if (outgoingKeys.has(p.pilot_key)) {
+                    actionHtml = `<span class="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Pending</span>`;
+                } else if (incomingKeys.has(p.pilot_key)) {
+                    actionHtml = `<button onclick="respondFriendRequest('${p.pilot_key}', true)" class="px-2.5 py-1 bg-green-600 hover:bg-green-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors">Accept</button>`;
+                } else {
+                    actionHtml = `<button onclick="sendFriendRequest('${p.pilot_key}', this)" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors">Add</button>`;
+                }
+                return `<div class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0" style="background:${c}22;color:${c}">${(p.name || p.pilot_key)[0].toUpperCase()}</div>
+                        <span class="text-sm font-black text-white truncate">${escapeHtml(p.name || p.pilot_key)}</span>
+                    </div>
+                    <div class="shrink-0 ml-2">${actionHtml}</div>
+                </div>`;
+            }).join('');
+        }
+
+        // ── Crew visibility ─────────────────────────────────────────────────
+        // A per-viewer display preference layered ON TOP of friendship (who you've chosen to
+        // declutter in/out of the map, pill bar, etc). Bounded by visiblePilotKeys() below —
+        // you can only toggle visibility for someone you're actually friends with.
         function _visKey() {
             if (myPilot) return `crewVisible_${myPilot}`;
             if (myViewer) return `crewVisible_${myViewerKey}`;
@@ -2370,7 +2638,11 @@
                     const arr = JSON.parse(stored);
                     // Pilots always include self; viewers have no "self" pilot
                     if (myPilot && !arr.includes(myPilot)) arr.unshift(myPilot);
-                    return arr.filter(p => VALID_PILOTS.includes(p));
+                    // Bounded by who's actually visible (self + friends, or everyone for
+                    // admin/viewer) — can't toggle "on" a display preference for someone who
+                    // was never friended, or who's since been unfriended.
+                    const allowed = visiblePilotKeys();
+                    return arr.filter(p => VALID_PILOTS.includes(p) && allowed.includes(p));
                 } catch { /* fall through */ }
             }
             // Default: only yourself (no stored preference = first login or cleared storage)
@@ -2448,6 +2720,11 @@
             // Pilots, viewers, and admin all get crew visibility
             const cvSection = document.getElementById('crew-visibility-section');
             if (cvSection) cvSection.classList.remove('hidden');
+
+            // Friends only apply to real pilots -- admin and viewers already bypass the friend
+            // requirement server-side and see everyone, so a friend list has nothing to do for them.
+            const friendsSection = document.getElementById('friends-section');
+            if (friendsSection) friendsSection.classList.toggle('hidden', !myPilot || isDemo);
             const signOutBtn = document.getElementById('sign-out-btn');
             if (signOutBtn) signOutBtn.classList.toggle('hidden', !myPilot && !myViewer);
 
@@ -2476,6 +2753,7 @@
             if (uploadForRow) uploadForRow.classList.toggle('hidden', !!myPilot);
 
             _buildCrewVisibilityUI();
+            renderFriendsPanel();
             setTimeout(_maybeShowCrewNudge, 1200);
         }
 
@@ -2483,8 +2761,14 @@
             const el = document.getElementById('crew-visibility-btns');
             if (!el) return;
             const visible = getCrewVisible();
-            // Pilots exclude themselves (can't hide own schedule); admin + viewers see all pilots
-            el.innerHTML = VALID_PILOTS.filter(p => p !== myPilot).map(p => {
+            // Pilots can only toggle visibility for someone they're actually friends with
+            // (admin + viewers are exempt from the friend requirement and still see everyone).
+            const candidates = visiblePilotKeys().filter(p => p !== myPilot);
+            if (myPilot && candidates.length === 0) {
+                el.innerHTML = `<p class="text-xs text-zinc-500 px-1 py-2">No friends yet — add some from the Friends section above to see them here.</p>`;
+                return;
+            }
+            el.innerHTML = candidates.map(p => {
                 const c  = PILOT_COLORS[p];
                 const on = visible.includes(p);
                 return `<label class="flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-colors ${on ? '' : 'opacity-50'}" style="background:${on ? c+'14' : 'transparent'};border:1px solid ${on ? c+'50' : '#3f3f46'}">
@@ -2965,9 +3249,15 @@
         async function fetchPilotData(pilot) {
             try {
                 isLoading = true;
-                const response = await fetch(`${API_BASE}/pilots/${pilot}`);
-                if (!response.ok) throw new Error(`Failed to fetch pilot: ${response.status}`);
-                
+                const response = await fetch(_pilotFetchUrl(pilot));
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        const body = await response.json().catch(() => ({}));
+                        if (body.error === 'not_friends') return { __notFriends: true, pilotKey: body.pilotKey, name: body.name };
+                    }
+                    throw new Error(`Failed to fetch pilot: ${response.status}`);
+                }
+
                 const data = await response.json();
                 pilotsCache[pilot] = data;
                 return data;
@@ -3072,6 +3362,29 @@
             return sortSegmentsByTime([...sorted, ...awayEvents]);
         }
 
+        // Shown in place of the normal grid/list content when GET /api/pilots/:key 403s with
+        // "not_friends" — offers a one-tap request instead of a blank/broken view. Map views
+        // simply skip a pilot that was never cached rather than showing this (acceptable: the
+        // prompt belongs to the pilot's own calendar/list, not every view that touches them).
+        function _renderNotFriendsState(pilotKey, name) {
+            document.getElementById('pilot-header').textContent = name || pilotKey;
+            const mobileHeader = document.getElementById('pilot-header-mobile');
+            if (mobileHeader) mobileHeader.textContent = (name || pilotKey).split(' ')[0].toUpperCase();
+            const msg = `
+                <div class="flex flex-col items-center justify-center text-center py-20 px-6">
+                    <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style="background:rgba(59,130,246,0.1)">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                    </div>
+                    <div class="text-base font-black text-white mb-1.5">Not friends with ${escapeHtml(name || pilotKey)} yet</div>
+                    <p class="text-sm text-zinc-500 max-w-xs mb-5">Send a friend request to see their schedule. They'll need to accept before you can see each other.</p>
+                    <button onclick="sendFriendRequest('${pilotKey}', this)" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-colors">+ Send Friend Request</button>
+                </div>`;
+            const gridEl = document.getElementById('calendar-grid-content');
+            const listEl = document.getElementById('calendar-list-content');
+            if (gridEl) gridEl.innerHTML = msg;
+            if (listEl) listEl.innerHTML = msg;
+        }
+
         // loadPilot is the main entry point for switching whose schedule is displayed.
         // It fetches from the server, converts snake_case -> camelCase, injects away
         // events, updates all headers/pills/active states, then calls render().
@@ -3091,6 +3404,11 @@
                 loadingOverlay.classList.remove('loading-active');
                 if (!data) {
                     console.error('Failed to load pilot data');
+                    return;
+                }
+                if (data.__notFriends) {
+                    segments = [];
+                    _renderNotFriendsState(data.pilotKey, data.name);
                     return;
                 }
 
@@ -3533,9 +3851,11 @@
             // See computeOverlap() — yields so the spinner paints even when every
             // pilot is already cached and the fetch step below has nothing to await.
             await new Promise(r => setTimeout(r, 0));
-            await Promise.all(PILOT_KEYS.map(async key => {
+            // Only fetch pilots we're actually allowed to see -- looping all PILOT_KEYS here
+            // used to work because every pilot saw everyone; now it would just collect 403s.
+            await Promise.all(visiblePilotKeys().map(async key => {
                 if (!pilotsCache[key]) {
-                    try { pilotsCache[key] = await (await fetch(`${API_BASE}/pilots/${key}`)).json(); }
+                    try { pilotsCache[key] = await (await fetch(_pilotFetchUrl(key))).json(); }
                     catch(_) {}
                 }
             }));
@@ -3952,9 +4272,11 @@
             const now = new Date();
             const bufferMs = 3 * 60 * 60 * 1000;
 
-            await Promise.all(PILOT_KEYS.map(async key => {
+            // Crossings only make sense between people who can actually see each other --
+            // only fetch pilots we're friends with (or everyone, for admin/viewer).
+            await Promise.all(visiblePilotKeys().map(async key => {
                 if (!pilotsCache[key]) {
-                    try { pilotsCache[key] = await (await fetch(`${API_BASE}/pilots/${key}`)).json(); }
+                    try { pilotsCache[key] = await (await fetch(_pilotFetchUrl(key))).json(); }
                     catch (e) { return; }
                 }
             }));
@@ -4735,7 +5057,7 @@
             const visiblePilots = getCrewVisible();
             await Promise.all(visiblePilots.map(async key => {
                 if (!pilotsCache[key]) {
-                    try { pilotsCache[key] = await (await fetch(`${API_BASE}/pilots/${key}`)).json(); }
+                    try { pilotsCache[key] = await (await fetch(_pilotFetchUrl(key))).json(); }
                     catch(_) {}
                 }
             }));
@@ -5850,7 +6172,7 @@
             await Promise.all(visiblePilots.map(async (key) => {
                 if (!pilotsCache[key]) {
                     try {
-                        const resp = await fetch(`${API_BASE}/pilots/${key}`);
+                        const resp = await fetch(_pilotFetchUrl(key));
                         pilotsCache[key] = await resp.json();
                     } catch (e) { return; }
                 }
@@ -6501,10 +6823,11 @@
             if (mobileMonth) mobileMonth.textContent = monthLabel;
 
             if (currentView === 'grid') {
-                // Background-fetch uncached pilots so "all crew off" detection works on first load
-                PILOT_KEYS.forEach(k => {
+                // Background-fetch uncached pilots so "all crew off" detection works on first
+                // load -- only pilots we can actually see, not everyone.
+                visiblePilotKeys().forEach(k => {
                     if (!pilotsCache[k]) {
-                        fetch(`${API_BASE}/pilots/${k}`).then(r => r.json()).then(d => { pilotsCache[k] = d; }).catch(() => {});
+                        fetch(_pilotFetchUrl(k)).then(r => r.json()).then(d => { pilotsCache[k] = d; }).catch(() => {});
                     }
                 });
                 const firstDay = new Date(year, month, 1).getDay();
@@ -8225,7 +8548,7 @@ let _blockUserEdited = false;
             const list = document.getElementById('admin-user-list');
             list.innerHTML = '<div class="flex items-center justify-center gap-2 py-4 text-zinc-500 text-xs font-bold"><div class="spinner"></div><span>Loading…</span></div>';
             try {
-                const rows = await fetch(`${API_BASE}/pilots`).then(r => r.json());
+                const rows = await fetch(`${API_BASE}/pilots?token=${encodeURIComponent(myToken)}`).then(r => r.json());
                 _adminUsers = rows;
                 renderAdminUserList(rows);
             } catch (e) {
@@ -10871,7 +11194,7 @@ let _blockUserEdited = false;
         // This is how newly joined pilots (e.g. Brett) appear without code changes.
         async function _syncPilotRoster() {
             try {
-                const pilots = await fetch('/api/pilots').then(r => r.json());
+                const pilots = await fetch(`/api/pilots-directory?token=${encodeURIComponent(myToken)}`).then(r => r.json());
                 if (!Array.isArray(pilots)) return;
                 pilots.forEach(p => {
                     const key = p.pilot_key;

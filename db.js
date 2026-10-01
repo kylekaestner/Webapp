@@ -116,6 +116,21 @@ function initDB() {
             FOREIGN KEY (intel_id) REFERENCES crew_intel(id) ON DELETE CASCADE
         )`);
 
+        // Friend requests — one row per (requester, recipient) pair, UNIQUE enforces a single
+        // request between any two pilots at a time (re-requesting after a decline just reuses
+        // the same row rather than stacking a second one). status: 'pending' | 'accepted'.
+        // A pair counts as friends when an accepted row exists in EITHER direction -- there's
+        // no canonical ordering of requester/recipient, so every query checks both.
+        db.run(`CREATE TABLE IF NOT EXISTS friend_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            requester_key TEXT NOT NULL,
+            recipient_key TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            responded_at DATETIME,
+            UNIQUE(requester_key, recipient_key)
+        )`);
+
         // Migrations: add columns if they don't exist yet
         db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE segments ADD COLUMN block_minutes INTEGER`, () => {});
@@ -128,6 +143,11 @@ function initDB() {
         // its last run (new/unseen prefix, timezone abbreviation, line shape, etc.) — overwritten
         // each upload/sync, not accumulated, so it always reflects the most recent parse only.
         db.run(`ALTER TABLE pilots ADD COLUMN parser_warnings TEXT`, () => {});
+        // One-time flag: has this pilot's pre-existing "Your Crew" visibility toggle (client-side
+        // localStorage, never previously synced to the server) been imported as their starting
+        // friend list yet? Prevents re-running the import after they've since customized their
+        // real friend list by unfriending someone -- see POST /api/friends/seed.
+        db.run(`ALTER TABLE pilots ADD COLUMN friends_seeded INTEGER DEFAULT 0`, () => {});
 
         // Backfill home_airport for known pilots where it hasn't been explicitly set.
         // home_airport = where the pilot LIVES; base = airline domicile (may differ for commuters).

@@ -76,6 +76,7 @@
         <option value="manual-flight">Adding Flights Manually</option>
         <option value="notifications">Notifications</option>
         <option value="identity">Your Personal Link</option>
+        <option value="friends">Friends</option>
         <option value="pwa">Installing the App</option>
         <option value="formats">Schedule Formats</option>
         <option value="faq">FAQ</option>
@@ -104,6 +105,7 @@
         <div class="nav-group-label">Account</div>
         <a class="nav-link" onclick="jumpTo('notifications')">Notifications</a>
         <a class="nav-link" onclick="jumpTo('identity')">Your Personal Link</a>
+        <a class="nav-link" onclick="jumpTo('friends')">Friends</a>
         <a class="nav-link" onclick="jumpTo('pwa')">Installing the App</a>
 
         <div class="nav-group-label">Reference</div>
@@ -485,6 +487,28 @@
 
         <hr class="section-divider">
 
+        <!-- FRIENDS -->
+        <section id="friends" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Account</p>
+            <h2>Friends</h2>
+            <p>Seeing another pilot's schedule requires a mutual friendship. Either of you can send the request — once the other accepts, you can see each other's calendar, list view, and map, and you'll start showing up in each other's Crossings.</p>
+
+            <h3>Sending a request</h3>
+            <p>Tap your name or avatar to open the Profile sheet, then <strong>+ Add</strong> under Friends. Search for the person and tap <strong>Add</strong>. You can also send a request directly from a pilot's schedule — if you're not friends yet, you'll see a prompt there instead of their calendar.</p>
+
+            <h3>Accepting, declining, and removing</h3>
+            <p>Incoming requests appear at the top of the Friends section in your Profile sheet with <strong>Accept</strong> and <strong>Decline</strong> buttons. Any accepted friend can be removed later — tap <strong>Remove</strong> next to their name. Removing a friend is mutual: neither of you can see the other's schedule afterward until someone sends a new request.</p>
+
+            <h3>Your Crew vs. Friends</h3>
+            <p>Friends controls actual access — it's the only way to see another pilot's schedule at all. The separate <strong>Your Crew</strong> toggle just controls which of your friends show up in your own calendar/map view at a time, for decluttering — you can only toggle visibility for someone you're already friends with.</p>
+
+            <div class="callout callout-zinc">
+                Admins and view-only guests aren't part of the friend system — they can always see every pilot, the same as before this existed.
+            </div>
+        </section>
+
+        <hr class="section-divider">
+
         <!-- PWA -->
         <section id="pwa" class="prose">
             <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Account</p>
@@ -656,7 +680,7 @@
                         <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                     </summary>
                     <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
-                        Yes. All crew schedules are visible to all crew members. Use the pilot selector to switch to any pilot and browse their calendar, list view, or map. This is by design — the whole point is coordination, which requires visibility.
+                        Only if you're friends. Send a friend request from your Profile — once they accept, you can see each other's calendar, list view, and map, and you'll show up in each other's crossings. You can select any pilot from the pilot selector, but until you're mutually friends you'll see a prompt to send a request instead of their schedule. Admins and view-only guests see everyone regardless.
                     </div>
                 </details>
 

@@ -78,8 +78,53 @@ myViewer  // key of view-only user, or null
 ```
 
 `_visKey()` → localStorage key for crew visibility; returns `'crewVisible_admin'` for admin (not null).  
-`getCrewVisible()` → array of visible pilot keys.  
+`getCrewVisible()` → array of visible pilot keys, bounded by `visiblePilotKeys()` (see Friends system below) — a pilot can only toggle visibility for someone they're actually friends with.  
 `_buildCrewVisibilityUI()` → builds "Your Crew" toggles; runs for pilot, viewer, AND admin.
+
+---
+
+## Friends system
+
+Added 2026-10-01, replacing "every pilot sees every other pilot's schedule" (the original design — CLAUDE.md used to state this outright). Now a real pilot can only see another real pilot's schedule once an **accepted, mutual** friendship exists between them. **Admin and view-only guests are completely exempt** — both still see every pilot unconditionally, exactly as before this system existed; only pilot-to-pilot visibility is gated.
+
+This is a flat social graph, not org/tenant isolation — deliberately simpler than the multi-tenancy idea floated earlier in planning. Anyone can send anyone a friend request; there's no concept of separate crews that can't see each other at all, just a per-pair accepted/not-accepted relationship.
+
+### Data model (`db.js`)
+
+`friend_requests` table: one row per `(requester_key, recipient_key)` ordered pair, `UNIQUE` on that pair so re-requesting after a decline reuses the same row rather than stacking a second one. `status` is `'pending'` or `'accepted'` — there is no `'declined'` status; a decline just deletes the pending row. **A pair counts as friends when an accepted row exists in *either* direction** — once accepted, "who requested whom" no longer matters, so every friendship check queries both directions.
+
+`pilots.friends_seeded` (INTEGER, default 0) — one-time flag, see Migration below.
+
+### Server-side enforcement (`server.js`)
+
+- `_resolvePilotToken(token, db, cb)` — resolves a token to `(pilot_key, role)`, same pattern as the pre-existing `_resolveIntelAuthor` (used for Crew Intel writes), kept as a separate function since this one also needs `role` to recognize a viewer without a second query.
+- `_canViewPilot(db, viewerKey, viewerRole, targetKey, cb)` — the actual gate: `true` if `viewerKey === 'admin'`, `viewerRole === 'viewer'`, `viewerKey === targetKey` (a pilot can always see their own schedule), or an accepted `friend_requests` row exists in either direction. `false` otherwise.
+- **`GET /api/pilots/:pilotKey` now requires `?token=`** and calls `_canViewPilot` before returning segments. Previously this endpoint had **no auth check at all** — any pilot_key string, known or guessed, returned that pilot's full profile and every segment to anyone, logged in or not. A denied request returns `403 { error: 'not_friends', pilotKey, name }` — enough for the frontend to offer "Send Friend Request" without leaking the schedule itself.
+- **`GET /api/pilots` (the admin user-list endpoint) is now admin-gated too** — found as an adjacent problem while auditing this endpoint family: it was `SELECT *`, unauthenticated, and returned every pilot's row **including their login `token` column** to anyone who hit the URL. Now requires `?token=` resolving to `pilot_key === 'admin'`.
+- **New `GET /api/pilots-directory`** — a non-admin-gated, token-required listing (`pilot_key, name, base, home_airport, role`, no `token` column) for two purposes: the friends UI's "search for someone to add" list, and `_syncPilotRoster()` in app.html (which runs for *every* pilot at startup to discover newly-joined crew members and register them in `PILOT_KEYS`/`PILOT_NAMES`/etc — this used to hit the now-admin-gated `GET /api/pilots` and would have silently broken for every non-admin pilot if left pointed there).
+- Friend endpoints: `GET /api/friends` (my friends + pending incoming/outgoing), `POST /api/friends/request` (send; auto-accepts instead of creating a duplicate if the target already has a pending request *to* me — see "mutual simultaneous request" below), `POST /api/friends/respond` (accept/decline an incoming request), `DELETE /api/friends/:key` (unfriend, either side), `POST /api/friends/seed` (one-time migration, below).
+
+**Mutual simultaneous request → instant friends.** If Bob requests Alice (pending) and Alice separately requests Bob before Bob responds, `POST /api/friends/request` recognizes Alice is the *recipient* of an existing pending row and upgrades it straight to `accepted` instead of creating a crossed second pending row that would otherwise need a separate explicit accept. Verified directly: Bob→Alice returned `"status":"pending"`, the immediate Alice→Bob returned `"status":"accepted"`.
+
+### Migration — importing the old "Your Crew" toggle as a starting friend list
+
+The pre-existing crew-visibility toggle (`getCrewVisible()`/`_visKey()`) was **client-side only, stored in `localStorage`, never synced to the server** — so there was no server-side record of "who a pilot currently considers their crew" to seed friendships from directly. `_maybeSeedFriends()` (app.html) runs once per pilot on login: it reads the *raw* stored `crewVisible_<pilot>` array directly from `localStorage` (bypassing `getCrewVisible()` itself, which now filters its result down to `visiblePilotKeys()` — at seed time that's just `[self]`, since there are no friends yet; calling it here would clamp away the exact preference being imported) and POSTs those keys to `POST /api/friends/seed`, which creates **already-accepted** friendships directly (not pending requests — this is a one-time grandfather-in for an access model that didn't used to exist, not something that needs a human to separately approve).
+
+Guarded by `pilots.friends_seeded` so it can only ever run once per pilot — critical, since without that guard, re-opening the app after deliberately unfriending someone would silently re-add them from the stale local toggle state on the next load.
+
+**One real constraint accepted deliberately**: since this reads from the *visiting* pilot's own browser, a relationship only gets seeded once that specific pilot opens the app post-migration. If Pilot A had Pilot B toggled on but Pilot B never had A toggled on, and only A ever opens the app, the seed creates an accepted friendship anyway (seeding is unilateral/immediate, not a request A's side waits on B to approve) — consistent with "automatically added" being the literal ask, not "automatically requested."
+
+### Frontend (`app.html`)
+
+- `visiblePilotKeys()` — `[...PILOT_KEYS]` for admin/viewer (`myPilot === null`), or `[myPilot, ...myFriends]` for a real pilot. **The single source of truth for "which pilots can I actually fetch data for"** — every place that used to loop over all `PILOT_KEYS` to bulk-fetch schedules now loops this instead: `computeOverlap()`, `computeOffDays()`, and `render()`'s grid-view background prefetch. Looping raw `PILOT_KEYS` in any of these now would just collect 403s instead of data.
+- `_pilotFetchUrl(key)` — appends `?token=` to a per-pilot fetch URL when `myToken` is set; used everywhere `GET /api/pilots/:key` is called (`fetchPilotData()`, `renderAllPilotsMap()`, `renderDayMap()`, the three loops above). Demo mode (`myToken` unset) naturally omits the token and hits the separate, unauthenticated `/api/demo/pilots/:key` route via `API_BASE`, unaffected by any of this.
+- `fetchPilotData()` → on a `403 not_friends` response, returns `{ __notFriends: true, pilotKey, name }` instead of `null`. `loadPilot()` checks for this and calls `_renderNotFriendsState(pilotKey, name)` — a "Send Friend Request" prompt in place of the normal grid/list content — instead of trying to render an empty schedule. Map views don't get an equivalent prompt; a pilot that was never fetched (still not-friends) is simply skipped there, since the prompt belongs to that pilot's own calendar/list, not every view that happens to touch them.
+- Friends UI lives in the Profile sheet (`#friends-section`, above the pre-existing "Your Crew" visibility section — hidden entirely for admin/viewer/demo, since none of them have a friend requirement to manage): `renderFriendsPanel()` lists accepted friends (with Remove) and incoming requests (Accept/Decline); `#add-friend-modal` + `renderFriendSearchResults()` searches `GET /api/pilots-directory` (lazily fetched once into `_friendDirectory`) to send new requests. `_refreshFriendUI()` re-renders both the panel and the search-results list (if that modal happens to be open) after any state change.
+- `_buildCrewVisibilityUI()` now lists `visiblePilotKeys()` instead of all `VALID_PILOTS` — you can't toggle display visibility for someone you aren't friends with. Shows an empty-state pointing at the new Friends section if a pilot has zero friends yet.
+
+### Verified against the real HTTP endpoints (not just read through), with throwaway test pilots on a local server
+
+Confirmed: a non-friend fetch 403s with `not_friends`; `GET /api/pilots` 401s with no token and 403s for a non-admin token; the directory endpoint works for any authenticated pilot; send → pending → accept → both sides can now see each other; unfriend correctly revokes access both ways; the mutual-simultaneous-request auto-accept; and the seed migration adds exactly the given keys once, then no-ops (and doesn't add anything new) on a second call.
 
 ---
 

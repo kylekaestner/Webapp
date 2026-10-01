@@ -1478,37 +1478,248 @@ function autoDetectParser(filename, fileContent) {
 // ===== API Routes =====
 
 // GET all pilots
+// Resolve a token to a pilot identity for access checks -- same pattern as _resolveIntelAuthor
+// (defined further down, used for Crew Intel writes), kept separate since this one also hands
+// back role so callers can recognize a viewer without a second query.
+function _resolvePilotToken(token, db, cb) {
+    if (!token) return cb(401, 'Authentication required');
+    db.get('SELECT pilot_key, role FROM pilots WHERE token=?', [token], (err, row) => {
+        if (err) return cb(500, err.message);
+        if (!row) return cb(401, 'Invalid token');
+        cb(null, null, row.pilot_key, row.role);
+    });
+}
+
+// Whether `viewerKey` may see `targetKey`'s schedule: admin and view-only guests see everyone
+// (unchanged from before the friends system), a pilot can always see their own, and otherwise
+// an accepted friend_requests row must exist in either direction (there's no canonical
+// requester/recipient ordering once accepted, so this checks both).
+function _canViewPilot(db, viewerKey, viewerRole, targetKey, cb) {
+    if (viewerKey === 'admin' || viewerRole === 'viewer' || viewerKey === targetKey) return cb(true);
+    db.get(
+        `SELECT 1 FROM friend_requests WHERE status='accepted' AND
+         ((requester_key=? AND recipient_key=?) OR (requester_key=? AND recipient_key=?))`,
+        [viewerKey, targetKey, targetKey, viewerKey],
+        (err, row) => cb(!!row)
+    );
+}
+
+// Admin-only: full pilot rows including the login token (used by the admin panel to show/copy
+// each pilot's personal link). Gated on admin specifically -- this used to be wide open to any
+// unauthenticated caller, which leaked every pilot's token to anyone who found the URL.
 app.get('/api/pilots', (req, res) => {
     const db = getDB();
-    db.all(`SELECT * FROM pilots WHERE pilot_key != 'admin' ORDER BY name`, (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        res.json(rows);
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        db.all(`SELECT * FROM pilots WHERE pilot_key != 'admin' ORDER BY name`, (err, rows) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json(rows);
+        });
     });
 });
 
-// GET pilot details with segments
+// Non-sensitive roster for any authenticated user -- enough to search for someone to friend,
+// and (via _syncPilotRoster() in app.html) for every pilot's own app to discover newly-joined
+// crew members and register them in PILOT_KEYS/PILOT_NAMES/etc, same as it always has. Never
+// includes the `token` column (unlike the admin-only GET /api/pilots above) -- base/home_airport/
+// role aren't secrets, they're the same profile info every pilot's schedule view already shows.
+app.get('/api/pilots-directory', (req, res) => {
+    const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg) => {
+        if (status) return res.status(status).json({ error: msg });
+        db.all(
+            `SELECT pilot_key, name, base, home_airport, role FROM pilots WHERE pilot_key != 'admin' AND (role IS NULL OR role != 'viewer') ORDER BY name`,
+            (err, rows) => {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json(rows);
+            }
+        );
+    });
+});
+
+// GET pilot details with segments -- requires the caller to be that pilot, admin, a viewer, or
+// an accepted friend. Previously open to anyone who knew a pilot_key, no token required at all.
 app.get('/api/pilots/:pilotKey', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
 
-    db.get('SELECT id, pilot_key, name, base, home_airport, role, parser_type, airline_code FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!pilot) {
-            return res.status(404).json({ error: 'Pilot not found' });
-        }
+    _resolvePilotToken(req.query.token, db, (status, msg, viewerKey, viewerRole) => {
+        if (status) return res.status(status).json({ error: msg });
 
-        db.all('SELECT * FROM segments WHERE pilot_id = ? ORDER BY departure_time', [pilot.id], (err, segments) => {
+        db.get('SELECT id, pilot_key, name, base, home_airport, role, parser_type, airline_code FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
-            // Resolve parser and airline code — hardcoded map takes precedence over DB for existing pilots
-            const resolvedParser = getParserForPilot(pilotKey, pilot);
-            const resolvedCode   = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
-            res.json({ ...pilot, parser_type: resolvedParser, airline_code: resolvedCode, segments });
+            if (!pilot) {
+                return res.status(404).json({ error: 'Pilot not found' });
+            }
+
+            _canViewPilot(db, viewerKey, viewerRole, pilotKey, allowed => {
+                if (!allowed) {
+                    // Enough for the frontend to offer "Send Friend Request" without leaking the schedule itself.
+                    return res.status(403).json({ error: 'not_friends', pilotKey: pilot.pilot_key, name: pilot.name });
+                }
+                db.all('SELECT * FROM segments WHERE pilot_id = ? ORDER BY departure_time', [pilot.id], (err, segments) => {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    // Resolve parser and airline code — hardcoded map takes precedence over DB for existing pilots
+                    const resolvedParser = getParserForPilot(pilotKey, pilot);
+                    const resolvedCode   = pilotAirlineCodes[pilotKey] || pilot.airline_code || '';
+                    res.json({ ...pilot, parser_type: resolvedParser, airline_code: resolvedCode, segments });
+                });
+            });
+        });
+    });
+});
+
+// ── Friends ──────────────────────────────────────────────────────────────
+// Replaces the old "everyone sees everyone" model: a pilot only sees another pilot's schedule
+// once an accepted friend_requests row exists between them (see _canViewPilot above). Admin and
+// viewers are unaffected -- they still see every pilot, same as before this system existed.
+
+// My friends, plus pending requests in both directions.
+app.get('/api/friends', (req, res) => {
+    const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg, myKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        db.all(
+            `SELECT fr.*, p.name AS other_name FROM friend_requests fr
+             JOIN pilots p ON p.pilot_key = CASE WHEN fr.requester_key=? THEN fr.recipient_key ELSE fr.requester_key END
+             WHERE fr.requester_key=? OR fr.recipient_key=?`,
+            [myKey, myKey, myKey],
+            (err, rows) => {
+                if (err) return res.status(500).json({ error: err.message });
+                const friends = [], incoming = [], outgoing = [];
+                rows.forEach(r => {
+                    const otherKey = r.requester_key === myKey ? r.recipient_key : r.requester_key;
+                    const entry = { pilotKey: otherKey, name: r.other_name, since: r.responded_at || r.created_at };
+                    if (r.status === 'accepted') friends.push(entry);
+                    else if (r.requester_key === myKey) outgoing.push(entry);
+                    else incoming.push(entry);
+                });
+                res.json({ friends, incoming, outgoing });
+            }
+        );
+    });
+});
+
+// Send a friend request. If the target already sent ME a pending request, accept it instead of
+// creating a second row -- a mutual simultaneous request becomes instant friends.
+app.post('/api/friends/request', (req, res) => {
+    const db = getDB();
+    const { token, targetKey } = req.body;
+    _resolvePilotToken(token, db, (status, msg, myKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (!targetKey || targetKey === myKey) return res.status(400).json({ error: 'Invalid target' });
+        db.get(
+            `SELECT * FROM friend_requests WHERE (requester_key=? AND recipient_key=?) OR (requester_key=? AND recipient_key=?)`,
+            [myKey, targetKey, targetKey, myKey],
+            (err, existing) => {
+                if (err) return res.status(500).json({ error: err.message });
+                if (existing) {
+                    if (existing.status === 'accepted') return res.json({ success: true, status: 'accepted' });
+                    if (existing.requester_key === targetKey) {
+                        return db.run(`UPDATE friend_requests SET status='accepted', responded_at=CURRENT_TIMESTAMP WHERE id=?`, [existing.id], err2 => {
+                            if (err2) return res.status(500).json({ error: err2.message });
+                            res.json({ success: true, status: 'accepted' });
+                        });
+                    }
+                    return res.json({ success: true, status: 'pending' }); // already requested, no-op
+                }
+                db.run(`INSERT INTO friend_requests (requester_key, recipient_key, status) VALUES (?, ?, 'pending')`,
+                    [myKey, targetKey], err3 => {
+                        if (err3) return res.status(500).json({ error: err3.message });
+                        res.json({ success: true, status: 'pending' });
+                    });
+            }
+        );
+    });
+});
+
+// Accept or decline an incoming request.
+app.post('/api/friends/respond', (req, res) => {
+    const db = getDB();
+    const { token, requesterKey, accept } = req.body;
+    _resolvePilotToken(token, db, (status, msg, myKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (accept) {
+            db.run(
+                `UPDATE friend_requests SET status='accepted', responded_at=CURRENT_TIMESTAMP WHERE requester_key=? AND recipient_key=? AND status='pending'`,
+                [requesterKey, myKey],
+                function(err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    if (this.changes === 0) return res.status(404).json({ error: 'No pending request found' });
+                    res.json({ success: true });
+                }
+            );
+        } else {
+            db.run(`DELETE FROM friend_requests WHERE requester_key=? AND recipient_key=? AND status='pending'`,
+                [requesterKey, myKey], function(err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true });
+                });
+        }
+    });
+});
+
+// Unfriend -- either side can remove an accepted friendship.
+app.delete('/api/friends/:key', (req, res) => {
+    const db = getDB();
+    const { token } = req.body;
+    const otherKey = req.params.key;
+    _resolvePilotToken(token, db, (status, msg, myKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        db.run(
+            `DELETE FROM friend_requests WHERE status='accepted' AND
+             ((requester_key=? AND recipient_key=?) OR (requester_key=? AND recipient_key=?))`,
+            [myKey, otherKey, otherKey, myKey],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ success: true, removed: this.changes > 0 });
+            }
+        );
+    });
+});
+
+// One-time import of a pilot's pre-existing "Your Crew" visibility toggle (client-side
+// localStorage, never previously synced to the server -- see app.html's getCrewVisible()) as
+// their starting friend list. Guarded by pilots.friends_seeded so it can only ever run once per
+// pilot; otherwise re-opening the app after unfriending someone would silently re-add them.
+// Creates ACCEPTED friendships directly rather than pending requests -- this is a grandfather-in
+// migration for an access model that didn't used to exist, not a new request a human needs to
+// approve.
+app.post('/api/friends/seed', (req, res) => {
+    const db = getDB();
+    const { token, keys } = req.body;
+    _resolvePilotToken(token, db, (status, msg, myKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        db.get(`SELECT friends_seeded FROM pilots WHERE pilot_key=?`, [myKey], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row || row.friends_seeded) return res.json({ success: true, seeded: false });
+            const targets = (Array.isArray(keys) ? keys : []).filter(k => k && k !== myKey);
+            const markSeeded = () => db.run(`UPDATE pilots SET friends_seeded=1 WHERE pilot_key=?`, [myKey]);
+            if (targets.length === 0) { markSeeded(); return res.json({ success: true, seeded: true, added: 0 }); }
+            let done = 0, added = 0;
+            targets.forEach(targetKey => {
+                db.get(
+                    `SELECT * FROM friend_requests WHERE (requester_key=? AND recipient_key=?) OR (requester_key=? AND recipient_key=?)`,
+                    [myKey, targetKey, targetKey, myKey],
+                    (errSel, existing) => {
+                        const finish = () => { if (++done === targets.length) { markSeeded(); res.json({ success: true, seeded: true, added }); } };
+                        if (errSel) return finish();
+                        if (existing) {
+                            if (existing.status === 'accepted') { added++; return finish(); }
+                            return db.run(`UPDATE friend_requests SET status='accepted', responded_at=CURRENT_TIMESTAMP WHERE id=?`, [existing.id], () => { added++; finish(); });
+                        }
+                        db.run(`INSERT INTO friend_requests (requester_key, recipient_key, status, responded_at) VALUES (?, ?, 'accepted', CURRENT_TIMESTAMP)`,
+                            [myKey, targetKey], () => { added++; finish(); });
+                    }
+                );
+            });
         });
     });
 });
