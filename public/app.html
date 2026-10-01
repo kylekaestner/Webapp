@@ -8940,11 +8940,12 @@ let _blockUserEdited = false;
         let _intelFormCat = 'tip';
         let _intelMap    = null;         // Leaflet map instance for intel map view
 
-        // Hides (never deletes) tips that are just generic "it's a National/State Park or
-        // National Monument" trivia a pilot could've googled themselves -- added after Drew's
-        // intel entries filled up with exactly that. Persisted per-device, defaults to hidden.
+        // Hides (never deletes) tips that are just generic "it's a National/State Park,
+        // National Monument, National Historic Site, or Memorial" trivia a pilot could've
+        // googled themselves -- added after Drew's intel entries filled up with exactly that.
+        // Persisted per-device, defaults to hidden.
         let _intelHideGeneric = localStorage.getItem('intel_hide_generic') !== '0';
-        const INTEL_GENERIC_RE = /\b(national\s+park|state\s+park|national\s+monument)\b/i;
+        const INTEL_GENERIC_RE = /\b(national\s+park|state\s+park|national\s+monument|national\s+historic\s+site|memorial)\b/i;
         const _isGenericParkTip = e => INTEL_GENERIC_RE.test(e.title || '') || INTEL_GENERIC_RE.test(e.body || '');
         // Single source of truth for "what's actually shown" -- every render function below
         // reads from this instead of _intelAll directly, so the filter applies everywhere
