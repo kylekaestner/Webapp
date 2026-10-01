@@ -2769,6 +2769,7 @@ async function _doSeedTrail(hex, sinceUnixSec, alreadySeeded) {
 // Per-hex flight phase tracking for parked detection
 const _flightState = {}; // hex → { hasBeenAirborne, groundStillCount }
 const _callsignToHex = {}; // callsign → last-known hex (survives cache expiry)
+const _hexToCallsign = {}; // hex → last-known callsign, used to detect a new leg on the same airframe
 const _parkedCallsigns = new Set(); // suppress background polling after flight completes
 const _earlyLandings = {}; // date (YYYY-MM-DD) → Set<callsign> — flights that landed before scheduled arrival
 
@@ -2788,6 +2789,22 @@ function processPositionUpdate(data, sinceUnixSec = null) {
     if (!data.found || data.lat == null || !data.hex) return;
     const hex = data.hex;
     if (data.callsign) { _callsignToHex[data.callsign] = hex; _parkedCallsigns.delete(data.callsign); }
+    // A regional aircraft flies several legs (different callsigns) a day on the same airframe
+    // (same hex). The background poller tracks flights by scheduled callsign, not by hex, so if
+    // an earlier leg's ground-stop was ever missed by the "3 consecutive still readings" parked
+    // check (a brief poll gap, a quick turnaround, etc.), its trail never got cleared -- and the
+    // next leg's flownPath would silently inherit stale points from a completely different flight,
+    // visibly disconnected from the live position. A changed callsign on the same hex is an
+    // unambiguous "this is a new leg" signal regardless of whether parked-detection caught it, so
+    // use it to force a clean trail reset rather than relying solely on ground-contact detection.
+    if (data.callsign && _hexToCallsign[hex] && _hexToCallsign[hex] !== data.callsign) {
+        delete _posTrail[hex];
+        delete _flightState[hex];
+        delete _trailLastTime[hex];
+        delete _trailSeedTime[hex];
+        _trailSeeded.delete(hex);
+    }
+    if (data.callsign) _hexToCallsign[hex] = data.callsign;
     if (!_flightState[hex]) _flightState[hex] = { hasBeenAirborne: false, groundStillCount: 0 };
     const state = _flightState[hex];
     const moving = (data.speedKts ?? 0) > 5;
