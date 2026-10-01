@@ -5633,8 +5633,13 @@
 
                     if (!d.found || d.lat == null) {
                         missCount++;
-                        // Lost signal after being airborne — remove the remaining arc immediately
-                        if (hasBeenAirborne && remainLines) {
+                        // Lost signal after being airborne — remove the remaining arc, but only after
+                        // a few consecutive misses (same threshold as the other miss-handling below).
+                        // A single missed poll is routine (the server races two ADS-B sources and either
+                        // can blip), and removing this instantly on miss #1 made the dashed arc flicker
+                        // off and back on every time that happened mid-flight, even though the plane was
+                        // never actually out of contact long enough to be a real signal loss.
+                        if (hasBeenAirborne && remainLines && missCount >= 3) {
                             remainLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
                             remainLines = null;
                         }
