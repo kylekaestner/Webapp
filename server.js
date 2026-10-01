@@ -1604,20 +1604,17 @@ function _getFriendsData(db, targetKey, cb) {
         [targetKey, targetKey, targetKey],
         (err, rows) => {
             if (err) return cb(err);
-            // A viewer's friends are always real pilots by construction (the seed migration and
-            // the admin friend-toggle UI both only ever create viewer<->real-pilot edges), so this
-            // never removes anything when targetKey is itself a viewer. It matters for the other
-            // direction: once a viewer is friended with a real pilot, that friendship is symmetric
-            // (friend_requests has no directional meaning once accepted), so the real pilot's OWN
-            // friends list would otherwise include that viewer too -- showing up as a nameless/
-            // colorless "crew member" in their map legend, crew-visibility toggles, and pill bar,
-            // since the client never registers a viewer into PILOT_KEYS/PILOT_NAMES/PILOT_COLORS
-            // in the first place (/api/pilots-directory already excludes them for that reason).
-            rows = rows.filter(r => r.other_role !== 'viewer');
             const friends = [], incoming = [], outgoing = [];
             rows.forEach(r => {
                 const otherKey = r.requester_key === targetKey ? r.recipient_key : r.requester_key;
-                const entry = { pilotKey: otherKey, name: r.other_name, since: r.responded_at || r.created_at };
+                // isViewer lets the frontend tell the two apart: a real pilot's OWN crew-facing
+                // lists (map legend, crew-visibility toggles, pill bar, crossings/off-days prefetch
+                // -- everything that reads visiblePilotKeys()) must still exclude a friended
+                // viewer, since the client never registers a viewer into PILOT_NAMES/PILOT_COLORS
+                // and showing one there renders as a nameless/colorless blank. But the Friends
+                // panel itself should keep showing them, just labeled, rather than silently
+                // dropping a real connection -- see visiblePilotKeys()'s own filter in app.html.
+                const entry = { pilotKey: otherKey, name: r.other_name, since: r.responded_at || r.created_at, isViewer: r.other_role === 'viewer' };
                 if (r.status === 'accepted') friends.push(entry);
                 else if (r.requester_key === targetKey) outgoing.push(entry);
                 else incoming.push(entry);
