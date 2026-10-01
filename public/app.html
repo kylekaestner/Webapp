@@ -2146,7 +2146,13 @@
         function visiblePilotKeys() {
             if (myPilot === null && !myViewer) return [...PILOT_KEYS]; // admin only — sees everyone unconditionally
             if (myViewer) return myFriends.map(f => f.pilotKey); // viewer — gated by admin-assigned friends only, no self
-            return [myPilot, ...myFriends.map(f => f.pilotKey)];
+            // Excludes friended viewers (isViewer) -- a real pilot's friend list can legitimately
+            // include a viewer (friendship is symmetric), but viewers are never registered into
+            // PILOT_NAMES/PILOT_COLORS, so including one here would render as a nameless/colorless
+            // blank everywhere this feeds (map legend, crew-visibility toggles, pill bar, crossings/
+            // off-days prefetch). The Friends panel itself reads myFriends directly, unfiltered, so
+            // a friended viewer still shows there -- just labeled, not silently dropped.
+            return [myPilot, ...myFriends.filter(f => !f.isViewer).map(f => f.pilotKey)];
         }
 
         function _pilotFetchUrl(key) {
@@ -2310,11 +2316,19 @@
                 return;
             }
             const friendRows = myFriends.map(f => {
-                const c = PILOT_COLORS[f.pilotKey] || '#6366f1';
+                // Viewers are never registered into PILOT_COLORS (see visiblePilotKeys()'s own
+                // comment), so PILOT_COLORS[f.pilotKey] would always fall through to the generic
+                // indigo default for one anyway -- use the same 👁 treatment as the crew-roster
+                // page's viewer avatars instead of a blank/default initial, plus a clear label so
+                // it reads as "this is a guest, not a crewmate" rather than looking unfinished.
+                const c = f.isViewer ? '#52525b' : (PILOT_COLORS[f.pilotKey] || '#6366f1');
+                const avatarChar = f.isViewer ? '👁' : (f.name || f.pilotKey)[0].toUpperCase();
+                const viewerBadge = f.isViewer ? `<span class="text-[8px] font-black text-zinc-500 uppercase tracking-widest border border-zinc-700 rounded-full px-1.5 py-0.5 shrink-0">View Only</span>` : '';
                 return `<div class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
                     <div class="flex items-center gap-2.5 min-w-0">
-                        <div class="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0" style="background:${c}22;color:${c}">${(f.name || f.pilotKey)[0].toUpperCase()}</div>
+                        <div class="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0" style="background:${c}22;color:${c}">${avatarChar}</div>
                         <span class="text-sm font-black text-white truncate">${escapeHtml(f.name || f.pilotKey)}</span>
+                        ${viewerBadge}
                     </div>
                     <button onclick="confirmRemoveFriend('${f.pilotKey}', '${escapeHtml(f.name || f.pilotKey)}')" class="text-[9px] font-black text-zinc-600 hover:text-red-400 uppercase tracking-widest shrink-0 ml-2">Remove</button>
                 </div>`;
