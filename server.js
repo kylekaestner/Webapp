@@ -1803,6 +1803,38 @@ app.delete('/api/admin/friends', (req, res) => {
     });
 });
 
+// ── Crew visibility ─────────────────────────────────────────────────────────
+// Which of this pilot's visible crew (self + friends, or everyone for admin/viewer) they've
+// explicitly hidden from their map/pill-bar/legend display -- replaces the old localStorage-only
+// crewVisible_<pilot> preference, which was per-browser and caused the same person to show
+// different visibility on desktop vs mobile. Default is "visible" for anyone not in this list,
+// matching the friends model: befriending someone should show them immediately.
+app.get('/api/crew-visibility', (req, res) => {
+    const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg, myKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        db.get(`SELECT hidden_crew FROM pilots WHERE pilot_key=?`, [myKey], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            let hidden = [];
+            try { hidden = row?.hidden_crew ? JSON.parse(row.hidden_crew) : []; } catch { hidden = []; }
+            res.json({ hidden });
+        });
+    });
+});
+
+app.put('/api/crew-visibility', (req, res) => {
+    const db = getDB();
+    const { token, hidden } = req.body;
+    _resolvePilotToken(token, db, (status, msg, myKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        const arr = Array.isArray(hidden) ? hidden.filter(k => typeof k === 'string') : [];
+        db.run(`UPDATE pilots SET hidden_crew=? WHERE pilot_key=?`, [JSON.stringify(arr), myKey], err => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
+    });
+});
+
 // GET /api/pilots/:pilotKey/here-now — debug endpoint showing where the HERE-NOW pin resolves to and why
 app.get('/api/pilots/:pilotKey/here-now', (req, res) => {
     const db = getDB();

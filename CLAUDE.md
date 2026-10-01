@@ -77,8 +77,7 @@ myViewer  // key of view-only user, or null
 // Admin: myPilot === null && myViewer === null
 ```
 
-`_visKey()` → localStorage key for crew visibility; returns `'crewVisible_admin'` for admin (not null).  
-`getCrewVisible()` → array of visible pilot keys, bounded by `visiblePilotKeys()` (see Friends system below) — a pilot can only toggle visibility for someone they're actually friends with.  
+`getCrewVisible()` → array of visible pilot keys: `visiblePilotKeys()` (self + friends, or everyone for admin/viewer) minus whatever's in `_hiddenCrew`. Default is **visible** — see "Crew visibility is server-persisted" under Friends system below.  
 `_buildCrewVisibilityUI()` → builds "Your Crew" toggles; runs for pilot, viewer, AND admin.
 
 ---
@@ -130,6 +129,20 @@ Added 2026-10-01 so admin can manage the social graph without needing both pilot
 - `DELETE /api/admin/friends` (same body) — removes any friendship (accepted or still-pending) between the two, either direction.
 
 Frontend: the admin "Edit User" modal (`#edit-user-modal` → new `#edit-user-friends-section`) shows a toggle-switch list of every other non-viewer pilot, styled like `_buildCrewVisibilityUI()`'s pattern, driven by `_loadEditUserFriends()`/`_renderEditUserFriendsList()`/`_toggleAdminFriend()`. Only shown when editing an existing pilot (not the new-user flow, which has no key yet to attach friendships to) and not for viewers/admin themselves. Verified end-to-end against the real endpoints with throwaway test pilots: assign, the pending-upgrade path, read-back, and remove all behave correctly; a non-admin token correctly 403s.
+
+### Crew visibility is server-persisted, and defaults to visible (changed 2026-10-01)
+
+Two problems reported together after the friends system shipped: (1) toggling a friend's visibility on desktop didn't show up on mobile for the same pilot, and (2) "since we're on a friends model now, a new friend should default to visible, not require a second manual toggle."
+
+Both came from the same root design: crew visibility (`getCrewVisible()`/`setCrewVisible()`) used to be a **localStorage-only** preference (`crewVisible_<pilot>`), storing the list of who's *visible*, defaulting to "just yourself" when nothing was stored. That's inherently per-browser — the exact cause of (1) — and meant every new friend started hidden until manually turned on — the cause of (2).
+
+Fixed by flipping both the storage layer and the default:
+- `pilots.hidden_crew` (TEXT, JSON array, `db.js`) stores the set of **explicitly hidden** keys instead of the visible ones. `GET /api/crew-visibility` / `PUT /api/crew-visibility` (`server.js`, token-gated via `_resolvePilotToken`, no `:pilotKey` param — always operates on the caller's own row) read/write it.
+- Frontend: `_hiddenCrew` (a `Set`, `app.html`) is loaded once via `loadCrewVisibility()` inside `initIdentity()` (alongside `loadFriends()`), and written back via `_saveCrewVisibility()` (fire-and-forget PUT) on every `setCrewVisible()` call. `getCrewVisible()` is now `visiblePilotKeys().filter(p => p === myPilot || !_hiddenCrew.has(p))` — self always included, everyone else visible unless explicitly hidden.
+- Net effect: visibility is consistent across every device for a given pilot (same server-backed state), and any friend — new or already-existing — is visible by default the moment the friendship exists, with no separate "turn on crew" step. Same applies to admin/viewer, who were already "everyone visible by default" before this change; they just gained cross-device consistency too.
+- `_visKey()` (the old localStorage key format) is kept, but **only** for `_maybeSeedFriends()`'s one-time read of a pilot's pre-friends-system toggle state when seeding their initial friend list — unrelated to current visibility storage.
+- Removed the now-obsolete "Your crew is hidden" one-time nudge banner (`_maybeShowCrewNudge()`/`_dismissCrewNudge()`/`#crew-nudge-banner`) entirely — it existed to prompt turning crew visibility on when the old default was "everyone off"; with the new default of "everyone on," the zero-visible state it watched for can no longer occur for any pilot with at least one friend, so the banner was pure dead weight.
+- Verified against the real endpoints on a local test server: `GET` before any write returns `{hidden:[]}`; `PUT` with a key persists and reads back correctly; both reject with 401 for a missing/invalid token.
 
 ### Verified against the real HTTP endpoints (not just read through), with throwaway test pilots on a local server
 

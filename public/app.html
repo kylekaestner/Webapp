@@ -1567,10 +1567,9 @@
                 <button onclick="closeProfile();openWrapped()" class="w-full py-2.5 border border-blue-900/50 text-blue-400 hover:text-blue-300 hover:border-blue-700 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">✦ Year in Review</button>
             </div>
 
-            <!-- Admin: manage users + dashboard -->
-            <div id="admin-manage-section" class="hidden border-t border-zinc-800 pt-4 flex gap-2">
-                <button onclick="closeProfile();openAdminPanel('users')" class="flex-1 py-2.5 border border-indigo-800/60 text-indigo-400 hover:text-indigo-300 hover:border-indigo-600 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">★ Manage Users</button>
-                <button onclick="closeProfile();openAdminPanel('dashboard')" class="flex-1 py-2.5 border border-indigo-800/60 text-indigo-400 hover:text-indigo-300 hover:border-indigo-600 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">↗ Dashboard</button>
+            <!-- Admin: opens the full admin panel (Users + Dashboard tabs live inside it) -->
+            <div id="admin-manage-section" class="hidden border-t border-zinc-800 pt-4">
+                <button onclick="closeProfile();openAdminPanel('users')" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors shadow-lg shadow-indigo-950/40">★ Admin Panel</button>
             </div>
 
             <button onclick="closeProfile()" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Done</button>
@@ -1580,19 +1579,34 @@
 </div>
 
 <!-- Admin Panel Modal -->
-<div id="admin-panel" class="hidden fixed inset-0 z-[1002] flex items-end md:items-center md:justify-center" onclick="if(event.target===this)closeAdminPanel()">
-    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-    <div class="relative w-full md:max-w-2xl bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl flex flex-col" style="max-height:90vh" onclick="event.stopPropagation()">
-        <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-800 shrink-0">
-            <h3 id="admin-panel-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Manage Users</h3>
-            <div class="flex items-center gap-2">
-                <button id="admin-add-user-btn" onclick="openEditUserModal(null)" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-black uppercase text-[10px] tracking-wide transition-colors">+ Add User</button>
-                <button onclick="closeAdminPanel()" class="text-zinc-500 hover:text-zinc-300 text-xl leading-none">✕</button>
+<!-- Admin Panel — full-page takeover (not a small modal): big tab switcher, prominent
+     Add User action, and a card grid instead of a cramped list. -->
+<div id="admin-panel" class="hidden fixed inset-0 z-[1002] bg-zinc-950 flex flex-col">
+    <div class="shrink-0 border-b border-zinc-800" style="padding-top:max(1rem,env(safe-area-inset-top))">
+        <div class="flex items-center justify-between px-4 md:px-8 pb-3 gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                <button onclick="closeAdminPanel()" class="w-10 h-10 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors text-lg shrink-0">←</button>
+                <h2 class="text-lg md:text-xl font-black text-white truncate">Admin</h2>
             </div>
+            <button id="admin-add-user-btn" onclick="openEditUserModal(null)" class="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors shadow-lg shadow-indigo-950/40 shrink-0">
+                <span class="text-base leading-none">+</span><span class="hidden sm:inline">Add User</span>
+            </button>
         </div>
-        <div id="admin-user-list" class="overflow-y-auto p-4 space-y-2 flex-1 min-h-0"></div>
-        <div id="admin-dashboard-pane" class="hidden overflow-y-auto p-4 flex-1 min-h-0 space-y-5"></div>
+        <div class="flex gap-2 px-4 md:px-8 pb-4">
+            <button id="admin-tab-users" onclick="switchAdminTab('users')" class="flex-1 md:flex-none md:px-10 py-2.5 rounded-xl font-black uppercase text-xs tracking-widest transition-colors">Users</button>
+            <button id="admin-tab-dashboard" onclick="switchAdminTab('dashboard')" class="flex-1 md:flex-none md:px-10 py-2.5 rounded-xl font-black uppercase text-xs tracking-widest transition-colors">Dashboard</button>
+        </div>
     </div>
+    <div id="admin-user-list" class="overflow-y-auto flex-1 min-h-0 p-4 md:p-8" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+        <div class="max-w-6xl mx-auto">
+            <div class="mb-5">
+                <input id="admin-user-search" type="text" oninput="filterAdminUsers(this.value)" placeholder="Search by name or key…" class="w-full px-4 py-3 rounded-xl border border-zinc-800 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <div id="admin-user-count" class="text-[10px] font-black text-zinc-600 uppercase tracking-widest mt-2"></div>
+            </div>
+            <div id="admin-user-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </div>
+    </div>
+    <div id="admin-dashboard-pane" class="hidden overflow-y-auto flex-1 min-h-0 p-4 md:p-8 space-y-5 max-w-5xl mx-auto w-full" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))"></div>
 </div>
 
 <!-- Edit / Add User Modal -->
@@ -2083,6 +2097,7 @@
             // it, since that UI is now bounded by friendship.
             await loadFriends();
             await _maybeSeedFriends();
+            await loadCrewVisibility();
 
             _applyIdentityUI();
             _applyPilotPillVisibility();
@@ -2341,51 +2356,62 @@
         }
 
         // ── Crew visibility ─────────────────────────────────────────────────
-        // A per-viewer display preference layered ON TOP of friendship (who you've chosen to
-        // declutter in/out of the map, pill bar, etc). Bounded by visiblePilotKeys() below —
-        // you can only toggle visibility for someone you're actually friends with.
+        // A display preference layered ON TOP of friendship (who you've chosen to declutter
+        // in/out of the map, pill bar, etc), bounded by visiblePilotKeys() — you can only hide
+        // someone you're actually friends with (or, for admin/viewer, anyone).
+        //
+        // Persisted server-side (pilots.hidden_crew) as the set of EXPLICITLY HIDDEN keys,
+        // not the set of visible ones — default is "visible", matching the friends model
+        // (befriending someone shows them immediately, no second manual toggle needed). This
+        // used to be a localStorage-only preference (crewVisible_<pilot>), which was per-browser
+        // and caused the same person to show as visible on one device and hidden on another for
+        // the same pilot. _hiddenCrew is loaded once via loadCrewVisibility() in initIdentity()
+        // and kept in sync with the server on every toggle.
+        let _hiddenCrew = new Set();
+
+        // Legacy localStorage key format — only still read by _maybeSeedFriends()'s one-time
+        // import of a pilot's pre-friends-system crew toggle. Not used for current visibility
+        // state anymore (see _hiddenCrew above).
         function _visKey() {
             if (myPilot) return `crewVisible_${myPilot}`;
             if (myViewer) return `crewVisible_${myViewerKey}`;
             return 'crewVisible_admin';
         }
 
+        async function loadCrewVisibility() {
+            if (isDemo || !myToken) { _hiddenCrew = new Set(); return; }
+            try {
+                const data = await fetch(`/api/crew-visibility?token=${encodeURIComponent(myToken)}`).then(r => r.json());
+                _hiddenCrew = new Set(Array.isArray(data.hidden) ? data.hidden : []);
+            } catch { _hiddenCrew = new Set(); }
+        }
+
+        async function _saveCrewVisibility() {
+            if (isDemo || !myToken) return;
+            try {
+                await fetch('/api/crew-visibility', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, hidden: [..._hiddenCrew] })
+                });
+            } catch { /* best-effort — local state already applied, will retry to persist next toggle */ }
+        }
+
         function getCrewVisible() {
-            const stored = localStorage.getItem(_visKey());
-            if (stored) {
-                try {
-                    const arr = JSON.parse(stored);
-                    // Pilots always include self; viewers have no "self" pilot
-                    if (myPilot && !arr.includes(myPilot)) arr.unshift(myPilot);
-                    // Bounded by who's actually visible (self + friends, or everyone for
-                    // admin/viewer) — can't toggle "on" a display preference for someone who
-                    // was never friended, or who's since been unfriended.
-                    const allowed = visiblePilotKeys();
-                    return arr.filter(p => VALID_PILOTS.includes(p) && allowed.includes(p));
-                } catch { /* fall through */ }
-            }
-            // Default: only yourself (no stored preference = first login or cleared storage)
-            return myPilot ? [myPilot] : [...VALID_PILOTS];
+            // Self is always visible; everyone else allowed (friends, or everyone for
+            // admin/viewer) is visible by default unless explicitly hidden.
+            return visiblePilotKeys().filter(p => p === myPilot || !_hiddenCrew.has(p));
         }
 
         function setCrewVisible(pilot, visible) {
-            const current = getCrewVisible();
-            let next;
-            if (visible) {
-                next = [...new Set([...current, pilot])];
-            } else {
-                // Pilots can't hide themselves; viewers have no self to protect
-                next = current.filter(p => p !== pilot && p !== myPilot);
-                if (myPilot && !next.includes(myPilot)) next.unshift(myPilot);
-            }
-            localStorage.setItem(_visKey(), JSON.stringify(next));
+            if (visible) _hiddenCrew.delete(pilot); else if (pilot !== myPilot) _hiddenCrew.add(pilot);
+            _saveCrewVisibility();
             _applyPilotPillVisibility();
             _buildCrewVisibilityUI();
             _updateCrewLegend();
             if (currentView === 'map' && (mapDayMode || mapAllMode)) renderMap();
             // Keep _offDayFilter in sync — remove any pilot no longer in crew visible
             if (_offDayFilter) {
-                const nextSet = new Set(next);
+                const nextSet = new Set(getCrewVisible());
                 _offDayFilter.forEach(k => { if (!nextSet.has(k)) _offDayFilter.delete(k); });
                 // If newly visible, add to filter by default
                 if (visible) _offDayFilter.add(pilot);
@@ -2473,7 +2499,6 @@
 
             _buildCrewVisibilityUI();
             renderFriendsPanel();
-            setTimeout(_maybeShowCrewNudge, 1200);
         }
 
         function _buildCrewVisibilityUI() {
@@ -2540,7 +2565,6 @@
         let _profileSwipeSetup = false;
         let _dayDetailSwipeSetup = false;
         let _uploadSheetSwipeSetup = false;
-        let _adminPanelSwipeSetup = false;
         let _editUserSwipeSetup = false;
         function openProfile() {
             haptic('tap');
@@ -8245,44 +8269,66 @@ let _blockUserEdited = false;
         // ── Admin Panel ───────────────────────────────────────────────────
         let _adminUsers = [];
 
-        async function openAdminPanel(tab = 'users') {
-            const isUsers = tab === 'users';
+async function openAdminPanel(tab = 'users') {
             document.getElementById('admin-panel').classList.remove('hidden');
-            document.getElementById('admin-panel-title').textContent = isUsers ? 'Manage Users' : 'App Dashboard';
+            await switchAdminTab(tab);
+        }
+
+        async function switchAdminTab(tab) {
+            const isUsers = tab === 'users';
+            const usersBtn = document.getElementById('admin-tab-users');
+            const dashBtn  = document.getElementById('admin-tab-dashboard');
+            usersBtn.className = `flex-1 md:flex-none md:px-10 py-2.5 rounded-xl font-black uppercase text-xs tracking-widest transition-colors ${isUsers ? 'bg-indigo-600 text-white' : 'bg-zinc-800/60 text-zinc-400 hover:text-zinc-200'}`;
+            dashBtn.className  = `flex-1 md:flex-none md:px-10 py-2.5 rounded-xl font-black uppercase text-xs tracking-widest transition-colors ${!isUsers ? 'bg-indigo-600 text-white' : 'bg-zinc-800/60 text-zinc-400 hover:text-zinc-200'}`;
             document.getElementById('admin-user-list').classList.toggle('hidden', !isUsers);
             document.getElementById('admin-dashboard-pane').classList.toggle('hidden', isUsers);
             document.getElementById('admin-add-user-btn').classList.toggle('hidden', !isUsers);
             if (isUsers) await loadAdminUsers();
             else await loadAdminDashboard();
-            if (!_adminPanelSwipeSetup) {
-                const panel = document.querySelector('#admin-panel > div:not(.absolute)');
-                if (panel) { setupSheetSwipe(panel, closeAdminPanel); _adminPanelSwipeSetup = true; }
-            }
         }
 
         function closeAdminPanel() {
             document.getElementById('admin-panel').classList.add('hidden');
         }
 
+        let _adminUserFilter = '';
+
         async function loadAdminUsers() {
-            const list = document.getElementById('admin-user-list');
-            list.innerHTML = '<div class="flex items-center justify-center gap-2 py-4 text-zinc-500 text-xs font-bold"><div class="spinner"></div><span>Loading…</span></div>';
+            const grid = document.getElementById('admin-user-grid');
+            document.getElementById('admin-user-search').value = '';
+            _adminUserFilter = '';
+            grid.innerHTML = '<div class="col-span-full flex items-center justify-center gap-2 py-10 text-zinc-500 text-xs font-bold"><div class="spinner"></div><span>Loading…</span></div>';
             try {
                 const rows = await fetch(`${API_BASE}/pilots?token=${encodeURIComponent(myToken)}`).then(r => r.json());
                 _adminUsers = rows;
                 renderAdminUserList(rows);
             } catch (e) {
-                list.innerHTML = '<div class="text-red-400 text-xs font-bold py-4 text-center">Failed to load users</div>';
+                grid.innerHTML = '<div class="col-span-full text-red-400 text-xs font-bold py-10 text-center">Failed to load users</div>';
             }
         }
 
+        function filterAdminUsers(query) {
+            _adminUserFilter = query || '';
+            renderAdminUserList(_adminUsers);
+        }
+
         function renderAdminUserList(rows) {
-            const list = document.getElementById('admin-user-list');
+            const grid  = document.getElementById('admin-user-grid');
+            const count = document.getElementById('admin-user-count');
+            const q = _adminUserFilter.trim().toLowerCase();
+            const filtered = q ? rows.filter(u => (u.name || '').toLowerCase().includes(q) || u.pilot_key.toLowerCase().includes(q)) : rows;
+            count.textContent = rows.length ? `${filtered.length} of ${rows.length} user${rows.length !== 1 ? 's' : ''}` : '';
+
             if (!rows.length) {
-                list.innerHTML = '<div class="text-zinc-500 text-xs font-bold py-4 text-center">No users found</div>';
+                grid.innerHTML = '<div class="col-span-full text-zinc-500 text-xs font-bold py-10 text-center">No users found</div>';
                 return;
             }
-            list.innerHTML = rows.map(u => {
+            if (!filtered.length) {
+                grid.innerHTML = `<div class="col-span-full text-zinc-500 text-xs font-bold py-10 text-center">No users match "${escapeHtml(_adminUserFilter)}"</div>`;
+                return;
+            }
+
+            grid.innerHTML = filtered.map(u => {
                 const link = `${location.origin}/app?u=${u.token}`;
                 const isViewer = u.role === 'viewer';
                 const initials = isViewer ? '👁' : (u.name || u.pilot_key).split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -8292,27 +8338,25 @@ let _blockUserEdited = false;
                     : `${u.pilot_key} · base ${u.base || '—'}${u.home_airport && u.home_airport !== u.base ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'csv'}`;
                 let warnCount = 0;
                 try { warnCount = u.parser_warnings ? JSON.parse(u.parser_warnings).length : 0; } catch { warnCount = 0; }
-                return `<div class="bg-zinc-800/60 border border-zinc-700/60 rounded-xl p-3.5 space-y-2.5" style="${isViewer ? 'border-color:#166534' : ''}">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-3">
-                            <div class="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black shrink-0" style="background:${color}22;color:${color}">${initials}</div>
-                            <div>
-                                <div class="text-sm font-black text-white">${u.name}</div>
-                                <div class="text-[10px] text-zinc-500 font-bold">${subtext}</div>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-1.5 shrink-0">
-                            <button onclick="openEditUserModal('${u.pilot_key}')" class="px-2.5 py-1.5 border border-zinc-600 text-zinc-300 hover:border-blue-500 hover:text-blue-400 rounded-lg text-[10px] font-black uppercase transition-colors">Edit</button>
-                            <button onclick="confirmDeleteUser('${u.pilot_key}','${u.name}')" class="px-2.5 py-1.5 border border-zinc-700 text-zinc-500 hover:border-red-700 hover:text-red-400 rounded-lg text-[10px] font-black uppercase transition-colors">Del</button>
+                return `<div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4 hover:border-zinc-700 transition-colors" style="${isViewer ? 'border-color:#166534' : ''}">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-black shrink-0" style="background:${color}22;color:${color}">${initials}</div>
+                        <div class="min-w-0">
+                            <div class="text-base font-black text-white truncate">${u.name}</div>
+                            <div class="text-[11px] text-zinc-500 font-bold truncate">${subtext}</div>
                         </div>
                     </div>
-                    ${warnCount ? `<button onclick="showParserWarnings('${u.pilot_key}')" class="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-950/40 border border-amber-800/50 text-amber-400 text-[10px] font-bold text-left hover:bg-amber-950/60 transition-colors">
+                    ${warnCount ? `<button onclick="showParserWarnings('${u.pilot_key}')" class="w-full flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-950/40 border border-amber-800/50 text-amber-400 text-[11px] font-bold text-left hover:bg-amber-950/60 transition-colors">
                         <span>⚠</span><span>Schedule has ${warnCount} unrecognized item${warnCount > 1 ? 's' : ''} — tap to view</span>
                     </button>` : ''}
-                    <div class="flex items-center gap-2">
-                        <div class="flex-1 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400 overflow-hidden text-ellipsis whitespace-nowrap">${link}</div>
-                        <button onclick="copyText('${link}').then(ok=>showToast(ok?'Link copied':'Copy failed','info',2000))" class="px-2.5 py-1.5 border border-zinc-600 text-zinc-400 hover:border-blue-500 hover:text-blue-400 rounded-lg text-[10px] font-black uppercase transition-colors shrink-0">Copy</button>
-                        <button onclick="confirmRegenerateToken('${u.pilot_key}','${u.name}')" class="px-2.5 py-1.5 border border-zinc-600 text-zinc-400 hover:border-amber-500 hover:text-amber-400 rounded-lg text-[10px] font-black uppercase transition-colors shrink-0" title="Generate new link">↺</button>
+                    <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800">
+                        <div class="flex-1 text-[11px] font-mono text-zinc-400 overflow-hidden text-ellipsis whitespace-nowrap">${link}</div>
+                        <button onclick="copyText('${link}').then(ok=>showToast(ok?'Link copied':'Copy failed','info',2000))" class="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-blue-400 hover:bg-zinc-800 transition-colors shrink-0" title="Copy link">⧉</button>
+                        <button onclick="confirmRegenerateToken('${u.pilot_key}','${u.name}')" class="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-colors shrink-0" title="Generate new link">↺</button>
+                    </div>
+                    <div class="flex gap-2 pt-1">
+                        <button onclick="openEditUserModal('${u.pilot_key}')" class="flex-1 py-2.5 bg-zinc-800 hover:bg-blue-600 text-zinc-200 hover:text-white rounded-xl font-black uppercase text-[11px] tracking-wide transition-colors">✎ Edit</button>
+                        <button onclick="confirmDeleteUser('${u.pilot_key}','${u.name}')" class="flex-1 py-2.5 bg-zinc-800 hover:bg-red-600 text-zinc-400 hover:text-white rounded-xl font-black uppercase text-[11px] tracking-wide transition-colors">🗑 Delete</button>
                     </div>
                 </div>`;
             }).join('');
@@ -11103,41 +11147,6 @@ let _blockUserEdited = false;
             document.getElementById('btn-upload-nav')?.classList.add('hidden');
         }
 
-        // ── Crew visibility one-time nudge ───────────────────────────────────
-        function _maybeShowCrewNudge() {
-            if (!myPilot || isDemo) return;
-            if (localStorage.getItem('crewNudgeDismissed')) return;
-            // Only show if all other crew are currently off
-            const visible = getCrewVisible().filter(k => k !== myPilot);
-            if (visible.length > 0) { localStorage.setItem('crewNudgeDismissed', '1'); return; }
-
-            const nudge = document.getElementById('crew-nudge-banner');
-            if (nudge) nudge.classList.remove('hidden');
-        }
-
-        function _dismissCrewNudge(andOpen) {
-            localStorage.setItem('crewNudgeDismissed', '1');
-            const nudge = document.getElementById('crew-nudge-banner');
-            if (nudge) nudge.classList.add('hidden');
-            if (andOpen) openProfile();
-        }
     </script>
-
-    <!-- One-time crew visibility nudge banner -->
-    <div id="crew-nudge-banner" class="hidden fixed z-[900] left-0 right-0 flex justify-center pointer-events-none"
-        style="bottom: calc(58px + env(safe-area-inset-bottom, 0px));">
-        <div class="pointer-events-auto mx-4 w-full max-w-sm bg-zinc-900 border border-blue-500/40 rounded-2xl shadow-2xl p-4 flex items-start gap-3"
-            style="box-shadow:0 0 0 1px rgba(59,130,246,0.15),0 8px 32px rgba(0,0,0,0.6)">
-            <div class="text-blue-400 text-xl shrink-0 mt-0.5">👥</div>
-            <div class="flex-1 min-w-0">
-                <p class="text-sm font-black text-white leading-snug">Your crew is hidden</p>
-                <p class="text-xs text-zinc-400 mt-0.5 leading-snug">Crew members are now off by default. Turn them on in <strong class="text-zinc-200">Your Crew</strong>.</p>
-                <div class="flex gap-2 mt-3">
-                    <button onclick="_dismissCrewNudge(true)" class="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-wide transition">Turn On Crew</button>
-                    <button onclick="_dismissCrewNudge(false)" class="px-4 py-2 border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-xl font-black text-xs uppercase tracking-wide transition">Got It</button>
-                </div>
-            </div>
-        </div>
-    </div>
 </body>
 </html>

@@ -148,6 +148,14 @@ function initDB() {
         // friend list yet? Prevents re-running the import after they've since customized their
         // real friend list by unfriending someone -- see POST /api/friends/seed.
         db.run(`ALTER TABLE pilots ADD COLUMN friends_seeded INTEGER DEFAULT 0`, () => {});
+        // JSON array of pilot_keys this pilot has explicitly hidden from their "Your Crew"
+        // display (map/pill bar/legend declutter). Replaces the old localStorage-only
+        // crewVisible_<pilot> preference, which was per-browser and caused the same pilot to
+        // show different visibility on desktop vs mobile for the same person. The new default
+        // is "everyone allowed (self + friends) is visible unless explicitly hidden here" --
+        // consistent with a friends-based model where befriending someone should show them
+        // immediately, not require a second manual toggle. See GET/PUT /api/crew-visibility.
+        db.run(`ALTER TABLE pilots ADD COLUMN hidden_crew TEXT DEFAULT '[]'`, () => {});
 
         // Backfill home_airport for known pilots where it hasn't been explicitly set.
         // home_airport = where the pilot LIVES; base = airline domicile (may differ for commuters).
