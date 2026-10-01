@@ -5101,19 +5101,35 @@
                     const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                     return d && a && a < now;
                 });
-                const allPast   = !hasActive && !hasFuture;
 
-                const color   = hasActive ? '#22c55e' : hasFuture ? '#3b82f6' : '#6b7280';
                 const count   = legs.length;
                 const weight  = 1.5 + Math.min(Math.log2(count + 1) * 1.0, 2.5);
-                const opacity = hasActive ? 1.0 : hasFuture ? 0.85 : 0.45;
-
+                // A genuinely mixed route (hasPast AND hasFuture, no active leg) draws as two
+                // separate overlapping arcs instead of one shared-color line: a gray one that only
+                // belongs to the Flown bucket, a blue one that only belongs to the Upcoming bucket.
+                // With "Flown" alone on you see only gray, "Upcoming" alone only blue, both on you
+                // see both simultaneously -- a single shared line couldn't represent that, since a
+                // past-only or future-only line is only ever one color at render time. Non-mixed
+                // groups (the common case: pastLines or futureLines is null) keep exactly the
+                // previous single-line behavior. The invisible hit-lines (popup click targets) are
+                // split the same way, not shared -- a hit-line present in both mapLayers.past and
+                // .future would have its visibility clobbered by whichever filter was toggled most
+                // recently (toggleMapFilter blindly sets every member of one array, with no memory
+                // of the other array's current state), leaving the still-visible colored line
+                // unclickable until the other filter happened to be toggled again.
+                const isMixed = hasPast && hasFuture && !hasActive;
                 const arcCoords = distanceProportionalArc(depCoords, arrCoords);
                 bounds.push(arcCoords[0], arcCoords[Math.floor(arcCoords.length / 2)], arcCoords[arcCoords.length - 1]);
                 const arcU = unwrapLongitudes(arcCoords);
-                const routeLines = worldLines(arcU, { weight, opacity, color, smoothFactor: 1 });
-                const [line] = routeLines;
-                const hitLines = worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' });
+                const pastLines = hasPast ? worldLines(arcU, { weight, opacity: 0.45, color: '#6b7280', smoothFactor: 1 }) : null;
+                const futureLines = (hasFuture || hasActive) ? worldLines(arcU, { weight, opacity: hasActive ? 1.0 : 0.85, color: hasActive ? '#22c55e' : '#3b82f6', smoothFactor: 1 }) : null;
+                const pastHit = hasPast ? worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' }) : null;
+                const futureHit = (hasFuture || hasActive) ? worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' }) : null;
+                // Combined references for the non-mixed "one line" paths further down (e.g.
+                // startLiveTracking() for an active leg, which always resolves to futureLines/
+                // futureHit alone since isMixed is never true when hasActive is true).
+                const routeLines = isMixed ? [...pastLines, ...futureLines] : (pastLines || futureLines);
+                const hitLines = isMixed ? [...pastHit, ...futureHit] : (pastHit || futureHit);
 
                 // Popup: list all legs chronologically
                 const sorted = legs.slice().sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
@@ -5140,13 +5156,21 @@
                 `;
                 hitLines.forEach(h => h.bindPopup(routePopup, { className: 'dark-popup' }));
 
-                // A mixed route (hasPast AND hasFuture both true) now belongs to both buckets --
-                // registered in both mapLayers.past and mapLayers.future so either filter toggle
-                // independently affects it, and visible when either filter that applies is on.
-                const showLine = hasActive || (hasPast && showPast) || (hasFuture && showFuture);
-                if (hasPast || (!hasFuture && !hasActive)) { routeLines.forEach(l => mapLayers.past.push(l)); hitLines.forEach(h => mapLayers.past.push(h)); }
-                if (hasFuture || hasActive) { routeLines.forEach(l => mapLayers.future.push(l)); hitLines.forEach(h => mapLayers.future.push(h)); }
-                if (showLine) { routeLines.forEach(l => l.addTo(map)); hitLines.forEach(h => h.addTo(map)); }
+                // pastLines/pastHit belong only to mapLayers.past, shown only when showPast.
+                // futureLines/futureHit belong only to mapLayers.future, shown when showFuture (or
+                // unconditionally for an active leg, matching the previous "always show active"
+                // behavior). A mixed route has both pairs, so both filters independently control
+                // their own half instead of one shared line having to pick a single bucket.
+                if (pastLines) {
+                    pastLines.forEach(l => mapLayers.past.push(l));
+                    pastHit.forEach(h => mapLayers.past.push(h));
+                    if (showPast) { pastLines.forEach(l => l.addTo(map)); pastHit.forEach(h => h.addTo(map)); }
+                }
+                if (futureLines) {
+                    futureLines.forEach(l => mapLayers.future.push(l));
+                    futureHit.forEach(h => mapLayers.future.push(h));
+                    if (showFuture || hasActive) { futureLines.forEach(l => l.addTo(map)); futureHit.forEach(h => h.addTo(map)); }
+                }
 
                 // Airplane icon for any active leg
                 if (hasActive) {
@@ -5179,9 +5203,16 @@
                     if (!coords && upper.length === 4 && upper[0] === 'K') { upper = upper.slice(1); coords = resolveAirport(upper); }
                     if (!coords) return;
                     if (!airportFlightTypes[upper]) airportFlightTypes[upper] = { past: false, future: false, active: false };
-                    if (allPast) airportFlightTypes[upper].past = true;
-                    else if (hasActive) airportFlightTypes[upper].active = true;
-                    else airportFlightTypes[upper].future = true;
+                    // Independent flags, not if/else-if -- a mixed route group (hasPast AND
+                    // hasFuture both true) needs to mark its endpoints as both, same reasoning as
+                    // the route-line bucketing fix above. Using allPast here previously meant an
+                    // airport that only ever appeared in one mixed-status route group (like CLE,
+                    // touched only by the CLE-ATL pair) got tagged future-only even though that
+                    // group also had an already-completed leg -- its dot vanished under "Flown"
+                    // even though the line itself (fixed separately) correctly showed.
+                    if (hasActive) airportFlightTypes[upper].active = true;
+                    if (hasPast) airportFlightTypes[upper].past = true;
+                    if (hasFuture) airportFlightTypes[upper].future = true;
                 });
             });
 
