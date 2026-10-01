@@ -422,8 +422,9 @@
         </div>
         <!-- Desktop identity row -->
         <div id="sidebar-identity" class="hidden px-3 py-2.5 border-b border-zinc-800/60 shrink-0">
-            <button onclick="openProfile()" class="flex items-center gap-2.5 w-full rounded-xl px-2 py-2 hover:bg-zinc-800/50 transition-colors text-left">
+            <button onclick="openProfile()" class="relative flex items-center gap-2.5 w-full rounded-xl px-2 py-2 hover:bg-zinc-800/50 transition-colors text-left">
                 <div id="sidebar-identity-avatar" class="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black shrink-0"></div>
+                <span id="friend-badge-desktop" class="xbadge hidden" style="top:-2px;left:20px"></span>
                 <div class="flex flex-col min-w-0">
                     <span class="text-[8px] font-black uppercase tracking-widest text-zinc-500">Signed in as</span>
                     <span id="sidebar-identity-name" class="text-xs font-black text-white truncate"></span>
@@ -543,9 +544,10 @@
         <!-- Mobile header -->
         <header class="md:hidden border-b border-zinc-800 flex items-end justify-between px-4 bg-black shrink-0" style="height: calc(56px + max(68px, env(safe-area-inset-top))); padding-top: max(68px, env(safe-area-inset-top)); padding-bottom: 10px;">
             <div class="flex items-center gap-2.5">
-                <button id="identity-avatar" onclick="openProfile()" class="flex items-center gap-1.5 pl-2 pr-2.5 h-10 rounded-xl border-2 shrink-0 transition-all font-black text-xs" style="background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4);color:#818cf8">
+                <button id="identity-avatar" onclick="openProfile()" class="relative flex items-center gap-1.5 pl-2 pr-2.5 h-10 rounded-xl border-2 shrink-0 transition-all font-black text-xs" style="background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4);color:#818cf8">
                     <span id="identity-avatar-initials" class="text-xs font-black leading-none">?</span>
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.7"><polyline points="6 9 12 15 18 9"/></svg>
+                    <span id="friend-badge-mobile" class="xbadge hidden" style="top:-3px;left:-3px"></span>
                 </button>
                 <div id="mobile-header-month-info" class="flex flex-col leading-tight min-w-0">
                     <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic whitespace-nowrap">CrewSync</span>
@@ -2102,6 +2104,7 @@
             // "Your Crew" toggle) before _applyIdentityUI() builds the crew-visibility UI below
             // it, since that UI is now bounded by friendship.
             await loadFriends();
+            updateFriendRequestBadge();
             await _maybeSeedFriends();
             await loadCrewVisibility();
 
@@ -2254,6 +2257,21 @@
             if (modal && !modal.classList.contains('hidden')) {
                 renderFriendSearchResults(document.getElementById('friend-search-input')?.value || '');
             }
+            updateFriendRequestBadge();
+        }
+
+        // Small badge on the profile avatar (desktop sidebar + mobile header) showing the count
+        // of incoming friend requests awaiting a response -- same visual treatment as the
+        // crossings nav badge (updateCrossingAlert), so a pending request is visible without
+        // having to open the Profile sheet to discover it.
+        function updateFriendRequestBadge() {
+            const count = myIncomingRequests.length;
+            ['friend-badge-mobile', 'friend-badge-desktop'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.toggle('hidden', count === 0);
+                el.textContent = count > 9 ? '9+' : (count > 0 ? String(count) : '');
+            });
         }
 
         async function confirmRemoveFriend(targetKey, name) {
