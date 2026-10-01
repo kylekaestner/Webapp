@@ -5590,7 +5590,20 @@
             let remainLines = null;
             let arcRemoved = false;
             let missCount = 0;
+            // Set ONLY by this poller's own real, found+airborne fix -- never from the server's
+            // historical hint (see serverConfirmedAirborne below). This is what gates the one-time
+            // removeArc()/showIcon() transition, and must only ever flip true when THIS poller has
+            // personally seen the plane live, or that transition gets silently skipped forever.
             let hasBeenAirborne = false;
+            // Set from the server's persistent per-aircraft history (d.hasBeenAirborne) on a miss --
+            // tells us "this flight has definitely been airborne at some point", independent of
+            // whether THIS poller has personally witnessed it yet. Used only to avoid misclassifying
+            // a still-in-progress flight as "never got airborne" after a few misses; deliberately
+            // kept separate from hasBeenAirborne so it can never skip the real-confirmation cleanup
+            // above (a flat merge of the two caused exactly that: the static scheduled line stopped
+            // getting removed once the plane actually appeared, because a miss response had already
+            // flipped the combined flag true before any real position was ever seen).
+            let serverConfirmedAirborne = false;
             let iconShown = false;
 
             // Hide the plane icon until ADS-B confirms the aircraft is actually moving
@@ -5667,20 +5680,18 @@
 
                     if (!d.found || d.lat == null) {
                         missCount++;
-                        // The server tracks hasBeenAirborne per-aircraft independent of any one
-                        // client's poller lifetime. Without this, a poller that just (re)started
-                        // (e.g. after a map re-render) and hits a few misses before its first
-                        // successful fix has no way to tell "this flight never got airborne, it's
-                        // over" apart from "it's definitely airborne, just a transient signal gap"
-                        // — and would misclassify a still-in-progress flight as landed early below.
-                        if (d.hasBeenAirborne) hasBeenAirborne = true;
+                        // See serverConfirmedAirborne's declaration comment -- deliberately NOT
+                        // assigned to hasBeenAirborne itself, which must only ever be set by this
+                        // poller's own real found+airborne fix below.
+                        if (d.hasBeenAirborne) serverConfirmedAirborne = true;
+                        const confirmedAirborne = hasBeenAirborne || serverConfirmedAirborne;
                         // Lost signal after being airborne — remove the remaining arc, but only after
                         // a few consecutive misses (same threshold as the other miss-handling below).
                         // A single missed poll is routine (the server races two ADS-B sources and either
                         // can blip), and removing this instantly on miss #1 made the dashed arc flicker
                         // off and back on every time that happened mid-flight, even though the plane was
                         // never actually out of contact long enough to be a real signal loss.
-                        if (hasBeenAirborne && remainLines && missCount >= 3) {
+                        if (confirmedAirborne && remainLines && missCount >= 3) {
                             remainLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
                             remainLines = null;
                         }
@@ -5688,7 +5699,7 @@
                         // already flew and is no longer transmitting (early landing, taxi-in done).
                         // After a few misses, remove the scheduled arc + plane icon so we don't
                         // show a misleading "in progress" view.
-                        if (!hasBeenAirborne && d.hadTrail && missCount >= 3) {
+                        if (!confirmedAirborne && d.hadTrail && missCount >= 3) {
                             removeArc();
                             markers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
                             if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
@@ -5701,7 +5712,7 @@
                             return;
                         }
                         // Was airborne + server's trail gone (parked confirmed server-side) → done
-                        if (hasBeenAirborne && !d.hadTrail && missCount >= 3) {
+                        if (confirmedAirborne && !d.hadTrail && missCount >= 3) {
                             if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
                             _departureDelays.delete(callsign);
                             clearInterval(_livePollers[callsign]);
@@ -5720,7 +5731,7 @@
                         // Close to or past the scheduled arrival, a short gap is far more plausibly real.
                         const minsToSchedArr = scheduledArrUTC ? (scheduledArrUTC.getTime() - Date.now()) / 60000 : -Infinity;
                         const probablyLandedThreshold = minsToSchedArr > 15 ? 38 /* ~5 min */ : 5 /* ~40s */;
-                        if (hasBeenAirborne && missCount >= probablyLandedThreshold) {
+                        if (confirmedAirborne && missCount >= probablyLandedThreshold) {
                             if (scheduledArrUTC && new Date() < scheduledArrUTC) _saveLandedEarly(callsign);
                             _departureDelays.delete(callsign);
                             clearInterval(_livePollers[callsign]);
