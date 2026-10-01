@@ -6851,6 +6851,18 @@
                         const dhDot = f.dh ? `<span style="color:#f9a8d4;font-size:8px;font-weight:900;margin-left:3px">DH</span>` : '';
                         const personalDot = isPersonal ? `<span style="color:#c084fc;font-size:8px;font-weight:900;margin-left:3px">P</span>` : '';
                         const commuteDot = isCommute ? `<span style="color:#fbbf24;font-size:8px;font-weight:900;margin-left:3px">C</span>` : '';
+                        // Flights crossing midnight (red-eyes, or any leg landing just past 12am) already
+                        // appear on both the departure day's cell and the arrival day's cell -- see
+                        // dayEvents' filter above, which matches on local arrival date too, not just
+                        // departure. Without a marker though the two entries look unrelated instead of
+                        // one continuous flight split across two cells, so flag each side of it.
+                        const _depLocalDate = depAttr ? flightLocalDate(depAttr, depApt) : '';
+                        const _arrLocalDate = arrAttr ? flightLocalDate(arrAttr, arrApt) : '';
+                        const crossesMidnight = _depLocalDate && _arrLocalDate && _depLocalDate !== _arrLocalDate;
+                        const _isArrivalSide = crossesMidnight && dateKey === _arrLocalDate;
+                        const redEyeDot = crossesMidnight
+                            ? `<span title="${_isArrivalSide ? 'Overnight flight — departed the previous day' : 'Overnight flight — arrives the next day'}" style="font-size:9px;font-weight:900;margin-left:3px">🌙</span>`
+                            : '';
                         const depTimeFmt = depAttr ? formatTimeISO(depAttr, depApt) : '';
                         const arrTimeFmt = arrAttr ? formatTimeISO(arrAttr, arrApt) : '';
                         const depTzLbl = depApt ? tzAbbr(depApt, depAttr) : '';
@@ -6878,7 +6890,7 @@
                         html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}"${isActiveLeg && csig ? ` data-live-callsign="${csig}"` : ''}>`;
                         const cellFlightLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
                         const flLabelSpan = cellFlightLabel ? flightAwareLink(cellFlightLabel, `<span style="font-size:9px;font-weight:700;color:#7dd3fc;margin-left:3px">${cellFlightLabel}</span>`, flightAwareEligible(depMs)) : '';
-                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}${flLabelSpan}</div>`;
+                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}${redEyeDot}${flLabelSpan}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
                         if (isActiveLeg && csig) html += `<div id="live-${csig}" style="font-size:9px;color:#4ade80;font-weight:700;margin-top:2px;display:none"></div>`;
