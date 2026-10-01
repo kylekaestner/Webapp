@@ -730,7 +730,7 @@ Accessible from Profile Sheet → "★ Manage Users" (admin only). Two tabs:
 
 **Edit/Add User modal (`#edit-user-modal`):**
 - View-only toggle (👁 mode): hides pilot-specific fields (base, home_airport, airline, role), marks user as `role='viewer'`.
-- Airline selector determines `parser_type`: GoJet→`csv`, SkyWest→`vcs_skywest`, Republic→`csv`, SunCountry→`ics_scx`, RosterBuster→`ics_rosterbuster`, Delta Air Lines (MiCrew)→`ics_delta_micrew`, American Airlines (MobileCCI)→`ics_american`, Southwest Airlines (CrewHub)→`ics_southwest`, Other→`other`.
+- Airline selector determines `parser_type`: GoJet→`ics_rosterbuster`, SkyWest→`vcs_skywest`, Republic→`csv`, Sun Country→`ics_scx`, Atlas Air→`ics_ecrew`, Delta Air Lines (MiCrew)→`ics_delta_micrew`, American Airlines (MobileCCI)→`ics_american`, Southwest Airlines (CrewHub)→`ics_southwest`, Other→`other`. (GoJet used to be split into a separate "GoJet Services" (`csv`) and "RosterBuster (subscription)" option — consolidated into the single RosterBuster-ICS option above; this line previously still listed the pre-consolidation `csv` value.)
 - When RosterBuster selected, shows ICS URL field.
 - `saveUser()` → POST `/api/pilots` (new) or PUT `/api/pilots/:key` (edit). Auto-generates pilot_key from first name (lowercase, deduped).
 - After save: alerts user of generated `?u=TOKEN` personal link to share.

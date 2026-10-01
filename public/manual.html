@@ -351,6 +351,18 @@
                 <li><strong>Tip</strong> — Anything else. Parking, transport tricks, FBO notes, heads-up about the hotel van — stuff that doesn't fit elsewhere.</li>
             </ul>
 
+            <h3>Voting</h3>
+            <p>Every entry can be upvoted or downvoted — tap the <span class="kbd">▲</span> or <span class="kbd">▼</span> next to an entry's category badge. Entries within an airport's detail view are sorted by score, highest first, so the crew's best tips naturally rise to the top. Tapping an arrow you've already pressed removes your vote; tapping the other one switches it. You can vote on any entry, including your own.</p>
+            <p>An entry that's been downvoted heavily (score of <strong>-3 or lower</strong>) collapses to a one-line "Downvoted by the crew — tap to view anyway" placeholder instead of showing the full card. Nothing is deleted — tap it to expand and read it normally. This only affects the detail view; a collapsed entry still counts toward that airport's total and still shows up on the map.</p>
+
+            <h3>Reducing clutter</h3>
+            <p>Two toggles at the top of the airports/map view hide low-value entries by default — tap either one to show everything again:</p>
+            <ul>
+                <li><strong>Park/monument tips</strong> — hides entries that are just naming a National/State Park, National Monument, National Historic Site, or Memorial. If it's famous enough to have an official designation, it's famous enough to google.</li>
+                <li><strong>Blank activity tips</strong> — hides "Activity" entries that are just a landmark name with no actual description added (no personal insight beyond "this exists").</li>
+            </ul>
+            <p>Both are display filters only — hidden entries aren't deleted, and either toggle can be turned off to see everything. Each shows a live count of how many it's currently hiding.</p>
+
             <h3>Adding an entry</h3>
             <p>Tap <strong>+ Add</strong> in the top right. Enter the airport code, pick a category, write a short title, and optionally add a longer description. Your entry appears immediately for the whole crew.</p>
 
@@ -522,33 +534,54 @@
                     </thead>
                     <tbody class="divide-y divide-zinc-800/50">
                         <tr>
-                            <td class="py-2.5 pr-4"><span class="chip chip-blue">ICS / Calendar</span></td>
-                            <td class="py-2.5 pr-4 text-zinc-400">Corporate ops, scheduling platforms, RosterBuster</td>
-                            <td class="py-2.5 text-zinc-400">Export from your scheduling platform as .ics</td>
+                            <td class="py-2.5 pr-4"><span class="chip chip-blue">ICS (RosterBuster)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">GoJet Airlines</td>
+                            <td class="py-2.5 text-zinc-400">RosterBuster → Settings → Calendar Sync → copy the subscription link</td>
                         </tr>
                         <tr>
-                            <td class="py-2.5 pr-4"><span class="chip chip-green">CSV (SkyWest)</span></td>
+                            <td class="py-2.5 pr-4"><span class="chip chip-blue">ICS (MiCrew)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">Delta Air Lines</td>
+                            <td class="py-2.5 text-zinc-400">Publish the MiCrew calendar and copy the subscription link</td>
+                        </tr>
+                        <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-blue">ICS (MobileCCI)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">American Airlines</td>
+                            <td class="py-2.5 text-zinc-400">Publish the MobileCCI calendar and copy the subscription link</td>
+                        </tr>
+                        <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-blue">ICS (CrewHub)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">Southwest Airlines</td>
+                            <td class="py-2.5 text-zinc-400">Publish the CrewHub calendar and copy the subscription link</td>
+                        </tr>
+                        <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-blue">ICS (eCrew)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">Atlas Air, Sun Country Airlines</td>
+                            <td class="py-2.5 text-zinc-400">The calendar subscription link from eCrew</td>
+                        </tr>
+                        <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-purple">VCS (SkedPlus+)</span></td>
                             <td class="py-2.5 pr-4 text-zinc-400">SkyWest Airlines</td>
-                            <td class="py-2.5 text-zinc-400">Export from CrewPortal as CSV</td>
+                            <td class="py-2.5 text-zinc-400">Export roster from SkedPlus+ as .vcs</td>
                         </tr>
                         <tr>
-                            <td class="py-2.5 pr-4"><span class="chip chip-green">CSV (Republic)</span></td>
+                            <td class="py-2.5 pr-4"><span class="chip chip-green">CSV</span></td>
                             <td class="py-2.5 pr-4 text-zinc-400">Republic Airways</td>
-                            <td class="py-2.5 text-zinc-400">Export from CrewPortal as CSV</td>
+                            <td class="py-2.5 text-zinc-400">Export from CrewPortal as CSV (Long format)</td>
                         </tr>
                         <tr>
                             <td class="py-2.5 pr-4"><span class="chip chip-amber">PDF (Netline)</span></td>
-                            <td class="py-2.5 pr-4 text-zinc-400">GoJet, and other Netline carriers</td>
-                            <td class="py-2.5 text-zinc-400">Download monthly PDF from Netline</td>
+                            <td class="py-2.5 pr-4 text-zinc-400">Any Netline-based carrier</td>
+                            <td class="py-2.5 text-zinc-400">Download the monthly schedule PDF from Netline</td>
                         </tr>
                         <tr>
-                            <td class="py-2.5 pr-4"><span class="chip chip-purple">VCS (AIMS)</span></td>
-                            <td class="py-2.5 pr-4 text-zinc-400">AIMS-based operations</td>
-                            <td class="py-2.5 text-zinc-400">Export roster from AIMS as .vcs. Training pairings (IOE, TRN, and similar prefixes) are supported.</td>
+                            <td class="py-2.5 pr-4"><span class="chip chip-zinc">Other / Auto-detect</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">Not listed above</td>
+                            <td class="py-2.5 text-zinc-400">Upload any .ics, .vcs, or .csv export — the format is identified automatically on first upload</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
+            <p class="text-xs text-zinc-500 mb-6">Each of these (except Other/PDF, which auto-detect from the file itself) is selected as a company on the <a href="/join" target="_blank">join page</a> or from the admin panel — picking a company shows only the schedule-input field that airline actually needs.</p>
 
             <div class="callout callout-blue">
                 <strong>Adding a new airline?</strong> If your scheduling system isn't listed, contact the admin. The app is designed to be extended — new parsers can be added without changing anything for existing pilots.
