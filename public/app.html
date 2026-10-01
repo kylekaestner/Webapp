@@ -8941,22 +8941,47 @@ let _blockUserEdited = false;
         let _intelMap    = null;         // Leaflet map instance for intel map view
 
         // Hides (never deletes) tips that are just generic "it's a National/State Park,
-        // National Monument, National Historic Site, or Memorial" trivia a pilot could've
-        // googled themselves -- added after Drew's intel entries filled up with exactly that.
-        // Persisted per-device, defaults to hidden.
+        // Monument, Historic(al) Site/Park, Seashore, Military Park, or Memorial" trivia a
+        // pilot could've googled themselves -- added after Drew's intel entries filled up with
+        // exactly that. Persisted per-device, defaults to hidden. Covers plurals ("National
+        // Parks") via the trailing `s?` -- a plain \b word-boundary regex doesn't match "park"
+        // inside "parks", which an earlier version of this missed.
         let _intelHideGeneric = localStorage.getItem('intel_hide_generic') !== '0';
-        const INTEL_GENERIC_RE = /\b(national\s+park|state\s+park|national\s+monument|national\s+historic\s+site|memorial)\b/i;
+        const INTEL_GENERIC_RE = /\b(national\s+(park|monument|historic(al)?\s+(site|park)|seashore|military\s+park|memorial)s?|state\s+park|memorial)\b/i;
         const _isGenericParkTip = e => INTEL_GENERIC_RE.test(e.title || '') || INTEL_GENERIC_RE.test(e.body || '');
+
+        // Hides (never deletes) "activity" tips with no description at all -- just a bare
+        // landmark name (e.g. "Louvre Museum", "Hollywood Sign", "NASCAR Hall of Fame") with
+        // zero personal insight added. Found by auditing the full intel dataset: 70% of all
+        // "activity" entries (193 of 275, nearly all from Drew) have an empty body -- a much
+        // bigger clutter source than the park/monument wording above (74 entries) and not
+        // reliably catchable by keyword matching since these cover every kind of landmark, not
+        // just NPS-style sites. Separate toggle from the one above since it's a broader,
+        // content-blind rule (would also hide a genuinely useful but terse "activity" entry),
+        // not just a wording pattern -- independent control lets either be turned off alone.
+        let _intelHideEmptyActivity = localStorage.getItem('intel_hide_empty_activity') !== '0';
+        const _isEmptyActivityTip = e => e.category === 'activity' && !(e.body && e.body.trim());
+
         // Single source of truth for "what's actually shown" -- every render function below
-        // reads from this instead of _intelAll directly, so the filter applies everywhere
-        // (list, map pins, per-airport detail, counts) with one toggle.
+        // reads from this instead of _intelAll directly, so both filters apply everywhere
+        // (list, map pins, per-airport detail, counts) from these two toggles.
         function _intelVisible() {
             const all = Array.isArray(_intelAll) ? _intelAll : [];
-            return _intelHideGeneric ? all.filter(x => !_isGenericParkTip(x)) : all;
+            return all.filter(x => {
+                if (_intelHideGeneric && _isGenericParkTip(x)) return false;
+                if (_intelHideEmptyActivity && _isEmptyActivityTip(x)) return false;
+                return true;
+            });
         }
         function toggleIntelHideGeneric() {
             _intelHideGeneric = !_intelHideGeneric;
             localStorage.setItem('intel_hide_generic', _intelHideGeneric ? '1' : '0');
+            _rebuildIntelCounts();
+            renderIntel();
+        }
+        function toggleIntelHideEmptyActivity() {
+            _intelHideEmptyActivity = !_intelHideEmptyActivity;
+            localStorage.setItem('intel_hide_empty_activity', _intelHideEmptyActivity ? '1' : '0');
             _rebuildIntelCounts();
             renderIntel();
         }
@@ -9209,7 +9234,9 @@ let _blockUserEdited = false;
                 const visibleEntries = _intelVisible();
                 const totalEntries = visibleEntries.length;
                 const totalAirports = new Set(visibleEntries.map(x => x.airport_code)).size;
-                const hiddenCount = (Array.isArray(_intelAll) ? _intelAll.length : 0) - totalEntries;
+                const rawAll = Array.isArray(_intelAll) ? _intelAll : [];
+                const genericCount = rawAll.filter(_isGenericParkTip).length;
+                const emptyActivityCount = rawAll.filter(_isEmptyActivityTip).length;
                 const clearBtn = _intelSearch
                     ? `<button id="intel-search-clear" onclick="clearIntelSearch()" class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-base leading-none transition-colors">×</button>`
                     : '';
@@ -9227,10 +9254,14 @@ let _blockUserEdited = false;
                             ${!isDemo ? `<button onclick="openAddIntel()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest transition-colors">+ Add</button>` : ''}
                         </div>
                     </div>
-                    <div class="px-5 pb-2">
+                    <div class="px-5 pb-2 flex flex-wrap gap-1.5">
                         <button onclick="toggleIntelHideGeneric()" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-bold uppercase tracking-widest transition-colors ${_intelHideGeneric ? 'border-amber-800/50 bg-amber-950/30 text-amber-400 hover:bg-amber-950/50' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}">
                             <span>${_intelHideGeneric ? '🙈' : '👁'}</span>
-                            <span>${_intelHideGeneric ? `Hiding generic park/monument tips${hiddenCount ? ` (${hiddenCount})` : ''}` : 'Showing all tips'}</span>
+                            <span>${_intelHideGeneric ? `Hiding park/monument tips${genericCount ? ` (${genericCount})` : ''}` : 'Showing park/monument tips'}</span>
+                        </button>
+                        <button onclick="toggleIntelHideEmptyActivity()" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-bold uppercase tracking-widest transition-colors ${_intelHideEmptyActivity ? 'border-amber-800/50 bg-amber-950/30 text-amber-400 hover:bg-amber-950/50' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}">
+                            <span>${_intelHideEmptyActivity ? '🙈' : '👁'}</span>
+                            <span>${_intelHideEmptyActivity ? `Hiding blank activity tips${emptyActivityCount ? ` (${emptyActivityCount})` : ''}` : 'Showing blank activity tips'}</span>
                         </button>
                     </div>
                     ${isMap ? '' : `<div class="px-5 pb-3"><div class="relative">
