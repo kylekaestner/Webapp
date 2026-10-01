@@ -1609,15 +1609,20 @@
     <div id="admin-dashboard-pane" class="hidden overflow-y-auto flex-1 min-h-0 p-4 md:p-8 space-y-5 max-w-5xl mx-auto w-full" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))"></div>
 </div>
 
-<!-- Edit / Add User Modal -->
-<div id="edit-user-modal" class="hidden fixed inset-0 z-[1003] flex items-end md:items-center md:justify-center" onclick="if(event.target===this)closeEditUserModal()">
-    <div class="absolute inset-0 bg-black/70"></div>
-    <div class="relative w-full md:max-w-sm bg-zinc-900 border-t md:border border-zinc-700 rounded-t-2xl md:rounded-2xl md:mx-4 space-y-4 overflow-y-auto" style="max-height:90vh;padding:1.5rem;padding-bottom:max(1.5rem,env(safe-area-inset-bottom))" onclick="event.stopPropagation()">
-    <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto -mt-1 mb-0 md:hidden"></div>
-        <h3 id="edit-user-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Add User</h3>
+<!-- Edit / Add User Modal — full-page takeover, matching the admin panel's shell -->
+<div id="edit-user-modal" class="hidden fixed inset-0 z-[1003] bg-zinc-950 flex flex-col">
+    <div class="shrink-0 border-b border-zinc-800 flex items-center justify-between px-4 md:px-8 pb-3 gap-3" style="padding-top:max(1rem,env(safe-area-inset-top))">
+        <div class="flex items-center gap-3 min-w-0">
+            <button onclick="closeEditUserModal()" class="w-10 h-10 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors text-lg shrink-0">←</button>
+            <h2 id="edit-user-title" class="text-lg md:text-xl font-black text-white truncate">Add User</h2>
+        </div>
+        <button id="edit-user-save-btn" onclick="saveUser()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors shadow-lg shadow-indigo-950/40 shrink-0">Save</button>
+    </div>
+    <div class="overflow-y-auto flex-1 min-h-0 p-4 md:p-8" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+    <div class="max-w-xl mx-auto space-y-5">
         <input type="hidden" id="edit-user-key">
         <!-- View-only toggle -->
-        <div onclick="_toggleViewerMode()" id="edit-user-viewer-row" class="flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-colors select-none" style="background:#052e16;border:1px solid #166534;-webkit-tap-highlight-color:transparent">
+        <div onclick="_toggleViewerMode()" id="edit-user-viewer-row" class="flex items-center justify-between py-3 px-4 rounded-xl cursor-pointer transition-colors select-none" style="background:#052e16;border:1px solid #166534;-webkit-tap-highlight-color:transparent">
             <div class="flex items-center gap-2.5">
                 <span class="text-base">👁</span>
                 <div>
@@ -1629,31 +1634,31 @@
                 <div id="edit-user-viewer-knob" class="w-5 h-5 rounded-full bg-white shadow transition-transform" style="transform:translateX(0px)"></div>
             </div>
         </div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 gap-4">
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">First Name</label>
-                <input id="edit-user-first" type="text" placeholder="Kyle" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <input id="edit-user-first" type="text" placeholder="Kyle" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Last Name</label>
-                <input id="edit-user-last" type="text" placeholder="Kaestner" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <input id="edit-user-last" type="text" placeholder="Kaestner" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
         </div>
         <!-- Pilot-only fields — hidden when View Only is on -->
-        <div id="edit-user-pilot-fields" class="space-y-4">
-            <div class="grid grid-cols-2 gap-3">
+        <div id="edit-user-pilot-fields" class="space-y-5">
+            <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
-                    <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                    <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
                 </div>
                 <div>
                     <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
-                    <input id="edit-user-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                    <input id="edit-user-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
                 </div>
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
-                <select id="edit-user-airline-sel" onchange="_onAirlineChange()" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                <select id="edit-user-airline-sel" onchange="_onAirlineChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
                     <option value="">— Select airline —</option>
                     <option value="GJS">GoJet Airlines</option>
                     <option value="SKW">SkyWest Airlines</option>
@@ -1668,27 +1673,24 @@
             </div>
             <div id="edit-user-ics-row" class="hidden space-y-1">
                 <label class="text-[9px] font-black text-zinc-500 uppercase block" id="edit-user-ics-label">ICS Calendar URL</label>
-                <input id="edit-user-ics-url" type="url" placeholder="https://…" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <input id="edit-user-ics-url" type="url" placeholder="https://…" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
                 <p class="text-[10px] text-zinc-600" id="edit-user-ics-hint">Paste the private subscription link from your airline's scheduling app.</p>
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Role / Description</label>
-                <input id="edit-user-role" type="text" placeholder="Corporate · KSUS" class="w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <input id="edit-user-role" type="text" placeholder="Corporate · KSUS" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
         </div>
         <!-- Admin friend management — bypasses the request/accept flow entirely. Only shown
              when editing an existing non-viewer pilot (a brand-new pilot has no key yet to
              attach friendships to; a viewer already sees everyone and has no friend list). -->
-        <div id="edit-user-friends-section" class="hidden space-y-1.5 pt-1 border-t border-zinc-800">
-            <p class="text-[9px] font-black text-zinc-500 uppercase tracking-widest pt-3">Friends</p>
+        <div id="edit-user-friends-section" class="hidden space-y-1.5 pt-2 border-t border-zinc-800">
+            <p class="text-[9px] font-black text-zinc-500 uppercase tracking-widest pt-4">Friends</p>
             <p class="text-[10px] text-zinc-600 -mt-1">Toggle to instantly add or remove a friendship — no request needed.</p>
-            <div id="edit-user-friends-list" class="space-y-1.5 max-h-40 overflow-y-auto"></div>
+            <div id="edit-user-friends-list" class="space-y-1.5 max-h-60 overflow-y-auto"></div>
         </div>
         <div id="edit-user-error" class="hidden text-xs text-red-400 font-bold"></div>
-        <div class="flex gap-3 pt-1">
-            <button onclick="closeEditUserModal()" class="flex-1 py-2.5 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
-            <button id="edit-user-save-btn" onclick="saveUser()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors">Save</button>
-        </div>
+    </div>
     </div>
 </div>
 
@@ -2565,7 +2567,6 @@
         let _profileSwipeSetup = false;
         let _dayDetailSwipeSetup = false;
         let _uploadSheetSwipeSetup = false;
-        let _editUserSwipeSetup = false;
         function openProfile() {
             haptic('tap');
             _applyIdentityUI();
@@ -8739,10 +8740,6 @@ async function openAdminPanel(tab = 'users') {
                 friendsSection.classList.add('hidden');
             }
             document.getElementById('edit-user-modal').classList.remove('hidden');
-            if (!_editUserSwipeSetup) {
-                const panel = document.querySelector('#edit-user-modal > div:not(.absolute)');
-                if (panel) { setupSheetSwipe(panel, closeEditUserModal); _editUserSwipeSetup = true; }
-            }
         }
 
         function closeEditUserModal() {
