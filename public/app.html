@@ -5610,16 +5610,24 @@
             };
 
             const _arcLines = () => Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
-            const updateHitPopupStatus = (html) => {
+            // Overwrites the schedule-based status line (baked in at render time) with what
+            // ADS-B actually reports — e.g. a flight the schedule marks "IN THE AIR" may really
+            // still be taxiing for departure, or already on the ground at the destination.
+            // Matches by class, not exact text, so it works regardless of which of the three
+            // schedule-based labels (IN THE AIR / DEPARTS IN.. / COMPLETED) was originally baked in,
+            // and keeps matching on repeated calls since the replacement keeps the same class.
+            const updateHitPopupStatus = (html, color) => {
                 if (!hitLines) return;
                 hitLines.forEach(h => {
                     try {
                         const p = h.getPopup?.();
                         if (!p) return;
                         const cur = typeof p.getContent() === 'string' ? p.getContent() : '';
-                        const updated = cur
-                            .replace(/<div[^>]*>▶ In the air now<\/div>/, `<div style="font-size:11px;font-weight:700;margin-top:6px">${html}</div>`);
-                        h.setPopupContent(updated);
+                        const updated = cur.replace(
+                            /<div class="live-status-line"[^>]*>[\s\S]*?<\/div>/,
+                            `<div class="live-status-line" style="font-size:10px;color:${color || '#22c55e'};font-weight:800;letter-spacing:.04em;margin-top:6px">${html}</div>`
+                        );
+                        if (updated !== cur) h.setPopupContent(updated);
                     } catch (_) {}
                 });
             };
@@ -5751,6 +5759,13 @@
                             groundLabelColor = '#71717a';
                         }
                         setAllTooltip(baseTooltip + `<br><span style="font-size:9px;color:${groundLabelColor};font-weight:700">${groundLabel}</span>`);
+                        // The static arc popup was built from schedule alone and may still say
+                        // "IN THE AIR" even though ADS-B shows this aircraft hasn't lifted off
+                        // (or has already landed) — overwrite it with the real ground state.
+                        const popupGroundLabel = hasBeenAirborne
+                            ? (isTaxiing ? `TAXIING IN · ${kts} KTS` : '✓ ARRIVED')
+                            : (isTaxiing ? 'TAXIING FOR DEPARTURE' : 'ON GROUND');
+                        updateHitPopupStatus(popupGroundLabel, groundLabelColor);
                         // Draw taxi breadcrumb trail (taxi-out and taxi-in) only when moving
                         if (d.trail && d.trail.length >= 2 && isTaxiing) {
                             const taxiPath = smoothTrail(d.trail);
@@ -5777,7 +5792,7 @@
                         hereNowMarkers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
                         hereNowMarkers.length = 0;
                         removeArc();
-                        updateHitPopupStatus(`<span style="color:#22c55e">▶ In the air now</span>`);
+                        updateHitPopupStatus('▶ IN THE AIR', '#22c55e');
                     }
                     showIcon();
 
@@ -6022,10 +6037,10 @@
                 const blockMins = calcBlockMins(f);
                 const _pilotFirst = (PILOT_NAMES[f.pilotKey] || '').split(' ')[0];
                 const _statusLine = isActive
-                    ? `<div style="font-size:10px;color:#22c55e;font-weight:800;letter-spacing:.04em;margin-top:6px">▶ IN THE AIR</div>`
+                    ? `<div class="live-status-line" style="font-size:10px;color:#22c55e;font-weight:800;letter-spacing:.04em;margin-top:6px">▶ IN THE AIR</div>`
                     : isPast
-                    ? `<div style="font-size:10px;color:#3f3f46;font-weight:800;letter-spacing:.04em;margin-top:6px">✓ ${landedEarly ? 'LANDED EARLY' : 'COMPLETED'}</div>`
-                    : `<div style="font-size:10px;color:#3b82f6;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTS IN ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>`;
+                    ? `<div class="live-status-line" style="font-size:10px;color:#3f3f46;font-weight:800;letter-spacing:.04em;margin-top:6px">✓ ${landedEarly ? 'LANDED EARLY' : 'COMPLETED'}</div>`
+                    : `<div class="live-status-line" style="font-size:10px;color:#3b82f6;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTS IN ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>`;
                 const _depCity = _intelAreaLabel(f.departureAirport) || f.departureAirport;
                 const _arrCity = _intelAreaLabel(f.arrivalAirport) || f.arrivalAirport;
                 const _cityLine = `<div style="font-size:10px;color:#52525b;font-weight:600;margin-bottom:5px">${_depCity} → ${_arrCity}</div>`;
