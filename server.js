@@ -2058,13 +2058,13 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
         if (existingId) {
             db.run(
                 `UPDATE segments SET arrival_time=?, arrival_airport=?, tail=?, trip=?, flight_number=?, is_dh=?, block_minutes=? WHERE id=?`,
-                [ev.arrivalTime||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, ev.flightNumber||null, ev.dh?1:0, null, existingId],
+                [ev.arrivalTime||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, ev.flightNumber||null, ev.dh?1:0, ev.blockMinutes||null, existingId],
                 err => { if (err) return reject(err); resolve(); }
             );
         } else {
             db.run(
                 `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [pilot.id, ev.type, ev.departureTime||null, ev.arrivalTime||null, ev.departureAirport||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, ev.flightNumber||null, ev.dh?1:0, null],
+                [pilot.id, ev.type, ev.departureTime||null, ev.arrivalTime||null, ev.departureAirport||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, ev.flightNumber||null, ev.dh?1:0, ev.blockMinutes||null],
                 err => { if (err) return reject(err); resolve(); }
             );
         }
