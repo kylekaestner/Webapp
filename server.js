@@ -1598,12 +1598,22 @@ function _notifyPilot(db, pilotKey, title, body, url = '/app') {
 // reading any pilot's list) -- same JOIN query, just parameterized by whose rows to pull.
 function _getFriendsData(db, targetKey, cb) {
     db.all(
-        `SELECT fr.*, p.name AS other_name FROM friend_requests fr
+        `SELECT fr.*, p.name AS other_name, p.role AS other_role FROM friend_requests fr
          JOIN pilots p ON p.pilot_key = CASE WHEN fr.requester_key=? THEN fr.recipient_key ELSE fr.requester_key END
          WHERE fr.requester_key=? OR fr.recipient_key=?`,
         [targetKey, targetKey, targetKey],
         (err, rows) => {
             if (err) return cb(err);
+            // A viewer's friends are always real pilots by construction (the seed migration and
+            // the admin friend-toggle UI both only ever create viewer<->real-pilot edges), so this
+            // never removes anything when targetKey is itself a viewer. It matters for the other
+            // direction: once a viewer is friended with a real pilot, that friendship is symmetric
+            // (friend_requests has no directional meaning once accepted), so the real pilot's OWN
+            // friends list would otherwise include that viewer too -- showing up as a nameless/
+            // colorless "crew member" in their map legend, crew-visibility toggles, and pill bar,
+            // since the client never registers a viewer into PILOT_KEYS/PILOT_NAMES/PILOT_COLORS
+            // in the first place (/api/pilots-directory already excludes them for that reason).
+            rows = rows.filter(r => r.other_role !== 'viewer');
             const friends = [], incoming = [], outgoing = [];
             rows.forEach(r => {
                 const otherKey = r.requester_key === targetKey ? r.recipient_key : r.requester_key;
