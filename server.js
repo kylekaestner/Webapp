@@ -1572,9 +1572,27 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
 });
 
 // ── Friends ──────────────────────────────────────────────────────────────
-// Replaces the old "everyone sees everyone" model: a pilot only sees another pilot's schedule
-// once an accepted friend_requests row exists between them (see _canViewPilot above). Admin and
-// viewers are unaffected -- they still see every pilot, same as before this system existed.
+// Replaces the old "everyone sees everyone" model: a pilot (or viewer) only sees another
+// pilot's schedule once an accepted friend_requests row exists between them (see _canViewPilot
+// above). Admin alone is unaffected -- still sees every pilot, same as before this system existed.
+
+// Creates a notification for `pilotKey` and best-effort pushes it to their subscribed devices
+// (pushToAll is a no-op if push isn't configured or they have no subscriptions -- safe to call
+// unconditionally). Friend-related notifications don't need crossing_key dedup since each one is
+// a natural one-time event (a given request/accept/admin-assign only ever fires once), so it's
+// left NULL and the table's UNIQUE constraint on crossing_key (NULLs don't conflict) is a non-issue.
+function _notifyPilot(db, pilotKey, title, body, url = '/app') {
+    db.run(
+        `INSERT INTO notifications (pilot_key, title, body, url) VALUES (?, ?, ?, ?)`,
+        [pilotKey, title, body, url],
+        function (err) {
+            if (err) return;
+            db.get('SELECT COUNT(*) as cnt FROM notifications WHERE pilot_key=? AND is_read=0', [pilotKey], (_, row) => {
+                pushToAll(pilotKey, { title, body, url, unreadCount: row?.cnt || 1 });
+            });
+        }
+    );
+}
 
 // Shared by GET /api/friends (caller's own list) and GET /api/admin/friends/:pilotKey (admin
 // reading any pilot's list) -- same JOIN query, just parameterized by whose rows to pull.
@@ -1630,6 +1648,9 @@ app.post('/api/friends/request', (req, res) => {
                         return db.run(`UPDATE friend_requests SET status='accepted', responded_at=CURRENT_TIMESTAMP WHERE id=?`, [existing.id], err2 => {
                             if (err2) return res.status(500).json({ error: err2.message });
                             res.json({ success: true, status: 'accepted' });
+                            db.get('SELECT name FROM pilots WHERE pilot_key=?', [myKey], (_, row) => {
+                                _notifyPilot(db, targetKey, 'Friend request accepted', `${row?.name || myKey} accepted your friend request.`);
+                            });
                         });
                     }
                     return res.json({ success: true, status: 'pending' }); // already requested, no-op
@@ -1638,6 +1659,9 @@ app.post('/api/friends/request', (req, res) => {
                     [myKey, targetKey], err3 => {
                         if (err3) return res.status(500).json({ error: err3.message });
                         res.json({ success: true, status: 'pending' });
+                        db.get('SELECT name FROM pilots WHERE pilot_key=?', [myKey], (_, row) => {
+                            _notifyPilot(db, targetKey, 'New friend request', `${row?.name || myKey} sent you a friend request.`);
+                        });
                     });
             }
         );
@@ -1658,6 +1682,9 @@ app.post('/api/friends/respond', (req, res) => {
                     if (err) return res.status(500).json({ error: err.message });
                     if (this.changes === 0) return res.status(404).json({ error: 'No pending request found' });
                     res.json({ success: true });
+                    db.get('SELECT name FROM pilots WHERE pilot_key=?', [myKey], (_, row) => {
+                        _notifyPilot(db, requesterKey, 'Friend request accepted', `${row?.name || myKey} accepted your friend request.`);
+                    });
                 }
             );
         } else {
@@ -1762,17 +1789,26 @@ app.post('/api/admin/friends', (req, res) => {
             [pilotA, pilotB, pilotB, pilotA],
             (err, existing) => {
                 if (err) return res.status(500).json({ error: err.message });
+                const notifyBoth = () => {
+                    db.all(`SELECT pilot_key, name FROM pilots WHERE pilot_key IN (?, ?)`, [pilotA, pilotB], (_, rows) => {
+                        const nameOf = k => rows?.find(r => r.pilot_key === k)?.name || k;
+                        _notifyPilot(db, pilotA, 'New connection', `Your admin connected you with ${nameOf(pilotB)}.`);
+                        _notifyPilot(db, pilotB, 'New connection', `Your admin connected you with ${nameOf(pilotA)}.`);
+                    });
+                };
                 if (existing) {
                     if (existing.status === 'accepted') return res.json({ success: true, status: 'accepted' });
                     return db.run(`UPDATE friend_requests SET status='accepted', responded_at=CURRENT_TIMESTAMP WHERE id=?`, [existing.id], err2 => {
                         if (err2) return res.status(500).json({ error: err2.message });
                         res.json({ success: true, status: 'accepted' });
+                        notifyBoth();
                     });
                 }
                 db.run(`INSERT INTO friend_requests (requester_key, recipient_key, status, responded_at) VALUES (?, ?, 'accepted', CURRENT_TIMESTAMP)`,
                     [pilotA, pilotB], err3 => {
                         if (err3) return res.status(500).json({ error: err3.message });
                         res.json({ success: true, status: 'accepted' });
+                        notifyBoth();
                     });
             }
         );
