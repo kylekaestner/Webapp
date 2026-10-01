@@ -3352,14 +3352,65 @@ app.get('/api/notams', async (req, res) => {
 // ── Crew Intel ────────────────────────────────────────────────────────────────
 app.get('/api/intel', (req, res) => {
     const db = getDB();
-    const { airport } = req.query;
+    const { airport, token } = req.query;
+    // score = SUM(vote) across intel_votes, 0 when an entry has none (COALESCE). Sorting by
+    // score here is a reasonable default, but the frontend re-sorts within whatever subset
+    // it's displaying (e.g. per-airport detail), so this ORDER BY mostly matters for airport
+    // groupings staying stable.
+    const scoreJoin = `LEFT JOIN (SELECT intel_id, SUM(vote) AS score FROM intel_votes GROUP BY intel_id) v ON v.intel_id = ci.id`;
     const sql = airport
-        ? `SELECT ci.*, p.name AS added_by_name FROM crew_intel ci LEFT JOIN pilots p ON p.pilot_key=ci.added_by WHERE ci.airport_code=? ORDER BY ci.category, ci.created_at DESC`
-        : `SELECT ci.*, p.name AS added_by_name FROM crew_intel ci LEFT JOIN pilots p ON p.pilot_key=ci.added_by ORDER BY ci.airport_code, ci.category, ci.created_at DESC`;
+        ? `SELECT ci.*, p.name AS added_by_name, COALESCE(v.score,0) AS score FROM crew_intel ci LEFT JOIN pilots p ON p.pilot_key=ci.added_by ${scoreJoin} WHERE ci.airport_code=? ORDER BY ci.category, score DESC, ci.created_at DESC`
+        : `SELECT ci.*, p.name AS added_by_name, COALESCE(v.score,0) AS score FROM crew_intel ci LEFT JOIN pilots p ON p.pilot_key=ci.added_by ${scoreJoin} ORDER BY ci.airport_code, ci.category, score DESC, ci.created_at DESC`;
     const params = airport ? [airport.toUpperCase()] : [];
     db.all(sql, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(rows || []);
+        if (!token) return res.json(rows || []);
+        // Merge in the requesting pilot's own vote per entry so the UI can show which
+        // arrow (if any) they've already pressed, without a separate round trip.
+        db.get(`SELECT pilot_key FROM pilots WHERE token=?`, [token], (e2, prow) => {
+            if (e2 || !prow) return res.json(rows || []);
+            db.all(`SELECT intel_id, vote FROM intel_votes WHERE pilot_key=?`, [prow.pilot_key], (e3, voteRows) => {
+                const myVotes = {};
+                (voteRows || []).forEach(v => { myVotes[v.intel_id] = v.vote; });
+                (rows || []).forEach(r => { r.my_vote = myVotes[r.id] || 0; });
+                res.json(rows || []);
+            });
+        });
+    });
+});
+
+// Cast/change/clear a vote on an intel entry. vote: 1 (up), -1 (down), or 0 (remove).
+// One vote per (entry, pilot) -- intel_votes' UNIQUE constraint plus this upsert enforces that
+// changing your mind replaces your vote rather than stacking a second one.
+app.post('/api/intel/:id/vote', (req, res) => {
+    const db = getDB();
+    const { token, vote } = req.body;
+    const intelId = req.params.id;
+    if (![1, -1, 0].includes(vote)) return res.status(400).json({ error: 'vote must be 1, -1, or 0' });
+    _resolveIntelAuthor(token, db, (status, msg, authorKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        const respondWithScore = () => {
+            db.get(`SELECT COALESCE(SUM(vote),0) AS score FROM intel_votes WHERE intel_id=?`, [intelId], (e, row) => {
+                if (e) return res.status(500).json({ error: e.message });
+                res.json({ success: true, score: row.score, my_vote: vote });
+            });
+        };
+        if (vote === 0) {
+            db.run(`DELETE FROM intel_votes WHERE intel_id=? AND pilot_key=?`, [intelId, authorKey], err => {
+                if (err) return res.status(500).json({ error: err.message });
+                respondWithScore();
+            });
+        } else {
+            db.run(
+                `INSERT INTO intel_votes (intel_id, pilot_key, vote) VALUES (?,?,?)
+                 ON CONFLICT(intel_id, pilot_key) DO UPDATE SET vote=excluded.vote`,
+                [intelId, authorKey, vote],
+                err => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    respondWithScore();
+                }
+            );
+        }
     });
 });
 

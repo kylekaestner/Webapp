@@ -103,6 +103,19 @@ function initDB() {
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
+        // Crew Intel votes — one row per (intel entry, pilot), UNIQUE enforces "one vote each,
+        // can change it" rather than letting someone stack votes. vote is 1 or -1; a cleared
+        // vote just deletes the row rather than storing a 0.
+        db.run(`CREATE TABLE IF NOT EXISTS intel_votes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            intel_id INTEGER NOT NULL,
+            pilot_key TEXT NOT NULL,
+            vote INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(intel_id, pilot_key),
+            FOREIGN KEY (intel_id) REFERENCES crew_intel(id) ON DELETE CASCADE
+        )`);
+
         // Migrations: add columns if they don't exist yet
         db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE segments ADD COLUMN block_minutes INTEGER`, () => {});

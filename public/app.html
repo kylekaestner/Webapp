@@ -8986,6 +8986,60 @@ let _blockUserEdited = false;
             renderIntel();
         }
 
+        function _intelFetchUrl() {
+            return myToken ? `/api/intel?token=${encodeURIComponent(myToken)}` : '/api/intel';
+        }
+
+        // Crew up/down voting on intel entries -- a crowd-sourced quality signal on top of the
+        // keyword/blank-body filters above. An entry's score is SUM(vote) across everyone who's
+        // voted; voteIntel() flips/clears the current pilot's own vote (one per person, enforced
+        // server-side by intel_votes' UNIQUE(intel_id, pilot_key)).
+        //
+        // Heavily-downvoted entries are "redacted" rather than deleted or fully hidden: past
+        // INTEL_REDACT_THRESHOLD they collapse to a one-line "crew downvoted this" placeholder
+        // in the detail view, with a tap to reveal for that session (_intelExpandedRedacted,
+        // not persisted -- redaction is a display default, not a removal, same philosophy as
+        // the park/monument and blank-activity filters).
+        const INTEL_REDACT_THRESHOLD = -3;
+        let _intelExpandedRedacted = new Set();
+        function expandRedactedIntel(id) {
+            _intelExpandedRedacted.add(id);
+            renderIntel();
+        }
+
+        async function voteIntel(id, vote) {
+            if (isDemo) { alert('Read-only in demo mode.'); return; }
+            if (!myToken) return;
+            const entry = Array.isArray(_intelAll) ? _intelAll.find(x => x.id === id) : null;
+            if (!entry) return;
+            // vote === current vote means "un-vote" (tapping the same arrow again clears it)
+            const nextVote = entry.my_vote === vote ? 0 : vote;
+            const prevVote = entry.my_vote || 0;
+            const prevScore = entry.score || 0;
+            // Optimistic update so the UI feels instant -- reconciled with the server's
+            // authoritative score below, reverted on failure.
+            entry.my_vote = nextVote;
+            entry.score = prevScore - prevVote + nextVote;
+            renderIntel();
+            try {
+                const resp = await fetch(`/api/intel/${id}/vote`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, vote: nextVote })
+                });
+                const result = await resp.json();
+                if (!resp.ok || !result.success) throw new Error(result.error || 'Vote failed');
+                entry.score = result.score;
+                entry.my_vote = result.my_vote;
+                renderIntel();
+            } catch {
+                entry.my_vote = prevVote;
+                entry.score = prevScore;
+                renderIntel();
+                showToast('Vote failed — try again.', 'error');
+            }
+        }
+
         function escapeHtml(s) {
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
@@ -9197,7 +9251,7 @@ let _blockUserEdited = false;
             if (!el) return;
             el.innerHTML = `<div class="flex items-center justify-center gap-2.5 py-10 text-zinc-500 text-sm"><div class="spinner"></div><span>Loading intel…</span></div>`;
             try {
-                _intelAll = await fetch('/api/intel').then(r => r.json());
+                _intelAll = await fetch(_intelFetchUrl()).then(r => r.json());
                 _rebuildIntelCounts();
                 await _prefetchCities((_intelAll || []).map(x => x.airport_code).filter(Boolean));
                 renderIntel();
@@ -9208,7 +9262,7 @@ let _blockUserEdited = false;
 
         async function loadIntelCounts() {
             try {
-                const rows = await fetch('/api/intel').then(r => r.json());
+                const rows = await fetch(_intelFetchUrl()).then(r => r.json());
                 if (!Array.isArray(rows)) return;
                 _intelAll = rows;
                 _rebuildIntelCounts();
@@ -9475,12 +9529,23 @@ let _blockUserEdited = false;
                 el.innerHTML = `<div class="text-center py-12 text-zinc-500 text-sm">No ${catMsg} for ${escapeHtml(ap)} yet.<br><span class="text-zinc-600 text-xs mt-1.5 block">Tap + Add to share what you know.</span></div>`;
                 return;
             }
-            const catOrder  = ['hotel','food','activity','tip'];
             const catColors = { hotel:'#60a5fa', food:'#fbbf24', activity:'#4ade80', tip:'#c4b5fd' };
             const catBg     = { hotel:'rgba(59,130,246,0.12)', food:'rgba(245,158,11,0.12)', activity:'rgba(34,197,94,0.12)', tip:'rgba(167,139,250,0.12)' };
             const fmtDate   = s => new Date(s).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-            items.sort((a, b) => catOrder.indexOf(a.category) - catOrder.indexOf(b.category));
+            const canVote   = !isDemo && !!myToken;
+            // Reddit-style: highest score first, newest as tiebreaker. Category pills above
+            // already let the crew narrow to one category if they want that grouping instead.
+            items.sort((a, b) => (b.score || 0) - (a.score || 0) || new Date(b.created_at) - new Date(a.created_at));
             el.innerHTML = `<div class="flex flex-col gap-2.5 pb-4">${items.map(e => {
+                const score = e.score || 0;
+                if (score <= INTEL_REDACT_THRESHOLD && !_intelExpandedRedacted.has(e.id)) {
+                    return `<button onclick="expandRedactedIntel(${e.id})" class="w-full text-left rounded-xl border border-zinc-800/50 bg-zinc-900/30 px-4 py-3 flex items-center gap-2.5 hover:bg-zinc-900/50 transition-colors">
+                        <span class="text-sm">🙈</span>
+                        <span class="text-[11px] text-zinc-500 font-bold flex-1">Downvoted by the crew (${score}) — tap to view anyway</span>
+                        <span class="text-[9px] text-zinc-700 uppercase font-black tracking-widest shrink-0">Show</span>
+                    </button>`;
+                }
+                const myVote = e.my_vote || 0;
                 const isOwn = !isDemo && (myPilot === null || (myPilot && e.added_by === myPilot) || (myViewer && e.added_by === myViewerKey));
                 const _rawName = (e.added_by_name || PILOT_NAMES[e.added_by] || e.added_by || '').split(' ')[0];
                 const firstName = _rawName.charAt(0).toUpperCase() + _rawName.slice(1);
@@ -9499,9 +9564,21 @@ let _blockUserEdited = false;
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>Delete
                     </button>
                 </div>` : '';
+                const voteWidget = canVote ? `<div class="flex items-center gap-0.5 shrink-0">
+                    <button onclick="event.stopPropagation();voteIntel(${e.id},1)" class="w-6 h-6 flex items-center justify-center rounded-md transition-colors ${myVote===1 ? 'text-green-400 bg-green-500/15' : 'text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800'}">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l8 10H4z"/></svg>
+                    </button>
+                    <span class="text-[11px] font-black tabular-nums w-5 text-center ${score>0?'text-green-400':score<0?'text-red-400':'text-zinc-600'}">${score}</span>
+                    <button onclick="event.stopPropagation();voteIntel(${e.id},-1)" class="w-6 h-6 flex items-center justify-center rounded-md transition-colors ${myVote===-1 ? 'text-red-400 bg-red-500/15' : 'text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800'}">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20l-8-10h16z"/></svg>
+                    </button>
+                </div>` : (score ? `<span class="text-[11px] font-black shrink-0 ${score>0?'text-green-400':'text-red-400'}">${score>0?'+':''}${score}</span>` : '');
                 return `<div class="rounded-xl border border-zinc-800/70 bg-zinc-900/50 overflow-hidden">
                     <div class="px-4 pt-3.5 pb-3">
-                        <span class="inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest mb-2.5" style="background:${bg};color:${color}">${catLabel}</span>
+                        <div class="flex items-center justify-between gap-2 mb-2.5">
+                            <span class="inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest" style="background:${bg};color:${color}">${catLabel}</span>
+                            ${voteWidget}
+                        </div>
                         <div class="text-[15px] font-bold text-white leading-snug">${escapeHtml(e.title)}</div>
                         ${hasBody ? `<p id="intel-bp-${e.id}" class="text-sm text-zinc-400 leading-relaxed mt-2${isLong ? ' line-clamp-3' : ''}">${escapeHtml(bodyText).replace(/\n/g, '<br>')}</p>
                         ${isLong ? `<button onclick="const p=document.getElementById('intel-bp-${e.id}');const cl=p.classList.toggle('line-clamp-3');this.textContent=cl?'Show more':'Show less'" class="text-[10px] font-bold text-zinc-500 hover:text-zinc-300 mt-1 transition-colors">Show more</button>` : ''}` : ''}

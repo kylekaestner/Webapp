@@ -696,9 +696,10 @@ App badge (`navigator.setAppBadge()`) set to unread count where supported (iOS 1
 3. **Detail view** (`renderIntelDetail()`): Shows all tips for one airport, filterable by category pill. Each card shows: category badge, title, body (collapsible if >180 chars), author (pilot first name + color dot), date. Own entries show Edit/Delete buttons.
 
 **Data flow:**
-- `loadIntelCounts()` fetches `/api/intel` → `_intelAll`. Called on `switchView('intel')`.
+- `loadIntelCounts()` fetches `_intelFetchUrl()` (`/api/intel`, with `?token=` appended when `myToken` is set) → `_intelAll`. Called on `switchView('intel')`.
 - `saveIntelTip()` POSTs to `/api/intel` or PUTs to `/api/intel/:id` for edits.
 - `deleteIntelTip(id)` sends `DELETE /api/intel/:id` after `showConfirm()`.
+- `voteIntel(id, vote)` POSTs to `/api/intel/:id/vote` — see "Voting" below.
 
 **Category colors:** hotel=#60a5fa (blue), food=#fbbf24 (amber), activity=#4ade80 (green), tip=#c4b5fd (purple). Mixed pins are #ef4444 (red).
 
@@ -710,6 +711,12 @@ App badge (`navigator.setAppBadge()`) set to unread count where supported (iOS 1
 2. **`_intelHideEmptyActivity` / `toggleIntelHideEmptyActivity()`** — hides any `category === 'activity'` entry with a blank `body`: just a bare landmark name ("Louvre Museum," "Hollywood Sign," "NASCAR Hall of Fame") with zero added insight. This is the bigger signal — **70% of all activity entries (193 of 275) have no body at all** — and isn't reliably catchable by keyword matching since it covers every kind of landmark, not just park/monument-style wording. Deliberately a separate toggle from #1 rather than folded in, since it's a broader, content-blind rule (would also hide a genuinely terse-but-useful activity tip) and someone might want one on without the other.
 
 With both ON (the default), roughly half of all intel entries (212 of 434 at last audit) are hidden by default, leaving the other half actually visible without extra taps.
+
+**Voting (`intel_votes` table, db.js; `/api/intel/:id/vote`, server.js; `voteIntel()`, app.html):** Added 2026-10-01 as a crowd-sourced complement to the keyword/blank-body filters above — the crew curates quality directly instead of relying only on heuristics. One row per `(intel_id, pilot_key)` in `intel_votes` (`UNIQUE` constraint — upserted via `ON CONFLICT ... DO UPDATE`, so changing your vote replaces it rather than stacking a second row; a cleared vote (`vote: 0`) deletes the row instead of storing a zero). `GET /api/intel` LEFT JOINs a `SUM(vote)` subquery to attach `score` to every entry, and — only when a `token` query param is given — a second query merges in that pilot's own `my_vote` per entry so the UI knows which arrow (if any) to highlight, without a separate round trip. Any pilot or viewer with a valid token can vote, including on their own entries — consistent with the existing posture that `POST /api/intel` itself doesn't restrict viewers from contributing.
+
+- **Sort order changed**: `renderIntelDetail()` used to group entries by category (`catOrder`); it now sorts by `score` descending (ties broken by newest first) regardless of category — the category pills still let someone filter down to one category if they want that view instead.
+- **Vote widget**: a compact ▲ score ▼ control in each card's header, next to the category badge (`canVote = !isDemo && !!myToken` gates it — demo and no-token views see a plain `+N`/`-N` score instead of interactive buttons). `voteIntel()` applies an optimistic local update to `_intelAll` and re-renders immediately, then reconciles with the server's authoritative `score`/`my_vote` on response, or reverts and toasts an error on failure.
+- **Redaction, not deletion**: any entry at or below `INTEL_REDACT_THRESHOLD` (`-3`) collapses in the detail view to a one-line "Downvoted by the crew (N) — tap to view anyway" placeholder instead of showing the full card. Tapping it adds the id to `_intelExpandedRedacted` (a plain in-memory `Set`, **not persisted** — resets on reload, same as closing a collapsed Reddit comment only for that session) and re-renders with the full card. This only affects the detail view's rendering, not `_intelVisible()` — a heavily-downvoted entry still counts toward airport totals, map pin counts, and the Crossings-card badge; it's just collapsed where individual entries are actually read.
 
 ---
 
