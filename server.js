@@ -6,7 +6,7 @@ const multer = require('multer');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const { getDB, generateToken } = require('./db');
-const { DEMO_PILOTS, DEMO_SEGMENTS } = require('./demo-data');
+const { DEMO_PILOTS, buildDemoSegments } = require('./demo-data');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -2865,12 +2865,16 @@ app.get('/demo', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });
 
-// Demo API — returns fake data, never touches the real DB
+// Demo API — returns fake data, never touches the real DB. Segments are built
+// fresh per request (anchored to the current month) rather than once at
+// server start, so the demo never goes stale no matter how long the server
+// has been running -- see demo-data.js for why.
 app.get('/api/demo/pilots/:pilotKey', (req, res) => {
     const key = req.params.pilotKey;
     const pilot = DEMO_PILOTS[key];
     if (!pilot) return res.status(404).json({ error: 'Demo pilot not found' });
-    res.json({ ...pilot, segments: DEMO_SEGMENTS[key] || [] });
+    const segments = buildDemoSegments()[key] || [];
+    res.json({ ...pilot, segments });
 });
 
 // ── Token auth API ──────────────────────────────────────────────────────

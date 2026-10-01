@@ -1,13 +1,12 @@
 // Fake demo pilots and schedules — no real crew data exposed
-// Anchor = mid-month so data spans the whole current month and a bit of next.
-
-const ANCHOR = '2026-05-15';
-
-function dt(base, n, hhmm) {
-    const d = new Date(base + 'T12:00:00Z');
-    d.setUTCDate(d.getUTCDate() + n);
-    return `${d.toISOString().slice(0, 10)}T${hhmm}:00`;
-}
+// Anchor = the 15th of the CURRENT month, computed fresh every time
+// buildDemoSegments() runs (not at module load) -- a hardcoded date here
+// goes stale the moment "today" drifts into a different month than what's
+// baked in, showing a blank calendar for whichever month a visitor is
+// actually looking at. Mid-month anchoring means the fixed -14..+16 day
+// offset window below always covers the ENTIRE current calendar month
+// (plus a few days into the next), regardless of what day-of-month it is
+// when this runs.
 
 const DEMO_PILOTS = {
     alex:   { pilot_key: 'alex',   name: 'Alex Rivera',   base: 'ORD' },
@@ -16,26 +15,43 @@ const DEMO_PILOTS = {
     jordan: { pilot_key: 'jordan', name: 'Jordan Ellis',  base: 'JFK' },
 };
 
-let _id = 1000;
-function seg(pilotId, type, n0, hhmm0, n1, hhmm1, dep, arr, opts = {}) {
-    return {
-        id: ++_id,
-        pilot_id: pilotId,
-        type,
-        departure_time:   dt(ANCHOR, n0, hhmm0),
-        arrival_time:     dt(ANCHOR, n1, hhmm1),
-        departure_airport: dep,
-        arrival_airport:   arr,
-        flight_number: opts.fn  || null,
-        tail:          opts.tail || null,
-        is_dh:         opts.dh  ? 1 : 0,
-        is_manual:     0,
-        block_minutes: opts.blk || null,
-    };
+function currentAnchor() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-15`;
 }
-function off(pilotId, n, base) {
-    return seg(pilotId, 'hard', n, '00:00', n, '23:59', base, base);
-}
+
+// Builds all four pilots' demo segments fresh, anchored to the current month.
+// Called per-request (see server.js) rather than once at module load, so the
+// demo never goes stale no matter how long the server stays up between deploys.
+function buildDemoSegments() {
+    const ANCHOR = currentAnchor();
+
+    function dt(base, n, hhmm) {
+        const d = new Date(base + 'T12:00:00Z');
+        d.setUTCDate(d.getUTCDate() + n);
+        return `${d.toISOString().slice(0, 10)}T${hhmm}:00`;
+    }
+
+    let _id = 1000;
+    function seg(pilotId, type, n0, hhmm0, n1, hhmm1, dep, arr, opts = {}) {
+        return {
+            id: ++_id,
+            pilot_id: pilotId,
+            type,
+            departure_time:   dt(ANCHOR, n0, hhmm0),
+            arrival_time:     dt(ANCHOR, n1, hhmm1),
+            departure_airport: dep,
+            arrival_airport:   arr,
+            flight_number: opts.fn  || null,
+            tail:          opts.tail || null,
+            is_dh:         opts.dh  ? 1 : 0,
+            is_manual:     0,
+            block_minutes: opts.blk || null,
+        };
+    }
+    function off(pilotId, n, base) {
+        return seg(pilotId, 'hard', n, '00:00', n, '23:59', base, base);
+    }
 
 // ── ALEX RIVERA — United, ORD based ──────────────────────────────────────
 // May:  1-3 trip, 4-5 off, 6-8 trip, 9-11 off, 12-14 trip, 15-16 off,
@@ -246,6 +262,7 @@ const jordan = [
     off(4,14,'JFK'), off(4,15,'JFK'), off(4,16,'JFK'),
 ];
 
-const DEMO_SEGMENTS = { alex, morgan, casey, jordan };
+    return { alex, morgan, casey, jordan };
+}
 
-module.exports = { DEMO_PILOTS, DEMO_SEGMENTS };
+module.exports = { DEMO_PILOTS, buildDemoSegments };
