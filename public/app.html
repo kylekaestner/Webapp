@@ -6596,9 +6596,15 @@
                     } catch (er) { layoverText = ''; }
 
                     const dhLabel = el.dataset.dh === 'true' ? `<div style="font-size:11px;color:#f9a8d4;font-weight:700;margin-bottom:4px">DH Flight</div>` : '';
+                    const redeyeLabel = el.dataset.redeye === 'arr'
+                        ? `<div style="font-size:11px;color:#93c5fd;font-weight:700;margin-bottom:4px">🌙 Overnight — departed the previous day</div>`
+                        : el.dataset.redeye === 'dep'
+                        ? `<div style="font-size:11px;color:#93c5fd;font-weight:700;margin-bottom:4px">🌙 Overnight — arrives the next day</div>`
+                        : '';
                     const flightLabel = deriveCallsign({ flightNumber: flightNum, tail }, currentPilot) || '';
                     const html = `<div style="font-weight:800;margin-bottom:6px">${depApt} → ${arrApt} ${flightLabel ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">${flightLabel}</span>` : ''}</div>` +
                         dhLabel +
+                        redeyeLabel +
                         `<div style="font-size:12px;color:#cbd5e1">Dep: ${formatTimeISO(dep, depApt)}<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${tzAbbr(depApt, dep)}</span> • Arr: ${formatTimeISO(arr, arrApt)}<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${tzAbbr(arrApt, arr)}</span></div>` +
                         `<div style="font-size:12px;color:#cbd5e1">Block: ${formatDurationMinutes(blockMins)}</div>` +
                         `<div style="font-size:12px;color:#cbd5e1">Tail: ${tail}</div>` +
@@ -6860,9 +6866,14 @@
                         const _arrLocalDate = arrAttr ? flightLocalDate(arrAttr, arrApt) : '';
                         const crossesMidnight = _depLocalDate && _arrLocalDate && _depLocalDate !== _arrLocalDate;
                         const _isArrivalSide = crossesMidnight && dateKey === _arrLocalDate;
+                        // No native title= here -- .flight-item already has its own custom hover
+                        // tooltip (attachTooltips()'s onEnter below), and a native tooltip stacked
+                        // on top of that one just collided with it. data-redeye instead lets that
+                        // existing tooltip fold the explanation into its own content.
                         const redEyeDot = crossesMidnight
-                            ? `<span title="${_isArrivalSide ? 'Overnight flight — departed the previous day' : 'Overnight flight — arrives the next day'}" style="font-size:9px;font-weight:900;margin-left:3px">🌙</span>`
+                            ? `<span style="font-size:9px;font-weight:900;margin-left:3px">🌙</span>`
                             : '';
+                        const redEyeAttr = crossesMidnight ? ` data-redeye="${_isArrivalSide ? 'arr' : 'dep'}"` : '';
                         const depTimeFmt = depAttr ? formatTimeISO(depAttr, depApt) : '';
                         const arrTimeFmt = arrAttr ? formatTimeISO(arrAttr, arrApt) : '';
                         const depTzLbl = depApt ? tzAbbr(depApt, depAttr) : '';
@@ -6887,7 +6898,7 @@
                         const cellBg = isActiveLeg
                             ? (isPersonal ? `background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)` : isCommute ? `background:rgba(120,53,15,0.2);border:2px solid rgba(34,197,94,0.85)` : `background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)`)
                             : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : isCommute ? 'background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.25)' : 'background:rgba(0,0,0,0.4)');
-                        html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}"${isActiveLeg && csig ? ` data-live-callsign="${csig}"` : ''}>`;
+                        html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}"${redEyeAttr}${isActiveLeg && csig ? ` data-live-callsign="${csig}"` : ''}>`;
                         const cellFlightLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
                         const flLabelSpan = cellFlightLabel ? flightAwareLink(cellFlightLabel, `<span style="font-size:9px;font-weight:700;color:#7dd3fc;margin-left:3px">${cellFlightLabel}</span>`, flightAwareEligible(depMs)) : '';
                         html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}${redEyeDot}${flLabelSpan}</div>`;
