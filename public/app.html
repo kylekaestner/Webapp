@@ -648,8 +648,10 @@
                                 <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Upcoming</button>
                             </div>
                         </div>
-                        <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
-                        <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill map-ctrl-on" title="Toggle route detail (VOR/fix/waypoint symbols)">◆</button>
+                        <div class="flex gap-1">
+                            <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
+                            <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill map-ctrl-on" title="Toggle route detail (VOR/fix/waypoint symbols)">◆</button>
+                        </div>
                         <div id="day-nav" class="hidden items-center gap-1 relative">
                             <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
                             <span id="day-nav-label" onclick="openDayPicker()" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center cursor-pointer hover:text-white transition-colors select-none" title="Pick a date"></span>
