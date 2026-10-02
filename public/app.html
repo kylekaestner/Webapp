@@ -3367,6 +3367,12 @@
                 // Re-apply identity tint to "you" pill (if different from active)
                 _applyPillIdentity();
                 await _prefetchCities(data.segments || []);
+                // Was only ever loaded by renderMap() -- meaning a flight confirmed landed
+                // early (before its scheduled arrival) kept showing "IN THE AIR" in the
+                // calendar grid, list view, and day detail sheet indefinitely whenever Map
+                // hadn't been opened this session, since those views had no way to know about
+                // it. Loaded here too so every view has it before its first render.
+                await _reloadLandedEarly();
                 render();
                 // Show empty-state prompt for newly joined pilots viewing their own blank schedule
                 const emptyBanner = document.getElementById('empty-schedule-banner');
@@ -5675,6 +5681,22 @@
                 const poll = async () => {
                     try {
                         const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(cs)}`).then(r => r.json());
+                        // This only ever updated the small altitude/speed text below -- the
+                        // cell's own "active-leg" border/background and "IN THE AIR" label are
+                        // baked in once at render() time and nothing here re-evaluated them as
+                        // real time passed. A flight that actually landed (confirmed here via
+                        // the server's own parked detection, same signal the map view uses)
+                        // stayed looking "live" indefinitely until something else happened to
+                        // trigger a fresh render() (switching views, changing months, a manual
+                        // refresh). Re-render immediately once confirmed parked instead of
+                        // waiting for that -- render()'s own isActiveLeg check (now also
+                        // excluding _landedEarly) picks up the correct state in one pass.
+                        if (d.parked) {
+                            clearInterval(_calListPollers[cs]);
+                            delete _calListPollers[cs];
+                            render();
+                            return;
+                        }
                         let txt = '';
                         let txtColor = '#4ade80';
                         if (d.found && d.onGround && d.speedKts > 5) {
@@ -7429,7 +7451,7 @@
                         const depMs = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                         const arrMs = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                         const csig = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                        const isActiveLeg = depMs && arrMs && depMs <= nowMs && nowMs <= arrMs;
+                        const isActiveLeg = depMs && arrMs && depMs <= nowMs && nowMs <= arrMs && !(csig && _landedEarly.has(csig));
                         const cellBg = isActiveLeg
                             ? (isPersonal ? `background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)` : isCommute ? `background:rgba(120,53,15,0.2);border:2px solid rgba(34,197,94,0.85)` : `background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)`)
                             : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : isCommute ? 'background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.25)' : 'background:rgba(0,0,0,0.4)');
@@ -7603,7 +7625,7 @@
                                 const depMs2 = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                                 const arrMs2 = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                                 const csig2 = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                                const isActiveLeg2 = depMs2 && arrMs2 && depMs2 <= nowMs2 && nowMs2 <= arrMs2;
+                                const isActiveLeg2 = depMs2 && arrMs2 && depMs2 <= nowMs2 && nowMs2 <= arrMs2 && !(csig2 && _landedEarly.has(csig2));
                                 const rowAccent2 = isActiveLeg2 ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
                                 const rowBg = isPersonal ? 'bg-violet-950/15' : isCommute ? 'bg-amber-950/15' : isActiveLeg2 ? 'bg-emerald-950/10' : 'bg-black/30';
                                 const editBtns = f.id ? `<div class="flex items-center gap-0.5 ml-1 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
@@ -7887,7 +7909,7 @@
                 const rawAMs = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport)?.getTime() : null;
                 return { dMs, aMs: rawAMs, cs };
             });
-            const anyLive = flightMs.some(({dMs, aMs}) => dMs && aMs && dMs <= nowMs && nowMs <= aMs);
+            const anyLive = flightMs.some(({dMs, aMs, cs}) => dMs && aMs && dMs <= nowMs && nowMs <= aMs && !(cs && _landedEarly.has(cs)));
             let label = currentPilot === 'kyle' ? 'ON CALL' : 'DAY OFF';
             let labelColor = 'text-zinc-400';
             if (isVacation) { label = awayApt ? `VACATION · AWAY - ${awayApt}` : 'VACATION'; labelColor = 'text-teal-400'; }
@@ -8002,7 +8024,7 @@
                         if (lbl) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${lbl}</div>`;
                     }
                 }
-                const isActiveLeg = dMs && aMs && dMs <= nowMs && nowMs <= aMs;
+                const isActiveLeg = dMs && aMs && dMs <= nowMs && nowMs <= aMs && !(_dayCs && _landedEarly.has(_dayCs));
                 const accentColor = isActiveLeg ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
                 const cardBorder = isActiveLeg ? 'border-emerald-500/50' : isPersonal ? 'border-violet-500/20' : isCommute ? 'border-amber-500/20' : `border-[${accentColor}25]`;
                 const cardBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : isActiveLeg ? 'bg-emerald-950/10' : 'bg-zinc-900/60';
