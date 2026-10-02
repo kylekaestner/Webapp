@@ -5777,15 +5777,20 @@
             _deoverlapTimer = setTimeout(deoverlapLiveLabels, 300);
         }
 
-        // The real ERAM Visual Communications Indicator (VCI) icon -- a small green bracket shown
-        // on a controller's Full Data Block once an aircraft checks in on frequency, pulled
-        // directly from yanjz124/SwimReader's own ERAM reference docs (public domain real FAA
-        // scope symbology, not this app's own artwork). Embedded as a data URI rather than
-        // hand-redrawn as an SVG approximation, since the ask was specifically to use this exact
-        // icon. Repurposed here to mean "this poll's position came from real FAA SWIM data
+        // The real ERAM Visual Communications Indicator (VCI) icon -- a small green flag/check-in
+        // symbol shown on a controller's Full Data Block once an aircraft checks in on frequency,
+        // pulled directly from yanjz124/SwimReader's own ERAM reference docs (public domain real
+        // FAA scope symbology, not this app's own artwork) and traced pixel-for-pixel from the
+        // source 16x16 bitmap (decoded directly: 1-bit palette PNG, on-pixel color rgb(0,204,0))
+        // into this SVG rect grid. Inline SVG rather than an <img data:...> -- confirmed live that
+        // an <img> raced Leaflet's tooltip width measurement against the browser's own image
+        // decode, so the box was sized before the image (and the text next to it) had settled,
+        // clipping the pilot name past the pill's right edge. Inline SVG has no separate decode
+        // step, so it lays out synchronously with the surrounding text like any other inline
+        // content. Repurposed here to mean "this poll's position came from real FAA SWIM data
         // (SFDPS/STDDS), not the ADS-B fallback" -- same "confirmed via a real FAA source" spirit,
         // not a literal frequency check-in (this app has no voice comms to check in on).
-        const VCI_ICON_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAQMAAAAlPW0iAAAABlBMVEUAABkAzADvOTmYAAAALElEQVQI12OAAAUGBj0GBsUGBgUHBgUFBh0BBmUBBkUOBoUOIALJ2v+BKAQAX8QE0x7YqZMAAAAASUVORK5CYII=';
+        const VCI_ICON_SVG = `<svg width="9" height="9" viewBox="0 0 16 16" style="display:inline-block;vertical-align:middle;margin-right:3px" fill="rgb(0,204,0)"><rect x="2" y="2" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="3" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="7" y="4" width="2" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="9" y="5" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="2" y="7" width="1" height="1"/><rect x="4" y="7" width="2" height="1"/><rect x="11" y="7" width="1" height="1"/><rect x="2" y="8" width="1" height="1"/><rect x="6" y="8" width="2" height="1"/><rect x="11" y="8" width="1" height="1"/><rect x="2" y="9" width="1" height="1"/><rect x="7" y="9" width="1" height="1"/><rect x="12" y="9" width="1" height="1"/><rect x="2" y="10" width="1" height="1"/><rect x="8" y="10" width="1" height="1"/><rect x="12" y="10" width="1" height="1"/><rect x="2" y="11" width="1" height="1"/><rect x="8" y="11" width="1" height="1"/><rect x="12" y="11" width="1" height="1"/><rect x="2" y="12" width="1" height="1"/><rect x="2" y="13" width="12" height="1"/></svg>`;
 
         function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null) {
             const newRouteLines = Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
@@ -5830,7 +5835,7 @@
             // aggregator" distinction, not a literal frequency check-in (this app has no voice
             // comms to check in on). `source` is undefined for the plain ADS-B shape
             // (parseAdsbAircraft never sets it) and 'swim'/'stdds' for the real SWIM sources.
-            const VCI_GLYPH = `<img src="${VCI_ICON_DATA_URI}" width="9" height="9" style="display:inline-block;vertical-align:middle;margin-right:3px;image-rendering:pixelated" alt="">`;
+            const VCI_GLYPH = VCI_ICON_SVG;
             const buildBaseTooltip = (source) => {
                 const vci = (source === 'swim' || source === 'stdds')
                     ? `<span title="Confirmed via real FAA SWIM data">${VCI_GLYPH}</span>` : '';
@@ -6417,14 +6422,19 @@
             const zoom = map.getZoom();
             for (const entries of _waypointLabels.values()) {
                 for (const entry of entries) {
-                    let showSymbol = true, showLabel = true;
+                    // Symbols always show whenever Route Detail is on, at every zoom tier -- only
+                    // the LABEL (name tag) visibility varies by zoom. Confirmed live this was
+                    // wrong: the middle tier used to also drop showSymbol to isActiveFix, hiding
+                    // every non-active fix's symbol entirely instead of just its name tag.
+                    let showLabel = true;
+                    const showSymbol = _routeDetailOn;
                     if (!_routeDetailOn) {
-                        showSymbol = false; showLabel = false;
+                        showLabel = false;
                     } else if (zoom < ZOOM_SHOW_ACTIVE_ONLY) {
-                        showSymbol = true; showLabel = false;
+                        showLabel = false;
                     } else if (zoom < ZOOM_SHOW_ALL_FIXES) {
-                        showSymbol = entry.isActiveFix; showLabel = entry.isActiveFix;
-                    } // else: zoomed in close -- both stay true, full detail
+                        showLabel = entry.isActiveFix;
+                    } // else: zoomed in close -- every fix's label shows too, full detail
                     entry.markers.forEach(m => {
                         try {
                             m.setOpacity(showSymbol ? 1 : 0);
