@@ -7,6 +7,10 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const { getDB, generateToken } = require('./db');
 const { DEMO_PILOTS, buildDemoSegments } = require('./demo-data');
+const swim = require('./swim');
+const stdds = require('./stdds');
+const tfms = require('./tfms');
+const navdata = require('./navdata');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -2976,6 +2980,97 @@ async function fetchAdsbPosition(callsign) {
     return Promise.any(ADSB_SOURCES.map(trySource));
 }
 
+// Live position lookup, SWIM-first: SFDPS (domestic en-route only) is checked first since it's
+// a maintained in-memory stream (no network round-trip), falling back to the ADS-B race above
+// whenever SWIM has nothing fresh for this callsign — SWIM connection down, an international
+// leg SFDPS doesn't cover, or no recent SFDPS message for this specific flight. Kept as a
+// separate wrapper rather than folded into fetchAdsbPosition so "which source answered" stays
+// easy to tell apart when debugging a live-tracking issue.
+// Resolves what we actually can without NASR/CIFP data: airports (via the existing airports.json
+// lookup already used elsewhere in this app) and raw lat/lon route tokens (already decimal from
+// parseRouteString). Named fixes/navaids/SID/STAR/airways stay unresolved — that needs FAA NASR
+// data, not wired up yet. Mutates the waypoint objects in place (they're the same array cached
+// inside swim.js's _latest, so this also saves the resolution for next time, not just this call).
+// Resolves what every waypoint type actually needs, then hands off to navdata.js (FAA NASR
+// data) for named fixes/navaids/SID/STAR/airways/radial-distance points, which airports.json
+// alone can't do. Produces routeParsed.resolvedPath — a flat, plottable {name,lat,lon}[] with
+// procedures/airways expanded into their real constituent fixes — separate from
+// routeParsed.waypoints, which stays the original simple token list (still useful for a
+// readable "filed route" text display, e.g. showing "FORPE1" as one name rather than its
+// five-fix expansion).
+function resolveRouteWaypoints(routeParsed, callsign) {
+    if (!routeParsed?.waypoints) return;
+    for (const wp of routeParsed.waypoints) {
+        if (wp.lat != null && wp.lon != null) continue; // latlon-type tokens already have it
+        if (wp.type === 'airport') {
+            const coords = _aptCoords[wp.name] || (wp.name.length === 3 ? _aptCoords['K' + wp.name] : null);
+            if (coords) { wp.lat = coords[0]; wp.lon = coords[1]; }
+        }
+    }
+
+    // Prefer TFMS's own trajectory when available: a dense, already-computed lat/lon sequence
+    // specific to this exact flight's real routing (correct runway/SID-STAR variant included) —
+    // confirmed live (a real KFB909 flight) to need zero NASR/procedure guessing at all. Falls
+    // back to our own NASR-based resolution (navdata.js) only when TFMS has nothing for this
+    // callsign — e.g. TFMS hasn't sent a fresh flightPlanInformation message yet, or doesn't
+    // cover this flight for some other reason.
+    const tfmsData = callsign ? tfms.getFlightData(callsign) : null;
+    if (tfmsData?.trajectory?.length) {
+        routeParsed.resolvedPath = tfmsData.trajectory
+            .slice().sort((a, b) => a.seq - b.seq)
+            // TFMS trajectory points are dense, unnamed lat/lon samples along the path — not
+            // charted fixes/navaids, so no symbol/name to show; the frontend skips markers for
+            // these and draws the line only.
+            .map(w => ({ name: null, lat: w.lat, lon: w.lon, symbol: null }));
+        routeParsed.source = 'tfms';
+        return;
+    }
+
+    const originWp = routeParsed.waypoints.find(wp => wp.type === 'airport');
+    routeParsed.resolvedPath = navdata.resolveWaypoints(routeParsed.waypoints, originWp?.lat != null ? originWp : null);
+    routeParsed.source = 'navdata';
+}
+
+async function fetchLivePosition(callsign) {
+    const swimHit = swim.getSwimPosition(callsign);
+    const stddsHit = stdds.getGroundPosition(callsign);
+    // STDDS (airport-vicinity surveillance — TAIS terminal tracks + ASDE-X surface contacts)
+    // is preferred whenever present: it only ever has data near an airport in the first place,
+    // where it's at least as accurate as SFDPS's en-route tracking and often more specific
+    // (runway/ground status). SFDPS naturally goes quiet once a flight drops off ERAM's active
+    // track near landing, which is exactly when STDDS picks up — so this also covers the
+    // handoff near touchdown, not just a straight either/or.
+    if (stddsHit) {
+        // Keep the trail continuous across that handoff — without this, a plane landing would
+        // visually reset to an empty trail right at touchdown, the one moment that matters most.
+        if (swimHit?.trail?.length) stddsHit.trail = [...swimHit.trail, ...stddsHit.trail];
+        stddsHit.hadTrail = stddsHit.hadTrail || !!swimHit?.hadTrail;
+        // Route/SID/STAR is SFDPS-specific (filed flight-plan data) — STDDS has no equivalent,
+        // so carry it forward whenever SFDPS has it, regardless of which source answers position.
+        if (swimHit?.route) {
+            stddsHit.route = swimHit.route; stddsHit.originalRoute = swimHit.originalRoute;
+            stddsHit.routeParsed = swimHit.routeParsed; stddsHit.sid = swimHit.sid; stddsHit.star = swimHit.star;
+            stddsHit.origin = swimHit.origin; stddsHit.dest = swimHit.dest;
+            resolveRouteWaypoints(stddsHit.routeParsed, callsign);
+        }
+        // "spotin" is STDDS's own confirmed-arrived-at-gate event — a real FAA-reported signal,
+        // not the inferred "stopped moving for a few readings" heuristic the ADS-B path below
+        // uses. Feed it into the same _parkedCallsigns mechanism so the frontend's existing
+        // completion/cleanup handling (built for the ADS-B parked signal) fires identically
+        // regardless of which source actually detected the arrival.
+        if (stddsHit.event === 'spotin') {
+            stddsHit.parked = true;
+            _parkedCallsigns.add(String(callsign).toUpperCase().trim());
+        }
+        return stddsHit;
+    }
+    if (swimHit) {
+        resolveRouteWaypoints(swimHit.routeParsed, callsign);
+        return swimHit;
+    }
+    return fetchAdsbPosition(callsign);
+}
+
 app.post('/api/early-landing', express.json(), (req, res) => {
     const { callsign, date } = req.body || {};
     if (!callsign || !date) return res.status(400).json({ error: 'missing fields' });
@@ -2990,6 +3085,15 @@ app.get('/api/early-landings', (req, res) => {
     if (!date) return res.json({ callsigns: [] });
     const set = _earlyLandings[date];
     res.json({ callsigns: set ? [...set] : [] });
+});
+
+// TEMP — manually seed route data for a live-tracked callsign, for map-rendering tests without
+// waiting on the live feed to happen to send a route-bearing message for that specific flight.
+app.post('/api/debug/seed-route', express.json(), (req, res) => {
+    const { callsign, route, origin, dest } = req.body || {};
+    if (!callsign || !route) return res.status(400).json({ error: 'callsign and route required' });
+    const ok = swim._testSeedRoute(callsign, route, origin, dest);
+    res.json({ ok });
 });
 
 app.get('/api/live-position', async (req, res) => {
@@ -3007,7 +3111,7 @@ app.get('/api/live-position', async (req, res) => {
 
     let data;
     try {
-        data = await fetchAdsbPosition(callsign);
+        data = await fetchLivePosition(callsign);
     } catch (e) {
         const details = e instanceof AggregateError
             ? e.errors.map(err => err.message).join(' | ')
@@ -3050,23 +3154,43 @@ app.get('/api/live-position', async (req, res) => {
 async function runActiveFlightPoller() {
     const db = getDB();
     const now = new Date();
-    // Wide window: up to 8 h past departure (long flights) and 30 min in future (pre-departure)
-    const pastCutoff   = new Date(now.getTime() - 8 * 60 * 60 * 1000).toISOString().slice(0, 16);
-    const futureCutoff = new Date(now.getTime() + 30 * 60 * 1000).toISOString().slice(0, 16);
+    // SQL-level prefilter only — deliberately widened well beyond the real 8h/30m intent to
+    // compensate for comparing local-time strings against a UTC cutoff (SQLite can't do
+    // per-row timezone conversion; departure_airport isn't known until the row comes back).
+    // This widened window exists purely so the query doesn't scan the whole segments table —
+    // it is NOT the real relevance decision. The accurate, timezone-correct check happens
+    // per-row in JS below using the same localTZToUTC/_aptTimezone helpers the ICS parsers
+    // already use elsewhere in this file. Read-only SELECT — never touches stored times.
+    const prefilterPast   = new Date(now.getTime() - 18 * 60 * 60 * 1000).toISOString().slice(0, 16);
+    const prefilterFuture = new Date(now.getTime() + 10.5 * 60 * 60 * 1000).toISOString().slice(0, 16);
 
     db.all(
-        `SELECT s.flight_number, s.departure_time, s.pilot_id,
+        `SELECT s.flight_number, s.departure_time, s.departure_airport, s.pilot_id,
                 COALESCE(p.airline_code, '') AS airline_code, p.pilot_key
          FROM segments s
          JOIN pilots p ON s.pilot_id = p.id
          WHERE s.type = 'flight'
            AND s.flight_number IS NOT NULL AND trim(s.flight_number) != ''
            AND s.departure_time >= ? AND s.departure_time <= ?`,
-        [pastCutoff, futureCutoff],
+        [prefilterPast, prefilterFuture],
         async (err, rows) => {
-            if (err || !rows || rows.length === 0) return;
+            if (err) return;
             const polled = new Set();
-            for (const row of rows) {
+            for (const row of (rows || [])) {
+                // Real, timezone-correct relevance check: the 8h-past/30m-future window this
+                // function has always documented, now actually measured in true elapsed time
+                // rather than a same-looking-but-different-timezone string comparison.
+                if (row.departure_time && row.departure_airport) {
+                    const tz = _aptTimezone[row.departure_airport];
+                    if (tz) {
+                        const compact = row.departure_time.replace(/[-:]/g, '');
+                        const depUTC = new Date(localTZToUTC(compact, tz));
+                        const diffMs = now.getTime() - depUTC.getTime();
+                        if (diffMs > 8 * 60 * 60 * 1000 || diffMs < -30 * 60 * 1000) continue;
+                    }
+                    // No known timezone for this airport — fall through and keep the row rather
+                    // than silently drop a flight we can't accurately check.
+                }
                 const airlineCode = (row.airline_code || '').toUpperCase();
                 let flightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
                 // Strip airline prefix if the DB already stores it (e.g. "SKW5613" → "5613")
@@ -3085,6 +3209,9 @@ async function runActiveFlightPoller() {
                     if (data.found && !data.parked) console.log(`Poller: ${callsign} ${data.onGround ? (data.speedKts > 5 ? 'taxiing' : 'ground') : `${data.altFt ? Math.round(data.altFt) + 'ft' : 'airborne'}`} trail=${_posTrail[data.hex]?.length ?? 0}pts`);
                 } catch (_) {} // flight not yet airborne or ADS-B unavailable
             }
+            swim.setRelevantCallsigns(polled); // same scheduled-flight set, refreshed every 15s — SWIM only needs to retain state for these, not every callsign nationwide
+            stdds.setRelevantCallsigns(polled);
+            tfms.setRelevantCallsigns(polled);
         }
     );
 }
@@ -3959,6 +4086,9 @@ app.get('/api/admin/stats', (req, res) => {
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    swim.connect();
+    stdds.connect();
+    tfms.connect();
     // Print all pilot links on startup so tokens are always recoverable from logs
     const db = getDB();
     db.all(`SELECT pilot_key, name, token FROM pilots ORDER BY pilot_key='admin' DESC, name`, (err, rows) => {

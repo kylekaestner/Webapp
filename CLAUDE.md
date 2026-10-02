@@ -25,6 +25,8 @@ Current version: `1.0.6-beta` (`package.json`/`package-lock.json`) — bumped 20
 | `demo-data.js` | Fake data for `/demo` route (read-only preview) |
 | `public/join.html` | New pilot onboarding form |
 | `public/frat-autofill.user.js` | Tampermonkey userscript — autofills Kyle's PRISM SMS flight risk assessments |
+| `swim.js` / `stdds.js` / `tfms.js` | FAA SWIM feed consumers (SFDPS en-route, STDDS surface/terminal, TFMS flow/route) — see "FAA SWIM integration" below |
+| `navdata.js` / `scripts/build-navdata.js` | FAA NASR data resolution (fixes/navaids/SID/STAR/airways) for the live-map route display, and the script that builds `data/nasr/*.json` from raw NASR CSVs |
 
 ---
 
@@ -765,6 +767,49 @@ Every visible flight number/callsign (calendar grid, list view, day-detail sheet
 **A fix was built and shipped (2026-09-21/22) and then reverted (2026-09-23) after it made the map actively worse** — a `computeRouteDeclutterOffsets()` pass sampled each route's interior, flagged any two non-touching routes within 110mi of each other as conflicting, and unioned conflicts into clusters via BFS connected-components, feeding each cluster member into `offsetArc()` with an index/groupSize pair. It worked correctly against the small hand-built test cases used to validate it (2-3 routes, a real trip's worth of legs) but broke badly against Kyle's actual "My Routes" data: **the BFS treats conflict as transitive** — if A conflicts with B and B conflicts with C, all three get lumped into one cluster and spread across offset indices, even though A and C may not be close to each other at all. Around a busy hub with many routes, this chains into large clusters where some routes (sometimes short ones) get pushed to extreme offset indices relative to their own length, producing wild, unreadable loops (visibly swinging arcs sweeping up into Canada that had no business being there). It was never tested against a real multi-destination hub before shipping, only small synthetic clusters.
 
 **If this gets revisited:** don't reuse the transitive-clustering approach as-is. Options worth considering instead: only ever offset *pairwise* (never chain through a shared conflict into an unrelated third route), cap the maximum offset magnitude in absolute terms regardless of cluster size/index, or scope any offset to be proportional to how much interior overlap actually exists rather than a fixed step size per cluster slot. Test against Kyle's real live route data (a busy month, not a hand-picked 3-leg trip) before shipping again — that's exactly what this revert would have caught.
+
+---
+
+## FAA SWIM integration — real filed-route display on the live map (2026-10-02, in progress)
+
+Three new backend modules consume FAA SWIM (System Wide Information Management) data feeds directly via Solace PubSub+ (`solclientjs`), separate from the existing ADS-B polling in `startLiveTracking()`/`/api/live-position`. Built from scratch (not SwimReader's own code, for licensing reasons) against real production SWIM credentials in `.env` (`SFDPS_*`, `SCDSCONNECTION__*` for STDDS, `TFMS_*`).
+
+| File | Feed | Gives you |
+|---|---|---|
+| `swim.js` | SFDPS (en-route) | Live position/altitude/speed/heading **and** the filed route string (current + original/as-filed), SID/STAR, parsed into typed waypoints |
+| `stdds.js` | STDDS (surface/terminal) | Airport-vicinity position (TAIS + ASDE-X), preferred over SFDPS near the ground; cross-references SFDPS by GUFI to attribute anonymous surface contacts to a known callsign |
+| `tfms.js` | TFMS (flow/route) | A dense, already-computed lat/lon trajectory for a flight when available — no NASR/procedure guessing needed at all for that flight |
+
+All three expose `setRelevantCallsigns(polled)`, fed by the same `runActiveFlightPoller` that already drives ADS-B polling, and actively prune their in-memory state on every call so a startup-race can't leak irrelevant callsigns in permanently (same pattern across all three).
+
+### Route resolution pipeline (`resolveRouteWaypoints()` in server.js)
+
+A filed route string (e.g. `KJFK./.TEYOU..KP75C..TBC..JASSE.Q90.DNERO.ANJLL4.KLAX/0739`) is parsed by `swim.js`'s `parseRouteString()` into typed tokens (airport/procedure/fix/airway/radial_fix/latlon), then expanded to real coordinates:
+
+1. **TFMS trajectory preferred when available** — a dense, per-flight-correct lat/lon sequence (correct runway/SID-STAR variant already baked in by the FAA's own flow system). `routeParsed.source = 'tfms'`.
+2. **Otherwise falls back to `navdata.js`** (FAA NASR 28-Day Subscription data, public domain — same license posture as `build-airports.js`'s OurAirports data). `routeParsed.source = 'navdata'`.
+
+`navdata.js` loads `data/nasr/{fixes,navaids,procedures,airways}.json` (built by `scripts/build-navdata.js` from raw CSVs expected under `scratch/` — gitignored, ~34MB of source data, re-run the build script against a fresh AIRAC cycle rather than hand-editing the committed JSON). Resolves:
+- **Fixes/navaids** by name, disambiguated by proximity to the previous already-resolved point (names aren't globally unique).
+- **SID/STAR procedures** by expanding to their real fix sequence. A procedure can have multiple distinct **runway-specific body segments** (e.g. `ANJLL.BIGBR3`'s `ANJLL-SASSI` body for runway 06L/06R vs. `ANJLL-WNDFL` for 07L/07R) — the resolver always picks `bodies[0]` (first one in NASR's own CSV row order), with no actual runway-awareness. This happens to pick the correct 06L/06R-ending variant for BIGBR3 today, but that's NASR's CSV ordering, not a real selection — don't treat "first body wins" as runway-aware if a different procedure's ordering doesn't work out the same way.
+- **Radial/distance fixes** (e.g. `STL330052` = 52nm on the 330° radial from STL) via `projectRadialDistance()`.
+- **Airways** as the sub-sequence between two known surrounding points in the airway's published fix list. **Not yet tested against a real route** — every real route exercised so far (JBU923) only hit this path after ATC had already shortcut past the airway-heavy initial portion; the *as-filed* `originalRoute` for that same flight has a real `Q436`/`Q438` airway chain (`COATE.Q436.RAAKK.Q438.RUBYY`) that's never actually been resolved and checked.
+
+**Symbol classification** (`resolveFixOrNavaid()` in navdata.js): every resolved point gets a `symbol` field for the frontend to render distinctly — `vor`/`ndb` from NASR's `NAV_TYPE`, `waypoint`/`fix` from `FIX_USE_CODE` (`WP` vs. everything else, mainly the classic `RP` reporting-point/intersection code), `airport`/`latlon` for the origin/destination and raw lat/lon tokens (no map marker drawn for these two), `null` for TFMS's dense unnamed trajectory samples (no marker — would be visual noise at that density).
+
+### Frontend rendering (`startLiveTracking()` in app.html)
+
+- **Only the route still ahead of the aircraft is shown** — `computeRouteProgress()` projects the live position onto each segment of the resolved route (equirectangular approximation) to get a real along-track mileage, then both the dashed remaining-route line and the symbol markers filter to points beyond that mileage. Deliberately NOT a simple "nearest point" check — that would drop a fix while the aircraft is still approaching it, well before actually passing it.
+- **One marker per ahead-of-aircraft named point** (`makeWaypointIcon()`): hexagon+dot for `vor`, dashed circle+dot for `ndb`, triangle for `fix`, diamond for `waypoint`. Rebuilt only when the resolved point set actually changes (keyed by name+coords+symbol), not every 8s poll.
+- **Name tags are managed Leaflet tooltips, not baked into the marker icon** (`registerWaypointLabel()`) — binding `permanent:true` on a marker created with `interactive:false` does *not* reliably auto-open (confirmed live: symbols rendered fine, tags silently never appeared), so `marker.openTooltip()` is called explicitly right after `bindTooltip()`.
+- **Label collision handling is folded into the existing `deoverlapLiveLabels()`** (previously just the plane's own callsign tooltip). Plane labels place first and always show somewhere; route-point tags are checked against everything already placed (other tags *and* the plane label) and, if truly boxed in (common in a dense STAR fix cluster), are hidden outright rather than forced into an unreadable overlapping stack — the symbol stays visible either way, just without its text.
+- **The dashed remaining-route line is trimmed into a gap around each symbol it passes through** — rendered as a Leaflet multi-part polyline (array of segment arrays), each leg's end trimmed by a small gap sized in real screen pixels (via `map.distance()` at current zoom), not a fixed geographic distance or point-count fraction — a geographic-fraction gap looked fine at one zoom and wrong at every other one. The separate invisible hit-line used for popup clicks is built from the original ungapped path and unaffected.
+
+### Temporary test infrastructure — still in use, not yet removed
+
+`POST /api/debug/seed-route` (server.js) + `swim._testSeedRoute()` let a route string be injected onto an already-tracked flight's in-memory SWIM entry, for testing route resolution/rendering against a real live flight without waiting for a specific real-world route to occur naturally. Remove both once this feature is done being actively tested — not yet, per-session testing is ongoing (e.g. BIGBR3/06L was verified this way; the as-filed airway-chain route above still needs the same treatment).
+
+**Gotcha confirmed twice**: restarting the local dev server wipes all in-memory SWIM/TFMS state (`_latest`, trail caches, etc.) — any route detail captured only via a real live message (like the full `originalRoute` with its airway chain) is lost and won't come back until the real feed re-sends it, which can take a while for a field that doesn't change every message. Pull `https://swim.vncrcc.org/api/track/{callsign}` (the author's own public SwimReader instance, low-risk for personal/testing use) to re-fetch real current route data directly rather than waiting.
 
 ---
 

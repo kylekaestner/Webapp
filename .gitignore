@@ -11,3 +11,4 @@ build/
 *.log
 npm-debug.log*
 .vscode/settings.json
+scratch/

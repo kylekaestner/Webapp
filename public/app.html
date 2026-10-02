@@ -506,7 +506,6 @@
             <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
             <button id="btn-upload-schedule" onclick="triggerUpload('upload-pilot-select','file-input')" class="w-full py-1.5 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-lg transition text-[9px] font-black uppercase text-center">↑ Upload Schedule</button>
             <button id="btn-sync-schedaero" onclick="openSchedaeroSync()" class="hidden w-full py-1.5 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedaero</button>
-            <button id="btn-sync-drew-ics" onclick="openDrewICSSync()" class="hidden w-full py-1.5 border border-zinc-800 hover:border-teal-500 text-zinc-600 hover:text-teal-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedule</button>
             <button id="btn-sync-ics" onclick="openGenericICSSync(document.getElementById('upload-pilot-select').value)" class="hidden w-full py-1.5 border border-zinc-800 hover:border-teal-500 text-zinc-600 hover:text-teal-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedule</button>
         </div>
     </div>
@@ -1389,25 +1388,6 @@
         </div>
     </div>
 
-    <div id="drew-ics-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeDrewICSModal()">
-        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
-        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
-            <div class="p-6 space-y-4">
-                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Sync Drew's Schedule</h3>
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-zinc-500 uppercase block">RosterBuster ICS URL</label>
-                    <input id="drew-ics-url" type="text" placeholder="https://rb-calendars.s3…/calendar.ics"
-                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-teal-500 placeholder-zinc-600">
-                </div>
-                <p id="drew-ics-error" class="hidden text-xs text-red-400 font-bold"></p>
-                <div class="flex gap-3">
-                    <button onclick="syncDrewICS()" id="drew-ics-sync-btn" class="flex-1 py-3 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition">Sync</button>
-                    <button onclick="closeDrewICSModal()" class="flex-1 py-3 border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-xl font-black uppercase text-xs tracking-wide transition">Cancel</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Generic ICS Sync Modal -->
     <div id="ics-sync-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeGenericICSModal()">
         <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
@@ -1448,7 +1428,6 @@
             <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
             <button id="mobile-upload-file-btn" onclick="triggerUpload('mobile-upload-pilot-select','mobile-file-input')" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
             <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');quickSyncSchedaero()" class="hidden w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
-            <button id="mobile-sync-drew-ics-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openDrewICSSync()" class="hidden w-full py-3 border border-teal-800 text-teal-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedule (Drew)</button>
             <button id="mobile-sync-ics-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openGenericICSSync(document.getElementById('mobile-upload-pilot-select').value)" class="hidden w-full py-3 border border-teal-800 text-teal-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedule</button>
             <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
         </div>
@@ -1983,6 +1962,12 @@
         // the actual source of truth, independent of render timing: at most one set of layers may
         // exist per callsign, enforced directly in startLiveTracking() itself.
         const _liveLayersByCallsign = {};
+        // callsign -> [{ marker, html, direction, hidden }] -- one entry per visible route-point
+        // label (VOR/fix/waypoint name tags). Kept separate from _liveLabels (the plane's own
+        // callsign tooltip) since there can be many per flight rather than exactly one, but fed
+        // into the same deoverlapLiveLabels() pass so a fix's name tag can't collide with another
+        // fix's tag OR with the live plane label itself.
+        const _waypointLabels = new Map();
         let   _deoverlapTimer = null;
         const _calListPollers = {}; // callsign -> intervalId for calendar/list live badges
 
@@ -2827,7 +2812,6 @@
             if (_isDemo || myViewer) return;
             const parser = pilotsCache[myPilot]?.parser_type || '';
             if (parser === 'schedaero')          return quickSyncSchedaero();
-            if (parser === 'ics_rosterbuster')   return openDrewICSSync();
             if (parser.startsWith('ics'))        return openGenericICSSync(myPilot);
             openUploadSheet();
         }
@@ -2893,6 +2877,36 @@
             const dLon = (lon2 - lon1) * Math.PI / 180;
             const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        // Projects the aircraft's live position onto the filed/resolved route (an ordered
+        // origin→...→destination point sequence) to find how far along it the aircraft actually
+        // is, in miles. Used to drop fixes/waypoints the aircraft has already passed from the
+        // live map — a simple "nearest point" wouldn't work here, since a fix starts being the
+        // nearest one well before the aircraft actually reaches it, which would make it disappear
+        // too early. Projecting onto each segment (equirectangular approximation — lon scaled by
+        // cos(lat); accurate enough over typical enroute/STAR fix spacing) and taking the
+        // closest-approach segment gives a much better "has this fix been passed yet" answer.
+        // Returns { cumDist: number[] (one entry per path point, cumulative miles from the
+        // start), aircraftProgress: number (the aircraft's own cumulative-mile position) }.
+        function computeRouteProgress(path, aircraftPt) {
+            const cumDist = [0];
+            let running = 0, best = { progress: 0, distToRoute: Infinity };
+            for (let i = 0; i < path.length - 1; i++) {
+                const a = path[i], b = path[i + 1];
+                const segLen = haversineMi(a.lat, a.lon, b.lat, b.lon);
+                const latScale = 69, lonScale = 69 * Math.cos(a.lat * Math.PI / 180);
+                const bx = (b.lon - a.lon) * lonScale, by = (b.lat - a.lat) * latScale;
+                const px = (aircraftPt[1] - a.lon) * lonScale, py = (aircraftPt[0] - a.lat) * latScale;
+                const segLenSq = bx * bx + by * by;
+                let t = segLenSq > 0 ? (px * bx + py * by) / segLenSq : 0;
+                t = Math.max(0, Math.min(1, t));
+                const dist = Math.hypot(px - bx * t, py - by * t);
+                if (dist < best.distToRoute) best = { progress: running + t * segLen, distToRoute: dist };
+                running += segLen;
+                cumDist.push(running);
+            }
+            return { cumDist, aircraftProgress: best.progress };
         }
 
         const AIRPORTS = {};  // populated from airports.json on load
@@ -5485,7 +5499,7 @@
             const fn = (seg.flightNumber || seg.flight_number || '').replace(/\s/g, '').toUpperCase();
             const carrier = pilotsCache[pilotKey]?.airline_code || '';
             if (fn) return normalizeFlightNum(fn, carrier) || null;
-            if (pilotKey === 'kyle') {
+            if (carrier === 'SJJ') {
                 const digits = (seg.tail || '').replace(/\D/g, '');
                 return digits ? `SJJ${digits}` : null;
             }
@@ -5634,10 +5648,14 @@
         function deoverlapLiveLabels() {
             if (!map) return;
             const DIRS = ['right', 'left', 'top', 'bottom'];
-            const OFFSETS = { right: [14, 0], left: [-14, 0], top: [0, -14], bottom: [0, 14] };
-            const placed = [];
+            const PLANE_OFFSETS = { right: [14, 0], left: [-14, 0], top: [0, -14], bottom: [0, 14] };
+            // Waypoint symbols are a 10px box (half the plane icon's footprint), so their tags sit
+            // closer in -- using the plane's wider offset would visibly detach a fix's label from
+            // its own symbol.
+            const WP_OFFSETS = { right: [8, 0], left: [-8, 0], top: [0, -8], bottom: [0, 8] };
 
-            const estimateRect = (dir, pt, W, H) => {
+            const placed = [];
+            const estimateRect = (dir, pt, W, H, OFFSETS) => {
                 const [dx, dy] = OFFSETS[dir];
                 let x, y;
                 if      (dir === 'right')  { x = pt.x + dx;     y = pt.y - H / 2; }
@@ -5648,6 +5666,8 @@
             };
             const overlaps = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
 
+            // Live plane callsign/status tooltips go first -- they're the primary signal on the
+            // map, so they get first claim on space before any waypoint label is placed.
             for (const [, entry] of _liveLabels) {
                 const primary = entry.markers[2] || entry.markers[0];
                 if (!primary) continue;
@@ -5660,24 +5680,69 @@
 
                 // Check if current direction already fits
                 let chosen = entry.direction;
-                let chosenRect = estimateRect(chosen, pt, W, H);
+                let chosenRect = estimateRect(chosen, pt, W, H, PLANE_OFFSETS);
                 if (placed.some(p => overlaps(chosenRect, p))) {
                     // Try all four directions in preference order
                     chosen = null;
                     for (const dir of DIRS) {
-                        const est = estimateRect(dir, pt, W, H);
+                        const est = estimateRect(dir, pt, W, H, PLANE_OFFSETS);
                         if (!placed.some(p => overlaps(est, p))) {
                             chosen = dir; chosenRect = est; break;
                         }
                     }
-                    if (!chosen) { chosen = entry.direction; chosenRect = estimateRect(chosen, pt, W, H); }
+                    if (!chosen) { chosen = entry.direction; chosenRect = estimateRect(chosen, pt, W, H, PLANE_OFFSETS); }
                 }
                 placed.push(chosenRect);
 
                 if (entry.direction !== chosen) {
                     entry.direction = chosen;
-                    const opts = { permanent: true, className: 'live-label', direction: chosen, offset: OFFSETS[chosen] };
+                    const opts = { permanent: true, className: 'live-label', direction: chosen, offset: PLANE_OFFSETS[chosen] };
                     entry.markers.forEach(m => { m.unbindTooltip(); m.bindTooltip(entry.html, opts); });
+                }
+            }
+
+            // Route-point (VOR/fix/waypoint) name tags -- lower priority than the plane label
+            // above, and checked against each other too (a dense STAR fix cluster can easily have
+            // several tags within a few pixels of each other at typical zoom). Unlike the plane
+            // label, which always shows somewhere even if the "preferred" direction is taken, a
+            // waypoint tag that can't find ANY clear direction is just hidden outright (symbol
+            // stays visible) -- forcing an overlapping placement among a dozen tightly-packed
+            // arrival fixes would just produce unreadable stacked text, not useful information.
+            for (const [, entries] of _waypointLabels) {
+                for (const entry of entries) {
+                    let pt;
+                    try { pt = map.latLngToContainerPoint(entry.marker.getLatLng()); } catch (_) { continue; }
+                    const W = 50, H = 16;
+
+                    let chosen = entry.direction;
+                    let chosenRect = estimateRect(chosen, pt, W, H, WP_OFFSETS);
+                    if (placed.some(p => overlaps(chosenRect, p))) {
+                        chosen = null;
+                        for (const dir of DIRS) {
+                            const est = estimateRect(dir, pt, W, H, WP_OFFSETS);
+                            if (!placed.some(p => overlaps(est, p))) {
+                                chosen = dir; chosenRect = est; break;
+                            }
+                        }
+                    }
+
+                    if (!chosen) {
+                        // Nothing is actually drawn here once hidden, so no rect to reserve.
+                        if (!entry.hidden) {
+                            entry.hidden = true;
+                            entry.marker.unbindTooltip();
+                        }
+                        continue;
+                    }
+                    placed.push(chosenRect);
+
+                    if (entry.hidden || entry.direction !== chosen) {
+                        entry.hidden = false;
+                        entry.direction = chosen;
+                        const opts = { permanent: true, className: 'live-label', direction: chosen, offset: WP_OFFSETS[chosen] };
+                        entry.marker.unbindTooltip();
+                        entry.marker.bindTooltip(entry.html, opts);
+                    }
                 }
             }
         }
@@ -5734,6 +5799,8 @@
 
             let flownLines = null;  // one polyline per world copy
             let remainLines = null;
+            let waypointMarkers = [];  // route-point symbol markers, one set per world copy
+            let waypointPathKey = '';
             let arcRemoved = false;
             let missCount = 0;
             // Set ONLY by this poller's own real, found+airborne fix -- never from the server's
@@ -5803,6 +5870,17 @@
                 arcRemoved = true;
             };
 
+            const clearWaypointMarkers = () => {
+                waypointMarkers.forEach(m => {
+                    try { map.removeLayer(m); } catch (_) {}
+                    const i = activeLayersArr.indexOf(m);
+                    if (i >= 0) activeLayersArr.splice(i, 1);
+                });
+                waypointMarkers = [];
+                _waypointLabels.delete(callsign);
+                waypointPathKey = '';
+            };
+
             // Move all world-copy markers to a new lat/lon
             const setAllLatLng = (lat, lon) =>
                 markers.forEach((m, i) => m.setLatLng([lat, lon + WORLD_OFFSETS[i] * 360]));
@@ -5827,6 +5905,7 @@
                 removeArc();
                 if (flownLines) { flownLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} }); flownLines = null; }
                 if (remainLines) { remainLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} }); remainLines = null; }
+                clearWaypointMarkers();
                 if (hereNowMarkers.length) { hereNowMarkers.forEach(m => { try { map.removeLayer(m); } catch (_) {} }); hereNowMarkers.length = 0; }
                 updateHitPopupStatus(savedEarly ? '✓ LANDED EARLY' : '✓ COMPLETED', '#3f3f46');
             };
@@ -6021,14 +6100,107 @@
                         }
                     }
 
-                    // Remaining: great-circle path from live position to destination
-                    const remainPath = greatCircleArcCoords(livePoint, arrCoords);
+                    // Remaining: great-circle path from live position to destination, routed
+                    // through resolvedPath — the fully expanded, NASR-resolved fix sequence
+                    // (named fixes/navaids/SID/STAR/airways/radial-distance points all included,
+                    // not just airports) built server-side by navdata.js. Filtered down to only
+                    // what's actually still ahead of the aircraft (computeRouteProgress) —
+                    // deliberately "what VATSIM Radar shows": fixes already passed drop off the
+                    // map as the flight continues, same as the origin airport itself (always
+                    // behind by definition, same disappearing treatment as any other passed fix).
+                    const fullResolvedPath = d.routeParsed?.resolvedPath || [];
+                    const { cumDist: _routeCum, aircraftProgress: _acProgress } =
+                        fullResolvedPath.length >= 2 ? computeRouteProgress(fullResolvedPath, livePoint) : { cumDist: [], aircraftProgress: 0 };
+                    const midWaypoints = fullResolvedPath
+                        .filter((wp, idx) => wp.lat != null && wp.lon != null && _routeCum[idx] > _acProgress);
+
+                    // Symbol markers for each named point (VOR/fix/waypoint — see makeWaypointIcon).
+                    // The route itself rarely changes between polls, so skip the rebuild (and the
+                    // marker flicker that'd come with constantly removing/re-adding) unless the
+                    // actual point set has changed.
+                    const markerWaypoints = midWaypoints.filter(wp => wp.symbol && wp.name);
+                    const pathKey = markerWaypoints.map(wp => `${wp.name}:${wp.lat.toFixed(4)},${wp.lon.toFixed(4)},${wp.symbol}`).join('|');
+                    if (pathKey !== waypointPathKey) {
+                        clearWaypointMarkers();
+                        waypointPathKey = pathKey;
+                        markerWaypoints.forEach(wp => {
+                            const icon = makeWaypointIcon(wp.symbol);
+                            if (!icon) return;
+                            const shapeColor = _WAYPOINT_SHAPES[wp.symbol].color;
+                            WORLD_OFFSETS.forEach(w => {
+                                const m = L.marker([wp.lat, wp.lon + w * 360], { icon, interactive: false, keyboard: false });
+                                m.addTo(map);
+                                waypointMarkers.push(m);
+                                activeLayersArr.push(m);
+                                if (w === 0) registerWaypointLabel(callsign, m, wp.name, shapeColor);
+                            });
+                        });
+                        scheduleDeoverlap();
+                    }
+
+                    const routePoints = [livePoint, ...midWaypoints.map(wp => [wp.lat, wp.lon]), arrCoords];
+                    const legBounds = []; // [startIdx, endIdx] into remainPath, per leg
+                    let remainPath = [];
+                    for (let i = 0; i < routePoints.length - 1; i++) {
+                        const seg = greatCircleArcCoords(routePoints[i], routePoints[i + 1]);
+                        const piece = i === 0 ? seg : seg.slice(1); // avoid duplicating the shared junction point
+                        const startIdx = remainPath.length;
+                        remainPath = remainPath.concat(piece);
+                        legBounds.push([startIdx, remainPath.length - 1]);
+                    }
                     const remainSegs = unwrapLongitudes(remainPath);
+
+                    // Which routePoints have a rendered symbol -- only those get a visual gap
+                    // trimmed into the dashed line; the live plane position (index 0) and the
+                    // destination airport (last index, no marker drawn there) stay flush.
+                    const hasSymbolAtRoutePoint = routePoints.map((_, idx) => {
+                        if (idx === 0 || idx === routePoints.length - 1) return false;
+                        const wp = midWaypoints[idx - 1];
+                        return !!(wp?.symbol && _WAYPOINT_SHAPES[wp.symbol]);
+                    });
+                    // Trims a small gap off each leg's end that touches a symbol, so the dashed
+                    // line visibly stops short of the symbol and resumes past it. The gap is sized
+                    // in real screen pixels, not a fraction of the leg's geographic length -- a
+                    // percentage-of-distance gap looked fine at the zoom it was tuned at, but a
+                    // fixed number of MILES translates to a wildly different number of screen
+                    // pixels depending on current zoom (huge gap zoomed in, invisible zoomed out).
+                    // Recomputed every poll, so it stays correctly sized as the view is zoomed.
+                    let gapMi = 0.5;
+                    try {
+                        const c = map.getSize();
+                        const centerPt = L.point(c.x / 2, c.y / 2);
+                        const p1 = map.containerPointToLatLng(centerPt);
+                        const p2 = map.containerPointToLatLng(centerPt.add([9, 0]));
+                        gapMi = map.distance(p1, p2) / 1609.34;
+                    } catch (_) {}
+                    const trimFromStart = (startIdx, endIdx) => {
+                        let acc = 0;
+                        for (let i = startIdx; i < endIdx; i++) {
+                            acc += haversineMi(remainSegs[i][0], remainSegs[i][1], remainSegs[i + 1][0], remainSegs[i + 1][1]);
+                            if (acc >= gapMi) return i + 1;
+                        }
+                        return endIdx; // leg shorter than the gap itself -- fully consumed, dropped below
+                    };
+                    const trimFromEnd = (startIdx, endIdx) => {
+                        let acc = 0;
+                        for (let i = endIdx; i > startIdx; i--) {
+                            acc += haversineMi(remainSegs[i][0], remainSegs[i][1], remainSegs[i - 1][0], remainSegs[i - 1][1]);
+                            if (acc >= gapMi) return i - 1;
+                        }
+                        return startIdx;
+                    };
+                    const remainParts = legBounds.map(([s, e], i) => {
+                        let a = s, b = e;
+                        if (hasSymbolAtRoutePoint[i]) a = trimFromStart(s, e);
+                        if (hasSymbolAtRoutePoint[i + 1]) b = trimFromEnd(a, e);
+                        return b > a ? remainSegs.slice(a, b + 1) : [];
+                    }).filter(part => part.length >= 2);
+
                     if (remainLines) {
-                        remainLines.forEach((l, i) => l.setLatLngs(remainSegs.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
+                        remainLines.forEach((l, i) => l.setLatLngs(remainParts.map(part => part.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360]))));
                     } else {
                         remainLines = WORLD_OFFSETS.map((w, i) => {
-                            const l = L.polyline(remainSegs.map(([la, lo]) => [la, lo + w * 360]), { color, weight: lineWeight, opacity: 0.7, smoothFactor: 1, dashArray: '8 10', interactive: false });
+                            const l = L.polyline(remainParts.map(part => part.map(([la, lo]) => [la, lo + w * 360])), { color, weight: lineWeight, opacity: 0.7, smoothFactor: 1, dashArray: '8 10', interactive: false });
                             l.addTo(map);
                             activeLayersArr.push(l);
                             return l;
@@ -6108,6 +6280,48 @@
                 html = `<div style="position:relative;width:${w}px;height:${h}px">${ring}${svg}</div>`;
             }
             return L.divIcon({ className: '', html, iconSize: [w, h], iconAnchor: [w/2, h/2] });
+        }
+
+        // Route waypoint markers — one shape per navdata.js symbol classification, matching
+        // familiar aeronautical-chart conventions: hexagon for a VOR-family navaid, small
+        // bracketed circle for an NDB, open triangle for a classic airway fix/intersection,
+        // diamond for an RNAV waypoint. 'airport'/'latlon'/null (TFMS's dense unnamed trajectory
+        // samples — see resolveRouteWaypoints() in server.js) get no marker at all; the line
+        // itself is enough for those; drawing a shape at every single TFMS trajectory sample
+        // would be visual noise, not signal.
+        const _WAYPOINT_SHAPES = {
+            vor:      { color: '#60a5fa', svg: '<polygon points="5,0.5 9,2.8 9,7.2 5,9.5 1,7.2 1,2.8" fill="none" stroke="#60a5fa" stroke-width="1.3"/><circle cx="5" cy="5" r="1.1" fill="#60a5fa"/>' },
+            ndb:      { color: '#a78bfa', svg: '<circle cx="5" cy="5" r="4" fill="none" stroke="#a78bfa" stroke-width="1.3" stroke-dasharray="2,1.6"/><circle cx="5" cy="5" r="1" fill="#a78bfa"/>' },
+            fix:      { color: '#fbbf24', svg: '<polygon points="5,0.5 9.3,8.5 0.7,8.5" fill="none" stroke="#fbbf24" stroke-width="1.3" stroke-linejoin="round"/>' },
+            waypoint: { color: '#34d399', svg: '<polygon points="5,0.5 9.5,5 5,9.5 0.5,5" fill="none" stroke="#34d399" stroke-width="1.3" stroke-linejoin="round"/>' },
+        };
+        function makeWaypointIcon(symbol) {
+            const shape = _WAYPOINT_SHAPES[symbol];
+            if (!shape) return null;
+            // Symbol only -- the name tag is a separate, managed Leaflet tooltip (see
+            // registerWaypointLabel), not baked into this icon's HTML. That's what lets
+            // deoverlapLiveLabels() reposition or hide a fix's tag independently of its symbol
+            // when two fixes end up close together on screen.
+            const html = `<svg width="10" height="10" viewBox="0 0 10 10" style="display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.85))">${shape.svg}</svg>`;
+            return L.divIcon({ className: '', html, iconSize: [10, 10], iconAnchor: [5, 5] });
+        }
+
+        // Binds a permanent name-tag tooltip to a single waypoint marker (the one at the primary,
+        // unwrapped world copy -- world-offset-duplicated siblings don't get their own tag, same
+        // simplification already accepted for the live plane callsign label) and registers it
+        // with deoverlapLiveLabels() so it collides correctly with other fix tags and the plane
+        // label, instead of always sitting in one fixed spot.
+        function registerWaypointLabel(callsign, marker, name, color) {
+            const html = `<span style="font-size:9px;font-weight:700;color:${color};letter-spacing:.02em">${name}</span>`;
+            marker.bindTooltip(html, { permanent: true, className: 'live-label', direction: 'right', offset: [8, 0] });
+            // bindTooltip's "permanent" auto-open doesn't reliably fire on a marker created with
+            // interactive:false (it's wired through the same path as hover-open, which an
+            // uninteractive layer never receives) -- confirmed live, labels silently never
+            // appeared despite the symbols themselves rendering fine. Forcing it open here sidesteps
+            // that regardless of Leaflet's interactive-layer quirks.
+            marker.openTooltip();
+            if (!_waypointLabels.has(callsign)) _waypointLabels.set(callsign, []);
+            _waypointLabels.get(callsign).push({ marker, html, direction: 'right', hidden: false });
         }
 
         async function renderDayMap() {
@@ -8146,18 +8360,15 @@ let _blockUserEdited = false;
         function updateUploadSyncButtons(pilot) {
             const parser      = pilotsCache[pilot]?.parser_type || '';
             const isSchedaero = parser === 'schedaero';
-            const isRB        = parser === 'ics_rosterbuster';
-            const isICS       = parser.startsWith('ics') && !isRB;
-            const isSyncOnly  = isSchedaero || isRB || isICS;
+            const isICS       = parser.startsWith('ics');
+            const isSyncOnly  = isSchedaero || isICS;
             // Desktop
             document.getElementById('btn-upload-schedule')?.classList.toggle('hidden', isSyncOnly);
             document.getElementById('btn-sync-schedaero')?.classList.toggle('hidden', !isSchedaero);
-            document.getElementById('btn-sync-drew-ics')?.classList.toggle('hidden', !isRB);
             document.getElementById('btn-sync-ics')?.classList.toggle('hidden', !isICS);
             // Mobile
             document.getElementById('mobile-upload-file-btn')?.classList.toggle('hidden', isSyncOnly);
             document.getElementById('mobile-sync-schedaero-btn')?.classList.toggle('hidden', !isSchedaero);
-            document.getElementById('mobile-sync-drew-ics-btn')?.classList.toggle('hidden', !isRB);
             document.getElementById('mobile-sync-ics-btn')?.classList.toggle('hidden', !isICS);
             // Update mobile nav label
             if (pilot === myPilot) {
@@ -8166,51 +8377,6 @@ let _blockUserEdited = false;
             }
         }
 
-        // ── Drew ICS Sync ─────────────────────────────────────────────────
-        const DREW_ICS_URL = 'https://rb-calendars.s3-eu-west-1.amazonaws.com/prod/ical/private/478d5d7917787cb666cd968b1954179a73c492f5/RBTe9d96ef21c68df6011c27c6c5ecc5298bf44eb646c5d34d9.ics';
-
-        function openDrewICSSync() {
-            document.getElementById('drew-ics-error').classList.add('hidden');
-            document.getElementById('drew-ics-modal').classList.remove('hidden');
-            document.getElementById('drew-ics-url').value =
-                localStorage.getItem('drew_ics_url') || DREW_ICS_URL;
-        }
-
-        function closeDrewICSModal() {
-            document.getElementById('drew-ics-modal').classList.add('hidden');
-        }
-
-        async function syncDrewICS() {
-            const url  = document.getElementById('drew-ics-url').value.trim();
-            const errEl = document.getElementById('drew-ics-error');
-            const btn   = document.getElementById('drew-ics-sync-btn');
-            if (!url) { errEl.textContent = 'URL required'; errEl.classList.remove('hidden'); return; }
-            errEl.classList.add('hidden');
-            btn.textContent = 'Syncing…';
-            btn.disabled = true;
-            localStorage.setItem('drew_ics_url', url);
-            try {
-                const resp = await fetch(`${API_BASE}/pilots/drew/sync-ics`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url })
-                });
-                const result = await resp.json();
-                if (result.success) {
-                    closeDrewICSModal();
-                    showToast(`Drew's schedule synced — ${result.segmentsAdded} segments updated`);
-                    loadPilot('drew');
-                } else {
-                    errEl.textContent = result.error || 'Sync failed';
-                    errEl.classList.remove('hidden');
-                }
-            } catch (err) {
-                errEl.textContent = err.message;
-                errEl.classList.remove('hidden');
-            }
-            btn.textContent = 'Sync';
-            btn.disabled = false;
-        }
         // ── Generic ICS Sync (any ICS-based pilot) ────────────────────────
         function openGenericICSSync(pilotKey) {
             const modal = document.getElementById('ics-sync-modal');
