@@ -3314,12 +3314,21 @@ async function runActiveFlightPoller() {
                 polled.add(callsign);
                 const depUnixSec = row.departure_time ? Math.floor(new Date(row.departure_time).getTime() / 1000) : null;
                 try {
-                    const data = await fetchAdsbPosition(callsign);
+                    // fetchLivePosition() (not fetchAdsbPosition() directly) -- checks STDDS/SWIM
+                    // first and only falls through to a real ADS-B HTTP call when neither already
+                    // has this flight. Most of CrewSync's traffic is domestic and SWIM-covered now
+                    // (widened relevance window + always-watched trail, both added earlier today),
+                    // so calling ADS-B unconditionally here was a real, avoidable cost: a redundant
+                    // rate-limited third-party HTTP request every 15s per active flight, AND a risk
+                    // of this cache write clobbering a fresher SWIM-sourced _liveCache entry with a
+                    // stale ADS-B one for up to LIVE_TTL. processPositionUpdate() is a no-op for a
+                    // SWIM/STDDS-sourced result (no .hex), same as before for those sources.
+                    const data = await fetchLivePosition(callsign);
                     processPositionUpdate(data, depUnixSec);
                     // Update the live cache so the next client poll gets pre-built data
                     _liveCache[callsign] = { ts: Date.now(), data };
-                    if (data.found && !data.parked) console.log(`Poller: ${callsign} ${data.onGround ? (data.speedKts > 5 ? 'taxiing' : 'ground') : `${data.altFt ? Math.round(data.altFt) + 'ft' : 'airborne'}`} trail=${_posTrail[data.hex]?.length ?? 0}pts`);
-                } catch (_) {} // flight not yet airborne or ADS-B unavailable
+                    if (data.found && !data.parked) console.log(`Poller: ${callsign} ${data.onGround ? (data.speedKts > 5 ? 'taxiing' : 'ground') : `${data.altFt ? Math.round(data.altFt) + 'ft' : 'airborne'}`} trail=${_posTrail[data.hex]?.length ?? 0}pts${data.source ? ` [${data.source}]` : ''}`);
+                } catch (_) {} // flight not yet airborne or no source available
             }
             // Wider swimRelevant set, refreshed every 15s — SWIM only needs to retain state for
             // these, not every callsign nationwide. Deliberately NOT the same set `polled` drives

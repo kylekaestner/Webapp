@@ -840,6 +840,17 @@ The `/api/live-position` handler (server.js) now backfills a SWIM/STDDS-sourced 
 
 ---
 
+## Resource usage (1 vCPU/1GB droplet — audited 2026-10-02)
+
+A pass looking specifically for safe, behavior-preserving ways to cut CPU/memory/network load, prompted by this box's history of real CPU incidents (see the FAA SWIM section's deploy history). Found and fixed:
+
+- **No indexes existed anywhere in the schema** (`db.js`) beyond what SQLite creates implicitly for PRIMARY KEY/UNIQUE columns — every lookup by `segments.pilot_id` (`GET /api/pilots/:key`, hit on every page load), `segments.departure_time` (the 15s background poller's range scan across *all* pilots' segments), `pilots.token` (every single authenticated request, via `_resolvePilotToken`), `notifications.pilot_key`, and a friend-request lookup in either direction (`friend_requests` has no canonical requester/recipient ordering, so both columns need their own index) was a full table scan. Added `idx_segments_pilot_id`, `idx_segments_departure_time`, `idx_pilots_token`, `idx_notifications_pilot_key`, `idx_friend_requests_requester`, `idx_friend_requests_recipient` — purely additive (`CREATE INDEX IF NOT EXISTS`), zero behavior change, just faster.
+- **`runActiveFlightPoller()`'s 15s loop called `fetchAdsbPosition()` unconditionally** for every flight in its ADS-B window, even when SWIM or STDDS already had a confirmed live position for it — a real, avoidable rate-limited third-party HTTP call every 15s per active flight, on top of the genuine risk of that write clobbering a fresher SWIM-sourced `_liveCache` entry with a stale ADS-B one for up to `LIVE_TTL` (5s). Now calls `fetchLivePosition(callsign)` instead (checks STDDS/SWIM first, only falls through to the real ADS-B call when neither has anything) — `processPositionUpdate()` was already a no-op for a SWIM/STDDS-sourced result (no `.hex`), so this is a straight swap with no other change needed. Meaningfully cuts outbound ADS-B request volume now that most domestic traffic is SWIM-covered (see the trail/relevance-window fixes above).
+
+**Known, deliberately not changed — too risky for a behavior-preserving pass:** `GET /api/pilots/:key` returns a pilot's **entire** segment history unconditionally (`SELECT * FROM segments WHERE pilot_id = ? ORDER BY departure_time`, no date bound), which grows unbounded over months/years of use. Bounding it would cut real bandwidth/CPU, but the frontend currently assumes the full list is already in `pilotsCache` for things like historical month navigation in "My Routes" — bounding the query without also adding range-fetch logic client-side would silently break that. Worth revisiting as its own scoped feature (add a date-range param, teach the frontend to fetch additional ranges on demand), not a drop-in optimization.
+
+---
+
 ## Upload flow
 
 `handleUpload(input)` (~line 6523):

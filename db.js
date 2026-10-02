@@ -131,6 +131,24 @@ function initDB() {
             UNIQUE(requester_key, recipient_key)
         )`);
 
+        // Indexes — none existed anywhere in this schema before (only the implicit ones SQLite
+        // creates for PRIMARY KEY/UNIQUE columns, e.g. pilots.pilot_key). Every one of these is a
+        // real, frequently-hit query pattern that was doing a full table scan: a pilot's segments
+        // (GET /api/pilots/:key, every page load), the auth token lookup (_resolvePilotToken, on
+        // every single authenticated request), the 15s background flight poller's departure-time
+        // range scan across ALL pilots' segments, a pilot's own notification feed, and a friend
+        // lookup in either direction (friend_requests has no canonical requester/recipient
+        // ordering — see its declaration comment above — so both columns need their own index to
+        // serve a query checking "either direction"). Purely additive and behavior-neutral: these
+        // only speed up existing queries, never change what they return. IF NOT EXISTS makes this
+        // safe to run on every startup.
+        db.run(`CREATE INDEX IF NOT EXISTS idx_segments_pilot_id ON segments(pilot_id)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_segments_departure_time ON segments(departure_time)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_pilots_token ON pilots(token)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_notifications_pilot_key ON notifications(pilot_key)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_friend_requests_requester ON friend_requests(requester_key)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_friend_requests_recipient ON friend_requests(recipient_key)`);
+
         // Migrations: add columns if they don't exist yet
         db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE segments ADD COLUMN block_minutes INTEGER`, () => {});
