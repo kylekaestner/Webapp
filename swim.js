@@ -507,8 +507,28 @@ function getSwimPosition(callsign) {
     _watched.add(cs);
 
     const f = _latest[cs];
-    if (!f || f.lat == null || f.lon == null) return null;
-    if (Date.now() - (f.lastMsg || 0) > STALE_MS) return null;
+    if (!f) return null;
+    const hasPosition = f.lat != null && f.lon != null && (Date.now() - (f.lastMsg || 0) <= STALE_MS);
+    if (!hasPosition) {
+        // No live position yet -- normal preflight, before an aircraft is airborne/squawking.
+        // Still surface a filed route if SFDPS has already sent one (flight-plan messages can
+        // arrive well before a position report -- see setRelevantCallsigns()'s widened lookahead
+        // window), so the frontend can draw the planned route ahead of departure. `found: false`
+        // still correctly tells callers there's no live position to track.
+        if (!f.route) return null;
+        return {
+            found: false,
+            hasRoute: true,
+            route: f.route ?? null,
+            originalRoute: f.originalRoute ?? null,
+            origin: f.origin ?? null,
+            dest: f.dest ?? null,
+            routeParsed: f.routeParsed ?? null,
+            sid: f.sid ?? null,
+            star: f.star ?? null,
+            source: 'swim',
+        };
+    }
 
     return {
         found: true,

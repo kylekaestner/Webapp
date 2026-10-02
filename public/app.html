@@ -4828,6 +4828,12 @@
             return result;
         }
 
+        // How far before scheduled departure the planned/filed route (symbols + line, via
+        // startLiveTracking's preflight branch) starts showing, instead of just the plain
+        // scheduled arc -- requested directly, deliberately short so a flight hours or days out
+        // doesn't show "all the route BS" (verbatim), only one genuinely about to depart.
+        const PREFLIGHT_ROUTE_MS = 30 * 60 * 1000;
+
         // Render a polyline on the primary world copy plus ±360°/±720° copies so it
         // appears on every world copy as the user pans east or west.
         const WORLD_OFFSETS = [-2, -1, 0, 1, 2];
@@ -4993,6 +4999,22 @@
                             dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(al, key);
                             if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], alArrUTC, [], weight, monthHits, alDepUTC);
+                        }
+                    } else {
+                        // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
+                        // startLiveTracking()'s own preflight branch no-ops until real FP data
+                        // shows up, so calling it here is harmless if there isn't any yet.
+                        const pf = legs.find(f => {
+                            const d = flightUTCTime(f.departure_time, f.departure_airport);
+                            return d && d > now && (d - now) <= PREFLIGHT_ROUTE_MS;
+                        });
+                        if (pf) {
+                            const pfDepUTC = flightUTCTime(pf.departure_time, pf.departure_airport);
+                            const pfArrUTC = flightUTCTime(pf.arrival_time, pf.arrival_airport);
+                            const dots = worldPlaneMarkers(depC, makePlaneIcon(computeBearing(depC, arrC), pilotColor, null, true));
+                            dots.forEach(d => mapLayers.active.push(d));
+                            const cs = deriveCallsign(pf, key);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], pfArrUTC, [], weight, monthHits, pfDepUTC);
                         }
                     }
 
@@ -5233,6 +5255,20 @@
                         dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(activeLeg, currentPilot);
                         if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], arrTime, hereNowMarkers, weight, hitLines, depTime);
+                    }
+                } else {
+                    // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
+                    const pf = legs.find(f => {
+                        const d = flightUTCTime(f.departureTime, f.departureAirport);
+                        return d && d > now && (d - now) <= PREFLIGHT_ROUTE_MS;
+                    });
+                    if (pf) {
+                        const pfDepTime = flightUTCTime(pf.departureTime, pf.departureAirport);
+                        const pfArrTime = flightUTCTime(pf.arrivalTime, pf.arrivalAirport);
+                        const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), '#22c55e', null, true));
+                        dots.forEach(d => mapLayers.active.push(d));
+                        const cs = deriveCallsign(pf, currentPilot);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], pfArrTime, hereNowMarkers, weight, hitLines, pfDepTime);
                     }
                 }
 
@@ -6005,6 +6041,68 @@
                         return;
                     }
 
+                    // Preflight: show the planned/filed route before the aircraft is actually
+                    // airborne, as long as real FP (flight-plan) data is available -- requested
+                    // directly, scoped to a short pre-departure window by PREFLIGHT_ROUTE_MS at
+                    // the call sites below (a flight hours or days out never reaches this branch
+                    // at all, since startLiveTracking isn't invoked for it yet). No live position
+                    // exists yet, so the plane icon stays hidden (same as any poll before the
+                    // first real airborne fix) and nothing is "flown" -- the whole resolved path
+                    // from the departure airport to the destination is drawn, not just whatever
+                    // would be ahead of a live position that doesn't exist yet. Must come before
+                    // the miss-counting branch below -- falling through to it would misread every
+                    // preflight poll as a missed live fix and eventually trigger landed/early-
+                    // landing cleanup for a flight that hasn't even departed.
+                    if (!d.found && d.hasRoute && !hasBeenAirborne) {
+                        removeArc(); // replaced by the detailed route line below, not stacked under it
+                        const fullResolvedPath = d.routeParsed?.resolvedPath || [];
+                        const midWaypoints = fullResolvedPath.filter(wp => wp.lat != null && wp.lon != null);
+                        const markerWaypoints = midWaypoints.filter(wp => wp.symbol && wp.name);
+                        const pathKey = markerWaypoints.map(wp => `${wp.name}:${wp.lat.toFixed(4)},${wp.lon.toFixed(4)},${wp.symbol}`).join('|');
+                        if (pathKey !== waypointPathKey) {
+                            clearWaypointMarkers();
+                            waypointPathKey = pathKey;
+                            markerWaypoints.forEach((wp, idx) => {
+                                const icon = makeWaypointIcon(wp.symbol);
+                                if (!icon) return;
+                                const shapeColor = _WAYPOINT_SHAPES[wp.symbol].color;
+                                const copies = WORLD_OFFSETS.map(w => {
+                                    const m = L.marker([wp.lat, wp.lon + w * 360], { icon, interactive: false, keyboard: false });
+                                    m.addTo(map);
+                                    waypointMarkers.push(m);
+                                    activeLayersArr.push(m);
+                                    return m;
+                                });
+                                registerWaypointLabel(callsign, copies, wp.name, shapeColor, idx === 0);
+                            });
+                            scheduleDeoverlap();
+                        }
+                        applyRouteDetailZoomTier();
+
+                        // One uniform dashed line for the whole planned route -- not the dashed/
+                        // solid split used once airborne (that distinguishes detail levels ahead
+                        // of a live position, which doesn't apply here). Dashed throughout reads
+                        // as "filed, not yet flown."
+                        const routePoints = [depCoords, ...midWaypoints.map(wp => [wp.lat, wp.lon]), arrCoords];
+                        let fullPath = [];
+                        for (let i = 0; i < routePoints.length - 1; i++) {
+                            const seg = greatCircleArcCoords(routePoints[i], routePoints[i + 1]);
+                            fullPath = fullPath.concat(i === 0 ? seg : seg.slice(1));
+                        }
+                        const fullU = unwrapLongitudes(fullPath);
+                        if (remainDashedLines) {
+                            remainDashedLines.forEach((l, i) => l.setLatLngs(fullU.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
+                        } else {
+                            remainDashedLines = WORLD_OFFSETS.map((w, i) => {
+                                const l = L.polyline(fullU.map(([la, lo]) => [la, lo + w * 360]), { color, weight: lineWeight, opacity: 0.6, smoothFactor: 1, dashArray: '8 10', interactive: false });
+                                l.addTo(map);
+                                activeLayersArr.push(l);
+                                return l;
+                            });
+                        }
+                        return;
+                    }
+
                     if (!d.found || d.lat == null) {
                         missCount++;
                         // See serverConfirmedAirborne's declaration comment -- deliberately NOT
@@ -6630,6 +6728,12 @@
                     const bearing = computeBearing(dotPos, nextPos);
                     const dots = worldPlaneMarkers(dotPos, makePlaneIcon(bearing, color, null, true));
                     dots[2].bindTooltip(`✈ ${(PILOT_NAMES[f.pilotKey] || '').split(' ')[0]} — in the air`, { permanent: false, className: 'dark-popup' });
+                    dots.forEach(d => mapLayers.active.push(d));
+                    const cs = deriveCallsign(f, f.pilotKey);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime);
+                } else if (!landedEarly && depTime > now && (depTime - now) <= PREFLIGHT_ROUTE_MS) {
+                    // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
+                    const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), color, null, true));
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
                     if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime);
