@@ -326,6 +326,25 @@ function processOneMessage(msgObj) {
 }
 
 function handleMessage(xmlText) {
+    // SFDPS is NATIONWIDE en-route traffic -- every IFR flight over the US, not just the handful
+    // CrewSync actually cares about. The real per-flight filter below (_relevantCallsigns) only
+    // runs AFTER a message is already fully parsed into a JS object tree, so every single batch
+    // paid the full xmlParser.parse() cost regardless of whether it contained anything relevant.
+    // Confirmed live: this pegged the production droplet's CPU at 100% and made the server unable
+    // to service HTTP requests at all (Node has one event loop; a saturated CPU blocks everything,
+    // not just this module). A cheap substring scan of the raw text for any watched callsign,
+    // before the real parse, skips the expensive path entirely for the overwhelming majority of
+    // batches -- only a tiny fraction of nationwide traffic is ever one of our ~10-15 active
+    // flights. Only skips once _relevantCallsigns is actually set; null means the startup grace
+    // window before the first poller tick, same fail-open posture as the per-flight filter below.
+    if (_relevantCallsigns) {
+        let hasRelevant = false;
+        for (const cs of _relevantCallsigns) {
+            if (xmlText.includes(cs)) { hasRelevant = true; break; }
+        }
+        if (!hasRelevant) return;
+    }
+
     let parsed;
     try {
         parsed = xmlParser.parse(xmlText);

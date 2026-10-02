@@ -125,6 +125,17 @@ function processOneFltdMessage(msgObj) {
 }
 
 function handleMessage(xmlText) {
+    // Same fix as swim.js's handleMessage -- see its comment for the full incident writeup. TFMS
+    // messages carry `aircraftId` as plain text (processOneFltdMessage), so this is a clean skip
+    // with no GUFI-style caveat like stdds.js's.
+    if (_relevantCallsigns) {
+        let hasRelevant = false;
+        for (const cs of _relevantCallsigns) {
+            if (xmlText.includes(cs)) { hasRelevant = true; break; }
+        }
+        if (!hasRelevant) return;
+    }
+
     let parsed;
     try {
         parsed = xmlParser.parse(xmlText);

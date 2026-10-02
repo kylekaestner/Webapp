@@ -193,6 +193,26 @@ function processSurfaceMovementEvent(root) {
 }
 
 function handleMessage(xmlText) {
+    // Same fix as swim.js's handleMessage -- see its comment for the full incident writeup (this
+    // unfiltered full-parse-per-message pattern pegged the production droplet's CPU at 100% and
+    // took the whole server down, not just this feed). Skips the expensive xmlParser.parse() call
+    // when the raw text contains none of our watched callsigns as plain text.
+    //
+    // One real tradeoff accepted here, not present in swim.js: `asdexMsg` surface contacts are
+    // sometimes identified only by GUFI (cross-referenced to a callsign via swim.callsignForGufi()
+    // AFTER parsing, see processAsdex), not by callsign text directly -- a message like that could
+    // in principle be relevant without this substring check ever seeing it. In practice this was
+    // already a best-effort path (the existing code comments note these "can't be attributed
+    // without a GUFI" and "will almost always be skipped" regardless), so this doesn't meaningfully
+    // change what was already a lossy fallback -- but it's a real, conscious tradeoff, not a free one.
+    if (_relevantCallsigns) {
+        let hasRelevant = false;
+        for (const cs of _relevantCallsigns) {
+            if (xmlText.includes(cs)) { hasRelevant = true; break; }
+        }
+        if (!hasRelevant) return;
+    }
+
     let parsed;
     try {
         parsed = xmlParser.parse(xmlText);
