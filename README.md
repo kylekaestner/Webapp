@@ -84,6 +84,12 @@ Add flights manually for any pilot in four categories:
 - Trail seeded from flight history on server start
 - Green animated arc shows predicted path for active flights
 
+### Live Route Detail (FAA SWIM)
+- For a tracked live flight, the remaining route (dashed plane→next-fix, solid fix-to-fix, dashed last-fix→destination) is resolved from real FAA data feeds (SFDPS/STDDS/TFMS/TFDM) and FAA NASR navigation data, not just a straight line between departure/arrival
+- **✦ RTE** toggle shows/hides named route points (VOR/fix/RNAV waypoint) using real chart symbology (hexagon/triangle/four-point star); labels appear progressively with zoom, symbols always show
+- A small green VCI-style glyph next to a live flight's label marks a position confirmed via real SWIM data rather than the public ADS-B fallback
+- See `CLAUDE.md`'s "FAA SWIM integration" section for the full pipeline (route string parsing, NASR fix/procedure/airway resolution, runway-aware SID/STAR body selection)
+
 ### Mobile
 - Installable as a home screen webapp (iOS Safari)
 - Pilot identity resolved from personalized link

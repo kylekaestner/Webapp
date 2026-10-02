@@ -265,6 +265,19 @@
 
             <h3>Weather Radar</h3>
             <p>The radar toggle (top-right of the map) overlays live precipitation radar. Useful for checking weather along a route.</p>
+
+            <h3>Live route detail</h3>
+            <p>While a flight is airborne and being live-tracked, the remaining route ahead of the aircraft is drawn in three pieces: <strong>dashed</strong> from the plane to the next fix, <strong>solid</strong> between each subsequent filed fix, and <strong>dashed</strong> again from the last fix to the destination airport.</p>
+            <p>The <strong>✦ RTE</strong> toggle (next to the Radar button) shows or hides the named points along that route — VORs, intersections, and RNAV/GPS waypoints — using the same symbols as a real aeronautical chart:</p>
+            <ul>
+                <li><strong>Hexagon</strong> — VOR</li>
+                <li><strong>Triangle</strong> — intersection / fix</li>
+                <li><strong>Four-point star</strong> — RNAV/GPS waypoint</li>
+            </ul>
+            <p>Symbols are always shown while the toggle is on; their name labels fade in progressively as you zoom in, so a long route doesn't turn into a wall of overlapping text when zoomed out.</p>
+            <div class="callout callout-zinc">
+                A small green checkmark glyph next to a live flight's callsign means its position is confirmed via real FAA data feeds, not just the public ADS-B network.
+            </div>
         </section>
 
         <hr class="section-divider">
