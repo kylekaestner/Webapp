@@ -3242,10 +3242,22 @@ function normalizeFlightNum(fn, carrier) {
 // ── Background flight poller ────────────────────────────────────────────
 // Polls ADS-B every 45 s for any scheduled flight whose departure window is
 // active. Builds the trail whether or not any client is connected.
+// How far before scheduled departure each feed is told a flight is "relevant":
+//   ADS_B — an aircraft can't plausibly be squawking/detectable before this, and every check
+//           costs a real, rate-limited external API call, so keep it tight.
+//   SWIM  — SFDPS/STDDS/TFMS/TFDM are push streams, not a per-call API — there's no cost to
+//           widening this. A flight plan is commonly filed/activated in the NAS well before an
+//           aircraft is actually airborne, so a narrow window here would silently drop early
+//           route/SID/STAR data that's already available — requested directly after noticing
+//           route data could plausibly arrive "preflight."
+const ADSB_LOOKAHEAD_MS = 30 * 60 * 1000;
+const SWIM_LOOKAHEAD_MS = 4 * 60 * 60 * 1000;
+const POLLER_LOOKBACK_MS = 8 * 60 * 60 * 1000; // both feeds: how long after departure to keep caring
+
 async function runActiveFlightPoller() {
     const db = getDB();
     const now = new Date();
-    // SQL-level prefilter only — deliberately widened well beyond the real 8h/30m intent to
+    // SQL-level prefilter only — deliberately widened well beyond either real window above to
     // compensate for comparing local-time strings against a UTC cutoff (SQLite can't do
     // per-row timezone conversion; departure_airport isn't known until the row comes back).
     // This widened window exists purely so the query doesn't scan the whole segments table —
@@ -3253,7 +3265,7 @@ async function runActiveFlightPoller() {
     // per-row in JS below using the same localTZToUTC/_aptTimezone helpers the ICS parsers
     // already use elsewhere in this file. Read-only SELECT — never touches stored times.
     const prefilterPast   = new Date(now.getTime() - 18 * 60 * 60 * 1000).toISOString().slice(0, 16);
-    const prefilterFuture = new Date(now.getTime() + 10.5 * 60 * 60 * 1000).toISOString().slice(0, 16);
+    const prefilterFuture = new Date(now.getTime() + (SWIM_LOOKAHEAD_MS + 6.5 * 60 * 60 * 1000)).toISOString().slice(0, 16);
 
     db.all(
         `SELECT s.flight_number, s.departure_time, s.departure_airport, s.pilot_id,
@@ -3266,22 +3278,26 @@ async function runActiveFlightPoller() {
         [prefilterPast, prefilterFuture],
         async (err, rows) => {
             if (err) return;
-            const polled = new Set();
+            const polled = new Set();       // drives real fetchAdsbPosition() calls — narrow window
+            const swimRelevant = new Set(); // drives swim/stdds/tfms/tfdm — wider window, no API cost
             for (const row of (rows || [])) {
-                // Real, timezone-correct relevance check: the 8h-past/30m-future window this
-                // function has always documented, now actually measured in true elapsed time
-                // rather than a same-looking-but-different-timezone string comparison.
+                // Real, timezone-correct relevance check, now actually measured in true elapsed
+                // time rather than a same-looking-but-different-timezone string comparison.
+                // No known timezone for this airport → treat as "in both windows" rather than
+                // silently dropping a flight we can't accurately check.
+                let inAdsbWindow = true, inSwimWindow = true;
                 if (row.departure_time && row.departure_airport) {
                     const tz = _aptTimezone[row.departure_airport];
                     if (tz) {
                         const compact = row.departure_time.replace(/[-:]/g, '');
                         const depUTC = new Date(localTZToUTC(compact, tz));
                         const diffMs = now.getTime() - depUTC.getTime();
-                        if (diffMs > 8 * 60 * 60 * 1000 || diffMs < -30 * 60 * 1000) continue;
+                        inAdsbWindow = diffMs <= POLLER_LOOKBACK_MS && diffMs >= -ADSB_LOOKAHEAD_MS;
+                        inSwimWindow = diffMs <= POLLER_LOOKBACK_MS && diffMs >= -SWIM_LOOKAHEAD_MS;
                     }
-                    // No known timezone for this airport — fall through and keep the row rather
-                    // than silently drop a flight we can't accurately check.
                 }
+                if (!inAdsbWindow && !inSwimWindow) continue;
+
                 const airlineCode = (row.airline_code || '').toUpperCase();
                 const rawFlightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
                 if (!rawFlightNum) continue;
@@ -3292,8 +3308,9 @@ async function runActiveFlightPoller() {
                 // comment above for why the old naive concatenation here was a real, live bug.
                 const callsign = normalizeFlightNum(rawFlightNum, airlineCode);
                 if (!callsign) continue;
-                if (polled.has(callsign)) continue;
                 if (_parkedCallsigns.has(callsign)) continue; // already completed this flight
+                if (inSwimWindow) swimRelevant.add(callsign);
+                if (!inAdsbWindow || polled.has(callsign)) continue;
                 polled.add(callsign);
                 const depUnixSec = row.departure_time ? Math.floor(new Date(row.departure_time).getTime() / 1000) : null;
                 try {
@@ -3304,10 +3321,13 @@ async function runActiveFlightPoller() {
                     if (data.found && !data.parked) console.log(`Poller: ${callsign} ${data.onGround ? (data.speedKts > 5 ? 'taxiing' : 'ground') : `${data.altFt ? Math.round(data.altFt) + 'ft' : 'airborne'}`} trail=${_posTrail[data.hex]?.length ?? 0}pts`);
                 } catch (_) {} // flight not yet airborne or ADS-B unavailable
             }
-            swim.setRelevantCallsigns(polled); // same scheduled-flight set, refreshed every 15s — SWIM only needs to retain state for these, not every callsign nationwide
-            stdds.setRelevantCallsigns(polled);
-            tfms.setRelevantCallsigns(polled);
-            tfdm.setRelevantCallsigns(polled);
+            // Wider swimRelevant set, refreshed every 15s — SWIM only needs to retain state for
+            // these, not every callsign nationwide. Deliberately NOT the same set `polled` drives
+            // (see ADSB_LOOKAHEAD_MS/SWIM_LOOKAHEAD_MS above).
+            swim.setRelevantCallsigns(swimRelevant);
+            stdds.setRelevantCallsigns(swimRelevant);
+            tfms.setRelevantCallsigns(swimRelevant);
+            tfdm.setRelevantCallsigns(swimRelevant);
         }
     );
 }
