@@ -27,6 +27,25 @@ const SFDPS_QUEUE = process.env.SFDPS_QUEUE;
 
 const SWIM_ENABLED = !!(SFDPS_HOST && SFDPS_VPN && SFDPS_USER && SFDPS_PASS && SFDPS_QUEUE);
 
+// TEMP — checking whether SFDPS actually carries a real ATC frequency assignment anywhere in a
+// relevant flight's FIXM message (requested: show "active frequency" on a live flight label, if
+// it's genuinely available). Same one-time dump pattern as tfdm.js's own sample capture — only
+// ever writes raw XML for messages that already passed the relevant-callsign filter (so this
+// never touches the nationwide-volume path the CPU incident was about), caps itself, and is safe
+// to leave in briefly. Remove once this question is answered either way.
+const SWIM_DUMP_DIR = path.join(__dirname, 'scratch', 'swim-samples');
+let _swimDumpCount = 0;
+const SWIM_DUMP_CAP = 15;
+function dumpSwimSample(xmlText) {
+    if (_swimDumpCount >= SWIM_DUMP_CAP) return;
+    try {
+        fs.mkdirSync(SWIM_DUMP_DIR, { recursive: true });
+        fs.writeFileSync(path.join(SWIM_DUMP_DIR, `sample-${Date.now()}-${_swimDumpCount}.xml`), xmlText);
+        _swimDumpCount++;
+        if (_swimDumpCount === SWIM_DUMP_CAP) console.log(`[SWIM] collected ${SWIM_DUMP_CAP} raw relevant-flight samples in ${SWIM_DUMP_DIR} -- checking for a frequency field`);
+    } catch (e) {}
+}
+
 const STALE_MS  = 10 * 60 * 1000; // a position older than this isn't offered as a fresh hit
 const PURGE_MS  = 60 * 60 * 1000; // drop a watched flight's trail after this long with no update
 const LATEST_PURGE_MS = 2 * 60 * 60 * 1000; // cheap latest-position-only entries live longer
@@ -357,6 +376,8 @@ function handleMessage(xmlText) {
         }
         if (!hasRelevant) return;
     }
+
+    dumpSwimSample(xmlText); // TEMP — checking for a real ATC frequency field, see its own comment
 
     let parsed;
     try {
