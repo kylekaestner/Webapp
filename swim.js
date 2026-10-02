@@ -34,7 +34,14 @@ const LATEST_PURGE_MS = 2 * 60 * 60 * 1000; // cheap latest-position-only entrie
 // Two tiers, since SFDPS covers the whole country's en-route traffic and CrewSync only
 // cares about a handful of callsigns at any given time:
 //   _latest  — lat/lon/altitude only, kept for every callsign the feed mentions (cheap)
-//   _watched — full trail history, only built for callsigns someone has actually looked up
+//   _watched — full trail history, built for every scheduled-relevant callsign automatically
+//              (see setRelevantCallsigns() below) from ~30min before departure, not just
+//              whichever ones a client happens to have looked at. Confirmed live this
+//              distinction mattered: a flight (SWA133) added to CrewSync mid-flight had a real
+//              gap back to departure in its SWIM trail, because the only thing that used to set
+//              _watched was a client actually hitting /api/live-position for that callsign --
+//              being in _relevantCallsigns (i.e. "CrewSync knows about this flight and SWIM is
+//              already receiving its position") did NOT by itself mean its trail was being kept.
 const _latest  = {};  // callsign -> { lat, lon, altFt, heading, onGround, lastMsg, gufi, origin, dest }
 const _watched = new Set();
 
@@ -57,6 +64,12 @@ function setRelevantCallsigns(set) {
     for (const cs of Object.keys(_latest)) {
         if (!_relevantCallsigns.has(cs)) { delete _latest[cs]; _watched.delete(cs); }
     }
+    // Start trail recording the moment a flight becomes relevant (runActiveFlightPoller refreshes
+    // this every 15s off the real -8h/+30min schedule window), not only once a client happens to
+    // open the live map for it — see _watched's declaration comment above for the real SWA133 gap
+    // this closes. getSwimPosition() below still does its own _watched.add() too, as a harmless
+    // fallback for any callsign asked about that isn't (yet, or for some edge case) relevant.
+    for (const cs of _relevantCallsigns) _watched.add(cs);
 }
 
 const TRAIL_CACHE_FILE = path.join(__dirname, '.swim_trail_cache.json');
@@ -484,12 +497,14 @@ function startConsumer() {
 
 // Same response shape fetchAdsbPosition()/parseAdsbAircraft() already produce in server.js,
 // so the rest of the live-tracking pipeline doesn't need to know which source answered.
-// Starts trail accumulation for this callsign if it isn't already being watched.
 function getSwimPosition(callsign) {
     if (!_connected) return null; // connection down — defer to ADS-B immediately, don't wait for per-callsign staleness
     const cs = String(callsign || '').trim().toUpperCase();
     if (!cs) return null;
-    _watched.add(cs); // lazy: begin keeping full trail history now that someone's asked
+    // setRelevantCallsigns() is the real trigger now (trail starts ~30min before departure,
+    // whether or not a client ever asks). This is just a fallback for a callsign asked about
+    // outside that set for some reason — harmless, Set.add() is idempotent either way.
+    _watched.add(cs);
 
     const f = _latest[cs];
     if (!f || f.lat == null || f.lon == null) return null;
