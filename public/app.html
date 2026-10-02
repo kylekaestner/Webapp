@@ -6252,12 +6252,32 @@
                     // could swallow an entire short STAR leg between closely-spaced fixes (a
                     // screen-pixel gap, even capped per-leg) -- real, confirmed bugs from that
                     // approach. Relying on z-order has neither failure mode.
-                    const remainPartsAll = legBounds.map(([s, e], i) => ({
-                        points: remainSegs.slice(s, e + 1),
-                        dashed: i === 0 || i === legBounds.length - 1,
-                    }));
-                    const dashedParts = remainPartsAll.filter(p => p.dashed).map(p => p.points);
-                    const solidParts = remainPartsAll.filter(p => !p.dashed).map(p => p.points);
+                    //
+                    // Each run (lead dashed / solid middle / trail dashed) must be ONE continuous
+                    // points array, not one array per leg. Confirmed live this was a real bug, not
+                    // just a style choice: `piece = i === 0 ? seg : seg.slice(1)` (above) drops each
+                    // non-first leg's shared junction point so it isn't duplicated in the single
+                    // concatenated remainPath -- fine for a continuous array, but passing one
+                    // sub-array PER LEG to L.polyline makes it a multi-part polyline, and every
+                    // middle leg beyond the first then starts one point short of the fix it's
+                    // supposed to connect to, rendering as visibly disconnected pieces instead of
+                    // one solid line through every fix. Slicing the underlying continuous
+                    // remainSegs array across each leg's full index range (rather than per-leg)
+                    // keeps every run gap-free by construction.
+                    const numLegs = legBounds.length;
+                    const dashedParts = [];
+                    let solidParts = [];
+                    if (numLegs === 1) {
+                        dashedParts.push(remainSegs.slice(legBounds[0][0], legBounds[0][1] + 1));
+                    } else if (numLegs === 2) {
+                        // No middle fix at all -- the two dashed legs are adjacent, so merge them
+                        // into one continuous run too rather than leaving a micro-gap between them.
+                        dashedParts.push(remainSegs.slice(legBounds[0][0], legBounds[1][1] + 1));
+                    } else {
+                        dashedParts.push(remainSegs.slice(legBounds[0][0], legBounds[0][1] + 1));
+                        dashedParts.push(remainSegs.slice(legBounds[numLegs - 1][0], legBounds[numLegs - 1][1] + 1));
+                        solidParts = [remainSegs.slice(legBounds[1][0], legBounds[numLegs - 2][1] + 1)];
+                    }
 
                     const renderRemainGroup = (existingLines, parts, dashArray) => {
                         if (existingLines) {
