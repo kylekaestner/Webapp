@@ -6238,10 +6238,18 @@
                     const legBounds = []; // [startIdx, endIdx] into remainPath, per leg
                     let remainPath = [];
                     for (let i = 0; i < routePoints.length - 1; i++) {
+                        // Full arc every leg, including both endpoints -- no longer dropping the
+                        // duplicate shared junction point. The dedup saved one redundant vertex per
+                        // leg (harmless either way for a polyline) but meant legBounds[i][0] didn't
+                        // exactly equal the previous leg's last point, which left a hairline-to-
+                        // sometimes-visible gap right at the fix wherever two differently-styled
+                        // runs (dashed/solid) met -- confirmed live at the active fix where the
+                        // lead dashed run ends and the solid run begins. Always including both
+                        // endpoints means every leg's own slice starts and ends exactly on its
+                        // fixes, so any boundary between runs lines up precisely with no gap.
                         const seg = greatCircleArcCoords(routePoints[i], routePoints[i + 1]);
-                        const piece = i === 0 ? seg : seg.slice(1); // avoid duplicating the shared junction point
                         const startIdx = remainPath.length;
-                        remainPath = remainPath.concat(piece);
+                        remainPath = remainPath.concat(seg);
                         legBounds.push([startIdx, remainPath.length - 1]);
                     }
                     const remainSegs = unwrapLongitudes(remainPath);
