@@ -5777,6 +5777,16 @@
             _deoverlapTimer = setTimeout(deoverlapLiveLabels, 300);
         }
 
+        // The real ERAM Visual Communications Indicator (VCI) icon -- a small green bracket shown
+        // on a controller's Full Data Block once an aircraft checks in on frequency, pulled
+        // directly from yanjz124/SwimReader's own ERAM reference docs (public domain real FAA
+        // scope symbology, not this app's own artwork). Embedded as a data URI rather than
+        // hand-redrawn as an SVG approximation, since the ask was specifically to use this exact
+        // icon. Repurposed here to mean "this poll's position came from real FAA SWIM data
+        // (SFDPS/STDDS), not the ADS-B fallback" -- same "confirmed via a real FAA source" spirit,
+        // not a literal frequency check-in (this app has no voice comms to check in on).
+        const VCI_ICON_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAQMAAAAlPW0iAAAABlBMVEUAABkAzADvOTmYAAAALElEQVQI12OAAAUGBj0GBsUGBgUHBgUFBh0BBmUBBkUOBoUOIALJ2v+BKAQAX8QE0x7YqZMAAAAASUVORK5CYII=';
+
         function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null) {
             const newRouteLines = Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
             const newHitLines = hitLines || [];
@@ -5812,8 +5822,22 @@
             if (radarOn && !radarLayer) addRadarLayer();
 
             const tooltipOpts = { permanent: true, className: 'live-label', direction: 'right', offset: [14, 0] };
-            const baseTooltip = `<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
-                (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : '');
+            // Small green checkmark-bracket glyph before the callsign when this poll's position
+            // came from real FAA SWIM data (SFDPS/STDDS) rather than the ADS-B fallback -- modeled
+            // on ERAM's own Visual Communications Indicator (VCI), a green symbol controllers see
+            // on a Full Data Block once an aircraft has checked in on frequency. Repurposed here to
+            // mean "this is confirmed SWIM data," the same "real FAA source, not a public ADS-B
+            // aggregator" distinction, not a literal frequency check-in (this app has no voice
+            // comms to check in on). `source` is undefined for the plain ADS-B shape
+            // (parseAdsbAircraft never sets it) and 'swim'/'stdds' for the real SWIM sources.
+            const VCI_GLYPH = `<img src="${VCI_ICON_DATA_URI}" width="9" height="9" style="display:inline-block;vertical-align:middle;margin-right:3px;image-rendering:pixelated" alt="">`;
+            const buildBaseTooltip = (source) => {
+                const vci = (source === 'swim' || source === 'stdds')
+                    ? `<span title="Confirmed via real FAA SWIM data">${VCI_GLYPH}</span>` : '';
+                return `${vci}<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
+                    (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : '');
+            };
+            const baseTooltip = buildBaseTooltip(null); // source unknown until the first poll resolves
             // Start hover-only — tooltip goes permanent once ADS-B confirms airborne
             markers.forEach(m => m.bindTooltip(baseTooltip, { ...tooltipOpts, permanent: false }));
             const labelEntry = { markers, html: baseTooltip, direction: 'right' };
@@ -6056,7 +6080,7 @@
                             groundLabel = isTaxiing ? `Taxiing for departure` : 'On ground';
                             groundLabelColor = '#71717a';
                         }
-                        setAllTooltip(baseTooltip + `<br><span style="font-size:9px;color:${groundLabelColor};font-weight:700">${groundLabel}</span>`);
+                        setAllTooltip(buildBaseTooltip(d.source) + `<br><span style="font-size:9px;color:${groundLabelColor};font-weight:700">${groundLabel}</span>`);
                         // The static arc popup was built from schedule alone and may still say
                         // "IN THE AIR" even though ADS-B shows this aircraft hasn't lifted off
                         // (or has already landed) — overwrite it with the real ground state.
@@ -6255,7 +6279,7 @@
                     const altFt = d.altFt ? Math.round(d.altFt) : null;
                     const kts   = d.speedKts ? Math.round(d.speedKts) : null;
                     const detail = [altFt ? `${altFt.toLocaleString()} ft` : null, kts ? `${kts} kts` : null].filter(Boolean).join(' · ');
-                    setAllTooltip(baseTooltip + (detail ? `<br><span style="font-size:9px;color:#71717a">${detail}</span>` : ''));
+                    setAllTooltip(buildBaseTooltip(d.source) + (detail ? `<br><span style="font-size:9px;color:#71717a">${detail}</span>` : ''));
                     scheduleDeoverlap();
                 } catch (_) {}
             };
