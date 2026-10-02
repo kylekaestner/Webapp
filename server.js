@@ -3148,6 +3148,35 @@ app.get('/api/live-position', async (req, res) => {
     res.json(data);
 });
 
+// Server-side mirror of app.html's IATA_TO_CALLSIGN/normalizeFlightNum — kept in sync manually
+// since browser code can't be required here. Needed because runActiveFlightPoller was building
+// _relevantCallsigns (what swim.js/stdds.js/tfms.js actually filter nationwide SWIM traffic down
+// to) with a naive `pilot.airline_code + flightNumber` concatenation and no IATA→ICAO awareness
+// at all. That's silently wrong for any flight whose flight_number already carries a DIFFERENT
+// airline's IATA prefix than the pilot's own airline_code -- the exact shape of a personal trip,
+// deadhead, or commute logged on another carrier (e.g. a GJS-flying pilot's personal ride on
+// United, flight_number "UA2042"). The old code produced "GJS" + "UA2042" = "GJSUA2042", a
+// callsign matching nothing real -- meaning that flight got ZERO SFDPS/STDDS/TFMS coverage,
+// silently falling back to ADS-B-only for position and never getting route data at all. Found
+// live on prod: a pilot's real UA2042 flight had no route and the poller's own log showed it
+// repeatedly hitting ADS-B for a callsign that could never resolve.
+const IATA_TO_CALLSIGN = {
+    G7: 'GJS', OO: 'SKW', YX: 'RPA', '9E': 'FLG',
+    UA: 'UAL', DL: 'DAL', AA: 'AAL', WN: 'SWA', AS: 'ASA',
+    B6: 'JBU', F9: 'FFT', NK: 'NKS', G4: 'AAY', SY: 'SCX',
+    HA: 'HAL', MX: 'MXY', VX: 'VRD',
+    AC: 'ACA', WS: 'WJA', WE: 'SWG',
+};
+const IATA_TO_CALLSIGN_ENTRIES = Object.entries(IATA_TO_CALLSIGN);
+function normalizeFlightNum(fn, carrier) {
+    if (!fn) return '';
+    for (const [iata, icao] of IATA_TO_CALLSIGN_ENTRIES) {
+        if (fn.startsWith(iata) && /^\d+$/.test(fn.slice(iata.length))) return icao + fn.slice(iata.length);
+    }
+    if (carrier && /^\d+$/.test(fn)) return carrier + fn;
+    return fn;
+}
+
 // ── Background flight poller ────────────────────────────────────────────
 // Polls ADS-B every 45 s for any scheduled flight whose departure window is
 // active. Builds the trail whether or not any client is connected.
@@ -3192,11 +3221,15 @@ async function runActiveFlightPoller() {
                     // than silently drop a flight we can't accurately check.
                 }
                 const airlineCode = (row.airline_code || '').toUpperCase();
-                let flightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
-                // Strip airline prefix if the DB already stores it (e.g. "SKW5613" → "5613")
-                if (airlineCode && flightNum.startsWith(airlineCode)) flightNum = flightNum.slice(airlineCode.length);
-                if (!airlineCode || !flightNum) continue;
-                const callsign = airlineCode + flightNum;
+                const rawFlightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
+                if (!rawFlightNum) continue;
+                // normalizeFlightNum handles both shapes: a bare number ("2042") combined with the
+                // pilot's own airline_code, AND a flight_number that already carries a DIFFERENT
+                // airline's IATA prefix (e.g. "UA2042" on a personal/deadhead ride) converted to
+                // its real ICAO callsign regardless of the pilot's own carrier -- see its header
+                // comment above for why the old naive concatenation here was a real, live bug.
+                const callsign = normalizeFlightNum(rawFlightNum, airlineCode);
+                if (!callsign) continue;
                 if (polled.has(callsign)) continue;
                 if (_parkedCallsigns.has(callsign)) continue; // already completed this flight
                 polled.add(callsign);
