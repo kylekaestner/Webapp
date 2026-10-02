@@ -2874,6 +2874,12 @@ const _flightState = {}; // hex → { hasBeenAirborne, groundStillCount }
 const _callsignToHex = {}; // callsign → last-known hex (survives cache expiry)
 const _hexToCallsign = {}; // hex → last-known callsign, used to detect a new leg on the same airframe
 const _parkedCallsigns = new Set(); // suppress background polling after flight completes
+// Callsigns whose SWIM/STDDS trail has already had its missing head backfilled from ADS-B
+// history (see the live-position handler below) -- done once per flight instance, not every
+// 8s poll, since it costs a real ADS-B API call. Cleared whenever that callsign is confirmed
+// parked so the same flight NUMBER's next day's flight (a different physical flight reusing
+// the same callsign) gets backfilled fresh instead of being silently skipped forever.
+const _swimTrailBackfilled = new Set();
 const _earlyLandings = {}; // date (YYYY-MM-DD) → Set<callsign> — flights that landed before scheduled arrival
 
 function parseAdsbAircraft(s, callsign) {
@@ -2932,7 +2938,7 @@ function processPositionUpdate(data, sinceUnixSec = null) {
                 delete _trailLastTime[hex];
                 delete _trailSeedTime[hex];
                 _trailSeeded.delete(hex);
-                if (data.callsign) _parkedCallsigns.add(data.callsign);
+                if (data.callsign) { _parkedCallsigns.add(data.callsign); _swimTrailBackfilled.delete(data.callsign); }
                 scheduleTrailSave();
                 return; // no trail to attach
             }
@@ -3070,7 +3076,9 @@ async function fetchLivePosition(callsign) {
         // regardless of which source actually detected the arrival.
         if (stddsHit.event === 'spotin') {
             stddsHit.parked = true;
-            _parkedCallsigns.add(String(callsign).toUpperCase().trim());
+            const cs = String(callsign).toUpperCase().trim();
+            _parkedCallsigns.add(cs);
+            _swimTrailBackfilled.delete(cs);
         }
         return stddsHit;
     }
@@ -3169,6 +3177,33 @@ app.get('/api/live-position', async (req, res) => {
     if (_hex && data.found && !data.onGround && (!data.trail || data.trail.length < 2)) {
         await (_trailSeedPromise[_hex] || Promise.resolve());
         if (_posTrail[_hex]?.length >= 2) data.trail = [..._posTrail[_hex]];
+    }
+
+    // Backfill a SWIM/STDDS trail's missing head from ADS-B, once per flight instance. SWIM's
+    // own trail only starts accumulating once a client first asks about a callsign (swim.js's
+    // "lazy" _watched.add) -- a flight live-tracked well after its actual departure has a trail
+    // that starts mid-flight, not at the airport. ADS-B's own trail is separately seeded from
+    // real flight history on first contact (fetchAdsbPosition's own seeding via adsb.lol/
+    // OpenSky) and can often reach back further. Only ever done once per callsign (not every 8s
+    // poll) -- repeating it would add real load to the ADS-B services SWIM exists partly to
+    // reduce reliance on, for a trail head that never changes once established.
+    if (!_hex && data.found && data.trail && !_swimTrailBackfilled.has(callsign)) {
+        _swimTrailBackfilled.add(callsign);
+        try {
+            // fetchAdsbPosition() alone returns no trail -- processPositionUpdate() is what
+            // starts hex-keyed trail bookkeeping and kicks off the real OpenSky history seed
+            // (same two steps the existing adsb.lol-seed block above does for a pure-ADS-B
+            // first contact), so both are needed here too.
+            const adsbHit = await fetchAdsbPosition(callsign);
+            if (adsbHit?.hex) {
+                processPositionUpdate(adsbHit);
+                await (_trailSeedPromise[adsbHit.hex] || Promise.resolve());
+                const fullAdsbTrail = _posTrail[adsbHit.hex] || [];
+                const cutoffMs = data.trail.length ? data.trail[0][2] : Date.now();
+                const headFromAdsb = fullAdsbTrail.filter(pt => pt[2] < cutoffMs);
+                if (headFromAdsb.length) data.trail = [...headFromAdsb, ...data.trail];
+            }
+        } catch (_) {} // best-effort -- the SWIM/STDDS-sourced response is still valid without this
     }
 
     _liveCache[callsign] = { ts: Date.now(), data };
