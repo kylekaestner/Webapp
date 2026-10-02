@@ -135,7 +135,7 @@ function initDB() {
         db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE segments ADD COLUMN block_minutes INTEGER`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN role TEXT DEFAULT ''`, () => {});
-        db.run(`ALTER TABLE pilots ADD COLUMN parser_type TEXT DEFAULT 'csv'`, () => {});
+        db.run(`ALTER TABLE pilots ADD COLUMN parser_type TEXT DEFAULT 'other'`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN airline_code TEXT DEFAULT ''`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN home_airport TEXT DEFAULT ''`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN last_active TEXT`, () => {});
@@ -267,6 +267,14 @@ function initDB() {
                 });
             });
         });
+
+        // parser_type 'csv' was renamed to 'csv_republic' (2026-10-02) -- it was always
+        // specifically Republic's column format (DATE/DEP/ARR/DEPTIME/ARRTIME), not a generic
+        // catch-all, and the bare name made that easy to mistake. Naturally idempotent (a second
+        // run matches nothing, since no code path writes the old bare 'csv' value anymore -- the
+        // unset-parser_type fallback changed to 'other' in the same pass), so no settings flag
+        // needed to guard it.
+        db.run(`UPDATE pilots SET parser_type='csv_republic' WHERE parser_type='csv'`);
     });
 }
 

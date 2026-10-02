@@ -7185,7 +7185,7 @@
         // picks the right parser based on pilots.parser_type in the DB:
         //   'ics'            -> parseICS()        (Schedaero .ics)
         //   'ics_rosterbuster'-> parseICS()       (RosterBuster .ics -- same format)
-        //   'csv'            -> parseCSV()        (generic scheduling CSV)
+        //   'csv_republic'   -> parseCSV()        (Republic Airways CSV layout)
         //   'csv_skywest'    -> parseSkyWestCSV() (SkyWest-specific CSV layout)
         // After parsing, uploadPilotSchedule() POSTs the events[] to the server.
         function parseICS(text) {
@@ -8496,7 +8496,7 @@ async function openAdminPanel(tab = 'users') {
                 const color = isViewer ? '#10b981' : (PILOT_COLORS[u.pilot_key] || '#6366f1');
                 const subtext = isViewer
                     ? `${u.pilot_key} · View only`
-                    : `${u.pilot_key} · base ${u.base || '—'}${u.home_airport && !sameApt(u.home_airport, u.base) ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'csv'}`;
+                    : `${u.pilot_key} · base ${u.base || '—'}${u.home_airport && !sameApt(u.home_airport, u.base) ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'other'}`;
                 let warnCount = 0;
                 try { warnCount = u.parser_warnings ? JSON.parse(u.parser_warnings).length : 0; } catch { warnCount = 0; }
                 return `<div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4 hover:border-zinc-700 transition-colors" style="${isViewer ? 'border-color:#166534' : ''}">
@@ -8758,7 +8758,7 @@ async function openAdminPanel(tab = 'users') {
             { icao: 'GJS',   dbCode: 'GJS', parser: 'ics_rosterbuster', needsIcs: true,
               icsLabel: 'RosterBuster ICS URL',
               icsHint: 'From RosterBuster: Settings → Calendar Sync → copy the subscription link.' },
-            { icao: 'RPA',   dbCode: 'RPA', parser: 'csv',         needsIcs: false },
+            { icao: 'RPA',   dbCode: 'RPA', parser: 'csv_republic', needsIcs: false },
             { icao: 'SKW',   dbCode: 'SKW', parser: 'vcs_skywest', needsIcs: false },
             { icao: 'SWA',   dbCode: 'SWA', parser: 'ics_southwest', needsIcs: true,
               icsLabel: 'CrewHub ICS URL', icsHint: 'The published calendar subscription link from CrewHub.' },

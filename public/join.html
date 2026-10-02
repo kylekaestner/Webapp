@@ -159,7 +159,7 @@
                         <option value="ics_ecrew">Atlas Air</option>
                         <option value="ics_delta_micrew">Delta Air Lines</option>
                         <option value="ics_rosterbuster">GoJet Airlines</option>
-                        <option value="csv">Republic Airways</option>
+                        <option value="csv_republic">Republic Airways</option>
                         <option value="vcs_skywest">SkyWest Airlines</option>
                         <option value="ics_southwest">Southwest Airlines</option>
                         <option value="ics_scx">Sun Country Airlines</option>
@@ -257,7 +257,7 @@
         // SpiritJets (Kyle's own Schedaero parser) is deliberately not offered here --
         // he's the only pilot who'll ever use it, so it doesn't belong in the join flow.
         const COMPANIES = {
-            'csv':              { airline: 'Republic Airways',     code: 'RPA', method: 'file',
+            'csv_republic':     { airline: 'Republic Airways',     code: 'RPA', method: 'file',
                                    fileLabel: 'Schedule File', fileAccept: '.csv',
                                    fileHint: 'CSV Long format export from your scheduling system.' },
             'ics_rosterbuster': { airline: 'GoJet Airlines',       code: 'GJS', method: 'ics', appName: 'RosterBuster',

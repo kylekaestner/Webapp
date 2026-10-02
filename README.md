@@ -108,8 +108,8 @@ A pilot or viewer only sees another pilot's schedule once an accepted friendship
 
 Every pilot has a `parser_type` in the DB that determines which parser runs on upload/sync — set via the admin panel's Airline/Operator dropdown (or the pilot's own self-service "My Info" editor), which maps a real company name to the actual `parser_type` string. Listed below by company, with each one's real `parser_type` value and which current pilots use it (so "what is the blank CSV one" has a concrete answer instead of a guess).
 
-### Republic Airways — `parser_type: 'csv'`
-Required columns: `DATE, DEP, ARR, DEPTIME, ARRTIME`. Optional: `TAIL, DH, FCVTAIL, EQP, FLIGHT, BLOCK, CREW`. Times are local to the departure airport; block time pulled from the `BLOCK` column. Despite the generic-sounding `parser_type` name, this is specifically Republic's format, not a catch-all — currently used by Adam and Sam.
+### Republic Airways — `parser_type: 'csv_republic'`
+Required columns: `DATE, DEP, ARR, DEPTIME, ARRTIME`. Optional: `TAIL, DH, FCVTAIL, EQP, FLIGHT, BLOCK, CREW`. Times are local to the departure airport; block time pulled from the `BLOCK` column. Currently used by Adam and Sam. (Renamed 2026-10-02 from the bare `'csv'` — it was always Republic's format specifically, never a generic catch-all, and the bare name made that easy to mistake; an unset `parser_type` now defaults to `'other'` instead of silently assuming Republic's exact column layout.)
 
 ### SkyWest Airlines — `parser_type: 'vcs_skywest'`
 SkyWest SkedPlus+ `.vcs` export (quoted-printable encoded). Parses day headers and flight leg lines from `DESCRIPTION`. Reserve types (RE2) mapped to `type: reserve`; training pairings (IOE, TRN, and similar prefixes) supported. Currently used by Logan and Ben.

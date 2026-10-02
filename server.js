@@ -1438,7 +1438,9 @@ const ECREW_IATA_ALIASES = {
 // removed). getParserForPilot stays as a named function (rather than inlining pilotRow.parser_type
 // everywhere) so every call site reads it the same way.
 function getParserForPilot(pilotKey, pilotRow) {
-    return pilotRow?.parser_type || 'csv';
+    // 'other' triggers autoDetectParser() on upload instead of silently assuming any one
+    // specific airline's exact column format for a pilot nobody's told the system about yet.
+    return pilotRow?.parser_type || 'other';
 }
 
 function autoDetectParser(filename, fileContent) {
@@ -1458,7 +1460,7 @@ function autoDetectParser(filename, fileContent) {
         try { swEvents  = parseCSV_skywest(fileContent); } catch (_) {}
         try { csvEvents = parseCSV(fileContent, '');     } catch (_) {}
         if (swEvents.length > csvEvents.length) return { parser: 'csv_skywest', events: swEvents };
-        if (csvEvents.length > 0)               return { parser: 'csv',         events: csvEvents };
+        if (csvEvents.length > 0)               return { parser: 'csv_republic', events: csvEvents };
     }
     return { parser: null, events: [] };
 }
@@ -2295,9 +2297,9 @@ app.put('/api/pilots/:pilotKey', (req, res) => {
             : `UPDATE pilots SET name=?, base=?, home_airport=?, parser_type=?, airline_code=? WHERE pilot_key=?`;
         const params = isAdmin
             ? [name.trim(), (base || '').toUpperCase().trim(), (homeAirport || '').toUpperCase().trim(),
-               (role || '').trim(), (parserType || 'csv').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey]
+               (role || '').trim(), (parserType || 'other').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey]
             : [name.trim(), (base || '').toUpperCase().trim(), (homeAirport || '').toUpperCase().trim(),
-               (parserType || 'csv').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey];
+               (parserType || 'other').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey];
         db.run(sql, params, function(err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
