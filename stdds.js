@@ -356,4 +356,23 @@ function getGroundPosition(callsign) {
     };
 }
 
-module.exports = { connect, getGroundPosition, setRelevantCallsigns, isEnabled: () => STDDS_ENABLED };
+// TEMP — same purpose as swim.js's _testSeedFlight: creates a synthetic ground/taxi position for
+// a test callsign. Needed specifically because swim.js's SFDPS-sourced positions always report
+// onGround:false (not yet mapped from FIXM, see its file header) — a believable "taxiing" test
+// flight has to come through here instead, since getGroundPosition() is the only source that
+// actually derives a real onGround value (from speed/altitude/status).
+function _testSeedFlight(callsign, { lat, lon, speedKts, altFt, heading, status, airport }) {
+    const cs = String(callsign).trim().toUpperCase();
+    const entry = _latest[cs] || (_latest[cs] = {});
+    entry.lastMsg = Date.now();
+    if (lat != null) entry.lat = lat;
+    if (lon != null) entry.lon = lon;
+    if (speedKts != null) entry.speedKts = speedKts;
+    if (altFt != null) entry.altFt = altFt;
+    if (heading != null) entry.heading = heading;
+    if (status) entry.status = status;
+    if (airport) entry.airport = airport;
+    return true;
+}
+
+module.exports = { connect, getGroundPosition, setRelevantCallsigns, _testSeedFlight, isEnabled: () => STDDS_ENABLED };

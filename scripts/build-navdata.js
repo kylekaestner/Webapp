@@ -90,9 +90,22 @@ console.log(`  ${Object.keys(navaids).length} unique navaid identifiers, ${navRo
 // against a real route before trusting this). TRANSITION rows are the transition-specific tail
 // appended after whichever body segment applies; a route string only ever names the procedure +
 // (sometimes) one transition fix, so the resolver picks the transition whose key matches.
+// Parses NASR's ARPT_RWY_ASSOC cell (e.g. "LAX/06L, LAX/06R") into bare runway designators
+// without the airport prefix (["06L","06R"]) -- that's the format TFDM's runwayAssigned/
+// runwayDesignator attribute uses (confirmed against real TFDM messages, see tfdm.js), so
+// matching needs the prefix stripped. A body with no "/"-bearing tokens at all (e.g. plain
+// "LAX", seen on procedures like ANJLL4 that aren't actually runway-specific) yields an empty
+// array -- treated as a runway-agnostic/generic body by the resolver, not "matches nothing".
+function parseRunwayAssoc(cell) {
+    if (!cell) return [];
+    return cell.split(',').map(s => s.trim()).filter(Boolean)
+        .map(tok => tok.includes('/') ? tok.split('/')[1].trim() : null)
+        .filter(Boolean);
+}
+
 function buildProcedures(rows, codeField, isSid) {
     const procs = {};
-    const bodyGroups = {}; // baseName -> { "ROUTE_NAME|BODY_SEQ": [{seq,point}, ...] }
+    const bodyGroups = {}; // baseName -> { "ROUTE_NAME|BODY_SEQ": { points:[{seq,point}], runways:Set } }
     for (const r of rows) {
         const code = r[codeField];
         if (!code) continue;
@@ -110,7 +123,9 @@ function buildProcedures(rows, codeField, isSid) {
         if (r.ROUTE_PORTION_TYPE === 'BODY') {
             const groups = bodyGroups[baseName] || (bodyGroups[baseName] = {});
             const groupKey = `${r.ROUTE_NAME || ''}|${r.BODY_SEQ || ''}`;
-            (groups[groupKey] = groups[groupKey] || []).push({ seq, point });
+            const group = groups[groupKey] || (groups[groupKey] = { points: [], runways: new Set() });
+            group.points.push({ seq, point });
+            for (const rwy of parseRunwayAssoc(r.ARPT_RWY_ASSOC)) group.runways.add(rwy);
         } else {
             // TRANSITION_COMPUTER_CODE follows the same name-order convention as above: SID
             // transitions are "NAME.transition" (strip the prefix), STAR transitions are
@@ -126,7 +141,10 @@ function buildProcedures(rows, codeField, isSid) {
     }
     for (const [baseName, proc] of Object.entries(procs)) {
         const groups = bodyGroups[baseName] || {};
-        proc.bodies = Object.values(groups).map(list => list.sort((a, b) => a.seq - b.seq).map(p => p.point));
+        proc.bodies = Object.values(groups).map(g => ({
+            points: g.points.sort((a, b) => a.seq - b.seq).map(p => p.point),
+            runways: [...g.runways], // e.g. ["06L","06R"]; empty = runway-agnostic body
+        }));
         for (const [k, list] of Object.entries(proc.transitions)) {
             list.sort((a, b) => a.seq - b.seq);
             proc.transitions[k] = list.map(p => p.point);

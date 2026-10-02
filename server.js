@@ -10,6 +10,7 @@ const { DEMO_PILOTS, buildDemoSegments } = require('./demo-data');
 const swim = require('./swim');
 const stdds = require('./stdds');
 const tfms = require('./tfms');
+const tfdm = require('./tfdm');
 const navdata = require('./navdata');
 
 const app = express();
@@ -3026,8 +3027,17 @@ function resolveRouteWaypoints(routeParsed, callsign) {
         return;
     }
 
+    // Real per-flight assigned runway (TFDM) lets navdata.js pick the correct SID/STAR body
+    // instead of its old "always bodies[0]" guess — see navdata.js's pickBody(). `null` fields
+    // (TFDM hasn't reported a runway for this flight yet) are handled there as "no preference,
+    // fall back to the old deterministic guess", not an error.
+    const runwayInfo = callsign ? tfdm.getRunwayInfo(callsign) : null;
     const originWp = routeParsed.waypoints.find(wp => wp.type === 'airport');
-    routeParsed.resolvedPath = navdata.resolveWaypoints(routeParsed.waypoints, originWp?.lat != null ? originWp : null);
+    routeParsed.resolvedPath = navdata.resolveWaypoints(
+        routeParsed.waypoints,
+        originWp?.lat != null ? originWp : null,
+        runwayInfo ? { depRunway: runwayInfo.depRunway, arrRunway: runwayInfo.arrRunway } : null
+    );
     routeParsed.source = 'navdata';
 }
 
@@ -3094,6 +3104,23 @@ app.post('/api/debug/seed-route', express.json(), (req, res) => {
     if (!callsign || !route) return res.status(400).json({ error: 'callsign and route required' });
     const ok = swim._testSeedRoute(callsign, route, origin, dest);
     res.json({ ok });
+});
+
+// TEMP — fully synthetic test flight: creates position + route from scratch (no real live-tracked
+// flight required) and optionally a fake TFDM runway assignment, for exercising the frontend map
+// rendering and the runway-aware STAR/SID body selection on demand. `source: 'stdds'` seeds a
+// ground/taxi position instead (speedKts/altFt/status) -- needed for a believable taxiing/just-
+// departed test flight, since SWIM-sourced positions always report onGround:false (see swim.js).
+app.post('/api/debug/seed-flight', express.json(), (req, res) => {
+    const { callsign, lat, lon, route, origin, dest, depRunway, arrRunway, source, speedKts, altFt, heading, status, airport } = req.body || {};
+    if (!callsign || lat == null || lon == null) return res.status(400).json({ error: 'callsign, lat, lon required' });
+    if (source === 'stdds') {
+        stdds._testSeedFlight(callsign, { lat, lon, speedKts, altFt, heading, status, airport });
+    } else {
+        swim._testSeedFlight(callsign, { lat, lon, route, origin, dest });
+    }
+    if (depRunway || arrRunway) tfdm._testSeedRunway(callsign, { depRunway, arrRunway });
+    res.json({ ok: true });
 });
 
 app.get('/api/live-position', async (req, res) => {
@@ -3245,6 +3272,7 @@ async function runActiveFlightPoller() {
             swim.setRelevantCallsigns(polled); // same scheduled-flight set, refreshed every 15s — SWIM only needs to retain state for these, not every callsign nationwide
             stdds.setRelevantCallsigns(polled);
             tfms.setRelevantCallsigns(polled);
+            tfdm.setRelevantCallsigns(polled);
         }
     );
 }
@@ -4122,6 +4150,7 @@ app.listen(PORT, () => {
     swim.connect();
     stdds.connect();
     tfms.connect();
+    tfdm.connect();
     // Print all pilot links on startup so tokens are always recoverable from logs
     const db = getDB();
     db.all(`SELECT pilot_key, name, token FROM pilots ORDER BY pilot_key='admin' DESC, name`, (err, rows) => {

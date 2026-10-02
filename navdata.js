@@ -8,11 +8,15 @@
 //   already-resolved point in the route, same approach SwimReader's own real implementation
 //   uses. The first waypoint in a route has the origin airport as that reference point.
 // - A SID/STAR can have multiple distinct "body" segments (e.g. runway-specific initial legs)
-//   that all converge to the same later fix. Without the actual departure/arrival runway (not
-//   available from the route string), there's no way to know which one applied — this resolver
-//   picks the first one deterministically. Confirmed against a real flight (SWA2932/FORPE1) that
-//   this produces a materially correct fix sequence from the convergence point onward, even when
-//   the exact initial unique fixes can't be guaranteed.
+//   that all converge to the same later fix. FIXED 2026-10-02 via real per-flight runway
+//   assignment from TFDM (tfdm.js's getRunwayInfo()) — pickBody() matches the assigned runway
+//   against each body's NASR-published ARPT_RWY_ASSOC list (see build-navdata.js). Falls back to
+//   a runway-agnostic body, then to bodies[0] deterministically, only when TFDM hasn't reported a
+//   runway yet for this flight (confirmed live: most FlightUpdate messages don't carry one) or
+//   when NASR's bodies don't actually vary by runway for this particular procedure. Originally
+//   confirmed against a real flight (SWA2932/FORPE1) that the bodies[0] guess at least produces a
+//   materially correct fix sequence from the convergence point onward even when wrong initially —
+//   that finding is why this was shipped as a known limitation first rather than blocked on TFDM.
 // - Airways are resolved as the sub-sequence between the two known surrounding points, in
 //   whichever direction they appear in the airway's published fix list. If a waypoint appears
 //   more than once on the same airway (rare but possible on complex airways), the nearest
@@ -101,11 +105,58 @@ function resolveFixOrNavaid(name, ref) {
 // transition → STAR → airport, e.g. "USIRE.KOLTS2" — USIRE is the token BEFORE the STAR) and its
 // code format is the OPPOSITE: "transition.NAME". So the neighbor token checked for a match is
 // the next one for a SID, but the previous one for a STAR — not the same direction for both.
-function expandProcedure(procName, isSid, neighborTokenName) {
+// Picks the right runway-specific body instead of always guessing bodies[0] -- see the file
+// header's old "known limitation" note, now fixed via real per-flight runway assignment (TFDM,
+// see tfdm.js's getRunwayInfo()).
+//
+// Real-world context (per the pilot who built this, not guessed): a single named STAR/SID can
+// vary by runway in three distinct ways, and this function handles all three without needing to
+// tell them apart -- it only ever matches within whichever single procedure name the route string
+// already gave it:
+//   - A whole separate procedure per flow direction. At LAX, ANJLL4 is the west-flow arrival and
+//     BIGBR3 is the east-flow arrival -- these are two different `procName` lookups entirely,
+//     already decided by ATC/dispatch before the route string was filed, not something pickBody()
+//     resolves.
+//   - One STAR, two (or more) same-direction runway-pair legs. BIGBR3 itself has a 06L/06R leg
+//     (ending SASSI) and a 07L/07R leg (ending WNDFL) -- both still east flow, geographically
+//     close, so guessing the wrong one before TFDM confirms is a minor, late-route error.
+//   - One STAR, genuinely opposite-direction legs. AARCH2 at STL can land either direction
+//     (11/12L/12R vs the literally opposite 29/30L/30R) under the SAME procedure name. Guessing
+//     wrong here before TFDM reports a real runway is a much bigger visual error than the BIGBR3
+//     case -- it shows the approach from the wrong side of the airport entirely, not just the
+//     wrong last few fixes. Still the best available option with no data yet (see the file
+//     header's SWA2932/FORPE1 finding: even a wrong initial guess is materially correct from the
+//     convergence point onward), just worth knowing this asymmetry exists if it's ever visibly
+//     wrong-looking on a real AARCH2 (or similarly bidirectional) flight before TFDM catches up.
+//   - Genuinely any-runway, full stop -- some STARs really are usable regardless of which runway
+//     is active, and whether a given STAR is this kind, the BIGBR3 kind, or the AARCH2 kind
+//     depends on the specific procedure/airport, not a rule this code can derive. An empty
+//     `runways` list in NASR (ANJLL4's single body, for instance) is the signal for this case --
+//     and it's taken at face value as "matches any target runway," not assumed to secretly still
+//     be flow-specific underneath. If NASR doesn't subdivide it, neither does this resolver.
+//
+// Preference order:
+//   1. A body whose runway list contains the target runway exactly (e.g. "06L") -- the real fix.
+//   2. A runway-agnostic body (empty runway list -- the "any runway" case above).
+//   3. bodies[0], same deterministic fallback as before — used when there's no target runway at
+//      all (TFDM hasn't reported one for this flight yet) or NASR's own bodies don't cover it.
+function pickBody(proc, targetRunway) {
+    if (!proc.bodies || !proc.bodies.length) return null;
+    if (targetRunway) {
+        const exact = proc.bodies.find(b => b.runways.includes(targetRunway));
+        if (exact) return exact;
+        const agnostic = proc.bodies.find(b => b.runways.length === 0);
+        if (agnostic) return agnostic;
+    }
+    return proc.bodies[0];
+}
+
+function expandProcedure(procName, isSid, neighborTokenName, targetRunway) {
     const table = isSid ? proceduresData.sids : proceduresData.stars;
     const proc = table[procName];
     if (!proc) return null;
-    const body = (proc.bodies && proc.bodies[0]) || []; // first body segment — see file header limitation
+    const chosenBody = pickBody(proc, targetRunway);
+    const body = chosenBody ? chosenBody.points : [];
     const transitionFixes = (neighborTokenName && proc.transitions[neighborTokenName]) || [];
     return { body, transitionFixes, isSid, matchedNeighbor: transitionFixes.length > 0 };
 }
@@ -115,7 +166,9 @@ function expandProcedure(procName, isSid, neighborTokenName) {
 // {name, lat, lon} points with procedures/airways/fixes/radial_fixes expanded and resolved.
 // Anything that still can't be resolved (unknown identifier, NASR data not loaded) is simply
 // omitted — a gap in the line is honest; a wrong guess at coordinates is not.
-function resolveWaypoints(waypoints, originCoords) {
+// `runwayInfo` (optional, from tfdm.js's getRunwayInfo()) is `{ depRunway, arrRunway }` — real,
+// per-flight assigned runways used to pick the correct SID/STAR body instead of guessing.
+function resolveWaypoints(waypoints, originCoords, runwayInfo) {
     if (!ENABLED || !waypoints?.length) return [];
     const out = [];
     let ref = originCoords || null;
@@ -138,8 +191,8 @@ function resolveWaypoints(waypoints, originCoords) {
             // STAR: check the PREVIOUS token (entry transition comes before the STAR) — already
             // resolved and sitting in `out`, so its fixes get prepended, not "consumed" from the
             // waypoints array the way a SID's next-token match is.
-            const sidMatch = expandProcedure(wp.name, true, nextTok);
-            const starMatch = !sidMatch?.matchedNeighbor ? expandProcedure(wp.name, false, prevTok) : null;
+            const sidMatch = expandProcedure(wp.name, true, nextTok, runwayInfo?.depRunway);
+            const starMatch = !sidMatch?.matchedNeighbor ? expandProcedure(wp.name, false, prevTok, runwayInfo?.arrRunway) : null;
             const expansion = sidMatch?.matchedNeighbor ? sidMatch : (starMatch?.matchedNeighbor ? starMatch : (sidMatch || starMatch));
 
             if (expansion) {

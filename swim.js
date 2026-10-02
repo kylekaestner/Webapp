@@ -546,4 +546,28 @@ function _testSeedRoute(callsign, routeText, origin, dest) {
     return true;
 }
 
-module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, _testSeedRoute, isEnabled: () => SWIM_ENABLED };
+// TEMP — like _testSeedRoute, but CREATES the entry outright (position included) instead of
+// requiring a real flight already being live-tracked. Lets the frontend/map-rendering pipeline be
+// exercised on demand for a fully synthetic test flight — no need to find a real aircraft
+// currently airborne on a route that happens to exercise whatever's being tested (e.g. a specific
+// STAR runway leg).
+function _testSeedFlight(callsign, { lat, lon, altFt, speedKts, heading, route, origin, dest }) {
+    const cs = String(callsign).trim().toUpperCase();
+    const entry = _latest[cs] || (_latest[cs] = {});
+    entry.lastMsg = Date.now();
+    if (lat != null) entry.lat = lat;
+    if (lon != null) entry.lon = lon;
+    if (altFt != null) entry.altFt = altFt;
+    if (speedKts != null) entry.speedKts = speedKts;
+    if (heading != null) entry.heading = heading;
+    if (origin) entry.origin = origin;
+    if (dest) entry.dest = dest;
+    if (route) {
+        if (!entry.originalRoute) entry.originalRoute = route;
+        entry.route = route;
+        entry.routeParsed = parseRouteString(route, origin || entry.origin, dest || entry.dest);
+    }
+    return true;
+}
+
+module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, _testSeedRoute, _testSeedFlight, isEnabled: () => SWIM_ENABLED };

@@ -159,6 +159,12 @@
         .dark-popup .leaflet-popup-content { margin: 12px 14px; }
         .live-label { background: rgba(9,9,11,0.82) !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 5px !important; padding: 3px 7px !important; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7) !important; backdrop-filter: blur(6px); pointer-events: none; }
         .live-label::before { display: none !important; }
+        /* Route-point (VOR/fix/waypoint) name tags -- deliberately NOT the dark-pill .live-label
+           style used for the plane's own callsign/status. Modeled on VATSIM Radar's chart-style
+           labels (requested directly): plain small text, no background box, just enough shadow to
+           stay legible over varying map colors underneath. */
+        .wp-label { background: transparent !important; border: none !important; padding: 0 !important; box-shadow: none !important; backdrop-filter: none !important; white-space: nowrap; pointer-events: none; }
+        .wp-label::before { display: none !important; }
         @keyframes here-pulse { 0% { box-shadow: 0 0 0 0 rgba(168,85,247,0.7); } 70% { box-shadow: 0 0 0 16px rgba(168,85,247,0); } 100% { box-shadow: 0 0 0 0 rgba(168,85,247,0); } }
         @keyframes here-pulse-plane { 0% { box-shadow:0 0 0 0 var(--pc); } 70% { box-shadow:0 0 0 16px var(--pc0); } 100% { box-shadow:0 0 0 0 var(--pc0); } }
         .here-dot { width: 16px; height: 16px; border-radius: 50%; background: #a855f7; border: 2px solid #fff; animation: here-pulse 2s ease-out infinite; }
@@ -643,6 +649,7 @@
                             </div>
                         </div>
                         <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
+                        <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill map-ctrl-on" title="Toggle route detail (VOR/fix/waypoint symbols)">◆</button>
                         <div id="day-nav" class="hidden items-center gap-1 relative">
                             <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
                             <span id="day-nav-label" onclick="openDayPicker()" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center cursor-pointer hover:text-white transition-colors select-none" title="Pick a date"></span>
@@ -1972,6 +1979,23 @@
         const _calListPollers = {}; // callsign -> intervalId for calendar/list live badges
 
         let radarLayer = null, radarOn = false;
+        // Route detail (VOR/fix/waypoint symbols + name tags on a live flight's remaining route) —
+        // on by default, off hides the clutter when many simultaneous live flights make a busy
+        // all-crew map hard to read. Persisted per-browser; a real per-viewer convenience, not
+        // state that needs to be shared or read back server-side.
+        let _routeDetailOn = true;
+        try { _routeDetailOn = localStorage.getItem('cs_route_detail') !== '0'; } catch (_) {}
+        function toggleRouteDetail() {
+            _routeDetailOn = !_routeDetailOn;
+            try { localStorage.setItem('cs_route_detail', _routeDetailOn ? '1' : '0'); } catch (_) {}
+            document.getElementById('btn-route-detail')?.classList.toggle('map-ctrl-on', _routeDetailOn);
+            // Instant, not waiting on each flight's own next poll (up to 8s, which read as
+            // sluggish) -- applyRouteDetailZoomTier() sweeps the shared marker objects in
+            // _waypointLabels directly, no per-flight poll closure access needed. Same function
+            // also handles the zoom-dependent tiers (see its own header comment), since both are
+            // really the same "what should be visible right now" decision.
+            applyRouteDetailZoomTier();
+        }
         let showPast = true, showFuture = true;
         let airportVisibilityMap = {}, airportFlightTypes = {};
         // mapDayMode: show all pilots on a single chosen day
@@ -4758,6 +4782,7 @@
             setupDoubleTapZoom(map);
             map.on('zoomend', deoverlapLiveLabels);
             map.on('moveend', deoverlapLiveLabels);
+            map.on('zoomend', applyRouteDetailZoomTier);
         }
 
         function toRadians(deg) { return deg * Math.PI / 180; }
@@ -5702,17 +5727,23 @@
             }
 
             // Route-point (VOR/fix/waypoint) name tags -- lower priority than the plane label
-            // above, and checked against each other too (a dense STAR fix cluster can easily have
-            // several tags within a few pixels of each other at typical zoom). Unlike the plane
-            // label, which always shows somewhere even if the "preferred" direction is taken, a
-            // waypoint tag that can't find ANY clear direction is just hidden outright (symbol
-            // stays visible) -- forcing an overlapping placement among a dozen tightly-packed
-            // arrival fixes would just produce unreadable stacked text, not useful information.
+            // above (checked against it and against each other), but always shown regardless,
+            // same as the plane label itself: if no direction is fully clear, fall back to
+            // whichever direction it already had rather than hiding the tag. Every fix should
+            // have a visible name -- an occasional overlapping label in a dense STAR cluster is
+            // preferable to a symbol with no name at all.
             for (const [, entries] of _waypointLabels) {
                 for (const entry of entries) {
+                    // Position calc uses the primary (offset-0) copy only, same convention as the
+                    // plane label above -- but see registerWaypointLabel's comment for why the
+                    // REBIND below, unlike this position check, must touch every world copy.
+                    const primary = entry.markers[2] || entry.markers[0];
+                    if (!primary) continue;
                     let pt;
-                    try { pt = map.latLngToContainerPoint(entry.marker.getLatLng()); } catch (_) { continue; }
-                    const W = 50, H = 16;
+                    try { pt = map.latLngToContainerPoint(primary.getLatLng()); } catch (_) { continue; }
+                    // Smaller than before (8px plain text, no padding/background box -- see
+                    // .wp-label) now that it's not a padded pill.
+                    const W = 38, H = 11;
 
                     let chosen = entry.direction;
                     let chosenRect = estimateRect(chosen, pt, W, H, WP_OFFSETS);
@@ -5724,24 +5755,19 @@
                                 chosen = dir; chosenRect = est; break;
                             }
                         }
-                    }
-
-                    if (!chosen) {
-                        // Nothing is actually drawn here once hidden, so no rect to reserve.
-                        if (!entry.hidden) {
-                            entry.hidden = true;
-                            entry.marker.unbindTooltip();
-                        }
-                        continue;
+                        if (!chosen) { chosen = entry.direction; chosenRect = estimateRect(chosen, pt, W, H, WP_OFFSETS); }
                     }
                     placed.push(chosenRect);
 
                     if (entry.hidden || entry.direction !== chosen) {
                         entry.hidden = false;
                         entry.direction = chosen;
-                        const opts = { permanent: true, className: 'live-label', direction: chosen, offset: WP_OFFSETS[chosen] };
-                        entry.marker.unbindTooltip();
-                        entry.marker.bindTooltip(entry.html, opts);
+                        const opts = { permanent: true, className: 'wp-label', direction: chosen, offset: WP_OFFSETS[chosen] };
+                        entry.markers.forEach(m => {
+                            m.unbindTooltip();
+                            m.bindTooltip(entry.html, opts);
+                            m.openTooltip();
+                        });
                     }
                 }
             }
@@ -5754,6 +5780,10 @@
         function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null) {
             const newRouteLines = Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
             const newHitLines = hitLines || [];
+            // Flown trail reads as "already behind you, less important now" vs. the heavier
+            // remaining-route line ahead -- thinner on purpose, not just lower-opacity (it already
+            // had that). Floored so it doesn't vanish on a pilot with an already-thin lineWeight.
+            const trailWeight = Math.max(1.25, lineWeight * 0.55);
 
             // Confirmed landed before scheduled arrival -- don't track it, and since the caller
             // already added these brand-new markers/arc/hit-lines to the map before calling us,
@@ -5798,7 +5828,13 @@
             markers.forEach(m => m.on('click', () => map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 9), { duration: 0.6 })));
 
             let flownLines = null;  // one polyline per world copy
-            let remainLines = null;
+            // Remaining route is split into two styled groups (VATSIM Radar convention, requested
+            // directly): dashed from the live position to the next fix and from the last fix to
+            // the destination airport, solid for the known fix-to-fix legs in between. Two
+            // separate Leaflet polyline groups because dashArray/styling applies per-polyline, not
+            // per sub-path within one.
+            let remainDashedLines = null;
+            let remainSolidLines = null;
             let waypointMarkers = [];  // route-point symbol markers, one set per world copy
             let waypointPathKey = '';
             let arcRemoved = false;
@@ -5870,6 +5906,11 @@
                 arcRemoved = true;
             };
 
+            const clearRemainLines = () => {
+                if (remainDashedLines) { remainDashedLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} }); remainDashedLines = null; }
+                if (remainSolidLines) { remainSolidLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} }); remainSolidLines = null; }
+            };
+
             const clearWaypointMarkers = () => {
                 waypointMarkers.forEach(m => {
                     try { map.removeLayer(m); } catch (_) {}
@@ -5904,7 +5945,7 @@
                 markers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
                 removeArc();
                 if (flownLines) { flownLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} }); flownLines = null; }
-                if (remainLines) { remainLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} }); remainLines = null; }
+                clearRemainLines();
                 clearWaypointMarkers();
                 if (hereNowMarkers.length) { hereNowMarkers.forEach(m => { try { map.removeLayer(m); } catch (_) {} }); hereNowMarkers.length = 0; }
                 updateHitPopupStatus(savedEarly ? '✓ LANDED EARLY' : '✓ COMPLETED', '#3f3f46');
@@ -5936,9 +5977,8 @@
                         // can blip), and removing this instantly on miss #1 made the dashed arc flicker
                         // off and back on every time that happened mid-flight, even though the plane was
                         // never actually out of contact long enough to be a real signal loss.
-                        if (confirmedAirborne && remainLines && missCount >= 3) {
-                            remainLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
-                            remainLines = null;
+                        if (confirmedAirborne && (remainDashedLines || remainSolidLines) && missCount >= 3) {
+                            clearRemainLines();
                         }
                         // Server has trail data for this callsign but can't find it live → flight
                         // already flew and is no longer transmitting (early landing, taxi-in done).
@@ -5999,11 +6039,8 @@
                         // Remove the arc on taxi-in (post-landing), not on taxi-out —
                         // the route line stays visible until the plane actually lifts off.
                         if (!arcRemoved && hasBeenAirborne) removeArc();
-                        // Remove the remaining-path dashed arc on first ground contact after landing
-                        if (hasBeenAirborne && remainLines) {
-                            remainLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
-                            remainLines = null;
-                        }
+                        // Remove the remaining-path lines on first ground contact after landing
+                        if (hasBeenAirborne) clearRemainLines();
                         // Dim the flown trail to show the flight is complete
                         if (hasBeenAirborne && flownLines) {
                             flownLines.forEach(l => { try { l.setStyle({ opacity: 0.25 }); } catch (_) {} });
@@ -6035,7 +6072,7 @@
                                     flownLines.forEach((l, i) => l.setLatLngs(taxiPath.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
                                 } else {
                                     flownLines = WORLD_OFFSETS.map((w, i) => {
-                                        const l = L.polyline(taxiPath.map(([la, lo]) => [la, lo + w * 360]), { color, weight: lineWeight, opacity: 0.4, smoothFactor: 1, interactive: false });
+                                        const l = L.polyline(taxiPath.map(([la, lo]) => [la, lo + w * 360]), { color, weight: trailWeight, opacity: 0.4, smoothFactor: 1, interactive: false });
                                         l.addTo(map);
                                         activeLayersArr.push(l);
                                         return l;
@@ -6092,7 +6129,7 @@
                             flownLines.forEach((l, i) => l.setLatLngs(flownPath.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
                         } else {
                             flownLines = WORLD_OFFSETS.map((w, i) => {
-                                const l = L.polyline(flownPath.map(([la, lo]) => [la, lo + w * 360]), { color, weight: lineWeight, opacity: 0.5, smoothFactor: 1, interactive: false });
+                                const l = L.polyline(flownPath.map(([la, lo]) => [la, lo + w * 360]), { color, weight: trailWeight, opacity: 0.5, smoothFactor: 1, interactive: false });
                                 l.addTo(map);
                                 activeLayersArr.push(l);
                                 return l;
@@ -6117,26 +6154,44 @@
                     // Symbol markers for each named point (VOR/fix/waypoint — see makeWaypointIcon).
                     // The route itself rarely changes between polls, so skip the rebuild (and the
                     // marker flicker that'd come with constantly removing/re-adding) unless the
-                    // actual point set has changed.
+                    // actual point set has changed. Forced empty when the Route Detail toggle is
+                    // off -- pathKey then naturally becomes '', which the existing diff below
+                    // already treats as "point set changed," clearing any markers from before the
+                    // toggle was flipped without needing a separate code path. The full set is
+                    // always created regardless of the Route Detail toggle or current zoom tier --
+                    // applyRouteDetailZoomTier() controls what's actually visible (instant, see its
+                    // own header comment), so this only needs to track "has the real point set
+                    // changed," not "is detail currently on."
                     const markerWaypoints = midWaypoints.filter(wp => wp.symbol && wp.name);
                     const pathKey = markerWaypoints.map(wp => `${wp.name}:${wp.lat.toFixed(4)},${wp.lon.toFixed(4)},${wp.symbol}`).join('|');
                     if (pathKey !== waypointPathKey) {
                         clearWaypointMarkers();
                         waypointPathKey = pathKey;
-                        markerWaypoints.forEach(wp => {
+                        markerWaypoints.forEach((wp, idx) => {
                             const icon = makeWaypointIcon(wp.symbol);
                             if (!icon) return;
                             const shapeColor = _WAYPOINT_SHAPES[wp.symbol].color;
-                            WORLD_OFFSETS.forEach(w => {
+                            const copies = WORLD_OFFSETS.map(w => {
                                 const m = L.marker([wp.lat, wp.lon + w * 360], { icon, interactive: false, keyboard: false });
                                 m.addTo(map);
                                 waypointMarkers.push(m);
                                 activeLayersArr.push(m);
-                                if (w === 0) registerWaypointLabel(callsign, m, wp.name, shapeColor);
+                                return m;
                             });
+                            registerWaypointLabel(callsign, copies, wp.name, shapeColor, idx === 0);
                         });
                         scheduleDeoverlap();
                     }
+                    // Unconditional every poll (not just right after a rebuild) -- belt-and-
+                    // suspenders against the 'zoomend' listener missing a transition (e.g. a zoom
+                    // that happens to land exactly while this same flight's markers are mid-rebuild)
+                    // or deoverlapLiveLabels() (which runs on the same 'zoomend' event, registered
+                    // first) re-opening a tooltip this function had just closed for a lower tier.
+                    // Confirmed live: symbols for non-active fixes were staying visible at the
+                    // active-only zoom tier even though their labels correctly hid, which pointed
+                    // at exactly this kind of missed-reapplication gap rather than a logic error in
+                    // the tier rules themselves.
+                    applyRouteDetailZoomTier();
 
                     const routePoints = [livePoint, ...midWaypoints.map(wp => [wp.lat, wp.lon]), arrCoords];
                     const legBounds = []; // [startIdx, endIdx] into remainPath, per leg
@@ -6150,62 +6205,45 @@
                     }
                     const remainSegs = unwrapLongitudes(remainPath);
 
-                    // Which routePoints have a rendered symbol -- only those get a visual gap
-                    // trimmed into the dashed line; the live plane position (index 0) and the
-                    // destination airport (last index, no marker drawn there) stay flush.
-                    const hasSymbolAtRoutePoint = routePoints.map((_, idx) => {
-                        if (idx === 0 || idx === routePoints.length - 1) return false;
-                        const wp = midWaypoints[idx - 1];
-                        return !!(wp?.symbol && _WAYPOINT_SHAPES[wp.symbol]);
-                    });
-                    // Trims a small gap off each leg's end that touches a symbol, so the dashed
-                    // line visibly stops short of the symbol and resumes past it. The gap is sized
-                    // in real screen pixels, not a fraction of the leg's geographic length -- a
-                    // percentage-of-distance gap looked fine at the zoom it was tuned at, but a
-                    // fixed number of MILES translates to a wildly different number of screen
-                    // pixels depending on current zoom (huge gap zoomed in, invisible zoomed out).
-                    // Recomputed every poll, so it stays correctly sized as the view is zoomed.
-                    let gapMi = 0.5;
-                    try {
-                        const c = map.getSize();
-                        const centerPt = L.point(c.x / 2, c.y / 2);
-                        const p1 = map.containerPointToLatLng(centerPt);
-                        const p2 = map.containerPointToLatLng(centerPt.add([9, 0]));
-                        gapMi = map.distance(p1, p2) / 1609.34;
-                    } catch (_) {}
-                    const trimFromStart = (startIdx, endIdx) => {
-                        let acc = 0;
-                        for (let i = startIdx; i < endIdx; i++) {
-                            acc += haversineMi(remainSegs[i][0], remainSegs[i][1], remainSegs[i + 1][0], remainSegs[i + 1][1]);
-                            if (acc >= gapMi) return i + 1;
-                        }
-                        return endIdx; // leg shorter than the gap itself -- fully consumed, dropped below
-                    };
-                    const trimFromEnd = (startIdx, endIdx) => {
-                        let acc = 0;
-                        for (let i = endIdx; i > startIdx; i--) {
-                            acc += haversineMi(remainSegs[i][0], remainSegs[i][1], remainSegs[i - 1][0], remainSegs[i - 1][1]);
-                            if (acc >= gapMi) return i - 1;
-                        }
-                        return startIdx;
-                    };
-                    const remainParts = legBounds.map(([s, e], i) => {
-                        let a = s, b = e;
-                        if (hasSymbolAtRoutePoint[i]) a = trimFromStart(s, e);
-                        if (hasSymbolAtRoutePoint[i + 1]) b = trimFromEnd(a, e);
-                        return b > a ? remainSegs.slice(a, b + 1) : [];
-                    }).filter(part => part.length >= 2);
+                    // VATSIM Radar convention (requested directly): dashed from the live position
+                    // to the next fix, solid between subsequent known fixes, dashed again from the
+                    // last fix to the destination airport -- i.e. only the first and last legs are
+                    // dashed; everything between two real filed waypoints is solid. This also
+                    // correctly covers the two degenerate cases: zero waypoints left (a single
+                    // plane->airport leg, index 0 is simultaneously the last index too, so it's
+                    // dashed throughout) and exactly one waypoint left (two legs, both of them
+                    // first-or-last, so both dashed -- no solid middle, which is correct since
+                    // there's no fix-to-fix segment to show).
+                    //
+                    // No gap trimmed around each symbol -- Leaflet's default pane order already
+                    // draws markerPane above overlayPane (where polylines live), so the line simply
+                    // passes underneath each 10px symbol and looks visually broken there for free.
+                    // An explicit gap was tried first and reverted: it required picking a gap size,
+                    // which either looked wrong across zoom levels (a geographic-distance gap) or
+                    // could swallow an entire short STAR leg between closely-spaced fixes (a
+                    // screen-pixel gap, even capped per-leg) -- real, confirmed bugs from that
+                    // approach. Relying on z-order has neither failure mode.
+                    const remainPartsAll = legBounds.map(([s, e], i) => ({
+                        points: remainSegs.slice(s, e + 1),
+                        dashed: i === 0 || i === legBounds.length - 1,
+                    }));
+                    const dashedParts = remainPartsAll.filter(p => p.dashed).map(p => p.points);
+                    const solidParts = remainPartsAll.filter(p => !p.dashed).map(p => p.points);
 
-                    if (remainLines) {
-                        remainLines.forEach((l, i) => l.setLatLngs(remainParts.map(part => part.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360]))));
-                    } else {
-                        remainLines = WORLD_OFFSETS.map((w, i) => {
-                            const l = L.polyline(remainParts.map(part => part.map(([la, lo]) => [la, lo + w * 360])), { color, weight: lineWeight, opacity: 0.7, smoothFactor: 1, dashArray: '8 10', interactive: false });
+                    const renderRemainGroup = (existingLines, parts, dashArray) => {
+                        if (existingLines) {
+                            existingLines.forEach((l, i) => l.setLatLngs(parts.map(part => part.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360]))));
+                            return existingLines;
+                        }
+                        return WORLD_OFFSETS.map((w, i) => {
+                            const l = L.polyline(parts.map(part => part.map(([la, lo]) => [la, lo + w * 360])), { color, weight: lineWeight, opacity: 0.7, smoothFactor: 1, dashArray, interactive: false });
                             l.addTo(map);
                             activeLayersArr.push(l);
                             return l;
                         });
-                    }
+                    };
+                    remainDashedLines = renderRemainGroup(remainDashedLines, dashedParts, '8 10');
+                    remainSolidLines = renderRemainGroup(remainSolidLines, solidParts, null);
 
                     // Keep hit polylines aligned with the live flown+remaining path so popups still fire
                     if (hitLines && hitLines.length) {
@@ -6306,22 +6344,71 @@
             return L.divIcon({ className: '', html, iconSize: [10, 10], iconAnchor: [5, 5] });
         }
 
-        // Binds a permanent name-tag tooltip to a single waypoint marker (the one at the primary,
-        // unwrapped world copy -- world-offset-duplicated siblings don't get their own tag, same
-        // simplification already accepted for the live plane callsign label) and registers it
-        // with deoverlapLiveLabels() so it collides correctly with other fix tags and the plane
-        // label, instead of always sitting in one fixed spot.
-        function registerWaypointLabel(callsign, marker, name, color) {
-            const html = `<span style="font-size:9px;font-weight:700;color:${color};letter-spacing:.02em">${name}</span>`;
-            marker.bindTooltip(html, { permanent: true, className: 'live-label', direction: 'right', offset: [8, 0] });
-            // bindTooltip's "permanent" auto-open doesn't reliably fire on a marker created with
-            // interactive:false (it's wired through the same path as hover-open, which an
-            // uninteractive layer never receives) -- confirmed live, labels silently never
-            // appeared despite the symbols themselves rendering fine. Forcing it open here sidesteps
-            // that regardless of Leaflet's interactive-layer quirks.
-            marker.openTooltip();
+        // Binds a permanent name-tag tooltip to every world-copy marker for one waypoint, and
+        // registers it with deoverlapLiveLabels() so it collides correctly with other fix tags and
+        // the plane label, instead of always sitting in one fixed spot. `isActiveFix` marks the
+        // single next upcoming fix (the one the aircraft is currently headed toward) -- used by
+        // applyRouteDetailZoomTier() to decide what's visible at the current zoom level.
+        function registerWaypointLabel(callsign, markers, name, color, isActiveFix) {
+            // Small, plain, chart-style text (VATSIM Radar look, requested directly) -- no
+            // background pill (see .wp-label), just the symbol's own accent color plus a dark
+            // text-shadow for contrast against whatever's on the map underneath.
+            const html = `<span style="font-size:8px;font-weight:600;color:${color};letter-spacing:.02em;text-shadow:0 0 2px #000,0 0 2px #000,0 1px 1px #000">${name}</span>`;
+            const opts = { permanent: true, className: 'wp-label', direction: 'right', offset: [8, 0] };
+            // Bind to EVERY world-copy marker, not just the primary (offset-0) one -- confirmed
+            // live this was a real bug, not just a simplification: if the map happens to be panned
+            // to a different world copy than offset-0 (entirely normal while panning/zooming a
+            // live map), the one marker carrying the tooltip sits tens of thousands of pixels
+            // off-screen (a full world-width away) while the world copy actually on screen has no
+            // tooltip bound to it at all -- every CSS check (display/visibility/opacity) looks
+            // perfectly fine because the element genuinely exists, just not where anyone can see
+            // it. The plane's own label already avoided this by binding to all 5 copies; this
+            // didn't, because it copied the "pick one primary copy" pattern from the POSITION-calc
+            // logic (where that's fine) rather than the label-binding logic (where it isn't).
+            markers.forEach(m => {
+                m.bindTooltip(html, opts);
+                // bindTooltip's "permanent" auto-open doesn't reliably fire on a marker created
+                // with interactive:false (it's wired through the same path as hover-open, which an
+                // uninteractive layer never receives) -- forcing it open sidesteps that regardless
+                // of Leaflet's interactive-layer quirks.
+                m.openTooltip();
+            });
             if (!_waypointLabels.has(callsign)) _waypointLabels.set(callsign, []);
-            _waypointLabels.get(callsign).push({ marker, html, direction: 'right', hidden: false });
+            _waypointLabels.get(callsign).push({ markers, html, direction: 'right', hidden: false, isActiveFix: !!isActiveFix });
+        }
+
+        // Zoom-dependent progressive disclosure (VATSIM Radar convention, requested directly):
+        // zoomed out far, every fix shows as a bare symbol with no name tag (avoids a wall of
+        // overlapping text at a scale where none of it would be legible anyway); at a middle zoom,
+        // only the single next fix the aircraft is actually headed toward is shown at all (symbol
+        // + label), decluttering a long multi-fix STAR/airway chain down to just what matters
+        // right now; zoomed in close, everything shows in full (every fix, every label). Applied
+        // directly to the shared marker objects in _waypointLabels (same ones used for both the
+        // symbol icon and its tooltip) so this is instant on a zoom change or the Route Detail
+        // toggle, not dependent on any one flight's own ~8s poll cycle.
+        const ZOOM_SHOW_ACTIVE_ONLY = 6; // below this: all symbols, no labels at all
+        const ZOOM_SHOW_ALL_FIXES   = 9; // at/above this: every fix + label; between: active fix only
+        function applyRouteDetailZoomTier() {
+            if (!map) return;
+            const zoom = map.getZoom();
+            for (const entries of _waypointLabels.values()) {
+                for (const entry of entries) {
+                    let showSymbol = true, showLabel = true;
+                    if (!_routeDetailOn) {
+                        showSymbol = false; showLabel = false;
+                    } else if (zoom < ZOOM_SHOW_ACTIVE_ONLY) {
+                        showSymbol = true; showLabel = false;
+                    } else if (zoom < ZOOM_SHOW_ALL_FIXES) {
+                        showSymbol = entry.isActiveFix; showLabel = entry.isActiveFix;
+                    } // else: zoomed in close -- both stay true, full detail
+                    entry.markers.forEach(m => {
+                        try {
+                            m.setOpacity(showSymbol ? 1 : 0);
+                            if (showLabel) m.openTooltip(); else m.closeTooltip();
+                        } catch (_) {}
+                    });
+                }
+            }
         }
 
         async function renderDayMap() {
