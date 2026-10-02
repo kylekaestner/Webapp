@@ -5691,6 +5691,20 @@
             };
             const overlaps = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
 
+            // Picks which pair of screen directions (left/right vs top/bottom) sits most
+            // PERPENDICULAR to the aircraft's current heading, so the label lands off to the
+            // side of the flight path rather than sitting ahead of (or behind) the plane --
+            // exactly where the remaining-route line and its fix labels are. A heading near
+            // due north/south means the line runs roughly vertically on screen, so the label
+            // should go left/right (and vice versa for a roughly east/west heading). Falls back
+            // to the old fixed order when heading isn't known yet (first poll).
+            const perpendicularDirs = (heading) => {
+                if (heading == null) return DIRS;
+                const h = ((heading % 180) + 180) % 180; // collapse to 0..180 (N/S vs E/W axis)
+                const nsAxis = Math.min(h, 180 - h) < 45; // heading closer to N/S than E/W
+                return nsAxis ? ['left', 'right', 'top', 'bottom'] : ['top', 'bottom', 'left', 'right'];
+            };
+
             // Live plane callsign/status tooltips go first -- they're the primary signal on the
             // map, so they get first claim on space before any waypoint label is placed.
             for (const [, entry] of _liveLabels) {
@@ -5703,20 +5717,16 @@
                 const W = 160;
                 const H = entry.html.includes('<br>') ? 44 : 26;
 
-                // Check if current direction already fits
-                let chosen = entry.direction;
-                let chosenRect = estimateRect(chosen, pt, W, H, PLANE_OFFSETS);
-                if (placed.some(p => overlaps(chosenRect, p))) {
-                    // Try all four directions in preference order
-                    chosen = null;
-                    for (const dir of DIRS) {
-                        const est = estimateRect(dir, pt, W, H, PLANE_OFFSETS);
-                        if (!placed.some(p => overlaps(est, p))) {
-                            chosen = dir; chosenRect = est; break;
-                        }
-                    }
-                    if (!chosen) { chosen = entry.direction; chosenRect = estimateRect(chosen, pt, W, H, PLANE_OFFSETS); }
+                // Always re-derive from the current heading (not "keep current direction if it
+                // still avoids other labels") -- the label needs to stay off the route line/fix
+                // labels ahead of and behind the plane, not just avoid colliding with other
+                // placed tooltips, and the route line itself isn't tracked in `placed`.
+                let chosen = null, chosenRect = null;
+                for (const dir of perpendicularDirs(entry.heading)) {
+                    const est = estimateRect(dir, pt, W, H, PLANE_OFFSETS);
+                    if (!placed.some(p => overlaps(est, p))) { chosen = dir; chosenRect = est; break; }
                 }
+                if (!chosen) { chosen = perpendicularDirs(entry.heading)[0]; chosenRect = estimateRect(chosen, pt, W, H, PLANE_OFFSETS); }
                 placed.push(chosenRect);
 
                 if (entry.direction !== chosen) {
@@ -5845,7 +5855,7 @@
             const baseTooltip = buildBaseTooltip(null); // source unknown until the first poll resolves
             // Start hover-only — tooltip goes permanent once ADS-B confirms airborne
             markers.forEach(m => m.bindTooltip(baseTooltip, { ...tooltipOpts, permanent: false }));
-            const labelEntry = { markers, html: baseTooltip, direction: 'right' };
+            const labelEntry = { markers, html: baseTooltip, direction: 'right', heading: null };
             _liveLabels.set(callsign, labelEntry);
             scheduleDeoverlap();
             const setAllTooltip = (html) => {
@@ -6075,7 +6085,7 @@
                             flownLines.forEach(l => { try { l.setStyle({ opacity: 0.25 }); } catch (_) {} });
                         }
                         setAllLatLng(d.lat, d.lon);
-                        if (d.heading != null) setAllIcon(makePlaneIcon(d.heading, color, d.type, true));
+                        if (d.heading != null) { setAllIcon(makePlaneIcon(d.heading, color, d.type, true)); labelEntry.heading = d.heading; }
                         showIcon();
                         let groundLabel, groundLabelColor;
                         if (hasBeenAirborne) {
@@ -6126,7 +6136,7 @@
                     if (depCoords && arrCoords && !isPositionOnRoute(d.lat, d.lon, depCoords, arrCoords)) return;
 
                     setAllLatLng(d.lat, d.lon);
-                    if (d.heading != null) setAllIcon(makePlaneIcon(d.heading, color, d.type, true));
+                    if (d.heading != null) { setAllIcon(makePlaneIcon(d.heading, color, d.type, true)); labelEntry.heading = d.heading; }
 
                     const livePoint = [d.lat, d.lon];
 
@@ -6435,8 +6445,11 @@
         // directly to the shared marker objects in _waypointLabels (same ones used for both the
         // symbol icon and its tooltip) so this is instant on a zoom change or the Route Detail
         // toggle, not dependent on any one flight's own ~8s poll cycle.
-        const ZOOM_SHOW_ACTIVE_ONLY = 6; // below this: all symbols, no labels at all
-        const ZOOM_SHOW_ALL_FIXES   = 9; // at/above this: every fix + label; between: active fix only
+        // Lowered from 6/9 -- confirmed live those required zooming in much closer than a
+        // flight's typical live-tracking view (country/regional scale) before any fix label
+        // showed at all.
+        const ZOOM_SHOW_ACTIVE_ONLY = 4; // below this: all symbols, no labels at all
+        const ZOOM_SHOW_ALL_FIXES   = 7; // at/above this: every fix + label; between: active fix only
         function applyRouteDetailZoomTier() {
             if (!map) return;
             const zoom = map.getZoom();
