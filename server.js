@@ -3158,6 +3158,13 @@ app.get('/api/debug/tfdm/:callsign', (req, res) => {
     res.json(tfdm.getFlightInfo(req.params.callsign) || { found: false });
 });
 
+// TEMP — same pattern, for TFMS's airport-configuration (APTC) cache. Accepts a bare 3-letter or
+// 4-letter ICAO code (getAirportConfig() normalizes either). Used to verify real APTC data is
+// actually flowing/fresh for a given airport before trusting it as a pickBody() fallback.
+app.get('/api/debug/tfms-aptc/:code', (req, res) => {
+    res.json(tfms.getAirportConfig(req.params.code) || { found: false });
+});
+
 // TEMP — manually seed route data for a live-tracked callsign, for map-rendering tests without
 // waiting on the live feed to happen to send a route-bearing message for that specific flight.
 app.post('/api/debug/seed-route', express.json(), (req, res) => {
