@@ -3141,6 +3141,13 @@ app.get('/api/early-landings', (req, res) => {
     res.json({ callsigns: set ? [...set] : [] });
 });
 
+// TEMP — read-only inspector for what TFDM actually has cached for a callsign (runway
+// assignment, flight phase, delay), independent of the position pipeline. Used to verify why a
+// specific STAR transition/runway body got picked (see navdata.js's pickBody()) without guessing.
+app.get('/api/debug/tfdm/:callsign', (req, res) => {
+    res.json(tfdm.getFlightInfo(req.params.callsign) || { found: false });
+});
+
 // TEMP — manually seed route data for a live-tracked callsign, for map-rendering tests without
 // waiting on the live feed to happen to send a route-bearing message for that specific flight.
 app.post('/api/debug/seed-route', express.json(), (req, res) => {
