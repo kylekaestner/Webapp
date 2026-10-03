@@ -159,9 +159,21 @@ function processOneMessage(msgObj) {
 
     const entry = _latest[cs] || (_latest[cs] = {});
     entry.lastMsg = Date.now();
+    // A flight NUMBER (and therefore callsign) commonly continues through several legs in one
+    // rotation -- e.g. a Southwest flight flying BOI->PHX->STL all under the same number. Confirmed
+    // live: SWA3492 showed a stale KBOI->KPHX/AT_STAND record from an earlier completed leg while
+    // the aircraft was already airborne cruising PHX->STL per the real live position, because
+    // nothing ever reset depRunway/arrRunway/flightState/departureDelayMin between legs -- a
+    // changed origin OR dest from what's already cached is an unambiguous "this is a new leg"
+    // signal (same reasoning as swim.js's _hexToCallsign reset on a changed callsign), so those
+    // leg-specific fields are cleared before applying this message's own values, rather than
+    // merging indefinitely across legs like a single multi-message flight would need.
+    if ((origin && entry.origin && origin !== entry.origin) || (dest && entry.dest && dest !== entry.dest)) {
+        entry.depRunway = null; entry.arrRunway = null; entry.flightState = null; entry.departureDelayMin = null;
+    }
     // Merge, don't clobber -- a FlightUpdate is a partial/delta message (confirmed live: most
     // updates carry neither runway field at all), so a later message missing a value must not
-    // erase one already learned from an earlier message. Same pattern TfdmBridge.cs uses.
+    // erase one already learned from an earlier message within the SAME leg.
     if (origin) entry.origin = origin;
     if (dest) entry.dest = dest;
     if (depRunway) entry.depRunway = depRunway;
