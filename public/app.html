@@ -9112,11 +9112,16 @@ let _blockUserEdited = false;
             document.documentElement.classList.toggle('light-mode', on);
             document.getElementById('light-mode-state').textContent = on ? 'On' : 'Off';
             try { localStorage.setItem('lightMode', on ? '1' : '0'); } catch (_) {}
+            setStatusBarStyle(on ? 'default' : 'black');
+        }
+        function setStatusBarStyle(style) {
+            const m = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+            if (m) m.setAttribute('content', style);
         }
         (function applyLightMode() {
             let on = false;
             try { on = localStorage.getItem('lightMode') === '1'; } catch (_) {}
-            if (on) document.documentElement.classList.add('light-mode');
+            if (on) { document.documentElement.classList.add('light-mode'); setStatusBarStyle('default'); }
             document.addEventListener('DOMContentLoaded', () => {
                 const st = document.getElementById('light-mode-state');
                 if (st) st.textContent = on ? 'On' : 'Off';
