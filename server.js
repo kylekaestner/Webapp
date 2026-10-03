@@ -3151,7 +3151,10 @@ function withTfdmInfo(data, callsign) {
 // here from altitude for that source, and parked is confirmed after several consecutive
 // stationary ground readings for a flight already seen airborne. Without this, a flight whose
 // SWIM track lingers after landing never reaches processPositionUpdate()'s ADS-B-only parked check.
-const _groundStillCount = {};
+// Parked = continuously stationary on the ground for this long after being seen airborne. Counting
+// readings instead let a few quick polls (client + background) satisfy it in seconds at a taxi hold.
+const PARK_STILL_MS = 3 * 60 * 1000;
+const _groundStillSince = {};
 // Airborne means clearly off the field, not just a low altitude reading: terminal tracks report
 // altitude relative to a field that can sit over 1000 ft up (e.g. PIT), so ~1150 ft at the gate isn't flight.
 function isClearlyAirborne(data) {
@@ -3161,15 +3164,18 @@ function applyCallsignGroundState(data, callsign, source) {
     if (!data?.found || !callsign) return data;
     const cs = String(callsign).toUpperCase().trim();
     if (source === 'swim' && data.altFt != null) data.onGround = data.altFt < 200;
-    if (!data.onGround || !_everAirborneCallsigns.has(cs)) { _groundStillCount[cs] = 0; return data; }
-    if ((data.speedKts ?? 0) > 5) { _groundStillCount[cs] = 0; return data; }
-    _groundStillCount[cs] = (_groundStillCount[cs] || 0) + 1;
-    if (_groundStillCount[cs] >= 3) {
+    if (!data.onGround || !_everAirborneCallsigns.has(cs) || (data.speedKts ?? 0) > 5) {
+        delete _groundStillSince[cs];
+        return data;
+    }
+    const nowMs = Date.now();
+    if (!_groundStillSince[cs]) _groundStillSince[cs] = nowMs;
+    if (nowMs - _groundStillSince[cs] >= PARK_STILL_MS) {
         data.parked = true;
         markParked(cs, data.origin || null);
         _swimTrailBackfilled.delete(cs);
         _everAirborneCallsigns.delete(cs);
-        delete _groundStillCount[cs];
+        delete _groundStillSince[cs];
     }
     return data;
 }
