@@ -3138,6 +3138,11 @@ function withTfdmInfo(data, callsign) {
 // stationary ground readings for a flight already seen airborne. Without this, a flight whose
 // SWIM track lingers after landing never reaches processPositionUpdate()'s ADS-B-only parked check.
 const _groundStillCount = {};
+// Airborne means clearly off the field, not just a low altitude reading: terminal tracks report
+// altitude relative to a field that can sit over 1000 ft up (e.g. PIT), so ~1150 ft at the gate isn't flight.
+function isClearlyAirborne(data) {
+    return data?.found && data.onGround === false && ((data.altFt ?? 0) > 2000 || (data.speedKts ?? 0) > 100);
+}
 function applyCallsignGroundState(data, callsign, source) {
     if (!data?.found || !callsign) return data;
     const cs = String(callsign).toUpperCase().trim();
@@ -3164,7 +3169,7 @@ function applyCallsignGroundState(data, callsign, source) {
 function withEverAirborne(data, callsign) {
     if (!data || !callsign) return data;
     const cs = String(callsign).toUpperCase().trim();
-    if (data.found && data.onGround === false) _everAirborneCallsigns.add(cs);
+    if (isClearlyAirborne(data)) _everAirborneCallsigns.add(cs);
     if (_everAirborneCallsigns.has(cs)) data.hasBeenAirborne = true;
     return data;
 }
