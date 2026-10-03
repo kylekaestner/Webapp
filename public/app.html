@@ -56,15 +56,6 @@
             #view-grid.view-active { display: block !important; }
         }
 
-        /* Light mode: backgrounds go white, text flips to dark. Toggled from the profile sheet. */
-        html.light-mode body, html.light-mode .bg-black, html.light-mode .bg-\[\#050505\], html.light-mode .bg-zinc-950,
-        html.light-mode .bg-zinc-900, html.light-mode .bg-zinc-800 { background-color: #ffffff !important; }
-        html.light-mode .bg-zinc-950\/95, html.light-mode .bg-zinc-950\/98 { background-color: rgba(255,255,255,0.97) !important; }
-        html.light-mode .text-white, html.light-mode .text-zinc-100, html.light-mode .text-zinc-200,
-        html.light-mode .text-zinc-300 { color: #111827 !important; }
-        html.light-mode .text-zinc-400, html.light-mode .text-zinc-500 { color: #6b7280 !important; }
-        html.light-mode .border-zinc-800, html.light-mode .border-zinc-700, html.light-mode .border-zinc-900 { border-color: #e5e7eb !important; }
-        html.light-mode #splash-screen { background-color: #ffffff !important; }
 
         /* The app should fill the whole screen, including the bottom area that dvh excludes on iOS, so the
            tab bar lands at the physical bottom edge. */
@@ -1466,10 +1457,6 @@
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
         <div class="relative w-full md:max-w-md bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl p-6 space-y-5 overflow-y-auto" style="max-height:90dvh;padding-bottom: max(1.5rem, env(safe-area-inset-bottom))" onclick="event.stopPropagation()">
             <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto -mt-1 mb-1"></div>
-
-            <button onclick="toggleLightMode()" class="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-zinc-800 text-zinc-100 text-sm font-bold">
-                <span>Light background</span><span id="light-mode-state">Off</span>
-            </button>
 
             <!-- Identity display -->
             <div class="flex items-center gap-4">
@@ -9106,27 +9093,6 @@ let _blockUserEdited = false;
             dismissUploadReminder();
             openMobileUpload();
         }
-
-        function toggleLightMode() {
-            const on = !document.documentElement.classList.contains('light-mode');
-            document.documentElement.classList.toggle('light-mode', on);
-            document.getElementById('light-mode-state').textContent = on ? 'On' : 'Off';
-            try { localStorage.setItem('lightMode', on ? '1' : '0'); } catch (_) {}
-            setStatusBarStyle(on ? 'default' : 'black');
-        }
-        function setStatusBarStyle(style) {
-            const m = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-            if (m) m.setAttribute('content', style);
-        }
-        (function applyLightMode() {
-            let on = false;
-            try { on = localStorage.getItem('lightMode') === '1'; } catch (_) {}
-            if (on) { document.documentElement.classList.add('light-mode'); setStatusBarStyle('default'); }
-            document.addEventListener('DOMContentLoaded', () => {
-                const st = document.getElementById('light-mode-state');
-                if (st) st.textContent = on ? 'On' : 'Off';
-            });
-        })();
 
         // ── Splash screen ───────────────────────────────────────────────
         function dismissSplash() {
