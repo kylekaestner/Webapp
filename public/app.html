@@ -67,7 +67,7 @@
             }
             /* Push scrollable content above the fixed nav */
             #view-grid, #view-list {
-                padding-bottom: calc(58px + env(safe-area-inset-bottom)) !important;
+                padding-bottom: 70px !important;
             }
             /* Map runs to the bottom of the screen, under the nav and the map controls. The nav and the
                controls are translucent so the map shows through behind them. */
@@ -77,10 +77,10 @@
                nav's height reserved as bottom padding so they sit just above it. */
             #view-map > #map-mobile-bar {
                 position: relative !important;
-                padding-bottom: calc(56px + env(safe-area-inset-bottom)) !important;
+                padding-bottom: 68px !important;
                 background: rgba(9,9,11,0.72) !important; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
             }
-            .mobile-nav { background: rgba(9,9,11,0.72) !important; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+            .mobile-nav { background: rgba(9,9,11,0.72) !important; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); padding-bottom: 12px !important; }
         }
 
         /* Mobile: compact grid + readable list */
