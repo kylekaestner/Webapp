@@ -6371,8 +6371,11 @@
                         updateHitPopupStatus(popupGroundLabel, groundLabelColor);
                         // Draw the taxi breadcrumb trail whenever the aircraft is on the ground with history,
                         // not only while it's moving -- taxiing stops and starts, and the trail shouldn't drop out at a stop.
-                        if (d.trail && d.trail.length >= 2) {
-                            const taxiPath = smoothTrail(d.trail);
+                        // Only this leg's history: the server keeps trail across legs of a flight number, and older
+                        // points would otherwise fan out across the map.
+                        const _legTrail = (d.trail || []).filter(pt => !pt[2] || !scheduledDepUTC || pt[2] >= scheduledDepUTC.getTime() - 15 * 60000);
+                        if (_legTrail.length >= 2) {
+                            const taxiPath = smoothTrail(_legTrail);
                             if (taxiPath) {
                                 if (flownLines) {
                                     flownLines.forEach((l, i) => l.setLatLngs(taxiPath.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
