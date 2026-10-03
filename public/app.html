@@ -56,6 +56,10 @@
             #view-grid.view-active { display: block !important; }
         }
 
+        /* The app should fill the whole screen, including the bottom area that dvh excludes on iOS, so the
+           tab bar lands at the physical bottom edge. */
+        @supports (height: 100lvh) { body[data-fullheight] { height: 100lvh !important; } }
+
         /* Mobile: fixed bottom nav + safe-area padding for scrollable views */
         @media (max-width: 767px) {
             .mobile-nav {
@@ -385,7 +389,7 @@
         #offline-banner.offline-visible { transform: translateY(0); }
     </style>
 </head>
-<body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;">
+<body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;" data-fullheight>
 <div id="toast-container"></div>
 <div id="upload-reminder" class="hidden fixed bottom-20 md:bottom-4 inset-x-0 z-[9000] px-3">
     <div class="max-w-lg mx-auto bg-zinc-900 border border-amber-500/40 rounded-2xl p-4 shadow-2xl flex gap-3 items-start">
