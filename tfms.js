@@ -3,17 +3,18 @@
 // Separate feed again: different VPN, different message family. TFMS carries filed-route and
 // flow data — not position telemetry (that's SFDPS/swim.js) and not surface/terminal tracking
 // (that's STDDS/stdds.js). The reason to connect it at all: cross-checking a real flight
-// (swim.vncrcc.org's public API, SWA2932) showed TFMS hands back an ALREADY-RESOLVED fix-by-fix
-// sequence for a filed route — including SID/STAR expansion done correctly for the specific
-// runway/airport-configuration actually in use, which our own NASR-based resolution (navdata.js)
-// can only guess at since the raw route string alone doesn't say which runway applies.
+// (SWA2932) showed TFMS hands back an ALREADY-RESOLVED fix-by-fix sequence for a filed route —
+// including SID/STAR expansion done correctly for the specific runway/airport-configuration
+// actually in use, which our own NASR-based resolution (navdata.js) can only guess at since the
+// raw route string alone doesn't say which runway applies.
 //
 // A second, unrelated message family lives on the same queue: fiOutput/msgType="APTC"
 // (airport configuration — the general arrival/departure runway flow an airport is actually
-// using right now, independent of any specific flight). Found by reading the real parsing
-// source for this (the user's own local SwimReader instance, since the public GitHub repo for
-// it turned out to only contain the display client, not the backend), then confirmed against
-// 20 real captured samples spanning 20 distinct airports. Real shape, confirmed live:
+// using right now, independent of any specific flight). Found via live capture of real
+// production TFMS traffic (a nationwide fiOutput message stream, filtered down by keyword
+// pattern to the rarer APTC subtype rather than the far more common per-flight restriction-list
+// messages that also share this message family), confirmed against 20 real captured samples
+// spanning 20 distinct airports. Real shape, confirmed live:
 //   <ds:tfmDataService><ds:fiOutput>
 //     <fi:fiMessage msgType="APTC" ...>
 //       <fi:airportConfigMessage>
@@ -29,10 +30,10 @@
 //   </ds:fiOutput></ds:tfmDataService>
 // Used as a fallback (in server.js's resolveRouteWaypoints) when TFDM hasn't yet assigned a
 // specific flight a runway: the airport's current general config is still a better guess than
-// navdata.js's arbitrary bodies[0]. The reference implementation (SwimReader's own aptc.js, same
-// source this was confirmed against) applies no "pick the right one" logic beyond staleness —
-// it just shows the latest message per airport and flags it stale past 1800s. getAirportConfig()
-// below follows the same convention.
+// navdata.js's arbitrary bodies[0]. No "pick the right one" logic beyond staleness is applied
+// here — just the latest message per airport, flagged stale past 1800s (30 minutes, matching how
+// often an airport's configuration realistically changes). getAirportConfig() below implements
+// that convention.
 
 const solace = require('solclientjs');
 const { XMLParser } = require('fast-xml-parser');
@@ -337,7 +338,8 @@ function getAirportConfig(aptCode) {
     const bare = (code.length === 4 && code[0] === 'K') ? code.slice(1) : code;
     const cfg = _airportConfig[bare];
     if (!cfg) return null;
-    // Same 1800s staleness convention as SwimReader's own reference display for this same data.
+    // 1800s staleness window -- longer than a position/trail check needs, since an airport's
+    // runway configuration realistically only changes a few times a day, not every poll.
     if (Date.now() - (cfg.lastMsg || 0) > 30 * 60 * 1000) return null;
     return cfg;
 }

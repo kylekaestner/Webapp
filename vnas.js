@@ -8,10 +8,7 @@
 // (VATSIM simulates real-world ATC for training/events, so its facility data mirrors the real
 // NAS). Confirmed directly against the live API before writing any of this: GET
 // https://data-api.vnas.vatsim.net/api/artccs/ returns every ARTCC's full facility tree, and
-// ZID's sector 21 resolves to position "IND_21_CTR" at 124.625 MHz — matching reality. This is
-// also genuinely how SwimReader's own public instance (swim.vncrcc.org, "sectorFreq"/"freqs")
-// resolves the same thing — traced to this exact API via its open-source repo
-// (github.com/yanjz124/SwimReader, docs/stars/VNAS-API.md) — not a guess at their approach.
+// ZID's sector 21 resolves to position "IND_21_CTR" at 124.625 MHz — matching reality.
 //
 // Two distinct linkage shapes, both confirmed against real downloaded data:
 //   - Enroute (ARTCC, numeric sectorId, e.g. "21"): a position with

@@ -94,11 +94,9 @@ const WARN_CAP = 20;
 
 // CONFIRMED against 25 real messages (scratch/tfdm-samples/, 2026-10-02) -- root is
 // <nas:NasMessage>, with <nas:flight xsi:type="nas:TfdmFlightType"> containing <fx:departure>/
-// <fx:arrival> blocks. Independently cross-checked field-for-field against yanjz124/SwimReader's
-// own TfdmBridge.cs (a real, working TFDM consumer) and everything lines up, including the
-// three-tier runway structure below -- that repo's own C# mapper doesn't bother extracting the
-// arrival-side runway fields (only departure), but our real captured samples show arrival carries
-// the identical runwayAssigned/runwayPredicted/runwayActual shape, so both ends are mapped here.
+// <fx:arrival> blocks, each carrying the same three-tier runway structure below. Both ends are
+// mapped here since the real captured samples show arrival carries the identical
+// runwayAssigned/runwayPredicted/runwayActual shape that departure does.
 //
 // Three runway fields, by confidence (prefer the first one present):
 //   runwayActual    -- confirmed, the aircraft is physically on this runway now (rare/late signal)

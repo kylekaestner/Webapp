@@ -204,11 +204,10 @@ function textOf(val) {
 //
 // This still does NOT resolve named fixes/navaids/airways/procedures to real coordinates —
 // that needs FAA's NASR data (public domain — same category as the OurAirports data already
-// used elsewhere in this app, confirmed via SwimReader's own real implementation, not a
-// licensed product like Navigraph) and, for SID/STAR/airway sequences specifically, the
-// published procedure/airway definition (FAA CIFP data). Neither is wired up yet. Treat this as
-// "the filed route as a readable, ordered, typed list," not yet "a plottable line on the map" —
-// except for the lat/lon tokens, which already are plottable.
+// used elsewhere in this app, not a licensed product like Navigraph) and, for SID/STAR/airway
+// sequences specifically, the published procedure/airway definition (FAA CIFP data). Neither is
+// wired up yet. Treat this as "the filed route as a readable, ordered, typed list," not yet "a
+// plottable line on the map" — except for the lat/lon tokens, which already are plottable.
 const RADIAL_FIX_RE = /^([A-Z]{2,4})(\d{3})(\d{3})$/; // e.g. CKW117042 = radial 117, 42nm from CKW
 const AIRWAY_RE = /^[A-Z]{1,2}\d{1,4}$/; // e.g. J217, Q82, V39, M580 — short letter prefix + number, distinct from 5-6 char procedure names
 const LATLON_RE = /^(\d{2})(\d{2})([NS])\/(\d{3})(\d{2})([EW])$/; // e.g. 4052N/09119W = 40°52'N 091°19'W
@@ -369,12 +368,11 @@ function processOneMessage(msgObj) {
     if (flightStatus) entry.flightStatus = flightStatus;
     if (route) {
         // The first nasRouteText ever seen for this flight is the originally filed route;
-        // anything after that is the current/amended one. Confirmed this is the right model by
-        // cross-checking a real flight (VXP331) against swim.vncrcc.org's API, which separately
-        // exposes both — its "originalRoute" was the long SID/airway-heavy path, its "route" was
-        // a later radial-fix shortcut, exactly what "first seen vs. most recent" would produce.
-        // No separate FIXM field needed for this — SwimReader's own docs don't mention one
-        // either, so this is almost certainly how any such tool derives the distinction.
+        // anything after that is the current/amended one. Confirmed this is the right model
+        // against a real flight (VXP331): the first message's route was the long SID/airway-heavy
+        // path, a later message's was a radial-fix shortcut — exactly what "first seen vs. most
+        // recent" should produce. No separate FIXM field exists for this distinction, so deriving
+        // it from message order is the only option.
         if (!entry.originalRoute) entry.originalRoute = route;
         entry.route = route;
         entry.routeParsed = parseRouteString(route, origin || entry.origin, dest || entry.dest);

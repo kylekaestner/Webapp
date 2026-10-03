@@ -160,9 +160,9 @@
         .live-label { background: rgba(9,9,11,0.82) !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 5px !important; padding: 3px 7px !important; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7) !important; backdrop-filter: blur(6px); pointer-events: none; }
         .live-label::before { display: none !important; }
         /* Route-point (VOR/fix/waypoint) name tags -- deliberately NOT the dark-pill .live-label
-           style used for the plane's own callsign/status. Modeled on VATSIM Radar's chart-style
-           labels (requested directly): plain small text, no background box, just enough shadow to
-           stay legible over varying map colors underneath. */
+           style used for the plane's own callsign/status. Chart-style labels (requested directly):
+           plain small text, no background box, just enough shadow to stay legible over varying
+           map colors underneath. */
         .wp-label { background: transparent !important; border: none !important; padding: 0 !important; box-shadow: none !important; backdrop-filter: none !important; white-space: nowrap; pointer-events: none; }
         .wp-label::before { display: none !important; }
         @keyframes here-pulse { 0% { box-shadow: 0 0 0 0 rgba(168,85,247,0.7); } 70% { box-shadow: 0 0 0 16px rgba(168,85,247,0); } 100% { box-shadow: 0 0 0 0 rgba(168,85,247,0); } }
@@ -5911,10 +5911,9 @@
 
         // The real ERAM Visual Communications Indicator (VCI) icon -- a small green flag/check-in
         // symbol shown on a controller's Full Data Block once an aircraft checks in on frequency,
-        // pulled directly from yanjz124/SwimReader's own ERAM reference docs (public domain real
-        // FAA scope symbology, not this app's own artwork) and traced pixel-for-pixel from the
-        // source 16x16 bitmap (decoded directly: 1-bit palette PNG, on-pixel color rgb(0,204,0))
-        // into this SVG rect grid. Inline SVG rather than an <img data:...> -- confirmed live that
+        // traced pixel-for-pixel from a real 16x16 FAA scope symbology bitmap (decoded directly:
+        // 1-bit palette PNG, on-pixel color rgb(0,204,0)) into this SVG rect grid, not this app's
+        // own artwork. Inline SVG rather than an <img data:...> -- confirmed live that
         // an <img> raced Leaflet's tooltip width measurement against the browser's own image
         // decode, so the box was sized before the image (and the text next to it) had settled,
         // clipping the pilot name past the pill's right edge. Inline SVG has no separate decode
@@ -6007,8 +6006,8 @@
             markers.forEach(m => m.on('click', () => map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 9), { duration: 0.6 })));
 
             let flownLines = null;  // one polyline per world copy
-            // Remaining route is split into two styled groups (VATSIM Radar convention, requested
-            // directly): dashed from the live position to the next fix and from the last fix to
+            // Remaining route is split into two styled groups (requested directly): dashed from
+            // the live position to the next fix and from the last fix to
             // the destination airport, solid for the known fix-to-fix legs in between. Two
             // separate Leaflet polyline groups because dashArray/styling applies per-polyline, not
             // per sub-path within one.
@@ -6405,9 +6404,9 @@
                     // (named fixes/navaids/SID/STAR/airways/radial-distance points all included,
                     // not just airports) built server-side by navdata.js. Filtered down to only
                     // what's actually still ahead of the aircraft (computeRouteProgress) —
-                    // deliberately "what VATSIM Radar shows": fixes already passed drop off the
-                    // map as the flight continues, same as the origin airport itself (always
-                    // behind by definition, same disappearing treatment as any other passed fix).
+                    // fixes already passed drop off the map as the flight continues, same as the
+                    // origin airport itself (always behind by definition, same disappearing
+                    // treatment as any other passed fix).
                     const fullResolvedPath = d.routeParsed?.resolvedPath || [];
                     const { cumDist: _routeCum, aircraftProgress: _acProgress } =
                         fullResolvedPath.length >= 2 ? computeRouteProgress(fullResolvedPath, livePoint) : { cumDist: [], aircraftProgress: 0 };
@@ -6476,9 +6475,9 @@
                     }
                     const remainSegs = unwrapLongitudes(remainPath);
 
-                    // VATSIM Radar convention (requested directly): dashed from the live position
-                    // to the next fix, solid between subsequent known fixes, dashed again from the
-                    // last fix to the destination airport -- i.e. only the first and last legs are
+                    // Requested directly: dashed from the live position to the next fix, solid
+                    // between subsequent known fixes, dashed again from the last fix to the
+                    // destination airport -- i.e. only the first and last legs are
                     // dashed; everything between two real filed waypoints is solid. This also
                     // correctly covers the two degenerate cases: zero waypoints left (a single
                     // plane->airport leg, index 0 is simultaneously the last index too, so it's
@@ -6665,7 +6664,7 @@
         // single next upcoming fix (the one the aircraft is currently headed toward) -- used by
         // applyRouteDetailZoomTier() to decide what's visible at the current zoom level.
         function registerWaypointLabel(callsign, markers, name, color, isActiveFix) {
-            // Small, plain, chart-style text (VATSIM Radar look, requested directly) -- no
+            // Small, plain, chart-style text (requested directly) -- no
             // background pill (see .wp-label), just the symbol's own accent color plus a dark
             // text-shadow for contrast against whatever's on the map underneath.
             const html = `<span style="font-size:8px;font-weight:600;color:${color};letter-spacing:.02em;text-shadow:0 0 2px #000,0 0 2px #000,0 1px 1px #000">${name}</span>`;
@@ -6692,7 +6691,7 @@
             _waypointLabels.get(callsign).push({ markers, html, direction: 'right', hidden: false, isActiveFix: !!isActiveFix });
         }
 
-        // Zoom-dependent progressive disclosure (VATSIM Radar convention, requested directly):
+        // Zoom-dependent progressive disclosure (requested directly):
         // zoomed out far, every fix shows as a bare symbol with no name tag (avoids a wall of
         // overlapping text at a scale where none of it would be legible anyway); at a middle zoom,
         // only the single next fix the aircraft is actually headed toward is shown at all (symbol

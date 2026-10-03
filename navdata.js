@@ -5,8 +5,8 @@
 //
 // Known, accepted limitations (documented rather than silently wrong):
 // - Fix/navaid identifiers are not globally unique. Disambiguated by proximity to the previous
-//   already-resolved point in the route, same approach SwimReader's own real implementation
-//   uses. The first waypoint in a route has the origin airport as that reference point.
+//   already-resolved point in the route. The first waypoint in a route has the origin airport
+//   as that reference point.
 // - A SID/STAR can have multiple distinct "body" segments (e.g. runway-specific initial legs)
 //   that all converge to the same later fix. FIXED 2026-10-02 via real per-flight runway
 //   assignment from TFDM (tfdm.js's getRunwayInfo()) — pickBody() matches the assigned runway
