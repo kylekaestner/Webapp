@@ -5758,7 +5758,8 @@
                         let txt = '';
                         let txtColor = '#4ade80';
                         if (d.found && d.onGround && d.speedKts > 5) {
-                            txt = `Taxiing · ${Math.round(d.speedKts)} kts`;
+                            const _tfdmIn = /TAXI_IN|ARRIVAL/.test(d.tfdmState || '') ? 'in' : /TAXI_OUT/.test(d.tfdmState || '') ? 'for departure' : null;
+                            txt = `Taxiing${_tfdmIn ? ' ' + _tfdmIn : ''} · ${Math.round(d.speedKts)} kts`;
                         } else if (d.found && !d.onGround && d.altFt != null) {
                             const alt = d.altFt >= 18000 ? `FL${Math.round(d.altFt / 100)}` : `${Math.round(d.altFt).toLocaleString()} ft`;
                             const kts = d.speedKts ? ` · ${Math.round(d.speedKts)} kts` : '';
@@ -6298,7 +6299,12 @@
                         _pollDelayMs = FAST_POLL_MS;
                         // If server confirms this aircraft was airborne, set local flag so the
                         // arc and delay state are cleaned up even on a fresh map load mid-taxi.
-                        if (d.hasBeenAirborne) hasBeenAirborne = true;
+                        // Direction: TFDM's own phase is authoritative when it has one (taxi-out vs taxi-in).
+                        // Otherwise fall back to whether this aircraft has been seen airborne.
+                        const _tfdmTaxiIn = /TAXI_IN|ARRIVAL/.test(d.tfdmState || '') ? true : /TAXI_OUT/.test(d.tfdmState || '') ? false : null;
+                        const _taxiIn = _tfdmTaxiIn ?? !!(d.hasBeenAirborne || hasBeenAirborne);
+                        if (_taxiIn) hasBeenAirborne = true;
+                        const _arriving = _taxiIn;
                         const kts = d.speedKts ? Math.round(d.speedKts) : null;
                         const isTaxiing = kts && kts > 5;
 
@@ -6320,7 +6326,7 @@
                         if (d.heading != null) { setAllIcon(makePlaneIcon(d.heading, color, d.type, true)); labelEntry.heading = d.heading; }
                         showIcon();
                         let groundLabel, groundLabelColor;
-                        if (hasBeenAirborne) {
+                        if (_arriving) {
                             groundLabel = isTaxiing ? `Taxiing in · ${kts} kts` : 'Arrived';
                             groundLabelColor = '#22c55e';
                         } else {
@@ -6338,7 +6344,7 @@
                         // The static arc popup was built from schedule alone and may still say
                         // "IN THE AIR" even though ADS-B shows this aircraft hasn't lifted off
                         // (or has already landed) — overwrite it with the real ground state.
-                        const popupGroundLabel = hasBeenAirborne
+                        const popupGroundLabel = _arriving
                             ? (isTaxiing ? `TAXIING IN · ${kts} KTS` : '✓ ARRIVED')
                             : (isTaxiing ? 'TAXIING FOR DEPARTURE' : 'ON GROUND');
                         updateHitPopupStatus(popupGroundLabel, groundLabelColor);
