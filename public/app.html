@@ -4892,6 +4892,9 @@
         // scheduled arc -- requested directly, deliberately short so a flight hours or days out
         // doesn't show "all the route BS" (verbatim), only one genuinely about to depart.
         const PREFLIGHT_ROUTE_MS = 30 * 60 * 1000;
+        // Pre-departure window, including a short grace after scheduled departure while the aircraft
+        // is still at the gate or pushing back (no live position yet, so it isn't airborne).
+        const isPreflightWindow = (d, nowMs) => !!d && (d - nowMs) <= PREFLIGHT_ROUTE_MS && (nowMs - d) < 25 * 60 * 1000;
 
         // Render a polyline on the primary world copy plus ±360°/±720° copies so it
         // appears on every world copy as the user pans east or west.
@@ -5065,7 +5068,7 @@
                         // shows up, so calling it here is harmless if there isn't any yet.
                         const pf = legs.find(f => {
                             const d = flightUTCTime(f.departure_time, f.departure_airport);
-                            return d && d > now && (d - now) <= PREFLIGHT_ROUTE_MS;
+                            return isPreflightWindow(d, now);
                         });
                         if (pf) {
                             const pfDepUTC = flightUTCTime(pf.departure_time, pf.departure_airport);
@@ -5319,7 +5322,7 @@
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
                     const pf = legs.find(f => {
                         const d = flightUTCTime(f.departureTime, f.departureAirport);
-                        return d && d > now && (d - now) <= PREFLIGHT_ROUTE_MS;
+                        return isPreflightWindow(d, now);
                     });
                     if (pf) {
                         const pfDepTime = flightUTCTime(pf.departureTime, pf.departureAirport);
@@ -6912,7 +6915,7 @@
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
                     if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime);
-                } else if (!landedEarly && depTime > now && (depTime - now) <= PREFLIGHT_ROUTE_MS) {
+                } else if (!landedEarly && isPreflightWindow(depTime?.getTime(), now.getTime())) {
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
                     const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), color, null, true));
                     dots.forEach(d => mapLayers.active.push(d));
