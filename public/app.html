@@ -6117,6 +6117,15 @@
             let _pollerStopped = false;
             const finishTracking = (savedEarly) => {
                 _pollerStopped = true;
+                // Confirmed-live bug: this only ever cleaned up THIS map instance's own markers/
+                // arc/popup -- it never told isFlightStillActive() (app-wide, used by every other
+                // render path: grid, list, day-detail, the other map views) that the flight is
+                // actually done. Without this, isFlightStillActive() keeps saying "yes, still
+                // active" for the full 90-minute LATE_ARRIVAL_GRACE_MS window after a late
+                // scheduled arrival, so a later re-render (switching views, a periodic re-render,
+                // even just reopening this same map) redraws the scheduled "active" dashed line
+                // and restarts live tracking for a flight that's already landed and parked.
+                if (callsign) _confirmedParked.add(callsign);
                 clearInterval(_livePollers[callsign]);
                 delete _livePollers[callsign];
                 _liveLabels.delete(callsign);
