@@ -73,9 +73,11 @@
                controls are translucent so the map shows through behind them. */
             #view-map.view-active { padding-bottom: 0 !important; }
             #view-map > #map { position: absolute !important; top: 0; left: 0; right: 0; bottom: 0; }
+            /* Controls stay in normal flow (absolute placement got buried under the nav's stacking), with the
+               nav's height reserved as bottom padding so they sit just above it. */
             #view-map > #map-mobile-bar {
-                position: absolute !important; left: 0; right: 0; z-index: 300;
-                bottom: calc(56px + env(safe-area-inset-bottom));
+                position: relative !important;
+                padding-bottom: calc(56px + env(safe-area-inset-bottom)) !important;
                 background: rgba(9,9,11,0.72) !important; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
             }
             .mobile-nav { background: rgba(9,9,11,0.72) !important; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
