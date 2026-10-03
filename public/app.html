@@ -1962,6 +1962,11 @@
         let _offDayFilter = null; // Set of pilot keys included in Common Off Days; null = all
         const _livePollers  = {};    // callsign -> intervalId; cleared on every map render
         const _liveLabels   = new Map(); // callsign -> { markers, html, direction }
+        // callsign -> a zero-arg function that re-renders just that flight's own label HTML from
+        // its last-known poll data, without waiting for its next 8s poll. toggleShowSector() uses
+        // this so flipping the FREQ toggle takes effect immediately instead of feeling laggy --
+        // confirmed live that waiting on the natural poll cadence read as the button being broken.
+        const _liveLabelRefreshers = new Map();
         const _landedEarly  = new Set(); // callsigns confirmed landed before scheduledArrUTC
         // callsign -> the specific marker/arc/hit-line layer objects currently on the map for it.
         // _livePollers is cleared on every render, so it can't reliably tell a fresh
@@ -2006,15 +2011,19 @@
         // the time, and only ever has something to show for a flight SWIM is tracking whose
         // sector actually resolves to a real vNAS-modeled position (not every real FAA facility
         // is modeled there -- see vnas.js's header). Same persisted-toggle pattern as Route
-        // Detail above, but there's no equivalent of applyRouteDetailZoomTier() to instantly
-        // repaint already-bound tooltip HTML across every tracked flight's own closure, so this
-        // just takes effect on each flight's own next poll (within 8s) rather than instantly.
+        // Detail above.
         let _showSectorOn = false;
         try { _showSectorOn = localStorage.getItem('cs_show_sector') === '1'; } catch (_) {}
         function toggleShowSector() {
             _showSectorOn = !_showSectorOn;
             try { localStorage.setItem('cs_show_sector', _showSectorOn ? '1' : '0'); } catch (_) {}
             document.getElementById('btn-show-sector')?.classList.toggle('map-ctrl-on', _showSectorOn);
+            // Confirmed live: without this, the badge only appeared/disappeared on each tracked
+            // flight's own next 8s poll, which read as the button being laggy/broken rather than
+            // instant. Each registered refresher rebuilds that one flight's label from its own
+            // last-known poll data (see _liveLabelRefreshers' declaration comment) -- no network
+            // round trip needed, just redrawing with data already in hand.
+            for (const refresh of _liveLabelRefreshers.values()) refresh();
         }
         let showPast = true, showFuture = true;
         let airportVisibilityMap = {}, airportFlightTypes = {};
@@ -5682,6 +5691,7 @@
             Object.values(_livePollers).forEach(id => clearInterval(id));
             for (const k in _livePollers) delete _livePollers[k];
             _liveLabels.clear();
+            _liveLabelRefreshers.clear();
             stopCalListPollers();
             removeRadarLayer();
         }
@@ -5909,6 +5919,7 @@
                 clearInterval(_livePollers[callsign]);
                 delete _livePollers[callsign];
                 _liveLabels.delete(callsign);
+                _liveLabelRefreshers.delete(callsign);
             }
             _liveLayersByCallsign[callsign] = { markers, routeLines: newRouteLines, hitLines: newHitLines };
 
@@ -5950,6 +5961,13 @@
                 labelEntry.html = html;
                 markers.forEach(m => m.getTooltip()?.setContent(html));
             };
+            // Last-known source/sector/suffix from this flight's own most recent poll, kept so
+            // the FREQ toggle can instantly rebuild this exact label (see _liveLabelRefreshers
+            // below) without needing a fresh poll response.
+            let _lastTooltipSource = null, _lastTooltipSector = null, _lastTooltipSuffix = '';
+            _liveLabelRefreshers.set(callsign, () => {
+                setAllTooltip(buildBaseTooltip(_lastTooltipSource, _lastTooltipSector) + _lastTooltipSuffix);
+            });
 
             // Click any world-copy marker → zoom to that flight
             markers.forEach(m => m.on('click', () => map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 9), { duration: 0.6 })));
@@ -6067,6 +6085,7 @@
                 clearInterval(_livePollers[callsign]);
                 delete _livePollers[callsign];
                 _liveLabels.delete(callsign);
+                _liveLabelRefreshers.delete(callsign);
                 delete _liveLayersByCallsign[callsign];
                 _departureDelays.delete(callsign);
                 markers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
@@ -6245,7 +6264,9 @@
                             groundLabel = isTaxiing ? `Taxiing for departure` : 'On ground';
                             groundLabelColor = '#71717a';
                         }
-                        setAllTooltip(buildBaseTooltip(d.source, d.sector) + `<br><span style="font-size:9px;color:${groundLabelColor};font-weight:700">${groundLabel}</span>`);
+                        _lastTooltipSource = d.source; _lastTooltipSector = d.sector;
+                        _lastTooltipSuffix = `<br><span style="font-size:9px;color:${groundLabelColor};font-weight:700">${groundLabel}</span>`;
+                        setAllTooltip(buildBaseTooltip(_lastTooltipSource, _lastTooltipSector) + _lastTooltipSuffix);
                         // The static arc popup was built from schedule alone and may still say
                         // "IN THE AIR" even though ADS-B shows this aircraft hasn't lifted off
                         // (or has already landed) — overwrite it with the real ground state.
@@ -6472,7 +6493,9 @@
                     const altFt = d.altFt ? Math.round(d.altFt) : null;
                     const kts   = d.speedKts ? Math.round(d.speedKts) : null;
                     const detail = [altFt ? `${altFt.toLocaleString()} ft` : null, kts ? `${kts} kts` : null].filter(Boolean).join(' · ');
-                    setAllTooltip(buildBaseTooltip(d.source, d.sector) + (detail ? `<br><span style="font-size:9px;color:#71717a">${detail}</span>` : ''));
+                    _lastTooltipSource = d.source; _lastTooltipSector = d.sector;
+                    _lastTooltipSuffix = detail ? `<br><span style="font-size:9px;color:#71717a">${detail}</span>` : '';
+                    setAllTooltip(buildBaseTooltip(_lastTooltipSource, _lastTooltipSector) + _lastTooltipSuffix);
                     scheduleDeoverlap();
                 } catch (_) {}
             };
