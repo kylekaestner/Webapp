@@ -3282,7 +3282,12 @@ app.get('/api/flight-status', (req, res) => {
         const c = _liveCache[cs];
         return c && c.data?.found && now - c.ts < 3 * 60 * 1000;
     });
-    res.json({ parked: list.filter(cs => isParked(cs)), live });
+    const times = {};
+    for (const cs of list) {
+        const t = tfms.getFlightTimes(cs);
+        if (t && (t.etd || t.eta)) times[cs] = { etd: t.etd || null, eta: t.eta || null };
+    }
+    res.json({ parked: list.filter(cs => isParked(cs)), live, times });
 });
 
 app.get('/api/live-position', async (req, res) => {

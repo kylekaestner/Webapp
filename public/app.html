@@ -6803,11 +6803,13 @@
             // minutes) or a departure that's been past for a while -- a scheduled departure time
             // alone isn't evidence the aircraft has moved (it may still be at the gate or pushing).
             const liveSeen = new Set();
+            const estTimes = {};
             if (_activeCs.size) {
                 try {
                     const st = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent([..._activeCs].join(','))}`).then(r => r.json());
                     (st.parked || []).forEach(cs => _confirmedParked.add(cs));
                     (st.live || []).forEach(cs => liveSeen.add(cs));
+                    Object.assign(estTimes, st.times || {});
                 } catch (e) {}
                 if (gen !== mapRenderGen) return;
             }
@@ -6892,12 +6894,21 @@
                 const _depCity = _intelAreaLabel(f.departureAirport) || f.departureAirport;
                 const _arrCity = _intelAreaLabel(f.arrivalAirport) || f.arrivalAirport;
                 const _cityLine = `<div style="font-size:10px;color:#52525b;font-weight:600;margin-bottom:5px">${_depCity} → ${_arrCity}</div>`;
+                // TFMS estimates (display-only, the uploaded schedule above is never changed). Shown only
+                // when they differ from the scheduled time by at least 5 minutes.
+                const _est = _cs ? estTimes[_cs] : null;
+                const _estDep = _est?.etd && depTime && Math.abs(new Date(_est.etd) - depTime) >= 5 * 60000 ? _est.etd : null;
+                const _estArr = _est?.eta && arrTime && Math.abs(new Date(_est.eta) - arrTime) >= 5 * 60000 ? _est.eta : null;
+                const _estLine = (_estDep || _estArr)
+                    ? `<div style="font-size:10px;color:#eab308;font-weight:700;margin-bottom:4px">${_estDep ? `Est dep ${formatTimeISO(_estDep, f.departureAirport)} <span style="opacity:.6">${tzAbbr(f.departureAirport, _estDep)}</span>` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `Est arr ${formatTimeISO(_estArr, f.arrivalAirport)} <span style="opacity:.6">${tzAbbr(f.arrivalAirport, _estArr)}</span>` : ''}</div>`
+                    : '';
                 const dayPopup = `
                     <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:2px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
                     ${_cityLine}
                     <div style="font-size:11px;font-weight:700;margin-bottom:5px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</div>
                     <div style="font-size:11px;color:#94a3b8">${formatTimeISO(f.departureTime, f.departureAirport)} <span style="opacity:.5">${tzAbbr(f.departureAirport, f.departureTime)}</span> – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
                     ${_statusLine}
+                    ${_estLine}
                 `;
                 dayHits.forEach(h => { h.bindPopup(dayPopup, { className: 'dark-popup' }); h.addTo(map); });
                 dayLines.forEach(l => mapLayers.future.push(l));

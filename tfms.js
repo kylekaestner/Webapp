@@ -37,6 +37,8 @@
 
 const solace = require('solclientjs');
 const { XMLParser } = require('fast-xml-parser');
+const fs = require('fs');
+const path = require('path');
 
 const TFMS_HOST  = process.env.TFMS_HOST;
 const TFMS_VPN   = process.env.TFMS_VPN;
@@ -50,6 +52,24 @@ let _connected = false;
 let _relevantCallsigns = null; // same pattern as swim.js/stdds.js
 
 const _latest = {}; // callsign -> { route, fixes: [{name,lat?,lon?,time}], sid, star, lastMsg }
+// Estimated/airline times, kept apart from _latest so they survive restarts and pruning. Persisted to disk.
+const TIMES_CACHE_PATH = path.join(__dirname, '.tfms_times_cache.json');
+const TIMES_TTL_MS = 6 * 60 * 60 * 1000;
+const _flightTimes = {}; // callsign -> { igtd, etd, eta, ..., timesUpdated }
+try {
+    const saved = JSON.parse(fs.readFileSync(TIMES_CACHE_PATH, 'utf8'));
+    for (const [cs, t] of Object.entries(saved)) if (Date.now() - (t.timesUpdated || 0) <= TIMES_TTL_MS) _flightTimes[cs] = t;
+} catch (_) {}
+let _timesSaveTimer = null;
+function scheduleTimesSave() {
+    if (_timesSaveTimer) return;
+    _timesSaveTimer = setTimeout(() => {
+        _timesSaveTimer = null;
+        const now = Date.now();
+        for (const cs of Object.keys(_flightTimes)) if (now - (_flightTimes[cs].timesUpdated || 0) > TIMES_TTL_MS) delete _flightTimes[cs];
+        try { fs.writeFileSync(TIMES_CACHE_PATH, JSON.stringify(_flightTimes)); } catch (_) {}
+    }, 2000);
+}
 const _airportConfig = {}; // bare 3-letter airport code -> { arrRunwayConf, depRunwayConf, ..., lastMsg }
 
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
@@ -157,7 +177,6 @@ function processOneFltdMessage(msgObj) {
 const FLIGHT_TIME_ATTRS = ['airlineOutTime', 'airlineOffTime', 'airlineOnTime', 'airlineInTime',
     'gateDeparture', 'gateArrival', 'runwayDeparture', 'runwayArrival', 'originalDeparture', 'originalArrival'];
 function processFlightTimes(msgObj, cs) {
-    const entry = _latest[cs] || (_latest[cs] = {});
     const iso = v => {
         const s = textOf(v);
         if (s == null) return undefined;
@@ -184,8 +203,8 @@ function processFlightTimes(msgObj, cs) {
         }
     }
     if (Object.keys(times).length === 0) return;
-    Object.assign(entry, times);
-    entry.timesUpdated = Date.now();
+    _flightTimes[cs] = { ...(_flightTimes[cs] || {}), ...times, timesUpdated: Date.now() };
+    scheduleTimesSave();
 }
 
 // Not callsign-scoped at all (an airport's config isn't tied to any one flight), so this is
@@ -396,11 +415,10 @@ function splitRunwayConf(confStr) {
 // Estimated/airline times for a callsign (see processFlightTimes). Kept separate from getFlightData so
 // the times stay available for the whole flight, not just while the route data is fresh.
 function getFlightTimes(callsign) {
-    if (!_connected) return null;
     const cs = String(callsign || '').trim().toUpperCase();
-    const f = _latest[cs];
+    const f = _flightTimes[cs];
     if (!f || !f.timesUpdated) return null;
-    if (Date.now() - f.timesUpdated > 2 * 60 * 60 * 1000) return null;
+    if (Date.now() - f.timesUpdated > TIMES_TTL_MS) return null;
     const { igtd, etd, eta, airlineOutTime, airlineOffTime, airlineOnTime, airlineInTime,
         gateDeparture, gateArrival, runwayDeparture, runwayArrival, originalDeparture, originalArrival } = f;
     return { igtd, etd, eta, airlineOutTime, airlineOffTime, airlineOnTime, airlineInTime,
