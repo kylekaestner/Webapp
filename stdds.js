@@ -354,7 +354,9 @@ function getGroundPosition(callsign) {
         altFt: f.altFt ?? null,
         speedKts: f.speedKts ?? null,
         heading: f.heading ?? null,
-        onGround: f.status === 'onsurface' || (f.speedKts != null && f.speedKts < 50 && (f.altFt == null || f.altFt < 100)),
+        // Altitude is deliberately not used: it's relative to the field, so a taxiing aircraft at an elevated
+        // airport (PIT, DEN) reads far above 100 ft. Speed under 50 kts is what separates surface from flight.
+        onGround: f.status === 'onsurface' || (f.speedKts != null && f.speedKts < 50),
         trail: f.trail || [],
         hadTrail: !!(f.trail && f.trail.length),
         parked: false,
