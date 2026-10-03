@@ -6879,7 +6879,11 @@
                 const _cs = deriveCallsign(f, f.pilotKey);
                 const landedEarly = _landedEarly.has(_cs);
                 const isActive = !landedEarly && _airborneNow(_cs, depTime?.getTime(), arrTime?.getTime());
-                const isPast   = !isActive && depTime <= now && (arrTime < now || landedEarly);
+                // Completed needs evidence the flight actually flew (server-confirmed parked, seen airborne, or live),
+                // or a long-past scheduled arrival with no tracking coverage at all. A leg whose schedule has passed
+                // but that never departed stays "Departure due" rather than being marked done.
+                const _flown = !!_cs && (_confirmedParked.has(_cs) || airborneSeen.has(_cs) || liveSeen.has(_cs));
+                const isPast   = !isActive && depTime <= now && (landedEarly || (arrTime < now && (_flown || arrTime < new Date(now.getTime() - 3 * 60 * 60 * 1000))));
                 const color = PILOT_COLORS[f.pilotKey];
 
                 // Offset index within pair group
@@ -6919,8 +6923,11 @@
                 const _arrDiffMin = _est?.eta && arrTime ? Math.round((new Date(_est.eta) - arrTime) / 60000) : null;
                 const _arrNote = _arrDiffMin == null ? '' : _arrDiffMin <= -5 ? ` <span style="color:#4ade80">· ${-_arrDiffMin}m early</span>` : _arrDiffMin >= 15 ? ` <span style="color:#f87171">· ${_arrDiffMin}m late</span>` : '';
                 // One compact line: estimated times and how they compare to the uploaded schedule.
+                // Labelled the way ops people read them: ETD/ETA, with the arrival's difference from the schedule.
+                const _depDiffMin = _estDep && depTime ? Math.round((new Date(_estDep) - depTime) / 60000) : null;
+                const _depNote = _depDiffMin == null ? '' : _depDiffMin >= 5 ? ` <span style="color:#f87171">(+${_depDiffMin}m)</span>` : _depDiffMin <= -5 ? ` <span style="color:#4ade80">(${_depDiffMin}m)</span>` : '';
                 const _estLine = (_estDep || _estArr)
-                    ? `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin-bottom:3px;white-space:nowrap">Est ${_estDep ? formatTimeISO(_estDep, f.departureAirport) : ''}${_estDep && _estArr ? ' → ' : ''}${_estArr ? formatTimeISO(_estArr, f.arrivalAirport) : ''}${_arrNote}</div>`
+                    ? `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin-bottom:3px;white-space:nowrap">${_estDep ? `ETD ${formatTimeISO(_estDep, f.departureAirport)}${_depNote}` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `ETA ${formatTimeISO(_estArr, f.arrivalAirport)}${_arrNote}` : ''}</div>`
                     : '';
                 const dayPopup = `
                     <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:2px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
