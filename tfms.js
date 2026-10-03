@@ -158,12 +158,14 @@ function handleMessage(xmlText) {
             if (xmlText.includes(cs)) { hasRelevant = true; break; }
         }
         if (!hasRelevant) {
-            // TEMP -- capture whatever's being dropped here that ISN'T just an irrelevant
-            // flight's fltdMessage (every real per-flight message contains that tag per
-            // processOneFltdMessage below), to find the real shape of the airport-configuration
-            // data believed to live in the fiOutput structure this file already drops entirely
-            // a few lines down. See dumpSample's own header comment.
-            if (!xmlText.includes('fltdMessage')) dumpSample(xmlText);
+            // TEMP -- round 2: the first capture (20 samples) was entirely msgType="TMI_FLIGHT_LIST"
+            // (a different fiOutput subtype -- per-flight flow-constraint-area timing, not airport
+            // configuration), confirming fiOutput carries more than one real shape and a plain
+            // "not fltdMessage" filter just fills the cap with whichever is most common. Narrowed
+            // to a keyword guess for what airport-config/acceptance-rate data would actually
+            // contain, to bias toward capturing the rarer type instead.
+            if (!xmlText.includes('fltdMessage') && !xmlText.includes('TMI_FLIGHT_LIST')
+                && /unway|cceptance|onfig|Aptc|APTC/.test(xmlText)) dumpSample(xmlText);
             return;
         }
     }
