@@ -13,6 +13,30 @@
 
 const solace = require('solclientjs');
 const { XMLParser } = require('fast-xml-parser');
+const fs = require('fs');
+const path = require('path');
+
+// TEMP — the existing handleMessage() silently drops any <tfmDataService> payload that isn't
+// fltdOutput (see its own comment: "fiOutput (restrictions/TMI lists) — not flight-route data,
+// ignored"). Checking whether real airport-configuration/acceptance-rate data (the public
+// SwimReader instance exposes this as /api/tfms/aptc — arrRunwayConf/depRunwayConf per airport,
+// exactly the "what runway is this airport actually using right now" signal that would let
+// pickBody() stop guessing bodies[0] before a specific flight gets a TFDM runway assignment)
+// lives under that dropped fiOutput structure, or somewhere else entirely. Same one-time dump
+// pattern already used in swim.js/tfdm.js, but capturing the FULL raw message (fltdOutput
+// included) rather than pre-filtering, since fiOutput messages carry no callsign to filter on.
+const DUMP_DIR = path.join(__dirname, 'scratch', 'tfms-samples');
+let _dumpCount = 0;
+const DUMP_CAP = 20;
+function dumpSample(xmlText) {
+    if (_dumpCount >= DUMP_CAP) return;
+    try {
+        fs.mkdirSync(DUMP_DIR, { recursive: true });
+        fs.writeFileSync(path.join(DUMP_DIR, `sample-${Date.now()}-${_dumpCount}.xml`), xmlText);
+        _dumpCount++;
+        if (_dumpCount === DUMP_CAP) console.log(`[TFMS] collected ${DUMP_CAP} raw samples in ${DUMP_DIR} -- checking for airport-configuration data`);
+    } catch (e) {}
+}
 
 const TFMS_HOST  = process.env.TFMS_HOST;
 const TFMS_VPN   = process.env.TFMS_VPN;
@@ -133,7 +157,15 @@ function handleMessage(xmlText) {
         for (const cs of _relevantCallsigns) {
             if (xmlText.includes(cs)) { hasRelevant = true; break; }
         }
-        if (!hasRelevant) return;
+        if (!hasRelevant) {
+            // TEMP -- capture whatever's being dropped here that ISN'T just an irrelevant
+            // flight's fltdMessage (every real per-flight message contains that tag per
+            // processOneFltdMessage below), to find the real shape of the airport-configuration
+            // data believed to live in the fiOutput structure this file already drops entirely
+            // a few lines down. See dumpSample's own header comment.
+            if (!xmlText.includes('fltdMessage')) dumpSample(xmlText);
+            return;
+        }
     }
 
     let parsed;
