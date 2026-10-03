@@ -1989,8 +1989,13 @@
         // (day-map's grouped popups don't always have one resolved at this point) -- the grace
         // window and schedule check still apply without it, just without the confirmed-parked
         // override.
+        // The parked set is per session and per callsign, so a recurring flight number would stay excluded
+        // on later days. Reset it when the local date changes; the server re-confirms what's still parked.
+        let _confirmedParkedDay = null;
         function isFlightStillActive(depMs, arrMs, nowMs, csig) {
             if (!depMs || !arrMs) return false;
+            const _today = _localToday();
+            if (_today !== _confirmedParkedDay) { _confirmedParked.clear(); _confirmedParkedDay = _today; }
             if (csig && _confirmedParked.has(csig)) return false;
             return depMs <= nowMs && nowMs <= arrMs + LATE_ARRIVAL_GRACE_MS;
         }
@@ -6807,10 +6812,11 @@
                 const inWindow = (d && a) && now.getTime() >= d.getTime() - PREFLIGHT_ROUTE_MS && now.getTime() <= a.getTime() + LATE_ARRIVAL_GRACE_MS;
                 if (inWindow) _activeCs.add(cs);
             }));
-            // Airborne on the day map requires a real signal (a live position seen in the last few
-            // minutes) or a departure that's been past for a while -- a scheduled departure time
-            // alone isn't evidence the aircraft has moved (it may still be at the gate or pushing).
+            // Airborne on the day map needs real evidence: a live position seen in the last few minutes,
+            // or the server having seen the aircraft airborne and no live contact since it should have
+            // landed. A scheduled departure time alone isn't evidence (the aircraft may still be at the gate).
             const liveSeen = new Set();
+            const airborneSeen = new Set();
             const estTimes = {};
             if (_activeCs.size) {
                 try {
@@ -6818,12 +6824,13 @@
                     const parkedNow = new Set(st.parked || []);
                     [..._activeCs].forEach(cs => { if (parkedNow.has(cs)) _confirmedParked.add(cs); else _confirmedParked.delete(cs); });
                     (st.live || []).forEach(cs => liveSeen.add(cs));
+                    (st.airborne || []).forEach(cs => airborneSeen.add(cs));
                     Object.assign(estTimes, st.times || {});
                 } catch (e) {}
                 if (gen !== mapRenderGen) return;
             }
             const _airborneNow = (cs, dMs, aMs) => isFlightStillActive(dMs, aMs, now.getTime(), cs)
-                && (liveSeen.has(cs) || now.getTime() - dMs > 25 * 60000);
+                && (liveSeen.has(cs) || (airborneSeen.has(cs) && now.getTime() < aMs));
 
             // Flatten all day flights with pilot key attached
             const allDayFlights = [];
@@ -6909,9 +6916,9 @@
                 const _estDep = _est?.etd && depTime && Math.abs(new Date(_est.etd) - depTime) >= 5 * 60000 ? _est.etd : null;
                 const _estArr = _est?.eta && arrTime && Math.abs(new Date(_est.eta) - arrTime) >= 5 * 60000 ? _est.eta : null;
                 const _arrDiffMin = _est?.eta && arrTime ? Math.round((new Date(_est.eta) - arrTime) / 60000) : null;
-                const _arrNote = _arrDiffMin == null ? '' : _arrDiffMin <= -5 ? ` · ${-_arrDiffMin}m early` : _arrDiffMin >= 15 ? ` · ${_arrDiffMin}m late` : '';
+                const _arrNote = _arrDiffMin == null ? '' : _arrDiffMin <= -5 ? ` <span style="color:#4ade80">· ${-_arrDiffMin}m early</span>` : _arrDiffMin >= 15 ? ` <span style="color:#f87171">· ${_arrDiffMin}m late</span>` : '';
                 const _estLine = (_estDep || _estArr)
-                    ? `<div style="font-size:10px;color:#eab308;font-weight:700;margin-bottom:4px">${_estDep ? `Est dep ${formatTimeISO(_estDep, f.departureAirport)} <span style="opacity:.6">${tzAbbr(f.departureAirport, _estDep)}</span>` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `Est arr ${formatTimeISO(_estArr, f.arrivalAirport)} <span style="opacity:.6">${tzAbbr(f.arrivalAirport, _estArr)}</span>${_arrNote}` : ''}</div>`
+                    ? `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin-bottom:4px">${_estDep ? `Est dep ${formatTimeISO(_estDep, f.departureAirport)} <span style="opacity:.6">${tzAbbr(f.departureAirport, _estDep)}</span>` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `Est arr ${formatTimeISO(_estArr, f.arrivalAirport)} <span style="opacity:.6">${tzAbbr(f.arrivalAirport, _estArr)}</span>${_arrNote}` : ''}</div>`
                     : '';
                 const dayPopup = `
                     <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:2px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>

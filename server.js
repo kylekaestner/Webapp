@@ -2876,6 +2876,7 @@ const _callsignToHex = {}; // callsign → last-known hex (survives cache expiry
 const _hexToCallsign = {}; // hex → last-known callsign, used to detect a new leg on the same airframe
 const _parkedCallsigns = new Set(); // suppress background polling after flight completes
 const _parkedAt = {}; // callsign -> ms when marked parked; entries expire so a recurring flight number isn't blocked forever
+const _parkedOrigin = {}; // callsign -> origin airport of the leg that parked, so a new leg of the same flight number can recover
 const PARKED_TTL_MS = 6 * 60 * 60 * 1000;
 const PARKED_CACHE_PATH = path.join(__dirname, '.parked_cache.json');
 try {
@@ -2892,7 +2893,20 @@ function scheduleParkedSave() {
         try { fs.writeFileSync(PARKED_CACHE_PATH, JSON.stringify(_parkedAt)); } catch (_) {}
     }, 1000);
 }
-function markParked(cs) { _parkedCallsigns.add(cs); _parkedAt[cs] = Date.now(); scheduleParkedSave(); }
+function markParked(cs, origin) {
+    _parkedCallsigns.add(cs); _parkedAt[cs] = Date.now();
+    if (origin) _parkedOrigin[cs] = origin;
+    scheduleParkedSave();
+}
+function unpark(cs) {
+    _parkedCallsigns.delete(cs); delete _parkedAt[cs]; delete _parkedOrigin[cs];
+    scheduleParkedSave();
+}
+// A flight number commonly flies several legs in one rotation. If the route now starts somewhere else
+// than the leg that parked, this is a new leg, so the parked flag no longer applies.
+function unparkIfNewLeg(cs, origin) {
+    if (origin && _parkedOrigin[cs] && origin !== _parkedOrigin[cs]) unpark(cs);
+}
 function isParked(cs) {
     if (!_parkedCallsigns.has(cs)) return false;
     if (Date.now() - (_parkedAt[cs] || 0) > PARKED_TTL_MS) { _parkedCallsigns.delete(cs); return false; }
@@ -3152,7 +3166,7 @@ function applyCallsignGroundState(data, callsign, source) {
     _groundStillCount[cs] = (_groundStillCount[cs] || 0) + 1;
     if (_groundStillCount[cs] >= 3) {
         data.parked = true;
-        markParked(cs);
+        markParked(cs, data.origin || null);
         _swimTrailBackfilled.delete(cs);
         _everAirborneCallsigns.delete(cs);
         delete _groundStillCount[cs];
@@ -3208,7 +3222,7 @@ async function fetchLivePosition(callsign) {
         if (stddsHit.event === 'spotin') {
             stddsHit.parked = true;
             const cs = String(callsign).toUpperCase().trim();
-            markParked(cs);
+            markParked(cs, stddsHit.origin || null);
             _swimTrailBackfilled.delete(cs);
             _everAirborneCallsigns.delete(cs);
         }
@@ -3292,7 +3306,9 @@ app.get('/api/flight-status', (req, res) => {
         const t = tfms.getFlightTimes(cs);
         if (t && (t.etd || t.eta)) times[cs] = { etd: t.etd || null, eta: t.eta || null };
     }
-    res.json({ parked: list.filter(cs => isParked(cs)), live, times });
+    const airborne = list.filter(cs => !isParked(cs) && (
+        _everAirborneCallsigns.has(cs) || /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || '')));
+    res.json({ parked: list.filter(cs => isParked(cs)), live, airborne, times });
 });
 
 app.get('/api/live-position', async (req, res) => {
@@ -3304,11 +3320,14 @@ app.get('/api/live-position', async (req, res) => {
     // If the server already confirmed this callsign parked, tell the client immediately
     // so it can clean up even if the scheduled arrival time hasn't passed yet.
     if (isParked(callsign)) {
-        const hit = stdds.getGroundPosition(callsign) || swim.getSwimPosition(callsign);
-        if (!(hit?.found && (hit.altFt ?? 0) > 2000)) return res.json({ found: false, parked: true });
-        _parkedCallsigns.delete(callsign);
-        delete _parkedAt[callsign];
-        _everAirborneCallsigns.add(callsign);
+        const sw = swim.getSwimPosition(callsign);
+        unparkIfNewLeg(callsign, sw?.origin);
+        if (isParked(callsign)) {
+            const hit = stdds.getGroundPosition(callsign) || sw;
+            if (!(hit?.found && (hit.altFt ?? 0) > 2000)) return res.json({ found: false, parked: true });
+            unpark(callsign);
+            _everAirborneCallsigns.add(callsign);
+        }
     }
 
     const cached = _liveCache[callsign];
@@ -3492,12 +3511,13 @@ async function runActiveFlightPoller() {
                 if (!callsign) continue;
                 if (isParked(callsign)) {
                     // A parked flight is only re-checked against in-memory SWIM/STDDS data (no ADS-B
-                    // call). If it's clearly off the field again, unpark it so it can be tracked.
+                    // call). Unpark it for a new leg, or once it's clearly off the field again.
                     if (inSwimWindow) swimRelevant.add(callsign);
-                    const hit = stdds.getGroundPosition(callsign) || swim.getSwimPosition(callsign);
-                    if (hit?.found && (hit.altFt ?? 0) > 2000) {
-                        _parkedCallsigns.delete(callsign);
-                        delete _parkedAt[callsign];
+                    const sw = swim.getSwimPosition(callsign);
+                    unparkIfNewLeg(callsign, sw?.origin);
+                    const hit = stdds.getGroundPosition(callsign) || sw;
+                    if (isParked(callsign) && hit?.found && (hit.altFt ?? 0) > 2000) {
+                        unpark(callsign);
                         _everAirborneCallsigns.add(callsign);
                     }
                     continue;
