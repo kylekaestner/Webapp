@@ -2933,6 +2933,7 @@ const _earlyLandings = {}; // date (YYYY-MM-DD) → Set<callsign> — flights th
 // the same callsign's next day's physical flight isn't permanently misclassified as already
 // having flown.
 const _everAirborneCallsigns = new Set();
+const _everAirborneOrigin = {}; // callsign -> origin of the leg that was seen airborne
 
 function parseAdsbAircraft(s, callsign) {
     const onGround = s.alt_baro === 'ground' || (typeof s.alt_baro === 'number' && s.alt_baro < 200);
@@ -3189,7 +3190,16 @@ function applyCallsignGroundState(data, callsign, source) {
 function withEverAirborne(data, callsign) {
     if (!data || !callsign) return data;
     const cs = String(callsign).toUpperCase().trim();
-    if (isClearlyAirborne(data)) _everAirborneCallsigns.add(cs);
+    // A flight number flies several legs a day. If this leg starts somewhere else than the one that was
+    // seen airborne, the earlier history doesn't apply to it.
+    if (data.origin && _everAirborneOrigin[cs] && data.origin !== _everAirborneOrigin[cs]) {
+        _everAirborneCallsigns.delete(cs);
+        delete _everAirborneOrigin[cs];
+    }
+    if (isClearlyAirborne(data)) {
+        _everAirborneCallsigns.add(cs);
+        if (data.origin) _everAirborneOrigin[cs] = data.origin;
+    }
     if (_everAirborneCallsigns.has(cs)) data.hasBeenAirborne = true;
     return data;
 }

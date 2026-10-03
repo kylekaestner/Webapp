@@ -4901,7 +4901,10 @@
         const PREFLIGHT_ROUTE_MS = 30 * 60 * 1000;
         // Pre-departure window, including a short grace after scheduled departure while the aircraft
         // is still at the gate or pushing back (no live position yet, so it isn't airborne).
-        const isPreflightWindow = (d, nowMs) => !!d && (d - nowMs) <= PREFLIGHT_ROUTE_MS && (nowMs - d) < 25 * 60 * 1000;
+        // Stays open after scheduled departure for as long as the flight hasn't been seen flying: an aircraft
+        // still at the gate or pushing back late keeps its planned route, until it's airborne or the arrival passes.
+        const PREFLIGHT_LATE_MS = 3 * 60 * 60 * 1000;
+        const isPreflightWindow = (d, nowMs, arrMs) => !!d && (d - nowMs) <= PREFLIGHT_ROUTE_MS && (nowMs - d) < PREFLIGHT_LATE_MS && (!arrMs || nowMs < arrMs);
 
         // Render a polyline on the primary world copy plus ±360°/±720° copies so it
         // appears on every world copy as the user pans east or west.
@@ -5075,7 +5078,8 @@
                         // shows up, so calling it here is harmless if there isn't any yet.
                         const pf = legs.find(f => {
                             const d = flightUTCTime(f.departure_time, f.departure_airport);
-                            return isPreflightWindow(d, now);
+                            const a = flightUTCTime(f.arrival_time, f.arrival_airport);
+                            return isPreflightWindow(d, now, a);
                         });
                         if (pf) {
                             const pfDepUTC = flightUTCTime(pf.departure_time, pf.departure_airport);
@@ -5329,7 +5333,8 @@
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
                     const pf = legs.find(f => {
                         const d = flightUTCTime(f.departureTime, f.departureAirport);
-                        return isPreflightWindow(d, now);
+                        const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                        return isPreflightWindow(d, now, a);
                     });
                     if (pf) {
                         const pfDepTime = flightUTCTime(pf.departureTime, pf.departureAirport);
@@ -6951,7 +6956,7 @@
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
                     if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime);
-                } else if (!landedEarly && isPreflightWindow(depTime?.getTime(), now.getTime())) {
+                } else if (!landedEarly && isPreflightWindow(depTime?.getTime(), now.getTime(), arrTime?.getTime())) {
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
                     const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), color, null, true));
                     dots.forEach(d => mapLayers.active.push(d));
