@@ -69,9 +69,16 @@ function indexFacility(facility, index) {
     for (const child of (facility.childFacilities || [])) indexFacility(child, index);
 }
 
-async function refresh() {
+// Confirmed live: a direct curl of this ~15MB endpoint from the prod droplet takes under 2s on
+// its own, but the very first refresh (fired from inside app.listen()'s callback, at the same
+// moment the four SFDPS/STDDS/TFMS/TFDM Solace sessions are all also connecting) timed out at
+// 30s anyway -- event-loop/network contention at cold start, not a real slowness in this
+// endpoint. A generous 60s timeout plus a quick retry (rather than waiting the full 6h for the
+// next scheduled attempt) makes a one-off startup hiccup self-heal instead of silently leaving
+// the frequency feature dark until the next interval fires.
+async function refresh(isRetry = false) {
     try {
-        const resp = await fetch(VNAS_URL, { signal: AbortSignal.timeout(30000) });
+        const resp = await fetch(VNAS_URL, { signal: AbortSignal.timeout(60000) });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const list = await resp.json();
         const newIndex = {};
@@ -80,7 +87,8 @@ async function refresh() {
         _lastRefresh = Date.now();
         console.log(`[vNAS] frequency index refreshed: ${Object.keys(_index).length} facilities`);
     } catch (e) {
-        console.warn('[vNAS] frequency refresh failed, keeping previous data:', e.message);
+        console.warn(`[vNAS] frequency refresh failed${isRetry ? ' (retry)' : ''}, keeping previous data:`, e.message);
+        if (!isRetry) setTimeout(() => refresh(true), 30000);
     }
 }
 
