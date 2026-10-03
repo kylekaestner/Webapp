@@ -80,28 +80,60 @@ function setRelevantCallsigns(set) {
     for (const cs of _relevantCallsigns) _watched.add(cs);
 }
 
-const TRAIL_CACHE_FILE = path.join(__dirname, '.swim_trail_cache.json');
+// Persists across a server restart: the trail (original purpose) AND the last-parsed route/
+// sector too -- requested directly, confirmed live that a restart wiped a route that had already
+// been resolved and was actively being displayed on the map (SWA3492), forcing a wait for SFDPS
+// to happen to re-send a route-bearing message, which (per the file-level gotcha above) can take
+// a while for a field that doesn't change every message. Covers every relevant callsign currently
+// in _latest with something worth saving, not just _watched ones -- route data is useful even for
+// a flight nobody's live-tracking the trail of yet (e.g. the preflight route display, which can
+// run up to 4h before departure, well before any trail exists to watch).
+const STATE_CACHE_FILE = path.join(__dirname, '.swim_state_cache.json');
 let _saveTimer = null;
 function scheduleSave() {
     if (_saveTimer) return;
     _saveTimer = setTimeout(() => {
         _saveTimer = null;
         const data = {};
-        for (const cs of _watched) {
-            if (_latest[cs]?.trail?.length) data[cs] = { ts: Date.now(), trail: _latest[cs].trail };
+        for (const cs of Object.keys(_latest)) {
+            const f = _latest[cs];
+            const hasTrail = _watched.has(cs) && f.trail?.length;
+            const hasRoute = !!f.route;
+            if (!hasTrail && !hasRoute) continue;
+            data[cs] = {
+                ts: Date.now(),
+                ...(hasTrail ? { trail: f.trail } : {}),
+                // routeParsed may already carry a resolved resolvedPath (server.js's
+                // resolveRouteWaypoints mutates the same object in place) -- saving it as-is means
+                // a restart doesn't even need to wait for a fresh resolve, not just a fresh route.
+                ...(hasRoute ? {
+                    route: f.route, originalRoute: f.originalRoute, routeParsed: f.routeParsed,
+                    sid: f.sid, star: f.star, origin: f.origin, dest: f.dest,
+                } : {}),
+            };
         }
-        try { fs.writeFileSync(TRAIL_CACHE_FILE, JSON.stringify(data)); } catch (_) {}
+        try { fs.writeFileSync(STATE_CACHE_FILE, JSON.stringify(data)); } catch (_) {}
     }, 5000); // batch writes, same pattern as the ADS-B trail cache
 }
-function loadTrailCache() {
+function loadStateCache() {
     try {
-        const data = JSON.parse(fs.readFileSync(TRAIL_CACHE_FILE, 'utf8'));
-        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        const data = JSON.parse(fs.readFileSync(STATE_CACHE_FILE, 'utf8'));
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000; // same reuse-the-next-day concern trail already had
         for (const [cs, entry] of Object.entries(data)) {
-            if (entry.ts > cutoff && Array.isArray(entry.trail) && entry.trail.length) {
-                _latest[cs] = _latest[cs] || {};
+            if (entry.ts <= cutoff) continue;
+            _latest[cs] = _latest[cs] || {};
+            if (Array.isArray(entry.trail) && entry.trail.length) {
                 _latest[cs].trail = entry.trail;
                 _watched.add(cs);
+            }
+            if (entry.route) {
+                _latest[cs].route = entry.route;
+                _latest[cs].originalRoute = entry.originalRoute;
+                _latest[cs].routeParsed = entry.routeParsed;
+                _latest[cs].sid = entry.sid;
+                _latest[cs].star = entry.star;
+                _latest[cs].origin = entry.origin;
+                _latest[cs].dest = entry.dest;
             }
         }
     } catch (_) {}
@@ -346,6 +378,7 @@ function processOneMessage(msgObj) {
         if (!entry.originalRoute) entry.originalRoute = route;
         entry.route = route;
         entry.routeParsed = parseRouteString(route, origin || entry.origin, dest || entry.dest);
+        scheduleSave(); // a route-only message (no position yet) must still persist -- see below
     }
     if (sid) entry.sid = sid;
     if (star) entry.star = star;
@@ -580,7 +613,7 @@ function getSwimPosition(callsign) {
     };
 }
 
-loadTrailCache();
+loadStateCache();
 
 // STDDS surface tracks (stdds.js) often carry a GUFI but no callsign — most ASDE-X surface
 // contacts start anonymous until correlated to a flight plan. SFDPS already gives us GUFI per

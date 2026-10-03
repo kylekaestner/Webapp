@@ -3,6 +3,7 @@ node_modules/
 *.db-journal
 *.off
 *trail_cache*.json
+.swim_state_cache.json
 .DS_Store
 .env
 .env.local
