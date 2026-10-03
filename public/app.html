@@ -5987,13 +5987,11 @@
                 // SFDPS can name is modeled in vNAS, and showing the bare sector code instead
                 // isn't what was asked for. Gated behind the ✈ FREQ toggle since it's extra
                 // clutter most of the time.
-                // Its own datablock line under the callsign, so it reads like the controlling frequency on a
-                // scope rather than a tail-end suffix. Sector id shown alongside when SFDPS gave one.
-                const freqLine = (_showSectorOn && sector?.frequency)
-                    ? `<div style="font-size:10px;font-weight:700;color:#7dd3fc;font-family:ui-monospace,monospace;letter-spacing:.03em;line-height:1.25;margin-top:1px" title="ATC frequency (FAA SWIM + VATSIM vNAS)">${(sector.frequency / 1e6).toFixed(3)}${sector.unit && sector.sectorId ? ` <span style="color:#64748b;font-weight:600">${sector.unit}-${sector.sectorId}</span>` : ''}</div>` : '';
-                return `<div style="white-space:nowrap">${vci}<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` +
-                    (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : '') +
-                    `</div>` + freqLine;
+                // Compact: frequency inline after the callsign in monospace, no sector id, so the label stays small.
+                const freqInline = (_showSectorOn && sector?.frequency)
+                    ? ` <span title="ATC frequency (FAA SWIM + VATSIM vNAS)" style="font-size:9px;font-weight:700;color:#7dd3fc;font-family:ui-monospace,monospace">${(sector.frequency / 1e6).toFixed(3)}</span>` : '';
+                return `${vci}<span style="font-size:11px;font-weight:800;color:#f4f4f5">${callsign}</span>` + freqInline +
+                    (pilotName ? ` <span style="font-size:10px;font-weight:500;color:#a1a1aa">· ${pilotName}</span>` : '');
             };
             const baseTooltip = buildBaseTooltip(null); // source unknown until the first poll resolves
             // Start hover-only — tooltip goes permanent once ADS-B confirms airborne
