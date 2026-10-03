@@ -2875,6 +2875,14 @@ const _flightState = {}; // hex → { hasBeenAirborne, groundStillCount }
 const _callsignToHex = {}; // callsign → last-known hex (survives cache expiry)
 const _hexToCallsign = {}; // hex → last-known callsign, used to detect a new leg on the same airframe
 const _parkedCallsigns = new Set(); // suppress background polling after flight completes
+const _parkedAt = {}; // callsign -> ms when marked parked; entries expire so a recurring flight number isn't blocked forever
+const PARKED_TTL_MS = 6 * 60 * 60 * 1000;
+function markParked(cs) { _parkedCallsigns.add(cs); _parkedAt[cs] = Date.now(); }
+function isParked(cs) {
+    if (!_parkedCallsigns.has(cs)) return false;
+    if (Date.now() - (_parkedAt[cs] || 0) > PARKED_TTL_MS) { _parkedCallsigns.delete(cs); return false; }
+    return true;
+}
 // Callsigns whose SWIM/STDDS trail has already had its missing head backfilled from ADS-B
 // history (see the live-position handler below) -- done once per flight instance, not every
 // 8s poll, since it costs a real ADS-B API call. Cleared whenever that callsign is confirmed
@@ -2953,7 +2961,7 @@ function processPositionUpdate(data, sinceUnixSec = null) {
                 delete _trailLastTime[hex];
                 delete _trailSeedTime[hex];
                 _trailSeeded.delete(hex);
-                if (data.callsign) { _parkedCallsigns.add(data.callsign); _swimTrailBackfilled.delete(data.callsign); _everAirborneCallsigns.delete(data.callsign); }
+                if (data.callsign) { markParked(data.callsign); _swimTrailBackfilled.delete(data.callsign); _everAirborneCallsigns.delete(data.callsign); }
                 scheduleTrailSave();
                 return; // no trail to attach
             }
@@ -3103,6 +3111,28 @@ function withTfdmInfo(data, callsign) {
     return data;
 }
 
+// SWIM positions never carry onGround (swim.js hardcodes false), so ground/parked state is derived
+// here from altitude for that source, and parked is confirmed after several consecutive
+// stationary ground readings for a flight already seen airborne. Without this, a flight whose
+// SWIM track lingers after landing never reaches processPositionUpdate()'s ADS-B-only parked check.
+const _groundStillCount = {};
+function applyCallsignGroundState(data, callsign, source) {
+    if (!data?.found || !callsign) return data;
+    const cs = String(callsign).toUpperCase().trim();
+    if (source === 'swim' && data.altFt != null) data.onGround = data.altFt < 200;
+    if (!data.onGround || !_everAirborneCallsigns.has(cs)) { _groundStillCount[cs] = 0; return data; }
+    if ((data.speedKts ?? 0) > 5) { _groundStillCount[cs] = 0; return data; }
+    _groundStillCount[cs] = (_groundStillCount[cs] || 0) + 1;
+    if (_groundStillCount[cs] >= 3) {
+        data.parked = true;
+        markParked(cs);
+        _swimTrailBackfilled.delete(cs);
+        _everAirborneCallsigns.delete(cs);
+        delete _groundStillCount[cs];
+    }
+    return data;
+}
+
 // Merges in the callsign-keyed "has this flight ever been seen airborne" signal (see
 // _everAirborneCallsigns's declaration comment) regardless of which source answered this poll —
 // unlike processPositionUpdate()'s hex-keyed version, which only ever runs for ADS-B results.
@@ -3151,17 +3181,17 @@ async function fetchLivePosition(callsign) {
         if (stddsHit.event === 'spotin') {
             stddsHit.parked = true;
             const cs = String(callsign).toUpperCase().trim();
-            _parkedCallsigns.add(cs);
+            markParked(cs);
             _swimTrailBackfilled.delete(cs);
             _everAirborneCallsigns.delete(cs);
         }
-        return withTfdmInfo(withEverAirborne(stddsHit, callsign), callsign);
+        return withTfdmInfo(withEverAirborne(applyCallsignGroundState(stddsHit, callsign, 'stdds'), callsign), callsign);
     }
     if (swimHit) {
         resolveRouteWaypoints(swimHit.routeParsed, callsign);
-        return withTfdmInfo(withEverAirborne(swimHit, callsign), callsign);
+        return withTfdmInfo(withEverAirborne(applyCallsignGroundState(swimHit, callsign, 'swim'), callsign), callsign);
     }
-    return withTfdmInfo(withEverAirborne(await fetchAdsbPosition(callsign), callsign), callsign);
+    return withTfdmInfo(withEverAirborne(applyCallsignGroundState(await fetchAdsbPosition(callsign), callsign, 'adsb'), callsign), callsign);
 }
 
 app.post('/api/early-landing', express.json(), (req, res) => {
@@ -3228,7 +3258,7 @@ app.get('/api/live-position', async (req, res) => {
 
     // If the server already confirmed this callsign parked, tell the client immediately
     // so it can clean up even if the scheduled arrival time hasn't passed yet.
-    if (_parkedCallsigns.has(callsign)) return res.json({ found: false, parked: true });
+    if (isParked(callsign)) return res.json({ found: false, parked: true });
 
     const cached = _liveCache[callsign];
     if (cached && Date.now() - cached.ts < LIVE_TTL) return res.json(cached.data);
@@ -3409,7 +3439,7 @@ async function runActiveFlightPoller() {
                 // comment above for why the old naive concatenation here was a real, live bug.
                 const callsign = normalizeFlightNum(rawFlightNum, airlineCode);
                 if (!callsign) continue;
-                if (_parkedCallsigns.has(callsign)) continue; // already completed this flight
+                if (isParked(callsign)) continue; // already completed this flight
                 if (inSwimWindow) swimRelevant.add(callsign);
                 if (!inAdsbWindow || polled.has(callsign)) continue;
                 polled.add(callsign);
