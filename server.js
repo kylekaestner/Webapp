@@ -12,6 +12,7 @@ const stdds = require('./stdds');
 const tfms = require('./tfms');
 const tfdm = require('./tfdm');
 const navdata = require('./navdata');
+const vnas = require('./vnas');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -3047,8 +3048,20 @@ function resolveRouteWaypoints(routeParsed, callsign) {
     routeParsed.source = 'navdata';
 }
 
+// Resolves swim.js's raw { unit, sectorId } into a real frequency via vnas.js, once, here --
+// not inside swim.js itself, since vnas.js's data source (VATSIM's public API) is unrelated to
+// the SFDPS feed and resolving it only matters once per poll, not per raw message. Returns a new
+// object rather than mutating in place so a cache hit on swim.js's own _latest[cs].sector isn't
+// silently rewritten with a frequency that's only valid for whichever caller asked first.
+function withResolvedFrequency(sector) {
+    if (!sector) return sector;
+    const resolved = vnas.getFrequency(sector.unit, sector.sectorId);
+    return resolved ? { ...sector, frequency: resolved.frequency, callsign: resolved.callsign } : sector;
+}
+
 async function fetchLivePosition(callsign) {
     const swimHit = swim.getSwimPosition(callsign);
+    if (swimHit?.sector) swimHit.sector = withResolvedFrequency(swimHit.sector);
     const stddsHit = stdds.getGroundPosition(callsign);
     // STDDS (airport-vicinity surveillance — TAIS terminal tracks + ASDE-X surface contacts)
     // is preferred whenever present: it only ever has data near an airport in the first place,
@@ -3069,6 +3082,9 @@ async function fetchLivePosition(callsign) {
             stddsHit.origin = swimHit.origin; stddsHit.dest = swimHit.dest;
             resolveRouteWaypoints(stddsHit.routeParsed, callsign);
         }
+        // Same idea for the ATC sector handoff -- SFDPS-only, carry it forward so a flight that's
+        // handed off to STDDS near the airport doesn't lose its last known controlling sector.
+        if (swimHit?.sector) stddsHit.sector = swimHit.sector;
         // "spotin" is STDDS's own confirmed-arrived-at-gate event — a real FAA-reported signal,
         // not the inferred "stopped moving for a few readings" heuristic the ADS-B path below
         // uses. Feed it into the same _parkedCallsigns mechanism so the frontend's existing
@@ -4215,6 +4231,9 @@ app.listen(PORT, () => {
     stdds.connect();
     tfms.connect();
     tfdm.connect();
+    vnas.connect(); // unrelated to the SFDPS/STDDS/TFMS/TFDM Solace sessions above -- a plain
+    // HTTPS poll against VATSIM's own public vNAS API, used only to resolve a real frequency
+    // for the sector SFDPS hands us (see vnas.js, fetchLivePosition())
     // Print all pilot links on startup so tokens are always recoverable from logs
     const db = getDB();
     db.all(`SELECT pilot_key, name, token FROM pilots ORDER BY pilot_key='admin' DESC, name`, (err, rows) => {

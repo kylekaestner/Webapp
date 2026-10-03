@@ -27,24 +27,13 @@ const SFDPS_QUEUE = process.env.SFDPS_QUEUE;
 
 const SWIM_ENABLED = !!(SFDPS_HOST && SFDPS_VPN && SFDPS_USER && SFDPS_PASS && SFDPS_QUEUE);
 
-// TEMP — checking whether SFDPS actually carries a real ATC frequency assignment anywhere in a
-// relevant flight's FIXM message (requested: show "active frequency" on a live flight label, if
-// it's genuinely available). Same one-time dump pattern as tfdm.js's own sample capture — only
-// ever writes raw XML for messages that already passed the relevant-callsign filter (so this
-// never touches the nationwide-volume path the CPU incident was about), caps itself, and is safe
-// to leave in briefly. Remove once this question is answered either way.
-const SWIM_DUMP_DIR = path.join(__dirname, 'scratch', 'swim-samples');
-let _swimDumpCount = 0;
-const SWIM_DUMP_CAP = 15;
-function dumpSwimSample(xmlText) {
-    if (_swimDumpCount >= SWIM_DUMP_CAP) return;
-    try {
-        fs.mkdirSync(SWIM_DUMP_DIR, { recursive: true });
-        fs.writeFileSync(path.join(SWIM_DUMP_DIR, `sample-${Date.now()}-${_swimDumpCount}.xml`), xmlText);
-        _swimDumpCount++;
-        if (_swimDumpCount === SWIM_DUMP_CAP) console.log(`[SWIM] collected ${SWIM_DUMP_CAP} raw relevant-flight samples in ${SWIM_DUMP_DIR} -- checking for a frequency field`);
-    } catch (e) {}
-}
+// Confirmed against real captured messages (2026-10-02): SFDPS has no literal radio frequency
+// anywhere, but it does carry real ATC sector handoff events -- <enRoute><boundaryCrossings>
+// <handoff><receivingUnit unitIdentifier="SDA" sectorIdentifier="1D"/>
+// <transferringUnit unitIdentifier="ZID" sectorIdentifier="21"/></handoff> -- fired each time the
+// aircraft crosses a sector boundary. This module only exposes that raw unit+sector identifier
+// (entry.sector = { unit, sectorId }); resolving it to a real tunable frequency is vnas.js's job,
+// wired together in server.js's fetchLivePosition() -- see vnas.js's own header for how and why.
 
 const STALE_MS  = 10 * 60 * 1000; // a position older than this isn't offered as a fresh hit
 const PURGE_MS  = 60 * 60 * 1000; // drop a watched flight's trail after this long with no update
@@ -320,6 +309,23 @@ function processOneMessage(msgObj) {
     const sid = sidEl ? findAttr(sidEl, 'nasRouteIdentifier') : null;
     const star = starEl ? findAttr(starEl, 'nasRouteIdentifier') : null;
 
+    // ATC sector handoff — <enRoute><boundaryCrossings><handoff><receivingUnit
+    // unitIdentifier="SDA" sectorIdentifier="1D"/><transferringUnit unitIdentifier="ZID"
+    // sectorIdentifier="21"/></handoff> — fires each time the aircraft crosses a sector
+    // boundary. `receivingUnit` is the unit/sector it's being handed INTO (i.e. who's
+    // controlling it now), not `transferringUnit` (who just released it) — read directly off
+    // the child object rather than a generic findAttr search, since both units carry the same
+    // attribute names and a generic deep search would just return whichever happens to come
+    // first in parse order. SFDPS itself has no frequency field anywhere (confirmed against real
+    // captured messages) -- just this raw unit+sector identifier. Resolving it to a real
+    // frequency is vnas.js's job (server.js's fetchLivePosition wires the two together), not
+    // this module's -- kept separate since vnas.js's data source (VATSIM's own public API) is
+    // completely unrelated to the SFDPS feed itself.
+    const handoff = findDeep(msgObj, 'handoff');
+    const recvUnit = handoff?.receivingUnit;
+    const sectorUnit = recvUnit ? (recvUnit['@_unitIdentifier'] ?? null) : null;
+    const sectorId = recvUnit ? (recvUnit['@_sectorIdentifier'] ?? null) : null;
+
     const entry = _latest[cs] || (_latest[cs] = {});
     entry.lastMsg = Date.now();
     if (gufi) entry.gufi = gufi;
@@ -343,6 +349,7 @@ function processOneMessage(msgObj) {
     }
     if (sid) entry.sid = sid;
     if (star) entry.star = star;
+    if (sectorUnit && sectorId) entry.sector = { unit: sectorUnit, sectorId: String(sectorId) };
 
     if (!isNaN(lat) && !isNaN(lon)) {
         entry.lat = lat;
@@ -376,8 +383,6 @@ function handleMessage(xmlText) {
         }
         if (!hasRelevant) return;
     }
-
-    dumpSwimSample(xmlText); // TEMP — checking for a real ATC frequency field, see its own comment
 
     let parsed;
     try {
@@ -547,6 +552,7 @@ function getSwimPosition(callsign) {
             routeParsed: f.routeParsed ?? null,
             sid: f.sid ?? null,
             star: f.star ?? null,
+            sector: f.sector ?? null,
             source: 'swim',
         };
     }
@@ -569,6 +575,7 @@ function getSwimPosition(callsign) {
         routeParsed: f.routeParsed ?? null, // ordered waypoint list with type tags — see parseRouteString(); names only, not yet resolved to coordinates
         sid: f.sid ?? null,
         star: f.star ?? null,
+        sector: f.sector ?? null, // "ZID-21" style unit+sector identifier from the most recent handoff — see processOneMessage
         source: 'swim',
     };
 }
