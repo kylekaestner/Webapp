@@ -17,6 +17,11 @@
 //   confirmed against a real flight (SWA2932/FORPE1) that the bodies[0] guess at least produces a
 //   materially correct fix sequence from the convergence point onward even when wrong initially —
 //   that finding is why this was shipped as a known limitation first rather than blocked on TFDM.
+//   Further improved the same day: when TFDM has no per-flight runway yet, server.js now falls
+//   back to TFMS's airport-configuration feed (tfms.js's getAirportConfig(), msgType="APTC") —
+//   the airport's actual current arrival/departure runway flow — before giving up to bodies[0].
+//   Still a guess (APTC doesn't say which specific runway any one flight will get, just what the
+//   airport's generally running), but a real-time one instead of an arbitrary CSV-order default.
 // - Airways are resolved as the sub-sequence between the two known surrounding points, in
 //   whichever direction they appear in the airway's published fix list. If a waypoint appears
 //   more than once on the same airway (rare but possible on complex airways), the nearest
@@ -140,10 +145,15 @@ function resolveFixOrNavaid(name, ref) {
 //   2. A runway-agnostic body (empty runway list -- the "any runway" case above).
 //   3. bodies[0], same deterministic fallback as before — used when there's no target runway at
 //      all (TFDM hasn't reported one for this flight yet) or NASR's own bodies don't cover it.
+// `targetRunway` is either a single runway string (TFDM's real per-flight assignment) or an
+// array of several (TFMS APTC's general airport-configuration fallback, which can list more than
+// one runway in simultaneous use, e.g. "19R/19L/18" -- any one of them matching a body is enough,
+// since APTC doesn't say which specific runway *this* flight will actually get).
 function pickBody(proc, targetRunway) {
     if (!proc.bodies || !proc.bodies.length) return null;
-    if (targetRunway) {
-        const exact = proc.bodies.find(b => b.runways.includes(targetRunway));
+    const targets = Array.isArray(targetRunway) ? targetRunway : (targetRunway ? [targetRunway] : []);
+    if (targets.length) {
+        const exact = proc.bodies.find(b => b.runways.some(r => targets.includes(r)));
         if (exact) return exact;
         const agnostic = proc.bodies.find(b => b.runways.length === 0);
         if (agnostic) return agnostic;

@@ -3040,10 +3040,20 @@ function resolveRouteWaypoints(routeParsed, callsign) {
     // fall back to the old deterministic guess", not an error.
     const runwayInfo = callsign ? tfdm.getFlightInfo(callsign) : null;
     const originWp = routeParsed.waypoints.find(wp => wp.type === 'airport');
+    const destWp = [...routeParsed.waypoints].reverse().find(wp => wp.type === 'airport');
+
+    // When TFDM has nothing for this flight yet, fall back to TFMS's airport-configuration feed
+    // (tfms.js's getAirportConfig(), msgType="APTC") — the airport's actual current runway flow,
+    // not an arbitrary bodies[0] guess. Still just "what the airport's generally running," not a
+    // per-flight assignment, so TFDM's real value always wins when it has one. Each field falls
+    // back independently (e.g. TFDM might know the departure runway but not arrival yet).
+    const depRunway = runwayInfo?.depRunway || tfms.splitRunwayConf(tfms.getAirportConfig(originWp?.name)?.depRunwayConf);
+    const arrRunway = runwayInfo?.arrRunway || tfms.splitRunwayConf(tfms.getAirportConfig(destWp?.name)?.arrRunwayConf);
+
     routeParsed.resolvedPath = navdata.resolveWaypoints(
         routeParsed.waypoints,
         originWp?.lat != null ? originWp : null,
-        runwayInfo ? { depRunway: runwayInfo.depRunway, arrRunway: runwayInfo.arrRunway } : null
+        (depRunway || arrRunway) ? { depRunway, arrRunway } : null
     );
     routeParsed.source = 'navdata';
 }

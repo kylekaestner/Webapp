@@ -8,35 +8,34 @@
 // runway/airport-configuration actually in use, which our own NASR-based resolution (navdata.js)
 // can only guess at since the raw route string alone doesn't say which runway applies.
 //
-// Field mapping below is unverified against a live feed — same starting point every other
-// module here began at. Expect correction once connected to real messages.
+// A second, unrelated message family lives on the same queue: fiOutput/msgType="APTC"
+// (airport configuration — the general arrival/departure runway flow an airport is actually
+// using right now, independent of any specific flight). Found by reading the real parsing
+// source for this (the user's own local SwimReader instance, since the public GitHub repo for
+// it turned out to only contain the display client, not the backend), then confirmed against
+// 20 real captured samples spanning 20 distinct airports. Real shape, confirmed live:
+//   <ds:tfmDataService><ds:fiOutput>
+//     <fi:fiMessage msgType="APTC" ...>
+//       <fi:airportConfigMessage>
+//         <fcm:airport>SMF</fcm:airport>              -- bare 3-letter code, not K-prefixed
+//         <fcm:facility>NCT</fcm:facility>
+//         <fcm:arrRunwayConf>35L/35R</fcm:arrRunwayConf>  -- slash-separated, can be >1 runway
+//         <fcm:depRunwayConf>35L/35R</fcm:depRunwayConf>  -- can be blank/whitespace-only
+//         <fcm:arrRate>64</fcm:arrRate> <fcm:depRate>70</fcm:depRate>
+//         <fcm:weather>VMC</fcm:weather> <fcm:stratAar>64</fcm:stratAar>
+//         <fcm:updateTime>...</fcm:updateTime>
+//       </fi:airportConfigMessage>
+//     </fi:fiMessage>
+//   </ds:fiOutput></ds:tfmDataService>
+// Used as a fallback (in server.js's resolveRouteWaypoints) when TFDM hasn't yet assigned a
+// specific flight a runway: the airport's current general config is still a better guess than
+// navdata.js's arbitrary bodies[0]. The reference implementation (SwimReader's own aptc.js, same
+// source this was confirmed against) applies no "pick the right one" logic beyond staleness —
+// it just shows the latest message per airport and flags it stale past 1800s. getAirportConfig()
+// below follows the same convention.
 
 const solace = require('solclientjs');
 const { XMLParser } = require('fast-xml-parser');
-const fs = require('fs');
-const path = require('path');
-
-// TEMP — the existing handleMessage() silently drops any <tfmDataService> payload that isn't
-// fltdOutput (see its own comment: "fiOutput (restrictions/TMI lists) — not flight-route data,
-// ignored"). Checking whether real airport-configuration/acceptance-rate data (the public
-// SwimReader instance exposes this as /api/tfms/aptc — arrRunwayConf/depRunwayConf per airport,
-// exactly the "what runway is this airport actually using right now" signal that would let
-// pickBody() stop guessing bodies[0] before a specific flight gets a TFDM runway assignment)
-// lives under that dropped fiOutput structure, or somewhere else entirely. Same one-time dump
-// pattern already used in swim.js/tfdm.js, but capturing the FULL raw message (fltdOutput
-// included) rather than pre-filtering, since fiOutput messages carry no callsign to filter on.
-const DUMP_DIR = path.join(__dirname, 'scratch', 'tfms-samples');
-let _dumpCount = 0;
-const DUMP_CAP = 20;
-function dumpSample(xmlText) {
-    if (_dumpCount >= DUMP_CAP) return;
-    try {
-        fs.mkdirSync(DUMP_DIR, { recursive: true });
-        fs.writeFileSync(path.join(DUMP_DIR, `sample-${Date.now()}-${_dumpCount}.xml`), xmlText);
-        _dumpCount++;
-        if (_dumpCount === DUMP_CAP) console.log(`[TFMS] collected ${DUMP_CAP} raw samples in ${DUMP_DIR} -- checking for airport-configuration data`);
-    } catch (e) {}
-}
 
 const TFMS_HOST  = process.env.TFMS_HOST;
 const TFMS_VPN   = process.env.TFMS_VPN;
@@ -50,6 +49,7 @@ let _connected = false;
 let _relevantCallsigns = null; // same pattern as swim.js/stdds.js
 
 const _latest = {}; // callsign -> { route, fixes: [{name,lat?,lon?,time}], sid, star, lastMsg }
+const _airportConfig = {}; // bare 3-letter airport code -> { arrRunwayConf, depRunwayConf, ..., lastMsg }
 
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
 
@@ -148,26 +148,53 @@ function processOneFltdMessage(msgObj) {
     // trackInformation (position-only) is ignored — SFDPS already covers live position, better.
 }
 
+// Not callsign-scoped at all (an airport's config isn't tied to any one flight), so this is
+// never gated by _relevantCallsigns the way processOneFltdMessage is — every airport the
+// nationwide feed mentions gets stored. That's cheap: there are only a few hundred towered
+// airports FAA flow management tracks configuration for, nowhere near the memory concern a
+// per-flight/per-callsign map would be over time.
+function processOneFiMessage(msgObj) {
+    if (findAttr(msgObj, 'msgType') !== 'APTC') return; // other fiOutput shape seen live: TMI_FLIGHT_LIST (flow-constraint timing, not this)
+    const cfg = findDeep(msgObj, 'airportConfigMessage');
+    if (!cfg) return;
+    const airport = textOf(findDeep(cfg, 'airport'));
+    if (!airport) return;
+    const val = (tag) => {
+        const t = textOf(findDeep(cfg, tag));
+        if (t == null) return null;
+        const s = String(t).trim();
+        return s || null; // depRunwayConf in particular can be a lone space when no distinct dep config is active
+    };
+    _airportConfig[String(airport).trim().toUpperCase()] = {
+        facility: val('facility'),
+        arrRunwayConf: val('arrRunwayConf'),
+        depRunwayConf: val('depRunwayConf'),
+        arrRate: val('arrRate'),
+        depRate: val('depRate'),
+        weather: val('weather'),
+        stratAar: val('stratAar'),
+        updateTime: val('updateTime') || val('eventTime'),
+        lastMsg: Date.now(),
+    };
+}
+
 function handleMessage(xmlText) {
-    // Same fix as swim.js's handleMessage -- see its comment for the full incident writeup. TFMS
-    // messages carry `aircraftId` as plain text (processOneFltdMessage), so this is a clean skip
-    // with no GUFI-style caveat like stdds.js's.
-    if (_relevantCallsigns) {
+    // APTC messages carry no callsign at all, so they'd always fail the relevant-callsigns
+    // substring check below and never reach the parser once that check applies — checked for
+    // and parsed unconditionally, ahead of that gate, same cheap-substring-first approach as
+    // every other filter in this file (avoid a full XML parse on text we already know is
+    // irrelevant, per this app's established CPU-safety lesson from a prior production incident).
+    const isAptc = xmlText.includes('msgType="APTC"');
+
+    if (!isAptc && _relevantCallsigns) {
+        // Same fix as swim.js's handleMessage -- see its comment for the full incident writeup.
+        // TFMS messages carry `aircraftId` as plain text (processOneFltdMessage), so this is a
+        // clean skip with no GUFI-style caveat like stdds.js's.
         let hasRelevant = false;
         for (const cs of _relevantCallsigns) {
             if (xmlText.includes(cs)) { hasRelevant = true; break; }
         }
-        if (!hasRelevant) {
-            // TEMP -- round 2: the first capture (20 samples) was entirely msgType="TMI_FLIGHT_LIST"
-            // (a different fiOutput subtype -- per-flight flow-constraint-area timing, not airport
-            // configuration), confirming fiOutput carries more than one real shape and a plain
-            // "not fltdMessage" filter just fills the cap with whichever is most common. Narrowed
-            // to a keyword guess for what airport-config/acceptance-rate data would actually
-            // contain, to bias toward capturing the rarer type instead.
-            if (!xmlText.includes('fltdMessage') && !xmlText.includes('TMI_FLIGHT_LIST')
-                && /unway|cceptance|onfig|Aptc|APTC/.test(xmlText)) dumpSample(xmlText);
-            return;
-        }
+        if (!hasRelevant) return;
     }
 
     let parsed;
@@ -178,8 +205,19 @@ function handleMessage(xmlText) {
         return;
     }
     const service = findDeep(parsed, 'tfmDataService');
-    const fltdOutput = service ? findDeep(service, 'fltdOutput') : null;
-    if (!fltdOutput) return; // fiOutput (restrictions/TMI lists) — not flight-route data, ignored
+    if (!service) return;
+
+    if (isAptc) {
+        const fiOutput = findDeep(service, 'fiOutput');
+        if (!fiOutput) return;
+        const raw = fiOutput.fiMessage;
+        const messages = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+        for (const m of messages) processOneFiMessage(m);
+        return;
+    }
+
+    const fltdOutput = findDeep(service, 'fltdOutput');
+    if (!fltdOutput) return; // fiOutput (TMI lists, or APTC already handled above) — not flight-route data, ignored
     const raw = fltdOutput.fltdMessage;
     const messages = Array.isArray(raw) ? raw : (raw ? [raw] : []);
     for (const m of messages) processOneFltdMessage(m);
@@ -291,4 +329,27 @@ function getFlightData(callsign) {
     return f;
 }
 
-module.exports = { connect, getFlightData, setRelevantCallsigns, isEnabled: () => TFMS_ENABLED };
+// aptCode may be a bare 3-letter code (as APTC itself uses) or a 4-letter ICAO code (as route
+// strings/airports.json use elsewhere in this app) — accepts either.
+function getAirportConfig(aptCode) {
+    if (!_connected) return null;
+    const code = String(aptCode || '').trim().toUpperCase();
+    const bare = (code.length === 4 && code[0] === 'K') ? code.slice(1) : code;
+    const cfg = _airportConfig[bare];
+    if (!cfg) return null;
+    // Same 1800s staleness convention as SwimReader's own reference display for this same data.
+    if (Date.now() - (cfg.lastMsg || 0) > 30 * 60 * 1000) return null;
+    return cfg;
+}
+
+// Splits a runway-configuration string ("19R/19L/18", or a single "35L") into individual
+// designators for matching against navdata.js's pickBody(), which expects the runways a NASR
+// procedure body actually lists (e.g. "19R"). Returns null for an absent/blank config (APTC's
+// depRunwayConf is commonly just whitespace when no distinct departure config is active).
+function splitRunwayConf(confStr) {
+    if (!confStr) return null;
+    const parts = String(confStr).split('/').map(s => s.trim()).filter(Boolean);
+    return parts.length ? parts : null;
+}
+
+module.exports = { connect, getFlightData, getAirportConfig, splitRunwayConf, setRelevantCallsigns, isEnabled: () => TFMS_ENABLED };
