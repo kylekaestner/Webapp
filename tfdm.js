@@ -118,6 +118,16 @@ function extractRunway(block) {
         || null;
 }
 
+// ISO 8601 duration, the only shape TFDM actually uses for these fields (confirmed against real
+// messages: always "PT" + optional H/M/S, e.g. "PT7M", "PT0S", never a larger unit). Returns
+// minutes (fractional for a seconds-only duration like "PT0S" -> 0), or null if unparseable.
+function parseIsoDurationMinutes(s) {
+    if (!s) return null;
+    const m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(String(s).trim());
+    if (!m || (!m[1] && !m[2] && !m[3])) return null;
+    return (parseInt(m[1] || 0, 10) * 60) + parseInt(m[2] || 0, 10) + (parseInt(m[3] || 0, 10) / 60);
+}
+
 function processOneMessage(msgObj) {
     const flight = msgObj.flight;
     if (!flight) return;
@@ -135,6 +145,19 @@ function processOneMessage(msgObj) {
     const depRunway = extractRunway(departure);
     const arrRunway = extractRunway(arrival);
     const flightState = findAttr(flight.flightStatus?.tfdmFlightState, 'value');
+    // Real departure-delay insight, straight from the FAA's own surface-management system --
+    // requested directly: the uploaded schedule stays the source of truth for when a flight is
+    // SUPPOSED to depart/land (never overwritten with real times), but TFDM already knows when a
+    // flight is actually running late (e.g. a long ORD ground/taxi delay) and this is exactly
+    // that number, not a guess. <nas:departureDelay> carries three ISO-8601-duration fields —
+    // prefer actualDelay (confirmed, populated once real departure timing is known) over
+    // currentDelay (TFDM's live best-estimate before that), same "prefer the more confirmed
+    // value" pattern as the three-tier runway fields above. predictedDelay (forward-looking, pre-
+    // departure) isn't used here -- actual/current are the "how late did/is it actually run"
+    // signals this feature is about, not a prediction.
+    const delayBlock = departure?.departureDelay;
+    const actualDelayMin = delayBlock ? parseIsoDurationMinutes(textOf(delayBlock.actualDelay)) : null;
+    const currentDelayMin = delayBlock ? parseIsoDurationMinutes(textOf(delayBlock.currentDelay)) : null;
 
     const entry = _latest[cs] || (_latest[cs] = {});
     entry.lastMsg = Date.now();
@@ -146,6 +169,8 @@ function processOneMessage(msgObj) {
     if (depRunway) entry.depRunway = depRunway;
     if (arrRunway) entry.arrRunway = arrRunway;
     if (flightState) entry.flightState = flightState;
+    if (actualDelayMin != null) entry.departureDelayMin = actualDelayMin;
+    else if (currentDelayMin != null) entry.departureDelayMin = currentDelayMin;
 }
 
 function handleMessage(xmlText) {
@@ -286,7 +311,11 @@ function startConsumer() {
     }
 }
 
-function getRunwayInfo(callsign) {
+// Returns everything known for a callsign -- runway assignments (the original reason this
+// module exists), plus flightState and departureDelayMin now too. Kept as one function/one entry
+// object rather than splitting into separate getters since it's all the same underlying TFDM
+// FlightUpdate stream for one flight; callers just read whichever fields they need.
+function getFlightInfo(callsign) {
     const cs = String(callsign || '').trim().toUpperCase();
     return _latest[cs] || null;
 }
@@ -304,4 +333,4 @@ function _testSeedRunway(callsign, { depRunway, arrRunway } = {}) {
     return true;
 }
 
-module.exports = { connect, getRunwayInfo, setRelevantCallsigns, _testSeedRunway, isEnabled: () => TFDM_ENABLED };
+module.exports = { connect, getFlightInfo, setRelevantCallsigns, _testSeedRunway, isEnabled: () => TFDM_ENABLED };

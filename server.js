@@ -3038,7 +3038,7 @@ function resolveRouteWaypoints(routeParsed, callsign) {
     // instead of its old "always bodies[0]" guess — see navdata.js's pickBody(). `null` fields
     // (TFDM hasn't reported a runway for this flight yet) are handled there as "no preference,
     // fall back to the old deterministic guess", not an error.
-    const runwayInfo = callsign ? tfdm.getRunwayInfo(callsign) : null;
+    const runwayInfo = callsign ? tfdm.getFlightInfo(callsign) : null;
     const originWp = routeParsed.waypoints.find(wp => wp.type === 'airport');
     routeParsed.resolvedPath = navdata.resolveWaypoints(
         routeParsed.waypoints,
@@ -3057,6 +3057,26 @@ function withResolvedFrequency(sector) {
     if (!sector) return sector;
     const resolved = vnas.getFrequency(sector.unit, sector.sectorId);
     return resolved ? { ...sector, frequency: resolved.frequency, callsign: resolved.callsign } : sector;
+}
+
+// Attaches TFDM's real flight-phase/delay insight to a live-position response, regardless of
+// which source (STDDS/SWIM/ADS-B) actually answered -- TFDM is a separate, independent FAA feed
+// (terminal/surface management), not tied to any one of the others. Requested directly: the
+// uploaded schedule stays the source of truth for when a flight is SUPPOSED to depart/land (never
+// overwritten with real times here or anywhere), but the frontend's own "is this flight actually
+// still going" classification needs a real signal better than "did the scheduled arrival time
+// pass" -- a flight delayed on the ground (e.g. a long ORD taxi-out) can still be genuinely
+// EN_ROUTE well after its original scheduled arrival. `tfdmState` is TFDM's own authoritative
+// phase (FILED/SCHEDULED/AT_STAND/RAMP_TAXI_OUT/AMA_TAXI_OUT/DEPARTED/EN_ROUTE/ON_FINAL/ARRIVAL/
+// AMA_TAXI_IN/RAMP_TAXI_IN/LUAW); `departureDelayMin` is TFDM's own measured/estimated departure
+// delay in minutes (prefers confirmed `actualDelay` over the live `currentDelay` estimate -- see
+// tfdm.js). Both are simply omitted when TFDM has nothing for this callsign (not every flight is
+// necessarily covered, and this never blocks or alters the position data itself either way).
+function withTfdmInfo(data, callsign) {
+    const info = callsign ? tfdm.getFlightInfo(callsign) : null;
+    if (info?.flightState) data.tfdmState = info.flightState;
+    if (info?.departureDelayMin != null) data.departureDelayMin = Math.round(info.departureDelayMin);
+    return data;
 }
 
 async function fetchLivePosition(callsign) {
@@ -3096,13 +3116,13 @@ async function fetchLivePosition(callsign) {
             _parkedCallsigns.add(cs);
             _swimTrailBackfilled.delete(cs);
         }
-        return stddsHit;
+        return withTfdmInfo(stddsHit, callsign);
     }
     if (swimHit) {
         resolveRouteWaypoints(swimHit.routeParsed, callsign);
-        return swimHit;
+        return withTfdmInfo(swimHit, callsign);
     }
-    return fetchAdsbPosition(callsign);
+    return withTfdmInfo(await fetchAdsbPosition(callsign), callsign);
 }
 
 app.post('/api/early-landing', express.json(), (req, res) => {

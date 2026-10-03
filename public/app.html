@@ -1968,6 +1968,32 @@
         // confirmed live that waiting on the natural poll cadence read as the button being broken.
         const _liveLabelRefreshers = new Map();
         const _landedEarly  = new Set(); // callsigns confirmed landed before scheduledArrUTC
+        // Callsigns a live poll has actually confirmed parked/landed -- the opposite case from
+        // _landedEarly (confirmed landed AFTER scheduled arrival, inside the grace window below).
+        // Overrides the grace window immediately so a flight that really did land on schedule
+        // doesn't sit tagged "in the air" for the full grace period.
+        const _confirmedParked = new Set();
+        // How long past scheduled arrival a flight is still worth treating as "maybe still
+        // active" (showing live styling, kept eligible for live polling) instead of immediately
+        // assuming it landed on schedule. Requested directly: a flight delayed on the ground
+        // (e.g. a long ORD taxi-out) can push wheels-up, and therefore wheels-down, well past its
+        // originally scheduled arrival -- the uploaded schedule itself is deliberately never
+        // touched/updated with real times (that stays the pilot's own source of truth), but the
+        // UI's own "is this flight done" classification can and should check real live/TFDM
+        // status before assuming so. 90 minutes is generous enough to cover a serious ground
+        // delay plus enroute time without tagging a truly-completed flight "in the air" for
+        // unreasonably long on the rare flight live data is never available for.
+        const LATE_ARRIVAL_GRACE_MS = 90 * 60 * 1000;
+        // Shared by the grid, list, day-detail, and day-map classifications so "is this flight
+        // still worth showing as active" means the same thing everywhere. `csig` is optional
+        // (day-map's grouped popups don't always have one resolved at this point) -- the grace
+        // window and schedule check still apply without it, just without the confirmed-parked
+        // override.
+        function isFlightStillActive(depMs, arrMs, nowMs, csig) {
+            if (!depMs || !arrMs) return false;
+            if (csig && _confirmedParked.has(csig)) return false;
+            return depMs <= nowMs && nowMs <= arrMs + LATE_ARRIVAL_GRACE_MS;
+        }
         // callsign -> the specific marker/arc/hit-line layer objects currently on the map for it.
         // _livePollers is cleared on every render, so it can't reliably tell a fresh
         // startLiveTracking() call "someone's already tracking this callsign" when two renders
@@ -4997,7 +5023,7 @@
                         const a = flightUTCTime(f.arrival_time, f.arrival_airport);
                         const cs = deriveCallsign(f, key);
                         if (_landedEarly.has(cs)) return false;
-                        return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
+                        return isFlightStillActive(d?.getTime(), a?.getTime(), now.getTime(), cs);
                     });
                     const hasFuture = !hasActive && legs.some(f => {
                         const a = flightUTCTime(f.arrival_time, f.arrival_airport);
@@ -5020,7 +5046,7 @@
                         const al = legs.find(f => {
                             const d = flightUTCTime(f.departure_time, f.departure_airport);
                             const a = flightUTCTime(f.arrival_time, f.arrival_airport);
-                            return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
+                            return isFlightStillActive(d?.getTime(), a?.getTime(), now.getTime(), deriveCallsign(f, key));
                         });
                         if (al) {
                             const alDepUTC = flightUTCTime(al.departure_time, al.departure_airport);
@@ -5177,7 +5203,7 @@
                     const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                     const cs = deriveCallsign(f, currentPilot);
                     if (_landedEarly.has(cs)) return false;
-                    return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
+                    return isFlightStillActive(d?.getTime(), a?.getTime(), now.getTime(), cs);
                 });
                 const hasFuture = !hasActive && legs.some(f => {
                     const d = flightUTCTime(f.departureTime, f.departureAirport);
@@ -5235,7 +5261,7 @@
                     const label = deriveCallsign(f, currentPilot) || '';
                     const _ld = flightUTCTime(f.departureTime, f.departureAirport);
                     const _la = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                    const isLegActive = _ld && _la && _ld <= now && now <= new Date(_la.getTime() + 20 * 60000);
+                    const isLegActive = isFlightStillActive(_ld?.getTime(), _la?.getTime(), now.getTime(), label);
                     const legColor = isLegActive ? '#22c55e' : '#94a3b8';
                     const legStatus = isLegActive ? ' ▶' : '';
                     const depTz = tzAbbr(f.departureAirport, f.departureTime);
@@ -5273,7 +5299,7 @@
                     const activeLeg = legs.find(f => {
                         const d = flightUTCTime(f.departureTime, f.departureAirport);
                         const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                        return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
+                        return isFlightStillActive(d?.getTime(), a?.getTime(), now.getTime(), deriveCallsign(f, currentPilot));
                     });
                     if (activeLeg) {
                         const depTime = flightUTCTime(activeLeg.departureTime, activeLeg.departureAirport);
@@ -5360,9 +5386,9 @@
             const isAirborne = allFlightsSorted.some(f => {
                 const d = flightUTCTime(f.departureTime, f.departureAirport);
                 const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                if (!(d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000))) return false;
                 const cs = deriveCallsign(f, currentPilot);
-                return !cs || !_landedEarly.has(cs);
+                if (cs && _landedEarly.has(cs)) return false;
+                return isFlightStillActive(d?.getTime(), a?.getTime(), now.getTime(), cs);
             });
             {
                 let locationCode, label, popupExtra, isAtHome = false;
@@ -5373,7 +5399,7 @@
                     const activeLeg = allFlightsSorted.find(f => {
                         const d = flightUTCTime(f.departureTime, f.departureAirport);
                         const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                        return d && a && d <= now && now <= new Date(a.getTime() + 20 * 60000);
+                        return isFlightStillActive(d?.getTime(), a?.getTime(), now.getTime(), deriveCallsign(f, currentPilot));
                     });
                     if (activeLeg) {
                         locationCode = activeLeg.departureAirport;
@@ -5720,6 +5746,7 @@
                         // waiting for that -- render()'s own isActiveLeg check (now also
                         // excluding _landedEarly) picks up the correct state in one pass.
                         if (d.parked) {
+                            _confirmedParked.add(cs);
                             clearInterval(_calListPollers[cs]);
                             delete _calListPollers[cs];
                             render();
@@ -5733,6 +5760,13 @@
                             const alt = d.altFt >= 18000 ? `FL${Math.round(d.altFt / 100)}` : `${Math.round(d.altFt).toLocaleString()} ft`;
                             const kts = d.speedKts ? ` · ${Math.round(d.speedKts)} kts` : '';
                             txt = `${alt}${kts}`;
+                            // Real TFDM departure-delay insight (uploaded schedule itself is never
+                            // touched) -- shown only pre-cruise, since by the time a flight is well
+                            // established en route the "it left late" fact is stale/less useful
+                            // than its current progress.
+                            if (d.departureDelayMin >= 10 && d.tfdmState && d.tfdmState !== 'EN_ROUTE' && d.tfdmState !== 'ON_FINAL' && d.tfdmState !== 'ARRIVAL') {
+                                txt += ` · Delayed ${d.departureDelayMin}m`;
+                            }
                         }
                         liveEl.style.color = txtColor;
                         liveEl.textContent = txt ? `✈ ${txt}` : '';
@@ -6263,6 +6297,11 @@
                         } else {
                             groundLabel = isTaxiing ? `Taxiing for departure` : 'On ground';
                             groundLabelColor = '#71717a';
+                            // Real TFDM departure-delay insight (uploaded schedule stays the
+                            // source of truth, never overwritten) -- only shown pre-departure,
+                            // same reasoning as the calendar/list live text: once airborne the
+                            // "left late" fact is stale next to the flight's actual progress.
+                            if (d.departureDelayMin >= 10) groundLabel += ` · Delayed ${d.departureDelayMin}m`;
                         }
                         _lastTooltipSource = d.source; _lastTooltipSector = d.sector;
                         _lastTooltipSuffix = `<br><span style="font-size:9px;color:${groundLabelColor};font-weight:700">${groundLabel}</span>`;
@@ -6750,7 +6789,7 @@
                 const arrTime = flightUTCTime(f.arrivalTime || f.departureTime, f.arrivalAirport) || new Date(f.arrivalTime || f.departureTime);
                 const _cs = deriveCallsign(f, f.pilotKey);
                 const landedEarly = _landedEarly.has(_cs);
-                const isActive = !landedEarly && depTime <= now && now <= new Date(arrTime.getTime() + 20 * 60000);
+                const isActive = !landedEarly && isFlightStillActive(depTime?.getTime(), arrTime?.getTime(), now.getTime(), _cs);
                 const isPast   = !isActive && depTime <= now && (arrTime < now || landedEarly);
                 const color = PILOT_COLORS[f.pilotKey];
 
@@ -6877,9 +6916,9 @@
                     const isAirborne = pilotFlights.some(f => {
                         const d = flightUTCTime(f.departureTime, f.departureAirport);
                         const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                        if (!(d && a && d <= now2 && now2 <= new Date(a.getTime() + 20 * 60000))) return false;
                         const cs = deriveCallsign(f, pilotKey);
-                        return !cs || !_landedEarly.has(cs);
+                        if (cs && _landedEarly.has(cs)) return false;
+                        return isFlightStillActive(d?.getTime(), a?.getTime(), now2.getTime(), cs);
                     });
                     if (isAirborne) return;
 
@@ -7502,7 +7541,7 @@
                         const depMs = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                         const arrMs = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                         const csig = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                        const isActiveLeg = depMs && arrMs && depMs <= nowMs && nowMs <= arrMs && !(csig && _landedEarly.has(csig));
+                        const isActiveLeg = isFlightStillActive(depMs, arrMs, nowMs, csig) && !(csig && _landedEarly.has(csig));
                         const cellBg = isActiveLeg
                             ? (isPersonal ? `background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)` : isCommute ? `background:rgba(120,53,15,0.2);border:2px solid rgba(34,197,94,0.85)` : `background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)`)
                             : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : isCommute ? 'background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.25)' : 'background:rgba(0,0,0,0.4)');
@@ -7676,7 +7715,7 @@
                                 const depMs2 = depAttr ? flightUTCTime(depAttr, depApt)?.getTime() : null;
                                 const arrMs2 = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                                 const csig2 = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                                const isActiveLeg2 = depMs2 && arrMs2 && depMs2 <= nowMs2 && nowMs2 <= arrMs2 && !(csig2 && _landedEarly.has(csig2));
+                                const isActiveLeg2 = isFlightStillActive(depMs2, arrMs2, nowMs2, csig2) && !(csig2 && _landedEarly.has(csig2));
                                 const rowAccent2 = isActiveLeg2 ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
                                 const rowBg = isPersonal ? 'bg-violet-950/15' : isCommute ? 'bg-amber-950/15' : isActiveLeg2 ? 'bg-emerald-950/10' : 'bg-black/30';
                                 const editBtns = f.id ? `<div class="flex items-center gap-0.5 ml-1 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
@@ -7960,7 +7999,7 @@
                 const rawAMs = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport)?.getTime() : null;
                 return { dMs, aMs: rawAMs, cs };
             });
-            const anyLive = flightMs.some(({dMs, aMs, cs}) => dMs && aMs && dMs <= nowMs && nowMs <= aMs && !(cs && _landedEarly.has(cs)));
+            const anyLive = flightMs.some(({dMs, aMs, cs}) => isFlightStillActive(dMs, aMs, nowMs, cs) && !(cs && _landedEarly.has(cs)));
             let label = currentPilot === 'kyle' ? 'ON CALL' : 'DAY OFF';
             let labelColor = 'text-zinc-400';
             if (isVacation) { label = awayApt ? `VACATION · AWAY - ${awayApt}` : 'VACATION'; labelColor = 'text-teal-400'; }
@@ -8075,7 +8114,7 @@
                         if (lbl) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${lbl}</div>`;
                     }
                 }
-                const isActiveLeg = dMs && aMs && dMs <= nowMs && nowMs <= aMs && !(_dayCs && _landedEarly.has(_dayCs));
+                const isActiveLeg = isFlightStillActive(dMs, aMs, nowMs, _dayCs) && !(_dayCs && _landedEarly.has(_dayCs));
                 const accentColor = isActiveLeg ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
                 const cardBorder = isActiveLeg ? 'border-emerald-500/50' : isPersonal ? 'border-violet-500/20' : isCommute ? 'border-amber-500/20' : `border-[${accentColor}25]`;
                 const cardBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : isActiveLeg ? 'bg-emerald-950/10' : 'bg-zinc-900/60';
