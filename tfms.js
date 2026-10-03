@@ -147,6 +147,45 @@ function processOneFltdMessage(msgObj) {
     if (msgType === 'flightPlanInformation') processFlightPlanInfo(msgObj, cs);
     else if (msgType === 'flightPlanAmendmentInformation') processAmendment(msgObj, cs);
     // trackInformation (position-only) is ignored — SFDPS already covers live position, better.
+    processFlightTimes(msgObj, cs);
+}
+
+// Estimated and airline-reported times TFMS carries alongside the flight plan. These are estimates
+// only: the uploaded schedule is never changed from them, they're just exposed for display.
+// IGTD sits on the qualified aircraft id; ETD/ETA are timeValue attributes on route/track data;
+// gate/runway/airline OOOI-style times and the original ETA come from the airline data block.
+const FLIGHT_TIME_ATTRS = ['airlineOutTime', 'airlineOffTime', 'airlineOnTime', 'airlineInTime',
+    'gateDeparture', 'gateArrival', 'runwayDeparture', 'runwayArrival', 'originalDeparture', 'originalArrival'];
+function processFlightTimes(msgObj, cs) {
+    const entry = _latest[cs] || (_latest[cs] = {});
+    const iso = v => {
+        const s = textOf(v);
+        if (s == null) return undefined;
+        const d = new Date(String(s).trim());
+        return isNaN(d) ? undefined : d.toISOString();
+    };
+    const times = {};
+    const qid = findDeep(msgObj, 'qualifiedAircraftId');
+    const igtd = qid ? iso(findDeep(qid, 'igtd')) : undefined;
+    if (igtd) times.igtd = igtd;
+    const timeValue = el => {
+        const node = findDeep(msgObj, el);
+        return node ? iso(findAttr(node, 'timeValue')) : undefined;
+    };
+    const etd = timeValue('etd');
+    const eta = timeValue('eta');
+    if (etd) times.etd = etd;
+    if (eta) times.eta = eta;
+    const ftd = findDeep(msgObj, 'flightTimeData');
+    if (ftd) {
+        for (const attr of FLIGHT_TIME_ATTRS) {
+            const v = iso(findAttr(ftd, attr));
+            if (v) times[attr] = v;
+        }
+    }
+    if (Object.keys(times).length === 0) return;
+    Object.assign(entry, times);
+    entry.timesUpdated = Date.now();
 }
 
 // Not callsign-scoped at all (an airport's config isn't tied to any one flight), so this is
@@ -354,4 +393,18 @@ function splitRunwayConf(confStr) {
     return parts.length ? parts : null;
 }
 
-module.exports = { connect, getFlightData, getAirportConfig, splitRunwayConf, setRelevantCallsigns, isEnabled: () => TFMS_ENABLED };
+// Estimated/airline times for a callsign (see processFlightTimes). Kept separate from getFlightData so
+// the times stay available for the whole flight, not just while the route data is fresh.
+function getFlightTimes(callsign) {
+    if (!_connected) return null;
+    const cs = String(callsign || '').trim().toUpperCase();
+    const f = _latest[cs];
+    if (!f || !f.timesUpdated) return null;
+    if (Date.now() - f.timesUpdated > 2 * 60 * 60 * 1000) return null;
+    const { igtd, etd, eta, airlineOutTime, airlineOffTime, airlineOnTime, airlineInTime,
+        gateDeparture, gateArrival, runwayDeparture, runwayArrival, originalDeparture, originalArrival } = f;
+    return { igtd, etd, eta, airlineOutTime, airlineOffTime, airlineOnTime, airlineInTime,
+        gateDeparture, gateArrival, runwayDeparture, runwayArrival, originalDeparture, originalArrival };
+}
+
+module.exports = { connect, getFlightData, getFlightTimes, getAirportConfig, splitRunwayConf, setRelevantCallsigns, isEnabled: () => TFMS_ENABLED };

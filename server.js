@@ -3123,6 +3123,13 @@ function withTfdmInfo(data, callsign) {
     const info = callsign ? tfdm.getFlightInfo(callsign) : null;
     if (info?.flightState) data.tfdmState = info.flightState;
     if (info?.departureDelayMin != null) data.departureDelayMin = Math.round(info.departureDelayMin);
+    // Estimated/airline times from TFMS (ETD/ETA, gate, runway, OOOI). Display-only: the uploaded
+    // schedule is never changed from these.
+    const tt = callsign ? tfms.getFlightTimes(callsign) : null;
+    if (tt) {
+        const present = Object.fromEntries(Object.entries(tt).filter(([, v]) => v));
+        if (Object.keys(present).length) data.tfmsTimes = present;
+    }
     return data;
 }
 
