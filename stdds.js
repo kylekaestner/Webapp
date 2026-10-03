@@ -49,6 +49,9 @@ function textOf(val) {
 
 function setRelevantCallsigns(set) {
     _relevantCallsigns = set instanceof Set ? set : new Set(set || []);
+    // Start recording ground/taxi trail for relevant flights before anything asks for them, the same
+    // way swim.js does -- otherwise a taxiing flight nobody has opened yet has no history at all.
+    for (const cs of _relevantCallsigns) _watched.add(cs);
     for (const cs of Object.keys(_latest)) {
         if (!_relevantCallsigns.has(cs)) { delete _latest[cs]; _watched.delete(cs); }
     }
