@@ -6796,13 +6796,20 @@
                 const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                 if (isFlightStillActive(d?.getTime(), a?.getTime(), now.getTime(), cs)) _activeCs.add(cs);
             }));
+            // Airborne on the day map requires a real signal (a live position seen in the last few
+            // minutes) or a departure that's been past for a while -- a scheduled departure time
+            // alone isn't evidence the aircraft has moved (it may still be at the gate or pushing).
+            const liveSeen = new Set();
             if (_activeCs.size) {
                 try {
                     const st = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent([..._activeCs].join(','))}`).then(r => r.json());
                     (st.parked || []).forEach(cs => _confirmedParked.add(cs));
+                    (st.live || []).forEach(cs => liveSeen.add(cs));
                 } catch (e) {}
                 if (gen !== mapRenderGen) return;
             }
+            const _airborneNow = (cs, dMs, aMs) => isFlightStillActive(dMs, aMs, now.getTime(), cs)
+                && (liveSeen.has(cs) || now.getTime() - dMs > 25 * 60000);
 
             // Flatten all day flights with pilot key attached
             const allDayFlights = [];
@@ -6849,7 +6856,7 @@
                 const arrTime = flightUTCTime(f.arrivalTime || f.departureTime, f.arrivalAirport) || new Date(f.arrivalTime || f.departureTime);
                 const _cs = deriveCallsign(f, f.pilotKey);
                 const landedEarly = _landedEarly.has(_cs);
-                const isActive = !landedEarly && isFlightStillActive(depTime?.getTime(), arrTime?.getTime(), now.getTime(), _cs);
+                const isActive = !landedEarly && _airborneNow(_cs, depTime?.getTime(), arrTime?.getTime());
                 const isPast   = !isActive && depTime <= now && (arrTime < now || landedEarly);
                 const color = PILOT_COLORS[f.pilotKey];
 
@@ -6980,7 +6987,7 @@
                         const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                         const cs = deriveCallsign(f, pilotKey);
                         if (cs && _landedEarly.has(cs)) return false;
-                        return isFlightStillActive(d?.getTime(), a?.getTime(), now2.getTime(), cs);
+                        return _airborneNow(cs, d?.getTime(), a?.getTime());
                     });
                     if (isAirborne) return;
 

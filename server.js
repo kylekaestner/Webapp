@@ -3270,7 +3270,12 @@ app.post('/api/debug/seed-flight', express.json(), (req, res) => {
 app.get('/api/flight-status', (req, res) => {
     const list = String(req.query.callsigns || '').split(',')
         .map(s => s.toUpperCase().replace(/\s/g, '')).filter(Boolean).slice(0, 50);
-    res.json({ parked: list.filter(cs => isParked(cs)) });
+    const now = Date.now();
+    const live = list.filter(cs => {
+        const c = _liveCache[cs];
+        return c && c.data?.found && now - c.ts < 3 * 60 * 1000;
+    });
+    res.json({ parked: list.filter(cs => isParked(cs)), live });
 });
 
 app.get('/api/live-position', async (req, res) => {
