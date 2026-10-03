@@ -3134,7 +3134,27 @@ function withResolvedFrequency(sector) {
 // delay in minutes (prefers confirmed `actualDelay` over the live `currentDelay` estimate -- see
 // tfdm.js). Both are simply omitted when TFDM has nothing for this callsign (not every flight is
 // necessarily covered, and this never blocks or alters the position data itself either way).
+// Merged SWIM/STDDS trails can interleave a second source's stale fixes (repeated far-off points with
+// timestamps out of order), which draws as fans of lines. Keep points in time order, drop exact repeats,
+// and drop single points that jump far from both neighbours.
+function cleanTrail(trail) {
+    if (!Array.isArray(trail) || trail.length < 3) return trail;
+    const pts = trail.slice().filter(p => Array.isArray(p) && p.length >= 3).sort((a, b) => a[2] - b[2]);
+    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        const prev = out[out.length - 1];
+        if (prev && dist(prev, p) < 0.00001) continue;
+        const next = pts[i + 1];
+        if (prev && next && dist(prev, p) > 0.5 && dist(prev, next) < 0.5) continue;
+        out.push(p);
+    }
+    return out;
+}
+
 function withTfdmInfo(data, callsign) {
+    if (data && Array.isArray(data.trail)) data.trail = cleanTrail(data.trail);
     const info = callsign ? tfdm.getFlightInfo(callsign) : null;
     if (info?.flightState) data.tfdmState = info.flightState;
     if (info?.departureDelayMin != null) data.departureDelayMin = Math.round(info.departureDelayMin);
