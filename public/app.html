@@ -6785,7 +6785,7 @@
                     <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:2px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
                     ${_cityLine}
                     <div style="font-size:11px;font-weight:700;margin-bottom:5px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</div>
-                    <div style="font-size:11px;color:#94a3b8">${formatTimeISO(f.departureTime, f.departureAirport)} – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
+                    <div style="font-size:11px;color:#94a3b8">${formatTimeISO(f.departureTime, f.departureAirport)} <span style="opacity:.5">${tzAbbr(f.departureAirport, f.departureTime)}</span> – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
                     ${_statusLine}
                 `;
                 dayHits.forEach(h => { h.bindPopup(dayPopup, { className: 'dark-popup' }); h.addTo(map); });
