@@ -69,17 +69,7 @@
             #view-grid, #view-list {
                 padding-bottom: 70px !important;
             }
-            /* Map runs to the bottom of the screen, under the nav and the map controls. The nav and the
-               controls are translucent so the map shows through behind them. */
-            #view-map.view-active { padding-bottom: 0 !important; }
-            #view-map > #map { position: absolute !important; top: 0; left: 0; right: 0; bottom: 0; }
-            /* Controls stay in normal flow (absolute placement got buried under the nav's stacking), with the
-               nav's height reserved as bottom padding so they sit just above it. */
-            #view-map > #map-mobile-bar {
-                position: relative !important;
-                padding-bottom: 68px !important;
-                background: rgba(9,9,11,0.72) !important; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-            }
+            #view-map.view-active { padding-bottom: 68px !important; }
             .mobile-nav { background: rgba(9,9,11,0.72) !important; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); padding-bottom: 12px !important; }
         }
 
@@ -676,7 +666,7 @@
                     </div>
                 </div>
                 <!-- Mobile mode bar — sits below map tiles, above fixed bottom nav -->
-                <div id="map-mobile-bar" class="md:hidden flex flex-col shrink-0 border-t border-zinc-800/70 bg-zinc-950/98 backdrop-blur-sm">
+                <div class="md:hidden flex flex-col shrink-0 border-t border-zinc-800/70 bg-zinc-950/98 backdrop-blur-sm">
                     <div class="flex">
                         <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill flex-1 flex flex-col items-center justify-center gap-1" style="padding:8px 4px">
                             <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
