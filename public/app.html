@@ -157,6 +157,8 @@
         .dark-popup .leaflet-popup-content-wrapper { background: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.8); }
         .dark-popup .leaflet-popup-tip { background: #0f172a; }
         .dark-popup .leaflet-popup-content { margin: 12px 14px; }
+        .day-popup .leaflet-popup-content { margin: 6px 8px; }
+        .day-popup .leaflet-popup-content-wrapper { padding: 0; }
         .live-label { background: rgba(9,9,11,0.82) !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 5px !important; padding: 3px 7px !important; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7) !important; backdrop-filter: blur(6px); pointer-events: none; }
         .live-label::before { display: none !important; }
         /* Route-point (VOR/fix/waypoint) name tags -- deliberately NOT the dark-pill .live-label
@@ -6912,9 +6914,7 @@
                     : (depTime && depTime <= now)
                     ? `<div class="live-status-line" style="font-size:10px;color:#eab308;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTURE DUE</div>`
                     : `<div class="live-status-line" style="font-size:10px;color:#3b82f6;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTS IN ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>`;
-                const _depCity = _intelAreaLabel(f.departureAirport) || f.departureAirport;
-                const _arrCity = _intelAreaLabel(f.arrivalAirport) || f.arrivalAirport;
-                const _cityLine = `<div style="font-size:10px;color:#52525b;font-weight:600;margin-bottom:5px">${_depCity} → ${_arrCity}</div>`;
+
                 // TFMS estimates (display-only, the uploaded schedule above is never changed). Shown only
                 // when they differ from the scheduled time by at least 5 minutes.
                 const _est = _cs ? estTimes[_cs] : null;
@@ -6930,14 +6930,12 @@
                     ? `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin-bottom:3px;white-space:nowrap">${_estDep ? `ETD ${formatTimeISO(_estDep, f.departureAirport)}${_depNote}` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `ETA ${formatTimeISO(_estArr, f.arrivalAirport)}${_arrNote}` : ''}</div>`
                     : '';
                 const dayPopup = `
-                    <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:2px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
-                    ${_cityLine}
-                    <div style="font-size:11px;font-weight:700;margin-bottom:5px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</div>
-                    <div style="font-size:11px;color:#94a3b8">${formatTimeISO(f.departureTime, f.departureAirport)} <span style="opacity:.5">${tzAbbr(f.departureAirport, f.departureTime)}</span> – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
+                    <div style="font-weight:900;font-size:13px;color:#f8fafc;line-height:1.2;white-space:nowrap">${f.departureAirport} → ${f.arrivalAirport}<span style="font-size:10px;font-weight:700;margin-left:6px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</span></div>
+                    <div style="font-size:10px;color:#94a3b8;margin-top:2px">${formatTimeISO(f.departureTime, f.departureAirport)} <span style="opacity:.5">${tzAbbr(f.departureAirport, f.departureTime)}</span> – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
                     ${_statusLine}
                     ${_estLine}
                 `;
-                dayHits.forEach(h => { h.bindPopup(dayPopup, { className: 'dark-popup' }); h.addTo(map); });
+                dayHits.forEach(h => { h.bindPopup(dayPopup, { className: 'dark-popup day-popup', maxWidth: 230 }); h.addTo(map); });
                 dayLines.forEach(l => mapLayers.future.push(l));
                 dayHits.forEach(h => mapLayers.future.push(h));
 
