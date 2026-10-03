@@ -6782,6 +6782,24 @@
             const now = new Date();
             const bounds = [];
 
+            // Client-side _confirmedParked starts empty on every page load, so a flight that landed
+            // inside its 90-min grace window would otherwise look airborne and drop its pilot's pin.
+            const _activeCs = new Set();
+            Object.entries(allPilotSegments).forEach(([key, segs]) => segs.forEach(f => {
+                const cs = deriveCallsign(f, key);
+                if (!cs || _confirmedParked.has(cs)) return;
+                const d = flightUTCTime(f.departureTime, f.departureAirport);
+                const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
+                if (isFlightStillActive(d?.getTime(), a?.getTime(), now.getTime(), cs)) _activeCs.add(cs);
+            }));
+            if (_activeCs.size) {
+                try {
+                    const st = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent([..._activeCs].join(','))}`).then(r => r.json());
+                    (st.parked || []).forEach(cs => _confirmedParked.add(cs));
+                } catch (e) {}
+                if (gen !== mapRenderGen) return;
+            }
+
             // Flatten all day flights with pilot key attached
             const allDayFlights = [];
             visiblePilots.forEach(pilotKey => {
