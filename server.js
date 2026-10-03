@@ -2877,7 +2877,22 @@ const _hexToCallsign = {}; // hex → last-known callsign, used to detect a new 
 const _parkedCallsigns = new Set(); // suppress background polling after flight completes
 const _parkedAt = {}; // callsign -> ms when marked parked; entries expire so a recurring flight number isn't blocked forever
 const PARKED_TTL_MS = 6 * 60 * 60 * 1000;
-function markParked(cs) { _parkedCallsigns.add(cs); _parkedAt[cs] = Date.now(); }
+const PARKED_CACHE_PATH = path.join(__dirname, '.parked_cache.json');
+try {
+    const saved = JSON.parse(fs.readFileSync(PARKED_CACHE_PATH, 'utf8'));
+    for (const [cs, ts] of Object.entries(saved)) {
+        if (Date.now() - ts <= PARKED_TTL_MS) { _parkedCallsigns.add(cs); _parkedAt[cs] = ts; }
+    }
+} catch (_) {}
+let _parkedSaveTimer = null;
+function scheduleParkedSave() {
+    if (_parkedSaveTimer) return;
+    _parkedSaveTimer = setTimeout(() => {
+        _parkedSaveTimer = null;
+        try { fs.writeFileSync(PARKED_CACHE_PATH, JSON.stringify(_parkedAt)); } catch (_) {}
+    }, 1000);
+}
+function markParked(cs) { _parkedCallsigns.add(cs); _parkedAt[cs] = Date.now(); scheduleParkedSave(); }
 function isParked(cs) {
     if (!_parkedCallsigns.has(cs)) return false;
     if (Date.now() - (_parkedAt[cs] || 0) > PARKED_TTL_MS) { _parkedCallsigns.delete(cs); return false; }
