@@ -6794,10 +6794,11 @@
             const _activeCs = new Set();
             Object.entries(allPilotSegments).forEach(([key, segs]) => segs.forEach(f => {
                 const cs = deriveCallsign(f, key);
-                if (!cs || _confirmedParked.has(cs)) return;
+                if (!cs) return;
                 const d = flightUTCTime(f.departureTime, f.departureAirport);
                 const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                if (isFlightStillActive(d?.getTime(), a?.getTime(), now.getTime(), cs)) _activeCs.add(cs);
+                const inWindow = (d && a) && now.getTime() >= d.getTime() - PREFLIGHT_ROUTE_MS && now.getTime() <= a.getTime() + LATE_ARRIVAL_GRACE_MS;
+                if (inWindow) _activeCs.add(cs);
             }));
             // Airborne on the day map requires a real signal (a live position seen in the last few
             // minutes) or a departure that's been past for a while -- a scheduled departure time
@@ -6807,7 +6808,8 @@
             if (_activeCs.size) {
                 try {
                     const st = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent([..._activeCs].join(','))}`).then(r => r.json());
-                    (st.parked || []).forEach(cs => _confirmedParked.add(cs));
+                    const parkedNow = new Set(st.parked || []);
+                    [..._activeCs].forEach(cs => { if (parkedNow.has(cs)) _confirmedParked.add(cs); else _confirmedParked.delete(cs); });
                     (st.live || []).forEach(cs => liveSeen.add(cs));
                     Object.assign(estTimes, st.times || {});
                 } catch (e) {}

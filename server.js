@@ -3303,7 +3303,13 @@ app.get('/api/live-position', async (req, res) => {
 
     // If the server already confirmed this callsign parked, tell the client immediately
     // so it can clean up even if the scheduled arrival time hasn't passed yet.
-    if (isParked(callsign)) return res.json({ found: false, parked: true });
+    if (isParked(callsign)) {
+        const hit = stdds.getGroundPosition(callsign) || swim.getSwimPosition(callsign);
+        if (!(hit?.found && (hit.altFt ?? 0) > 2000)) return res.json({ found: false, parked: true });
+        _parkedCallsigns.delete(callsign);
+        delete _parkedAt[callsign];
+        _everAirborneCallsigns.add(callsign);
+    }
 
     const cached = _liveCache[callsign];
     if (cached && Date.now() - cached.ts < LIVE_TTL) return res.json(cached.data);
@@ -3484,7 +3490,18 @@ async function runActiveFlightPoller() {
                 // comment above for why the old naive concatenation here was a real, live bug.
                 const callsign = normalizeFlightNum(rawFlightNum, airlineCode);
                 if (!callsign) continue;
-                if (isParked(callsign)) continue; // already completed this flight
+                if (isParked(callsign)) {
+                    // A parked flight is only re-checked against in-memory SWIM/STDDS data (no ADS-B
+                    // call). If it's clearly off the field again, unpark it so it can be tracked.
+                    if (inSwimWindow) swimRelevant.add(callsign);
+                    const hit = stdds.getGroundPosition(callsign) || swim.getSwimPosition(callsign);
+                    if (hit?.found && (hit.altFt ?? 0) > 2000) {
+                        _parkedCallsigns.delete(callsign);
+                        delete _parkedAt[callsign];
+                        _everAirborneCallsigns.add(callsign);
+                    }
+                    continue;
+                }
                 if (inSwimWindow) swimRelevant.add(callsign);
                 if (!inAdsbWindow || polled.has(callsign)) continue;
                 polled.add(callsign);
