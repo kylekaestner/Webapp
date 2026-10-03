@@ -3195,22 +3195,30 @@ app.get('/api/live-position', async (req, res) => {
         if (_posTrail[_hex]?.length >= 2) data.trail = [..._posTrail[_hex]];
     }
 
-    // Backfill a SWIM/STDDS trail's missing head from ADS-B, once per flight instance. SWIM's
-    // own trail only starts accumulating once a client first asks about a callsign (swim.js's
-    // "lazy" _watched.add) -- a flight live-tracked well after its actual departure has a trail
-    // that starts mid-flight, not at the airport. ADS-B's own trail is separately seeded from
-    // real flight history on first contact (fetchAdsbPosition's own seeding via adsb.lol/
-    // OpenSky) and can often reach back further. Only ever done once per callsign (not every 8s
-    // poll) -- repeating it would add real load to the ADS-B services SWIM exists partly to
-    // reduce reliance on, for a trail head that never changes once established.
+    // Backfill a SWIM/STDDS trail's missing head from ADS-B, once per flight instance that
+    // actually succeeds. SWIM's own trail only starts accumulating once a client first asks
+    // about a callsign (swim.js's "lazy" _watched.add) -- a flight live-tracked well after its
+    // actual departure (e.g. added to a pilot's schedule after it was already airborne) has a
+    // trail that starts mid-flight, not at the airport. ADS-B's own trail is separately seeded
+    // from real flight history on first contact (fetchAdsbPosition's own seeding via adsb.lol/
+    // OpenSky) and can often reach back further.
+    //
+    // _swimTrailBackfilled is only marked AFTER a successful fetchAdsbPosition() call, not
+    // before attempting it. Confirmed live this was a real bug: ADS-B rate-limiting (429 from
+    // adsb.lol, 403 from airplanes.live) is common enough this session that marking it done
+    // unconditionally meant one transient failure permanently skipped the backfill for that
+    // flight's entire remaining duration, even though ADS-B often recovers within a poll or two.
+    // Retrying every 8s poll during a rate-limited stretch is an acceptable cost -- this call
+    // site isn't adding NEW load beyond what other flights are already generating against the
+    // same rate-limited services, and a permanently-incomplete trail is the worse outcome.
     if (!_hex && data.found && data.trail && !_swimTrailBackfilled.has(callsign)) {
-        _swimTrailBackfilled.add(callsign);
         try {
             // fetchAdsbPosition() alone returns no trail -- processPositionUpdate() is what
             // starts hex-keyed trail bookkeeping and kicks off the real OpenSky history seed
             // (same two steps the existing adsb.lol-seed block above does for a pure-ADS-B
             // first contact), so both are needed here too.
             const adsbHit = await fetchAdsbPosition(callsign);
+            _swimTrailBackfilled.add(callsign); // only now -- the attempt actually succeeded
             if (adsbHit?.hex) {
                 processPositionUpdate(adsbHit);
                 await (_trailSeedPromise[adsbHit.hex] || Promise.resolve());
