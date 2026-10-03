@@ -3432,13 +3432,14 @@
                 }
                 // Re-apply identity tint to "you" pill (if different from active)
                 _applyPillIdentity();
-                await _prefetchCities(data.segments || []);
+                // City names and landed-early status are independent requests, so they run together
+                // rather than one after the other.
+                await Promise.all([_prefetchCities(data.segments || []), _reloadLandedEarly()]);
                 // Was only ever loaded by renderMap() -- meaning a flight confirmed landed
                 // early (before its scheduled arrival) kept showing "IN THE AIR" in the
                 // calendar grid, list view, and day detail sheet indefinitely whenever Map
                 // hadn't been opened this session, since those views had no way to know about
                 // it. Loaded here too so every view has it before its first render.
-                await _reloadLandedEarly();
                 render();
                 // Show empty-state prompt for newly joined pilots viewing their own blank schedule
                 const emptyBanner = document.getElementById('empty-schedule-banner');
@@ -10329,21 +10330,14 @@ async function openAdminPanel(tab = 'users') {
                 const n = normApt(c);
                 return !AIRPORT_CITIES[c] && !AIRPORT_CITIES[n] && !_serverCityCache[c] && !_serverCityCache[n];
             });
-            if (neededCities.length > 0) {
-                try {
-                    const res = await fetch(`${API_BASE}/airports/cities?codes=${neededCities.join(',')}`);
-                    if (res.ok) Object.assign(_serverCityCache, await res.json());
-                } catch (_) {}
-            }
-
             // Fetch coordinates for airports not already in the client AIRPORTS map
             const neededCoords = allCodes.filter(c => !resolveAirport(c));
-            if (neededCoords.length > 0) {
-                try {
-                    const res = await fetch(`${API_BASE}/airports/coords?codes=${neededCoords.join(',')}`);
-                    if (res.ok) Object.assign(AIRPORTS, await res.json());
-                } catch (_) {}
-            }
+            await Promise.all([
+                neededCities.length > 0 ? fetch(`${API_BASE}/airports/cities?codes=${neededCities.join(',')}`)
+                    .then(res => res.ok ? res.json() : null).then(j => { if (j) Object.assign(_serverCityCache, j); }).catch(() => {}) : null,
+                neededCoords.length > 0 ? fetch(`${API_BASE}/airports/coords?codes=${neededCoords.join(',')}`)
+                    .then(res => res.ok ? res.json() : null).then(j => { if (j) Object.assign(AIRPORTS, j); }).catch(() => {}) : null,
+            ]);
         }
 
         function _rebuildIntelCounts() {
