@@ -6918,8 +6918,9 @@
                 const _estArr = _est?.eta && arrTime && Math.abs(new Date(_est.eta) - arrTime) >= 5 * 60000 ? _est.eta : null;
                 const _arrDiffMin = _est?.eta && arrTime ? Math.round((new Date(_est.eta) - arrTime) / 60000) : null;
                 const _arrNote = _arrDiffMin == null ? '' : _arrDiffMin <= -5 ? ` <span style="color:#4ade80">· ${-_arrDiffMin}m early</span>` : _arrDiffMin >= 15 ? ` <span style="color:#f87171">· ${_arrDiffMin}m late</span>` : '';
+                // One compact line: estimated times and how they compare to the uploaded schedule.
                 const _estLine = (_estDep || _estArr)
-                    ? `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin-bottom:4px">${_estDep ? `Est dep ${formatTimeISO(_estDep, f.departureAirport)} <span style="opacity:.6">${tzAbbr(f.departureAirport, _estDep)}</span>` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `Est arr ${formatTimeISO(_estArr, f.arrivalAirport)} <span style="opacity:.6">${tzAbbr(f.arrivalAirport, _estArr)}</span>${_arrNote}` : ''}</div>`
+                    ? `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin-bottom:3px;white-space:nowrap">Est ${_estDep ? formatTimeISO(_estDep, f.departureAirport) : ''}${_estDep && _estArr ? ' → ' : ''}${_estArr ? formatTimeISO(_estArr, f.arrivalAirport) : ''}${_arrNote}</div>`
                     : '';
                 const dayPopup = `
                     <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:2px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
