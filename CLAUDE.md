@@ -705,7 +705,7 @@ Registered on `#view-grid` and `#view-list` via touchstart/touchmove/touchend.
 Two parallel systems:
 
 ### `startLiveTracking()` (map view only, line 5642)
-Polls `/api/live-position?callsign=XX` every **8 seconds** for an active flight arc on the map.
+Polls `/api/live-position?callsign=XX` for an active flight arc on the map — **adaptive cadence, not a fixed interval** (see below).
 
 - Called from `renderMap()` and `renderDayMap()` for any flight whose window spans now.
 - Draws a real-time GPS trail (solid colored polyline) and a remaining-arc (dashed geodesic arc from current position to destination).
@@ -716,6 +716,8 @@ Polls `/api/live-position?callsign=XX` every **8 seconds** for an active flight 
 - `_liveLayersByCallsign` (object, keyed by callsign) is the actual source of truth for "is something already tracking this flight" — see "Duplicate live-tracking arcs" below; `_livePollers[callsign]` (interval IDs) is cleared on every render so it can't reliably answer that question on its own anymore. `_landedEarly` Set tracks early landings.
 - **World copy support**: markers placed at `lon`, `lon+360`, `lon-360` so panning globally shows the plane on every map copy.
 - `finishTracking(savedEarly)` — ends tracking for *that one flight only*: removes its own markers/arc/trail layers, updates its own popup status text (`✓ LANDED EARLY` or `✓ COMPLETED`) directly via `updateHitPopupStatus()`. Replaced five separate inline cleanup blocks that each called the global `renderMap()` — see "One flight's cleanup nuking every other live flight" below.
+
+**Adaptive poll cadence (added 2026-10-02)** — requested directly: taxiing and landing/initial-climb both involve rapid direction/altitude changes that the flat 8s cruise cadence rendered as a choppy, low-resolution trail exactly when it matters most, while cruise flight is slow and nearly linear and gains nothing from polling faster. `_pollDelayMs` (3000ms "fast" vs 8000ms "cruise") is set inside `update()` itself from the most recent poll's own data — `d.onGround` (taxiing) or `d.altFt < 3000` (covers both final approach/landing *and* initial climb-out, without needing to distinguish which) triggers fast; cruise altitude doesn't. The poller itself switched from a fixed `setInterval` to a self-scheduling loop (`scheduleNextPoll()`: `setTimeout` → `await update()` → `scheduleNextPoll()` again) so a phase change takes effect on the very next poll rather than waiting for the next natural `setInterval` tick. `_livePollers[callsign]` still holds a single cancelable timer id either way (`clearInterval`/`clearTimeout` are interchangeable, same underlying id space), so every existing teardown site needed no change — **except** `finishTracking()` now also sets a local `_pollerStopped` flag, checked at the top of `scheduleNextPoll()` before it sets a new timer. Without that flag, `finishTracking()` calling `clearInterval()` mid-`update()` only cancels that one already-fired timer; the self-rescheduling loop would otherwise still call `scheduleNextPoll()` right after `update()` resolves and silently revive a poller that was just supposed to stop — a failure mode a plain `setInterval` never had, since cancelling it is permanent.
 
 ### Live-tracking reliability fixes (2026-10-01/02) — several bugs in the same ~150 lines
 

@@ -6115,7 +6115,9 @@
             // live: two unrelated live flights would disappear and restart simultaneously the
             // moment either one's poller decided to give up, which looked like a shared ADS-B
             // outage but was actually this flight's own cleanup taking the whole map down with it.
+            let _pollerStopped = false;
             const finishTracking = (savedEarly) => {
+                _pollerStopped = true;
                 clearInterval(_livePollers[callsign]);
                 delete _livePollers[callsign];
                 _liveLabels.delete(callsign);
@@ -6130,6 +6132,17 @@
                 if (hereNowMarkers.length) { hereNowMarkers.forEach(m => { try { map.removeLayer(m); } catch (_) {} }); hereNowMarkers.length = 0; }
                 updateHitPopupStatus(savedEarly ? '✓ LANDED EARLY' : '✓ COMPLETED', '#3f3f46');
             };
+
+            // Adaptive poll cadence -- requested directly: taxiing and landing both involve rapid
+            // direction changes (taxiway turns, final descent/rollout) that the normal 8s cruise
+            // cadence renders as a choppy, low-resolution trail exactly when it matters most.
+            // Cruise flight is slow and nearly linear by comparison, so there's no benefit to
+            // polling it any faster. Set inside update() itself (ground-state and airborne
+            // branches) from the most recent poll's own data; the self-scheduling loop below reads
+            // it fresh before each wait, so a phase change takes effect on the very next poll.
+            const CRUISE_POLL_MS = 8000;
+            const FAST_POLL_MS = 3000; // taxiing (on ground) or below 3000ft and still descending
+            let _pollDelayMs = CRUISE_POLL_MS;
 
             const update = async () => {
                 try {
@@ -6267,6 +6280,7 @@
 
                     // Taxiing — show the plane moving on the ground
                     if (d.onGround) {
+                        _pollDelayMs = FAST_POLL_MS;
                         // If server confirms this aircraft was airborne, set local flag so the
                         // arc and delay state are cleaned up even on a fresh map load mid-taxi.
                         if (d.hasBeenAirborne) hasBeenAirborne = true;
@@ -6529,6 +6543,10 @@
                         hitLines.forEach((h, i) => h.setLatLngs(fullU.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
                     }
 
+                    // Below 3000ft covers both ends of a flight that benefit from tighter polling
+                    // -- final approach/landing and initial climb-out -- without needing to know
+                    // which one it actually is; cruise altitude is the only case that doesn't.
+                    _pollDelayMs = (d.altFt != null && d.altFt < 3000) ? FAST_POLL_MS : CRUISE_POLL_MS;
                     const altFt = d.altFt ? Math.round(d.altFt) : null;
                     const kts   = d.speedKts ? Math.round(d.speedKts) : null;
                     const detail = [altFt ? `${altFt.toLocaleString()} ft` : null, kts ? `${kts} kts` : null].filter(Boolean).join(' · ');
@@ -6539,8 +6557,20 @@
                 } catch (_) {}
             };
 
-            update(); // immediate first update
-            _livePollers[callsign] = setInterval(update, 8000);
+            // Self-scheduling instead of a fixed setInterval so the adaptive cadence above can
+            // actually take effect poll-to-poll -- _livePollers[callsign] still holds a single
+            // cancelable timer id either way (clearInterval/clearTimeout are interchangeable, same
+            // underlying id space), so every existing teardown site (finishTracking(),
+            // stopLivePollers(), the tear-down-previous-registration block) needs no change.
+            const scheduleNextPoll = () => {
+                // update() calling finishTracking() mid-run (e.g. server confirms parked) sets
+                // this before we get here -- without checking it, this self-rescheduling loop
+                // would just set a brand new timer right after, silently reviving a poller that
+                // was just supposed to stop (the one real risk a plain setInterval didn't have).
+                if (_pollerStopped) return;
+                _livePollers[callsign] = setTimeout(async () => { await update(); scheduleNextPoll(); }, _pollDelayMs);
+            };
+            update().then(scheduleNextPoll); // immediate first update, then start the adaptive loop
         }
 
         // Aircraft SVG shapes from ADS-B Exchange / tar1090 (BSD-2 licensed)
