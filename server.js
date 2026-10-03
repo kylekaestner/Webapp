@@ -2882,6 +2882,20 @@ const _parkedCallsigns = new Set(); // suppress background polling after flight 
 // the same callsign) gets backfilled fresh instead of being silently skipped forever.
 const _swimTrailBackfilled = new Set();
 const _earlyLandings = {}; // date (YYYY-MM-DD) → Set<callsign> — flights that landed before scheduled arrival
+// Real bug, confirmed live (GJS4576): `_flightState`'s hasBeenAirborne above is hex-keyed and
+// only ever set inside processPositionUpdate() -- which is a no-op for STDDS/SWIM-sourced
+// results (they have no .hex). STDDS is the PREFERRED source near an airport (see
+// fetchLivePosition() below), so the exact moment this flag matters most -- a fresh map load
+// right as a flight lands and starts taxiing in -- was the one case where it was never actually
+// populated, misclassifying a just-landed flight as "taxiing for departure" (or, once a later
+// poll happened to fall back to a source still reporting a stale airborne state, flipping all the
+// way to "IN THE AIR" for an aircraft already on the ground). Tracked here by callsign instead,
+// independent of source or hex, and merged into every fetchLivePosition() return path via
+// withEverAirborne() below. Cleared at both real parked-confirmation sites (ADS-B ground-still
+// detection and STDDS's "spotin" event) alongside the existing _parkedCallsigns bookkeeping, so
+// the same callsign's next day's physical flight isn't permanently misclassified as already
+// having flown.
+const _everAirborneCallsigns = new Set();
 
 function parseAdsbAircraft(s, callsign) {
     const onGround = s.alt_baro === 'ground' || (typeof s.alt_baro === 'number' && s.alt_baro < 200);
@@ -2939,7 +2953,7 @@ function processPositionUpdate(data, sinceUnixSec = null) {
                 delete _trailLastTime[hex];
                 delete _trailSeedTime[hex];
                 _trailSeeded.delete(hex);
-                if (data.callsign) { _parkedCallsigns.add(data.callsign); _swimTrailBackfilled.delete(data.callsign); }
+                if (data.callsign) { _parkedCallsigns.add(data.callsign); _swimTrailBackfilled.delete(data.callsign); _everAirborneCallsigns.delete(data.callsign); }
                 scheduleTrailSave();
                 return; // no trail to attach
             }
@@ -3089,6 +3103,20 @@ function withTfdmInfo(data, callsign) {
     return data;
 }
 
+// Merges in the callsign-keyed "has this flight ever been seen airborne" signal (see
+// _everAirborneCallsigns's declaration comment) regardless of which source answered this poll —
+// unlike processPositionUpdate()'s hex-keyed version, which only ever runs for ADS-B results.
+// Records a new airborne sighting first (so an ADS-B result's own hex-based `data.hasBeenAirborne`
+// -- already set by processPositionUpdate before this runs -- is preserved, not overwritten) then
+// ORs in whatever this callsign-keyed record already knows.
+function withEverAirborne(data, callsign) {
+    if (!data || !callsign) return data;
+    const cs = String(callsign).toUpperCase().trim();
+    if (data.found && data.onGround === false) _everAirborneCallsigns.add(cs);
+    if (_everAirborneCallsigns.has(cs)) data.hasBeenAirborne = true;
+    return data;
+}
+
 async function fetchLivePosition(callsign) {
     const swimHit = swim.getSwimPosition(callsign);
     if (swimHit?.sector) swimHit.sector = withResolvedFrequency(swimHit.sector);
@@ -3125,14 +3153,15 @@ async function fetchLivePosition(callsign) {
             const cs = String(callsign).toUpperCase().trim();
             _parkedCallsigns.add(cs);
             _swimTrailBackfilled.delete(cs);
+            _everAirborneCallsigns.delete(cs);
         }
-        return withTfdmInfo(stddsHit, callsign);
+        return withTfdmInfo(withEverAirborne(stddsHit, callsign), callsign);
     }
     if (swimHit) {
         resolveRouteWaypoints(swimHit.routeParsed, callsign);
-        return withTfdmInfo(swimHit, callsign);
+        return withTfdmInfo(withEverAirborne(swimHit, callsign), callsign);
     }
-    return withTfdmInfo(await fetchAdsbPosition(callsign), callsign);
+    return withTfdmInfo(withEverAirborne(await fetchAdsbPosition(callsign), callsign), callsign);
 }
 
 app.post('/api/early-landing', express.json(), (req, res) => {
@@ -3225,7 +3254,11 @@ app.get('/api/live-position', async (req, res) => {
         // first successful fix can't tell "never got airborne, flight's over" apart from
         // "definitely airborne already, just a transient signal gap" and misclassifies a
         // still-in-progress flight as landed early.
-        const hasBeenAirborne = !!(lastHex && _flightState[lastHex]?.hasBeenAirborne);
+        // Checks both the hex-keyed (ADS-B) and callsign-keyed (any source, see
+        // _everAirborneCallsigns) records -- same reasoning as withEverAirborne() above applies
+        // here too: an all-sources-failed poll right after a STDDS/SWIM-tracked flight lands
+        // should still know it already flew.
+        const hasBeenAirborne = !!(lastHex && _flightState[lastHex]?.hasBeenAirborne) || _everAirborneCallsigns.has(callsign);
         return res.json({ found: false, hadTrail, hasBeenAirborne });
     }
 
