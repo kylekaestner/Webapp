@@ -341,7 +341,11 @@ function getGroundPosition(callsign) {
 
     const f = _latest[cs];
     if (!f || f.lat == null || f.lon == null) return null;
-    if (Date.now() - (f.lastMsg || 0) > 10 * 60 * 1000) return null;
+    // A stopped aircraft on the surface can go quiet for a long time while it's still there, and dropping
+    // its position also drops its taxi trail. Keep a ground position longer than an airborne one, which
+    // goes stale quickly because a moving aircraft keeps reporting.
+    const maxAgeMs = f.onGround ? 60 * 60 * 1000 : 10 * 60 * 1000;
+    if (Date.now() - (f.lastMsg || 0) > maxAgeMs) return null;
 
     return {
         found: true,

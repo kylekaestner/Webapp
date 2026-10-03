@@ -6342,8 +6342,9 @@
                             ? (isTaxiing ? `TAXIING IN · ${kts} KTS` : '✓ ARRIVED')
                             : (isTaxiing ? 'TAXIING FOR DEPARTURE' : 'ON GROUND');
                         updateHitPopupStatus(popupGroundLabel, groundLabelColor);
-                        // Draw taxi breadcrumb trail (taxi-out and taxi-in) only when moving
-                        if (d.trail && d.trail.length >= 2 && isTaxiing) {
+                        // Draw the taxi breadcrumb trail whenever the aircraft is on the ground with history,
+                        // not only while it's moving -- taxiing stops and starts, and the trail shouldn't drop out at a stop.
+                        if (d.trail && d.trail.length >= 2) {
                             const taxiPath = smoothTrail(d.trail);
                             if (taxiPath) {
                                 if (flownLines) {
@@ -6901,8 +6902,10 @@
                 const _est = _cs ? estTimes[_cs] : null;
                 const _estDep = _est?.etd && depTime && Math.abs(new Date(_est.etd) - depTime) >= 5 * 60000 ? _est.etd : null;
                 const _estArr = _est?.eta && arrTime && Math.abs(new Date(_est.eta) - arrTime) >= 5 * 60000 ? _est.eta : null;
+                const _arrDiffMin = _est?.eta && arrTime ? Math.round((new Date(_est.eta) - arrTime) / 60000) : null;
+                const _arrNote = _arrDiffMin == null ? '' : _arrDiffMin <= -5 ? ` · ${-_arrDiffMin}m early` : _arrDiffMin >= 15 ? ` · ${_arrDiffMin}m late` : '';
                 const _estLine = (_estDep || _estArr)
-                    ? `<div style="font-size:10px;color:#eab308;font-weight:700;margin-bottom:4px">${_estDep ? `Est dep ${formatTimeISO(_estDep, f.departureAirport)} <span style="opacity:.6">${tzAbbr(f.departureAirport, _estDep)}</span>` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `Est arr ${formatTimeISO(_estArr, f.arrivalAirport)} <span style="opacity:.6">${tzAbbr(f.arrivalAirport, _estArr)}</span>` : ''}</div>`
+                    ? `<div style="font-size:10px;color:#eab308;font-weight:700;margin-bottom:4px">${_estDep ? `Est dep ${formatTimeISO(_estDep, f.departureAirport)} <span style="opacity:.6">${tzAbbr(f.departureAirport, _estDep)}</span>` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `Est arr ${formatTimeISO(_estArr, f.arrivalAirport)} <span style="opacity:.6">${tzAbbr(f.arrivalAirport, _estArr)}</span>${_arrNote}` : ''}</div>`
                     : '';
                 const dayPopup = `
                     <div style="font-weight:900;font-size:15px;color:#f8fafc;margin-bottom:2px;letter-spacing:.01em">${f.departureAirport} → ${f.arrivalAirport}</div>
