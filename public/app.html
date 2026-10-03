@@ -5992,7 +5992,10 @@
             scheduleDeoverlap();
             const setAllTooltip = (html) => {
                 labelEntry.html = html;
-                markers.forEach(m => m.getTooltip()?.setContent(html));
+                markers.forEach(m => {
+                    if (m.getTooltip()) m.getTooltip().setContent(html);
+                    else m.bindTooltip(html, { ...tooltipOpts, permanent: false });
+                });
             };
             // Last-known source/sector/suffix from this flight's own most recent poll, kept so
             // the FREQ toggle can instantly rebuild this exact label (see _liveLabelRefreshers
@@ -6179,6 +6182,7 @@
                     // landing cleanup for a flight that hasn't even departed.
                     if (!d.found && d.hasRoute && !hasBeenAirborne) {
                         removeArc(); // replaced by the detailed route line below, not stacked under it
+                        markers.forEach(m => m.unbindTooltip()); // no callsign hover label before departure
                         const fullResolvedPath = d.routeParsed?.resolvedPath || [];
                         const midWaypoints = fullResolvedPath.filter(wp => wp.lat != null && wp.lon != null);
                         const markerWaypoints = midWaypoints.filter(wp => wp.symbol && wp.name);
@@ -7079,7 +7083,11 @@
                     const midTrip = lastArrival && !atHome && nextDepFromHere && (
                         !atBase || (nextDepUTC - now2) < 18 * 60 * 60 * 1000
                     );
-                    if (midTrip) { pushPin(lastArrival, 'Overnight'); return; }
+                    if (midTrip) {
+                        const sameLocalDay = flightLocalDate(lastFlight.arrivalTime, lastFlight.arrivalAirport) === flightLocalDate(nextDepFromHere.departureTime, nextDepFromHere.departureAirport);
+                        pushPin(lastArrival, sameLocalDay ? 'Layover' : 'Overnight');
+                        return;
+                    }
 
                     // ── 5b. Trip not yet started — first work flight departs soon from known airport ──
                     if (!lastArrival) {
