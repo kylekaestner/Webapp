@@ -6848,8 +6848,14 @@
                 } catch (e) {}
                 if (gen !== mapRenderGen) return;
             }
-            const _airborneNow = (cs, dMs, aMs) => isFlightStillActive(dMs, aMs, now.getTime(), cs)
-                && (liveSeen.has(cs) || (airborneSeen.has(cs) && now.getTime() < aMs));
+            // Uses the later of the scheduled and estimated arrival, so a late flight that's still airborne isn't
+            // dropped to "Departure due" once its scheduled arrival passes.
+            const _airborneNow = (cs, dMs, aMs) => {
+                const _etaMs = estTimes[cs]?.eta ? new Date(estTimes[cs].eta).getTime() : 0;
+                const _effA = Math.max(aMs || 0, _etaMs);
+                return isFlightStillActive(dMs, _effA, now.getTime(), cs)
+                    && (liveSeen.has(cs) || (airborneSeen.has(cs) && now.getTime() < _effA));
+            };
 
             // Flatten all day flights with pilot key attached
             const allDayFlights = [];
