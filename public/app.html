@@ -6901,7 +6901,13 @@
                 // or a long-past scheduled arrival with no tracking coverage at all. A leg whose schedule has passed
                 // but that never departed stays "Departure due" rather than being marked done.
                 const _flown = !!_cs && (_confirmedParked.has(_cs) || airborneSeen.has(_cs) || liveSeen.has(_cs));
-                const isPast   = !isActive && depTime <= now && (landedEarly || (arrTime < now && (_flown || arrTime < new Date(now.getTime() - 3 * 60 * 60 * 1000))));
+                // A later estimated arrival (TFMS) pushes completion back as well as the schedule does.
+                const _etaMs = estTimes[_cs]?.eta ? new Date(estTimes[_cs].eta).getTime() : null;
+                const _effArrMs = Math.max(arrTime.getTime(), _etaMs || 0);
+                const isPast   = !isActive && depTime <= now && (landedEarly || (_effArrMs < now.getTime() && (_flown || _effArrMs < now.getTime() - 3 * 60 * 60 * 1000)));
+                // Estimated departure later than the schedule: show it as delayed until it's actually seen flying.
+                const _etdMs = estTimes[_cs]?.etd ? new Date(estTimes[_cs].etd).getTime() : null;
+                const _delayed = !isActive && !isPast && _etdMs && (_etdMs - depTime.getTime()) >= 5 * 60000;
                 const color = PILOT_COLORS[f.pilotKey];
 
                 // Offset index within pair group
@@ -6927,6 +6933,8 @@
                     ? `<div class="live-status-line" style="font-size:10px;color:#22c55e;font-weight:800;letter-spacing:.04em;margin-top:6px">▶ IN THE AIR</div>`
                     : isPast
                     ? `<div class="live-status-line" style="font-size:10px;color:#3f3f46;font-weight:800;letter-spacing:.04em;margin-top:6px">✓ ${landedEarly ? 'LANDED EARLY' : 'COMPLETED'}</div>`
+                    : (depTime && depTime <= now && _delayed)
+                    ? `<div class="live-status-line" style="font-size:10px;color:#f97316;font-weight:800;letter-spacing:.04em;margin-top:6px">DELAYED · ETD ${formatTimeISO(new Date(_etdMs).toISOString(), f.departureAirport)}</div>`
                     : (depTime && depTime <= now)
                     ? `<div class="live-status-line" style="font-size:10px;color:#eab308;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTURE DUE</div>`
                     : `<div class="live-status-line" style="font-size:10px;color:#3b82f6;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTS IN ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>`;
@@ -6949,7 +6957,6 @@
                     <div style="font-weight:900;font-size:13px;color:#f8fafc;line-height:1.2;white-space:nowrap">${f.departureAirport} → ${f.arrivalAirport}<span style="font-size:10px;font-weight:700;margin-left:6px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</span></div>
                     <div style="font-size:10px;color:#94a3b8;margin-top:2px">${formatTimeISO(f.departureTime, f.departureAirport)} <span style="opacity:.5">${tzAbbr(f.departureAirport, f.departureTime)}</span> – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
                     ${_statusLine}
-                    ${_estLine}
                 `;
                 dayHits.forEach(h => { h.bindPopup(dayPopup, { className: 'dark-popup day-popup', maxWidth: 230 }); h.addTo(map); });
                 dayLines.forEach(l => mapLayers.future.push(l));
