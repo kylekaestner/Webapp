@@ -1949,7 +1949,7 @@ app.get('/api/pilots/:pilotKey/here-now', (req, res) => {
             }
 
             const flights = segs
-                .filter(s => s.type === 'flight' && s.departure_time && s.arrival_time)
+                .filter(s => s.type === 'flight' && s.departure_time && s.arrival_time && s.trip !== 'PERSONAL')
                 .map(s => ({
                     id: s.id,
                     type: s.type,
