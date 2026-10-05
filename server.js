@@ -3224,6 +3224,16 @@ function withEverAirborne(data, callsign) {
     return data;
 }
 
+// Logs when no source (SWIM, STDDS or ADS-B) has a position for a flight. A quiet feed and an empty ADS-B
+// answer otherwise look identical to "not flying", which hid a two-hour gap in tracking. Throttled per flight.
+const _noPositionLogged = {};
+function noteNoPosition(callsign) {
+    const now = Date.now();
+    if (_noPositionLogged[callsign] && now - _noPositionLogged[callsign] < 10 * 60 * 1000) return;
+    _noPositionLogged[callsign] = now;
+    console.log(`[live] no position from SWIM, STDDS or ADS-B for ${callsign}`);
+}
+
 async function fetchLivePosition(callsign) {
     const swimHit = swim.getSwimPosition(callsign);
     if (swimHit?.sector) swimHit.sector = withResolvedFrequency(swimHit.sector);
@@ -3268,7 +3278,9 @@ async function fetchLivePosition(callsign) {
         resolveRouteWaypoints(swimHit.routeParsed, callsign);
         return withTfdmInfo(withEverAirborne(applyCallsignGroundState(swimHit, callsign, 'swim'), callsign), callsign);
     }
-    return withTfdmInfo(withEverAirborne(applyCallsignGroundState(await fetchAdsbPosition(callsign), callsign, 'adsb'), callsign), callsign);
+    const adsbHit = await fetchAdsbPosition(callsign);
+    if (!adsbHit?.found) noteNoPosition(callsign);
+    return withTfdmInfo(withEverAirborne(applyCallsignGroundState(adsbHit, callsign, 'adsb'), callsign), callsign);
 }
 
 app.post('/api/early-landing', express.json(), (req, res) => {
