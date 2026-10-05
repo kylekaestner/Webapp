@@ -6940,8 +6940,8 @@
                     ? `<div class="live-status-line" style="font-size:10px;color:#22c55e;font-weight:800;letter-spacing:.04em;margin-top:6px">▶ IN THE AIR</div>`
                     : isPast
                     ? `<div class="live-status-line" style="font-size:10px;color:#3f3f46;font-weight:800;letter-spacing:.04em;margin-top:6px">✓ ${landedEarly ? 'LANDED EARLY' : 'COMPLETED'}</div>`
-                    : (depTime && depTime <= now && _delayed)
-                    ? `<div class="live-status-line" style="font-size:10px;color:#f97316;font-weight:800;letter-spacing:.04em;margin-top:6px">DELAYED · ETD ${formatTimeISO(new Date(_etdMs).toISOString(), f.departureAirport)}</div>`
+                    : (depTime && depTime <= now && _delayed)  /*DBG*/
+                    ? `<div class="live-status-line" style="font-size:10px;color:#f97316;font-weight:800;letter-spacing:.04em;margin-top:6px">DELAYED · ETD ${formatTimeISO(new Date(_etdMs).toISOString(), f.departureAirport)}</div><div style="font-size:9px;color:#94a3b8">DBG cs=${_cs} flown=${_flown} air=${airborneSeen.size} sync=${_activeCs.size} arrPast=${_effArrMs < now.getTime()} eta=${!!_etaMs}</div>`
                     : (depTime && depTime <= now)
                     ? `<div class="live-status-line" style="font-size:10px;color:#eab308;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTURE DUE</div>`
                     : `<div class="live-status-line" style="font-size:10px;color:#3b82f6;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTS IN ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>`;
