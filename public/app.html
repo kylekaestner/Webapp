@@ -6828,7 +6828,8 @@
                 if (!cs) return;
                 const d = flightUTCTime(f.departureTime, f.departureAirport);
                 const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                const inWindow = (d && a) && now.getTime() >= d.getTime() - PREFLIGHT_ROUTE_MS && now.getTime() <= a.getTime() + LATE_ARRIVAL_GRACE_MS;
+                // Long enough after arrival for the server to confirm the flight flew, so it can be marked completed.
+                const inWindow = (d && a) && now.getTime() >= d.getTime() - PREFLIGHT_ROUTE_MS && now.getTime() <= a.getTime() + 4 * 60 * 60 * 1000;
                 if (inWindow) _activeCs.add(cs);
             }));
             // Airborne on the day map needs real evidence: a live position seen in the last few minutes,
