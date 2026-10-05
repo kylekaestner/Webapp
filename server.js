@@ -5,7 +5,7 @@ const fs = require('fs');
 const multer = require('multer');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const { getDB, generateToken } = require('./db');
+const { getDB, generateToken, pruneFlightLog } = require('./db');
 const { DEMO_PILOTS, buildDemoSegments } = require('./demo-data');
 const swim = require('./swim');
 const stdds = require('./stdds');
@@ -2897,7 +2897,27 @@ function markParked(cs, origin) {
     _parkedCallsigns.add(cs); _parkedAt[cs] = Date.now();
     if (origin) _parkedOrigin[cs] = origin;
     scheduleParkedSave();
+    logFlightEvent(cs, 'parked_at');
 }
+// On startup, restore recent airborne and parked events from the flight log, so a missing or damaged
+// state file doesn't reset a flight that already landed.
+function restoreFromFlightLog() {
+    const now = Date.now();
+    getDB().all(`SELECT callsign, airborne_at, parked_at FROM flight_log WHERE airborne_at >= ? OR parked_at >= ?`,
+        [now - AIRBORNE_TTL_MS, now - PARKED_TTL_MS], (err, rows) => {
+            if (err || !rows) return;
+            for (const r of rows) {
+                if (r.airborne_at && now - r.airborne_at <= AIRBORNE_TTL_MS && !_everAirborneCallsigns.has(r.callsign)) {
+                    _everAirborneCallsigns.add(r.callsign); _everAirborneAt[r.callsign] = r.airborne_at;
+                }
+                if (r.parked_at && now - r.parked_at <= PARKED_TTL_MS && !_parkedCallsigns.has(r.callsign)) {
+                    _parkedCallsigns.add(r.callsign); _parkedAt[r.callsign] = r.parked_at;
+                }
+            }
+        });
+}
+setTimeout(() => { restoreFromFlightLog(); pruneFlightLog(); }, 1500);
+setInterval(pruneFlightLog, 6 * 60 * 60 * 1000);
 function unpark(cs) {
     _parkedCallsigns.delete(cs); delete _parkedAt[cs]; delete _parkedOrigin[cs];
     scheduleParkedSave();
@@ -2952,10 +2972,26 @@ function scheduleAirborneSave() {
         try { fs.writeFileSync(AIRBORNE_CACHE_PATH, JSON.stringify(_everAirborneAt)); } catch (_) {}
     }, 1000);
 }
+// Writes one flight-log event. Failures are ignored: the JSON state files still hold the live status.
+function logFlightEvent(cs, field) {
+    const now = Date.now();
+    const day = new Date(now).toISOString().slice(0, 10);
+    const origin = _everAirborneOrigin[cs] || null;
+    const airborneAt = field === 'airborne_at' ? now : null;
+    const parkedAt = field === 'parked_at' ? now : null;
+    getDB().run(`INSERT INTO flight_log (callsign, day, origin, airborne_at, parked_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(callsign, day) DO UPDATE SET
+            origin = COALESCE(excluded.origin, origin),
+            airborne_at = COALESCE(airborne_at, excluded.airborne_at),
+            parked_at = COALESCE(excluded.parked_at, parked_at),
+            updated_at = excluded.updated_at`,
+        [cs, day, origin, airborneAt, parkedAt, now], () => {});
+}
 function markAirborne(cs) {
     _everAirborneCallsigns.add(cs);
     _everAirborneAt[cs] = Date.now();
     scheduleAirborneSave();
+    logFlightEvent(cs, 'airborne_at');
 }
 function clearAirborne(cs) {
     _everAirborneCallsigns.delete(cs);

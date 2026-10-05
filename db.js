@@ -106,6 +106,18 @@ function initDB() {
         // Crew Intel votes — one row per (intel entry, pilot), UNIQUE enforces "one vote each,
         // can change it" rather than letting someone stack votes. vote is 1 or -1; a cleared
         // vote just deletes the row rather than storing a 0.
+        // Flight log: one row per callsign per UTC day, recording when it was first seen airborne and when
+        // it parked. Kept for a week so flight state survives restarts and can be checked afterwards.
+        db.run(`CREATE TABLE IF NOT EXISTS flight_log (
+            callsign TEXT NOT NULL,
+            day TEXT NOT NULL,
+            origin TEXT,
+            dest TEXT,
+            airborne_at INTEGER,
+            parked_at INTEGER,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (callsign, day)
+        )`);
         db.run(`CREATE TABLE IF NOT EXISTS intel_votes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             intel_id INTEGER NOT NULL,
@@ -296,4 +308,8 @@ function initDB() {
     });
 }
 
-module.exports = { getDB, DB_PATH, generateToken };
+function pruneFlightLog() {
+    getDB().run('DELETE FROM flight_log WHERE updated_at < ?', [Date.now() - 7 * 24 * 60 * 60 * 1000]);
+}
+
+module.exports = { getDB, DB_PATH, generateToken, pruneFlightLog };
