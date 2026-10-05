@@ -5431,7 +5431,6 @@
                     }
                 } else {
                     const completedFlights = allFlightsSorted.filter(f => {
-                        if (f.trip === 'PERSONAL') return false; // personal travel doesn't set the crew location
                         const cs = deriveCallsign(f, currentPilot);
                         if (cs && _landedEarly.has(cs)) return true;
                         const d = flightUTCTime(f.departureTime, f.departureAirport);
@@ -7134,7 +7133,6 @@
 
                     // ── 5. Infer location from flight history ──
                     const completedFlights = pilotFlights.filter(f => {
-                        if (f.trip === 'PERSONAL') return false; // personal travel doesn't set the crew location
                         const cs = deriveCallsign(f, pilotKey);
                         if (cs && _landedEarly.has(cs)) return true;
                         const d = flightUTCTime(f.departureTime, f.departureAirport);
