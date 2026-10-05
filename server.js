@@ -2933,6 +2933,35 @@ const _earlyLandings = {}; // date (YYYY-MM-DD) → Set<callsign> — flights th
 // the same callsign's next day's physical flight isn't permanently misclassified as already
 // having flown.
 const _everAirborneCallsigns = new Set();
+// Airborne evidence is saved to disk, like parked flags: a restart otherwise erases the only record that a flight
+// flew, and its status falls back to "due" even though it landed hours ago.
+const AIRBORNE_CACHE_PATH = path.join(__dirname, '.airborne_cache.json');
+const AIRBORNE_TTL_MS = 12 * 60 * 60 * 1000;
+const _everAirborneAt = {};
+try {
+    const savedAir = JSON.parse(fs.readFileSync(AIRBORNE_CACHE_PATH, 'utf8'));
+    for (const [cs, ts] of Object.entries(savedAir)) {
+        if (Date.now() - ts <= AIRBORNE_TTL_MS) { _everAirborneCallsigns.add(cs); _everAirborneAt[cs] = ts; }
+    }
+} catch (_) {}
+let _airSaveTimer = null;
+function scheduleAirborneSave() {
+    if (_airSaveTimer) return;
+    _airSaveTimer = setTimeout(() => {
+        _airSaveTimer = null;
+        try { fs.writeFileSync(AIRBORNE_CACHE_PATH, JSON.stringify(_everAirborneAt)); } catch (_) {}
+    }, 1000);
+}
+function markAirborne(cs) {
+    _everAirborneCallsigns.add(cs);
+    _everAirborneAt[cs] = Date.now();
+    scheduleAirborneSave();
+}
+function clearAirborne(cs) {
+    _everAirborneCallsigns.delete(cs);
+    delete _everAirborneAt[cs];
+    scheduleAirborneSave();
+}
 const _everAirborneOrigin = {}; // callsign -> origin of the leg that was seen airborne
 
 function parseAdsbAircraft(s, callsign) {
@@ -2991,7 +3020,7 @@ function processPositionUpdate(data, sinceUnixSec = null) {
                 delete _trailLastTime[hex];
                 delete _trailSeedTime[hex];
                 _trailSeeded.delete(hex);
-                if (data.callsign) { markParked(data.callsign); _swimTrailBackfilled.delete(data.callsign); _everAirborneCallsigns.delete(data.callsign); }
+                if (data.callsign) { markParked(data.callsign); _swimTrailBackfilled.delete(data.callsign); clearAirborne(data.callsign); }
                 scheduleTrailSave();
                 return; // no trail to attach
             }
@@ -3195,7 +3224,7 @@ function applyCallsignGroundState(data, callsign, source) {
         data.parked = true;
         markParked(cs, data.origin || null);
         _swimTrailBackfilled.delete(cs);
-        _everAirborneCallsigns.delete(cs);
+        clearAirborne(cs);
         delete _groundStillSince[cs];
     }
     return data;
@@ -3213,11 +3242,11 @@ function withEverAirborne(data, callsign) {
     // A flight number flies several legs a day. If this leg starts somewhere else than the one that was
     // seen airborne, the earlier history doesn't apply to it.
     if (data.origin && _everAirborneOrigin[cs] && data.origin !== _everAirborneOrigin[cs]) {
-        _everAirborneCallsigns.delete(cs);
+        clearAirborne(cs);
         delete _everAirborneOrigin[cs];
     }
     if (isClearlyAirborne(data)) {
-        _everAirborneCallsigns.add(cs);
+        markAirborne(cs);
         if (data.origin) _everAirborneOrigin[cs] = data.origin;
     }
     if (_everAirborneCallsigns.has(cs)) data.hasBeenAirborne = true;
@@ -3270,7 +3299,7 @@ async function fetchLivePosition(callsign) {
             const cs = String(callsign).toUpperCase().trim();
             markParked(cs, stddsHit.origin || null);
             _swimTrailBackfilled.delete(cs);
-            _everAirborneCallsigns.delete(cs);
+            clearAirborne(cs);
         }
         return withTfdmInfo(withEverAirborne(applyCallsignGroundState(stddsHit, callsign, 'stdds'), callsign), callsign);
     }
@@ -3374,7 +3403,7 @@ app.get('/api/live-position', async (req, res) => {
             const hit = stdds.getGroundPosition(callsign) || sw;
             if (!(hit?.found && (hit.altFt ?? 0) > 2000)) return res.json({ found: false, parked: true });
             unpark(callsign);
-            _everAirborneCallsigns.add(callsign);
+            markAirborne(callsign);
         }
     }
 
@@ -3566,7 +3595,7 @@ async function runActiveFlightPoller() {
                     const hit = stdds.getGroundPosition(callsign) || sw;
                     if (isParked(callsign) && hit?.found && (hit.altFt ?? 0) > 2000) {
                         unpark(callsign);
-                        _everAirborneCallsigns.add(callsign);
+                        markAirborne(callsign);
                     }
                     continue;
                 }
