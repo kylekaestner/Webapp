@@ -7191,7 +7191,7 @@
                     if (isCommuter && !commuteWindowPassed) {
                         // Commuter pilot just landed at their airline base — heading home but not there yet
                         pushPin(lastArrival, 'Heading home');
-                    } else if (lastArrival && !atHome && lastArrUTC && (now2 - lastArrUTC) < 48 * 60 * 60 * 1000) {
+                    } else if (!isCommuter && lastArrival && !atHome && lastArrUTC && (now2 - lastArrUTC) < 48 * 60 * 60 * 1000) {
                         // Landed away from home with nothing logged after it: they're still there (any travel counts).
                         pushPin(lastArrival, 'Overnight');
                     } else {
