@@ -4283,9 +4283,11 @@
                             normApt(n.departure_airport) === home &&
                             (!nextFromArr || new Date(n.departure_time) < new Date(nextFromArr.departure_time))
                         ) : null;
+                        // Stays put until the next logged flight; the seven-day bound only stops a stay with nothing
+                        // scheduled after it from running on forever.
                         const cap = nextFromArr
                             ? new Date(nextFromArr.departure_time)
-                            : new Date(arrT.getTime() + 8 * 3600000);
+                            : new Date(arrT.getTime() + 7 * 86400000);
                         groundEnd = (nextFromBase && new Date(nextFromBase.departure_time) < cap)
                             ? new Date(nextFromBase.departure_time)
                             : cap;
@@ -4305,7 +4307,8 @@
                             groundEnd = nextT;
                         }
                     } else {
-                        groundEnd = new Date(arrT.getTime() + 8 * 3600000);
+                        // No later flight logged: they're still at this airport until one is (seven-day bound).
+                        groundEnd = new Date(arrT.getTime() + 7 * 86400000);
                     }
                     periods.push({ airport: arr, start: arrT, end: groundEnd, arrFlightNum: f.flight_number || null, isDH: !!f.is_dh });
                 });
