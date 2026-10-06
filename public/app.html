@@ -9104,14 +9104,14 @@ let _blockUserEdited = false;
             // Trips whose first leg departed in the previous month — these are carry-overs
             const carryOverTrips = new Set(
                 workFlights
-                    .filter(s => s.trip && (s.departureTime || '').startsWith(prevStr))
+                    .filter(s => s.trip && (s.departure_time || s.departureTime || '').startsWith(prevStr))
                     .map(s => s.trip)
             );
 
             // "Real" target-month data: a work flight departing in the target month
             // that does NOT belong to a carry-over trip from the previous month
             const hasData = workFlights.some(s =>
-                (s.departureTime || '').startsWith(targetStr) &&
+                (s.departure_time || s.departureTime || '').startsWith(targetStr) &&
                 (!s.trip || !carryOverTrips.has(s.trip))
             );
 
