@@ -3491,11 +3491,6 @@
             document.querySelectorAll('.mbtn').forEach(b => b.classList.remove('mbtn-active'));
             const mbtn = document.getElementById(`mbtn-${view}`);
             if (mbtn) mbtn.classList.add('mbtn-active');
-            // Let the tab highlight and view switch paint first; the re-render and map/overlap setup follow a frame later.
-            requestAnimationFrame(() => setTimeout(() => _switchViewBody(view), 0));
-        }
-
-        function _switchViewBody(view) {
             const modeNav = document.getElementById('map-mode-nav');
             if (modeNav) { if (view === 'map') modeNav.classList.replace('hidden', 'flex'); else modeNav.classList.replace('flex', 'hidden'); }
             // Next flight strip only on grid
