@@ -4283,7 +4283,16 @@
                             return (dep === homeC || dep === home) && new Date(n.departure_time) > commuteStart;
                         });
                         const commuteEnd = nextLeave ? new Date(nextLeave.departure_time) : new Date(arrT.getTime() + 7 * 86400000);
-                        if (homeC && commuteEnd > commuteStart) periods.push({ airport: homeC, start: commuteStart, end: commuteEnd });
+                        if (homeC && commuteEnd > commuteStart) {
+                            // Two commutes back close together (e.g. two base arrivals in a day) are one stay at home.
+                            const same = periods.find(p => p.airport === homeC && p.start <= commuteEnd && p.end >= commuteStart);
+                            if (same) {
+                                same.start = new Date(Math.min(same.start, commuteStart));
+                                same.end = new Date(Math.max(same.end, commuteEnd));
+                            } else {
+                                periods.push({ airport: homeC, start: commuteStart, end: commuteEnd });
+                            }
+                        }
                         return;
                     }
                     // Use allDeps so personal/commute departures also terminate ground periods
