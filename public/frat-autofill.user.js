@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.10
+// @version      3.11
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/*
@@ -328,7 +328,13 @@
         method: 'GET', url, timeout: 8000,
         onload(r) {
           try {
-            if (r.status !== 200) { resolve({ captain: null, paxActual: null }); return; }
+            if (r.status !== 200) {
+              // Found live: this returned silently on a non-200 status, so a failed request to
+              // Schedaero (expired session, wrong date range, etc.) looked identical in the log
+              // to a successful lookup that just found no match. Now the status is always logged.
+              console.log(`[CrewSync FRAT] Company cal request failed: HTTP ${r.status}`, r.responseText?.slice(0, 200) || '(no body)');
+              resolve({ captain: null, paxActual: null }); return;
+            }
             console.log('[CrewSync FRAT] Company cal response (first 400 chars):', r.responseText.slice(0, 400));
 
             let captain = null, paxActual = null;
