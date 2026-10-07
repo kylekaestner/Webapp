@@ -11,6 +11,7 @@ const swim = require('./swim');
 const stdds = require('./stdds');
 const tfms = require('./tfms');
 const tfdm = require('./tfdm');
+const notams = require('./notams');
 const navdata = require('./navdata');
 const vnas = require('./vnas');
 
@@ -4541,6 +4542,7 @@ app.listen(PORT, () => {
     stdds.connect();
     tfms.connect();
     tfdm.connect();
+    notams.connect();
     vnas.connect(); // unrelated to the SFDPS/STDDS/TFMS/TFDM Solace sessions above -- a plain
     // HTTPS poll against VATSIM's own public vNAS API, used only to resolve a real frequency
     // for the sector SFDPS hands us (see vnas.js, fetchLivePosition())
