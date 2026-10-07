@@ -22,6 +22,9 @@
 
   const SERVER      = 'http://167.71.107.245:3000';
   const PILOT       = 'kyle';
+  // Added once the server started requiring a token on GET /api/pilots/:key (friends-system auth pass) --
+  // without it every fetch here returned an auth error and the panel showed no upcoming flights.
+  const TOKEN        = 'wFSbJenIlxpO';
   const SIC_NAME    = 'Kaestner';
   const COMPANY_CAL = 'https://schedaero.avinode.com/mvc/api/calendars/main/5678';
 
@@ -372,7 +375,7 @@
   function fetchFlights() {
     return new Promise((resolve, reject) => {
       GM_xmlhttpRequest({
-        method: 'GET', url: `${SERVER}/api/pilots/${PILOT}`, timeout: 10000,
+        method: 'GET', url: `${SERVER}/api/pilots/${PILOT}?token=${TOKEN}`, timeout: 10000,
         onload(r) {
           try {
             const data = JSON.parse(r.responseText);
