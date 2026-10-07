@@ -7172,9 +7172,36 @@
                         const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                         return a && a <= now2;
                     });
-                    const lastFlight  = completedFlights[completedFlights.length - 1] || null;
-                    const lastArrival = lastFlight?.arrivalAirport?.toUpperCase() || null;
-                    const lastArrUTC  = lastFlight ? flightUTCTime(lastFlight.arrivalTime, lastFlight.arrivalAirport) : null;
+                    let lastFlight     = completedFlights[completedFlights.length - 1] || null;
+                    let lastArrival    = lastFlight?.arrivalAirport?.toUpperCase() || null;
+                    let lastArrUTC     = lastFlight ? flightUTCTime(lastFlight.arrivalTime, lastFlight.arrivalAirport) : null;
+                    // Mirrors lastFlight's arrivalTime/arrivalAirport for the sameLocalDay check below — kept
+                    // separate from lastFlight itself since a reserve-sourced anchor (just below) isn't a
+                    // flight object and nextDepFromHere's "sameLocalDay" comparison just needs these two fields.
+                    let lastArrivalTimeStr = lastFlight?.arrivalTime || null;
+                    let lastArrivalAptStr  = lastFlight?.arrivalAirport || null;
+
+                    // A reserve shift is always sat at base (departure_airport === base, no travel implied),
+                    // so an already-ended reserve block is just as good an anchor for "last known location"
+                    // as a completed flight's arrival — and if it's MORE recent than the last flight arrival,
+                    // it must win. Without this, a pilot who hasn't flown in a while but has worked reserve
+                    // shifts since (e.g. Logan: last real flight arrival was 11 days ago at a city that isn't
+                    // even his base anymore, but he's since sat two reserve shifts at his current base) stays
+                    // pinned at that stale, long-past flight arrival forever. Step 3 above already handles a
+                    // reserve that ended within the last 36h; this covers one that ended longer ago than that
+                    // but still more recently than any logged flight.
+                    const lastEndedReserve = segs
+                        .filter(s => s.type === 'reserve' && s.departureAirport)
+                        .map(s => ({ s, end: s.arrivalTime ? flightUTCTime(s.arrivalTime, s.arrivalAirport || s.departureAirport) : null }))
+                        .filter(x => x.end && x.end <= now2)
+                        .sort((a, b) => b.end - a.end)[0] || null;
+                    if (lastEndedReserve && (!lastArrUTC || lastEndedReserve.end > lastArrUTC)) {
+                        lastFlight = null; // no corresponding "flight" object — nextDepFromHere/midTrip below handle this
+                        lastArrival = lastEndedReserve.s.departureAirport.toUpperCase();
+                        lastArrUTC = lastEndedReserve.end;
+                        lastArrivalTimeStr = lastEndedReserve.s.arrivalTime;
+                        lastArrivalAptStr = lastEndedReserve.s.arrivalAirport || lastEndedReserve.s.departureAirport;
+                    }
 
                     const atHome = isHomeAirport(lastArrival, pilotKey);
                     const atBase = isBaseAirport(lastArrival, pilotKey);
@@ -7187,13 +7214,20 @@
                     const nextDepUTC = nextDepFromHere ? flightUTCTime(nextDepFromHere.departureTime, nextDepFromHere.departureAirport) : null;
 
                     // Mid-trip overnight: pilot is at a non-home airport with a future departure from there.
-                    // Includes turns at base — if the next leg departs within 18 h, the pilot hasn't gone home
-                    // (commuters need at least 3–4 h each way, so anything < 18 h makes a home run unlikely).
-                    const midTrip = lastArrival && !atHome && nextDepFromHere && (
-                        !atBase || (nextDepUTC - now2) < 18 * 60 * 60 * 1000
+                    // Includes turns at base — if the TOTAL ground time between arrival and that departure is
+                    // under 18h, the pilot hasn't had time to go home and back (commuters need at least 3–4h
+                    // each way). Measured from the arrival itself, not from "now" — otherwise a pilot who
+                    // arrived days ago and simply has their next departure creep inside 18h out gets relabeled
+                    // "Overnight" (as if they never left) right as the window closes, even though the actual
+                    // gap was long enough to go home and the existing commuter "Home" logic below already
+                    // covers that correctly (confirmed live: Adam landing at LGA, going home to TUL for ~2.5
+                    // days, then flying again — incorrectly flipped to "Overnight at LGA" ~14h before that
+                    // next departure).
+                    const midTrip = lastArrival && !atHome && nextDepFromHere && lastArrUTC && (
+                        !atBase || (nextDepUTC - lastArrUTC) < 18 * 60 * 60 * 1000
                     );
                     if (midTrip) {
-                        const sameLocalDay = flightLocalDate(lastFlight.arrivalTime, lastFlight.arrivalAirport) === flightLocalDate(nextDepFromHere.departureTime, nextDepFromHere.departureAirport);
+                        const sameLocalDay = flightLocalDate(lastArrivalTimeStr, lastArrivalAptStr) === flightLocalDate(nextDepFromHere.departureTime, nextDepFromHere.departureAirport);
                         pushPin(lastArrival, sameLocalDay ? 'Layover' : 'Overnight');
                         return;
                     }
