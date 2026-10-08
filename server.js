@@ -2045,6 +2045,10 @@ app.get('/api/pilots/:pilotKey/here-now', (req, res) => {
 });
 
 // POST upload schedule file
+// Was previously callable by anyone with no token at all -- any pilot_key (trivially guessable,
+// they're just lowercase first names) let a bare unauthenticated POST overwrite that pilot's
+// entire schedule with a crafted file. Now gated the same way as PUT /api/pilots/:pilotKey:
+// admin, or the pilot uploading their own schedule.
 app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
@@ -2053,6 +2057,14 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
         return res.status(400).json({ error: 'No file provided' });
     }
 
+    _resolvePilotToken(req.body.token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to upload for this pilot' });
+        _handlePilotUpload(req, res, db, pilotKey);
+    });
+});
+
+async function _handlePilotUpload(req, res, db, pilotKey) {
     let events = [];
     let warnings = [];
 
@@ -2158,12 +2170,18 @@ app.post('/api/pilots/:pilotKey/upload', upload.single('file'), async (req, res)
             }
         );
     });
-});
+}
 
-// DELETE all segments for a pilot
+// DELETE all segments for a pilot -- same previously-missing auth as the write endpoints
+// around it (admin, or the pilot clearing their own data); a bare unauthenticated call here
+// could wipe any pilot's entire schedule.
 app.delete('/api/pilots/:pilotKey/segments', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
+
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+    if (status) return res.status(status).json({ error: msg });
+    if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to clear this pilot\'s segments' });
 
     db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
         if (err) {
@@ -2180,13 +2198,15 @@ app.delete('/api/pilots/:pilotKey/segments', (req, res) => {
             res.json({ success: true, deleted: this.changes });
         });
     });
+    });
 });
 
-// Manually add a single flight/training/vacation segment
+// Manually add a single flight/training/vacation segment -- same previously-missing auth as the
+// other segment-write endpoints (admin, or the pilot adding to their own schedule).
 app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
-    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes, segment_type } = req.body;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes, segment_type, token } = req.body;
 
     const dbType = (segment_type === 'vacation' || segment_type === 'training') ? segment_type : 'flight';
     const isDateOnly = dbType === 'vacation' || dbType === 'training';
@@ -2197,6 +2217,10 @@ app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
     if (!isDateOnly && (!departure_airport || !arrival_airport)) {
         return res.status(400).json({ error: 'departure_airport and arrival_airport are required' });
     }
+
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+    if (status) return res.status(status).json({ error: msg });
+    if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to add a segment for this pilot' });
 
     db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -2218,13 +2242,15 @@ app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
             }
         );
     });
+    });
 });
 
-// PUT update a manually-added segment
+// PUT update a manually-added segment -- same previously-missing auth as the other segment-write
+// endpoints (admin, or the pilot editing their own schedule).
 app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
     const db = getDB();
     const { pilotKey, id } = req.params;
-    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes, segment_type } = req.body;
+    const { departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, is_dh, is_personal, is_commute, block_minutes, segment_type, token } = req.body;
 
     const dbType = (segment_type === 'vacation' || segment_type === 'training') ? segment_type : 'flight';
     const isDateOnly = dbType === 'vacation' || dbType === 'training';
@@ -2235,6 +2261,10 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
     if (!isDateOnly && (!departure_airport || !arrival_airport)) {
         return res.status(400).json({ error: 'departure_airport and arrival_airport are required' });
     }
+
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+    if (status) return res.status(status).json({ error: msg });
+    if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to edit this pilot\'s segment' });
 
     db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -2259,12 +2289,18 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
             }
         );
     });
+    });
 });
 
-// DELETE a single manually-added segment
+// DELETE a single manually-added segment -- same previously-missing auth as the other
+// segment-write endpoints (admin, or the pilot deleting their own segment).
 app.delete('/api/pilots/:pilotKey/segments/:id', (req, res) => {
     const db = getDB();
     const { pilotKey, id } = req.params;
+
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+    if (status) return res.status(status).json({ error: msg });
+    if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to delete this pilot\'s segment' });
 
     db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -2279,6 +2315,7 @@ app.delete('/api/pilots/:pilotKey/segments/:id', (req, res) => {
                 res.json({ success: true });
             }
         );
+    });
     });
 });
 
@@ -2524,14 +2561,22 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
     return { success: true, segmentsAdded: events.length, warnings };
 }
 
-// ICS sync endpoint — saves URL then delegates to syncPilotICS
+// ICS sync endpoint — saves URL then delegates to syncPilotICS. Was previously callable by
+// anyone with no token at all -- also let an attacker point any pilot's auto-sync at a URL of
+// their choosing (the server fetches it unconditionally), not just overwrite the schedule once.
+// Now gated the same as the other pilot-scoped write endpoints (admin, or the pilot syncing
+// their own schedule).
 app.post('/api/pilots/:pilotKey/sync-ics', async (req, res) => {
     const { pilotKey } = req.params;
     if (pilotKey === 'admin') return res.status(403).json({ error: 'Not allowed' });
-    const { url } = req.body;
+    const { url, token } = req.body;
     if (!url) return res.status(400).json({ error: 'url is required' });
 
     const db = getDB();
+    _resolvePilotToken(token, db, async (status, msg, callerKey) => {
+    if (status) return res.status(status).json({ error: msg });
+    if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to sync this pilot\'s schedule' });
+
     db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`,
         [`${pilotKey}_ics_url`, JSON.stringify({ url })]);
 
@@ -2541,16 +2586,23 @@ app.post('/api/pilots/:pilotKey/sync-ics', async (req, res) => {
     } catch (err) {
         res.status(err.status || 500).json({ error: err.message });
     }
+    });
 });
 
-// GET stored ICS URL for a pilot
+// GET stored ICS URL for a pilot -- this is a real third-party credential (most ICS subscription
+// URLs embed a private per-crew-member auth token), so it needs the same gate as the write
+// endpoints above (admin, or the pilot reading their own URL back), not just the write side.
 app.get('/api/pilots/:pilotKey/ics-url', (req, res) => {
     const { pilotKey } = req.params;
     const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+    if (status) return res.status(status).json({ error: msg });
+    if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to view this pilot\'s ICS URL' });
     db.get(`SELECT value FROM settings WHERE key=?`, [`${pilotKey}_ics_url`], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         const data = row ? JSON.parse(row.value) : null;
         res.json({ url: data?.url || null });
+    });
     });
 });
 
@@ -4201,13 +4253,23 @@ app.get('/api/pilots/by-token/:token', (req, res) => {
     });
 });
 
-// Get token for a pilot (admin only — used to display links)
+// Get token for a pilot (admin only) -- labeled admin-only in this comment but had NO actual
+// enforcement at all: a bare unauthenticated GET handed back any pilot's real login token
+// directly, the literal credential itself (worse than the schedule read/write gaps fixed
+// alongside this -- those needed guessing a pilot_key to act on someone's data, this one handed
+// out the exact token needed to BE them, fully, everywhere). No client code calls this route
+// (looks unused), but it was live on the server regardless. Now actually gated as its comment
+// always claimed.
 app.get('/api/pilots/:pilotKey/token', (req, res) => {
     const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+    if (status) return res.status(status).json({ error: msg });
+    if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
     db.get(`SELECT token FROM pilots WHERE pilot_key=?`, [req.params.pilotKey], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!row) return res.status(404).json({ error: 'Pilot not found' });
         res.json({ token: row.token });
+    });
     });
 });
 

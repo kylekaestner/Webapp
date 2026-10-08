@@ -409,13 +409,14 @@
 <div id="splash-screen">
     <img class="splash-plane" src="/icon.svg" alt="">
     <div class="splash-title">CrewSync</div>
-    <div class="splash-sub">Crew Scheduling</div>
+    <div class="splash-sub" id="splash-sub-text">Crew Scheduling</div>
     <div id="splash-version" style="font-size:10px;font-weight:700;color:#3f3f46;letter-spacing:0.12em;text-transform:uppercase;margin-top:6px;"></div>
-    <div class="splash-dots">
+    <div class="splash-dots" id="splash-dots">
         <div class="splash-dot"></div>
         <div class="splash-dot"></div>
         <div class="splash-dot"></div>
     </div>
+    <button id="splash-retry-btn" onclick="window.location.reload()" class="hidden" style="margin-top:16px;padding:10px 24px;background:#3b82f6;color:white;border:none;border-radius:10px;font-weight:800;font-size:13px;cursor:pointer;">Retry</button>
 </div>
 <div id="offline-banner">⚡ No internet connection</div>
 <div id="loading-overlay"><div class="loading-spinner"></div></div>
@@ -2136,36 +2137,55 @@
             const token = urlToken || (!isDemo && localStorage.getItem('crewsync_token')) || null;
 
             if (token) {
-                try {
-                    const resp = await fetch(`/api/pilots/by-token/${encodeURIComponent(token)}`);
-                    if (resp.ok) {
-                        const data = await resp.json();
-                        myToken = token;
-                        // Persist so home-screen PWA launches work without the ?u= param
-                        localStorage.setItem('crewsync_token', token);
-                        if (data.pilotKey === 'admin') {
-                            // Admin token → full access, no crew identity
-                            myPilot = null;
-                        } else if (data.isViewer) {
-                            myPilot      = null;
-                            myViewer     = true;
-                            myViewerKey  = data.pilotKey;
-                            myViewerName = data.name || 'Viewer';
-                            PILOT_NAMES[myViewerKey] = myViewerName;
-                        } else {
-                            myPilot = data.pilotKey;
-                        }
-                        // Pilot registration into PILOT_KEYS/NAMES/HOME/ROLES/COLORS (and the
-                        // matching pill-bar/sidebar DOM buttons) happens uniformly for every
-                        // pilot, including this one, via _syncPilotRoster() right below --
-                        // there's no separate hardcoded-vs-dynamic distinction anymore.
+                // A network blip resolving the token used to silently fall through with
+                // myPilot/myToken left at their initial null values -- which is exactly the
+                // state this app treats as ADMIN everywhere else (visiblePilotKeys(),
+                // _applyIdentityUI(), the admin-panel visibility check, all branch on plain
+                // `myPilot === null`). Confirmed live: a lagged connection on a real pilot's own
+                // login showed the admin UI (sees-everyone pill bar, Admin Panel button) instead
+                // of their own identity, with no actual admin token ever presented. Retry a
+                // couple of times first (this is specifically a transient-lag scenario, not
+                // necessarily a dead token), and if it still can't be resolved, stop and show an
+                // explicit error instead of ever proceeding with an unresolved identity.
+                let data = null, ok = false, networkFailed = false;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    if (attempt > 0) await new Promise(r => setTimeout(r, 800 * attempt));
+                    try {
+                        const resp = await fetch(`/api/pilots/by-token/${encodeURIComponent(token)}`);
+                        if (resp.ok) { data = await resp.json(); ok = true; networkFailed = false; break; }
+                        if (resp.status >= 400 && resp.status < 500) { ok = false; networkFailed = false; break; } // invalid token -- retrying won't help
+                        networkFailed = true; // 5xx -- worth retrying
+                    } catch { networkFailed = true; }
+                }
+                if (ok) {
+                    myToken = token;
+                    // Persist so home-screen PWA launches work without the ?u= param
+                    localStorage.setItem('crewsync_token', token);
+                    if (data.pilotKey === 'admin') {
+                        // Admin token → full access, no crew identity
+                        myPilot = null;
+                    } else if (data.isViewer) {
+                        myPilot      = null;
+                        myViewer     = true;
+                        myViewerKey  = data.pilotKey;
+                        myViewerName = data.name || 'Viewer';
+                        PILOT_NAMES[myViewerKey] = myViewerName;
                     } else {
-                        // Token invalid — clear stored token so we don't loop
-                        localStorage.removeItem('crewsync_token');
-                        window.location.replace('/');
-                        return;
+                        myPilot = data.pilotKey;
                     }
-                } catch { /* network error — let them in, token was at least present */ }
+                    // Pilot registration into PILOT_KEYS/NAMES/HOME/ROLES/COLORS (and the
+                    // matching pill-bar/sidebar DOM buttons) happens uniformly for every
+                    // pilot, including this one, via _syncPilotRoster() right below --
+                    // there's no separate hardcoded-vs-dynamic distinction anymore.
+                } else if (networkFailed) {
+                    _showIdentityError();
+                    return false; // tells the DOMContentLoaded handler to stop the rest of startup too
+                } else {
+                    // Invalid token (4xx, not a network issue) — clear stored token so we don't loop
+                    localStorage.removeItem('crewsync_token');
+                    window.location.replace('/');
+                    return;
+                }
             } else if (!isDemo) {
                 // No token anywhere — redirect to landing
                 window.location.replace('/');
@@ -3217,6 +3237,7 @@
                 isLoading = true;
                 const formData = new FormData();
                 formData.append('file', file);
+                if (myToken) formData.append('token', myToken);
 
                 const response = await fetch(`${API_BASE}/pilots/${pilot}/upload`, {
                     method: 'POST',
@@ -8625,7 +8646,7 @@ let _blockUserEdited = false;
             const ok = await showConfirm(label, 'This cannot be undone.');
             if (!ok) return;
             try {
-                const resp = await fetch(`${API_BASE}/pilots/${currentPilot}/segments/${segmentId}`, { method: 'DELETE' });
+                const resp = await fetch(`${API_BASE}/pilots/${currentPilot}/segments/${segmentId}${myToken ? `?token=${myToken}` : ''}`, { method: 'DELETE' });
                 const data = await resp.json();
                 if (data.success) { haptic('success'); loadPilot(currentPilot); showToast(seg?.type === 'ground' ? 'Ground leg deleted' : 'Flight deleted'); }
                 else showToast(data.error || 'Failed to delete.', 'error');
@@ -8674,7 +8695,7 @@ let _blockUserEdited = false;
                 const resp = await fetch(`${API_BASE}/pilots/${currentPilot}/segments/${_editGroundId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ departure_time: depISO, arrival_time: arrISO, departure_airport: dep, arrival_airport: arr, flight_number: label, tail: null, is_dh: false, is_personal: false, is_commute: false, block_minutes: null })
+                    body: JSON.stringify({ departure_time: depISO, arrival_time: arrISO, departure_airport: dep, arrival_airport: arr, flight_number: label, tail: null, is_dh: false, is_personal: false, is_commute: false, block_minutes: null, token: myToken })
                 });
                 const data = await resp.json();
                 if (data.success) { closeEditGround(); haptic('success'); loadPilot(currentPilot); showToast('Ground transport updated'); }
@@ -8702,7 +8723,8 @@ let _blockUserEdited = false;
                 is_dh: _addFlightType === 'dh',
                 is_personal: _addFlightType === 'personal',
                 is_commute: _addFlightType === 'commute',
-                block_minutes: parseBlockInput(document.getElementById('add-block-time').value)
+                block_minutes: parseBlockInput(document.getElementById('add-block-time').value),
+                token: myToken
             };
         }
 
@@ -8727,6 +8749,7 @@ let _blockUserEdited = false;
                     departure_time: `${date}T00:00:00`,
                     departure_airport: location || null,
                     arrival_airport:   location || null,
+                    token: myToken,
                 };
                 const isEdit = _editSegmentId !== null;
                 const url = isEdit
@@ -8981,7 +9004,7 @@ let _blockUserEdited = false;
             document.getElementById('ics-sync-modal-title').textContent = `Sync ${name}'s Schedule`;
             document.getElementById('ics-sync-url').value = '';
             document.getElementById('ics-sync-error').classList.add('hidden');
-            fetch(`${API_BASE}/pilots/${pilotKey}/ics-url`)
+            fetch(`${API_BASE}/pilots/${pilotKey}/ics-url${myToken ? `?token=${myToken}` : ''}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(d => { if (d?.url) document.getElementById('ics-sync-url').value = d.url; })
                 .catch(() => {});
@@ -9006,7 +9029,7 @@ let _blockUserEdited = false;
                 const resp = await fetch(`${API_BASE}/pilots/${pilotKey}/sync-ics`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url })
+                    body: JSON.stringify({ url, token: myToken })
                 });
                 const result = await resp.json();
                 if (result.success) {
@@ -9180,6 +9203,19 @@ let _blockUserEdited = false;
         }
 
         // ── Splash screen ───────────────────────────────────────────────
+        // Shown when initIdentity() can't resolve the login token after retrying (see its own
+        // comment) -- deliberately leaves the splash screen up rather than dismissing it, since
+        // an unresolved identity must never fall through into the rest of the app (myPilot/
+        // myToken staying at their initial null values is indistinguishable from admin there).
+        function _showIdentityError() {
+            const subEl = document.getElementById('splash-sub-text');
+            const dotsEl = document.getElementById('splash-dots');
+            const retryBtn = document.getElementById('splash-retry-btn');
+            if (subEl) { subEl.textContent = 'Connection problem — couldn\'t sign you in'; subEl.style.color = '#f87171'; }
+            if (dotsEl) dotsEl.style.display = 'none';
+            if (retryBtn) retryBtn.classList.remove('hidden');
+        }
+
         function dismissSplash() {
             const s = document.getElementById('splash-screen');
             if (!s || s.classList.contains('splash-hide')) return;
@@ -9655,7 +9691,7 @@ async function openAdminPanel(tab = 'users') {
                     document.getElementById('edit-user-ics-url').value = '';
                     const aopt = AIRLINE_OPTIONS.find(o => o.icao === asel);
                     if (aopt?.needsIcs) {
-                        fetch(`${API_BASE}/pilots/${u.pilot_key}/ics-url`)
+                        fetch(`${API_BASE}/pilots/${u.pilot_key}/ics-url${myToken ? `?token=${myToken}` : ''}`)
                             .then(r => r.ok ? r.json() : null)
                             .then(d => { if (d?.url) document.getElementById('edit-user-ics-url').value = d.url; })
                             .catch(() => {});
@@ -9727,7 +9763,7 @@ async function openAdminPanel(tab = 'users') {
                     const syncR = await fetch(`${API_BASE}/pilots/${finalPilotKey}/sync-ics`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: icsUrl })
+                        body: JSON.stringify({ url: icsUrl, token: myToken })
                     });
                     if (!syncR.ok) {
                         const syncErr = await syncR.json().catch(() => ({}));
@@ -9775,7 +9811,7 @@ async function openAdminPanel(tab = 'users') {
             document.getElementById('my-info-ics-url').value = '';
             const aopt = AIRLINE_OPTIONS.find(o => o.icao === asel);
             if (aopt?.needsIcs) {
-                fetch(`${API_BASE}/pilots/${myPilot}/ics-url`)
+                fetch(`${API_BASE}/pilots/${myPilot}/ics-url${myToken ? `?token=${myToken}` : ''}`)
                     .then(r => r.ok ? r.json() : null)
                     .then(d => { if (d?.url) document.getElementById('my-info-ics-url').value = d.url; })
                     .catch(() => {});
@@ -9824,7 +9860,7 @@ async function openAdminPanel(tab = 'users') {
                     saveBtn.textContent = 'Syncing…';
                     const syncR = await fetch(`${API_BASE}/pilots/${myPilot}/sync-ics`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: icsUrl })
+                        body: JSON.stringify({ url: icsUrl, token: myToken })
                     });
                     if (!syncR.ok) {
                         const syncErr = await syncR.json().catch(() => ({}));
@@ -12002,7 +12038,11 @@ async function openAdminPanel(tab = 'users') {
             // Identity: must run before loadPilot so myPilot/myToken are set. Also syncs the
             // full pilot roster internally now (registers any pilots not in the hardcoded list)
             // before it needs that data to build friend-based UI — see the comment inside it.
-            await initIdentity();
+            // A `false` return means the login token couldn't be resolved even after retrying
+            // (see initIdentity()'s own comment) -- _showIdentityError() already left an error
+            // on screen in that case, so the rest of startup (which assumes myPilot/PILOT_KEYS
+            // are now valid) must not run at all.
+            if ((await initIdentity()) === false) return;
 
             // Push notifications + badge
             // Background crossing check — populates badge and may show modal
