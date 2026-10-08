@@ -2731,6 +2731,16 @@ app.get('/api/kyle/company-crew', async (req, res) => {
 // Live flight tracking — position + accumulated trail
 const _liveCache = {};
 const LIVE_TTL = 5000; // 5s cache; client polls every 8s
+// ADS-B is the one real external, rate-limited round trip in this whole pipeline (fetchAdsbPosition
+// races adsb.lol/airplanes.live, up to 7s each) — runActiveFlightPoller() already refreshes it for
+// every active flight every 15s specifically so a client poll can reuse that instead of redoing the
+// same slow call itself (see its own comment at the _liveCache write site), but the flat 5s LIVE_TTL
+// above undercut that: it's shorter than the poller's own 15s cadence, so a client poll landing in
+// the 10-of-every-15s gap found the cache "stale" and triggered its own redundant ADS-B race anyway,
+// exposing that same multi-second latency on effectively every page load/poll instead of just once
+// per poller cycle. SWIM/STDDS reads cost nothing extra either way (in-memory, no network round
+// trip) so they're unaffected — this only widens the window for already-ADS-B-sourced cache entries.
+const ADSB_CACHE_TTL = 16000;
 
 const _posTrail = {};  // hex → [[lat, lon, tsMs], ...]
 const _trailLastTime = {}; // hex → Date.now() of last appended trail point
@@ -3249,6 +3259,12 @@ function isClearlyAirborne(data) {
 function applyCallsignGroundState(data, callsign, source) {
     if (!data?.found || !callsign) return data;
     const cs = String(callsign).toUpperCase().trim();
+    // swim.js/stdds.js already stamp their own `source` on the object they return; parseAdsbAircraft()
+    // (server.js) doesn't, so this is the only place the ADS-B path ever gets one. Needed so the
+    // /api/live-position cache (ADSB_CACHE_TTL vs LIVE_TTL, see its own comment) can tell which TTL
+    // applies — harmless to (re)stamp it here for every source, since it's always this call's own
+    // `source` argument restating what the data already carries for swim/stdds anyway.
+    data.source = source;
     if (source === 'swim' && data.altFt != null) data.onGround = data.altFt < 200;
     if (!data.onGround || !_everAirborneCallsigns.has(cs) || (data.speedKts ?? 0) > 5) {
         delete _groundStillSince[cs];
@@ -3444,7 +3460,10 @@ app.get('/api/live-position', async (req, res) => {
     }
 
     const cached = _liveCache[callsign];
-    if (cached && Date.now() - cached.ts < LIVE_TTL) return res.json(cached.data);
+    if (cached) {
+        const ttl = cached.data?.source === 'adsb' ? ADSB_CACHE_TTL : LIVE_TTL;
+        if (Date.now() - cached.ts < ttl) return res.json(cached.data);
+    }
 
     let data;
     try {
