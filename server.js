@@ -3497,12 +3497,17 @@ app.get('/api/live-position', async (req, res) => {
     if (!callsign) return res.json({ found: false });
     // Optional: scheduled departure time (Unix seconds) used to filter trail to current leg only
     const sinceUnixSec = req.query.depTime ? parseInt(req.query.depTime, 10) : null;
+    // Optional: the CLIENT's own known scheduled departure airport for the leg it's currently
+    // asking about -- see the matching comment on the background poller's own unparkIfNewLeg()
+    // call for why this is preferred over waiting on a fresh live-feed origin, especially for a
+    // reused same-day/same-tail callsign (e.g. Kyle's corporate flights).
+    const knownOrigin = (req.query.origin || '').toUpperCase() || null;
 
     // If the server already confirmed this callsign parked, tell the client immediately
     // so it can clean up even if the scheduled arrival time hasn't passed yet.
     if (isParked(callsign)) {
         const sw = swim.getSwimPosition(callsign);
-        unparkIfNewLeg(callsign, sw?.origin);
+        unparkIfNewLeg(callsign, knownOrigin || sw?.origin);
         if (isParked(callsign)) {
             const hit = stdds.getGroundPosition(callsign) || sw;
             if (!(hit?.found && (hit.altFt ?? 0) > 2000)) return res.json({ found: false, parked: true });
@@ -3624,6 +3629,23 @@ function normalizeFlightNum(fn, carrier) {
     return fn;
 }
 
+// Server-side mirror of app.html's deriveCallsign() -- Kyle's corporate (Part 91/135, SJJ)
+// legs never carry a real flight_number, so the client falls back to a tail-derived callsign
+// (SJJ + digits of the tail number) instead. The background poller used to only ever build a
+// callsign from flight_number, meaning it silently skipped every one of Kyle's flights outright
+// -- no server-side tracking, trail, or parked/airborne evidence ever existed for him unless a
+// client happened to be actively polling /api/live-position itself at that moment. Mirrored here
+// so the poller covers the same flights the frontend already draws live tracking for.
+function deriveServerCallsign(row, airlineCode) {
+    const rawFlightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
+    if (rawFlightNum) return normalizeFlightNum(rawFlightNum, airlineCode);
+    if (airlineCode === 'SJJ') {
+        const digits = (row.tail || '').replace(/\D/g, '');
+        return digits ? `SJJ${digits}` : null;
+    }
+    return null;
+}
+
 // ── Background flight poller ────────────────────────────────────────────
 // Polls ADS-B every 45 s for any scheduled flight whose departure window is
 // active. Builds the trail whether or not any client is connected.
@@ -3653,12 +3675,13 @@ async function runActiveFlightPoller() {
     const prefilterFuture = new Date(now.getTime() + (SWIM_LOOKAHEAD_MS + 6.5 * 60 * 60 * 1000)).toISOString().slice(0, 16);
 
     db.all(
-        `SELECT s.flight_number, s.departure_time, s.departure_airport, s.pilot_id,
+        `SELECT s.flight_number, s.departure_time, s.departure_airport, s.pilot_id, s.tail,
                 COALESCE(p.airline_code, '') AS airline_code, p.pilot_key
          FROM segments s
          JOIN pilots p ON s.pilot_id = p.id
          WHERE s.type = 'flight'
-           AND s.flight_number IS NOT NULL AND trim(s.flight_number) != ''
+           AND ((s.flight_number IS NOT NULL AND trim(s.flight_number) != '')
+                OR (s.tail IS NOT NULL AND trim(s.tail) != ''))
            AND s.departure_time >= ? AND s.departure_time <= ?`,
         [prefilterPast, prefilterFuture],
         async (err, rows) => {
@@ -3684,21 +3707,28 @@ async function runActiveFlightPoller() {
                 if (!inAdsbWindow && !inSwimWindow) continue;
 
                 const airlineCode = (row.airline_code || '').toUpperCase();
-                const rawFlightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
-                if (!rawFlightNum) continue;
                 // normalizeFlightNum handles both shapes: a bare number ("2042") combined with the
                 // pilot's own airline_code, AND a flight_number that already carries a DIFFERENT
                 // airline's IATA prefix (e.g. "UA2042" on a personal/deadhead ride) converted to
                 // its real ICAO callsign regardless of the pilot's own carrier -- see its header
                 // comment above for why the old naive concatenation here was a real, live bug.
-                const callsign = normalizeFlightNum(rawFlightNum, airlineCode);
+                // Falls back to a tail-derived callsign for flight_number-less corporate legs --
+                // see deriveServerCallsign()'s own comment.
+                const callsign = deriveServerCallsign(row, airlineCode);
                 if (!callsign) continue;
                 if (isParked(callsign)) {
                     // A parked flight is only re-checked against in-memory SWIM/STDDS data (no ADS-B
                     // call). Unpark it for a new leg, or once it's clearly off the field again.
+                    // Prefers THIS row's own known scheduled departure_airport over whatever SWIM/
+                    // STDDS currently reports as the live-feed origin -- CrewSync's own schedule is
+                    // trustworthy immediately, where a fresh live-feed origin for a brand new leg
+                    // may not arrive for a while (or ever, at a quieter airport). Without this, a
+                    // callsign reused across same-day legs on the same tail (every one of Kyle's
+                    // corporate flights -- see deriveServerCallsign()) could stay incorrectly
+                    // "parked" from the previous leg for the entire duration of the next one.
                     if (inSwimWindow) swimRelevant.add(callsign);
                     const sw = swim.getSwimPosition(callsign);
-                    unparkIfNewLeg(callsign, sw?.origin);
+                    unparkIfNewLeg(callsign, row.departure_airport || sw?.origin);
                     const hit = stdds.getGroundPosition(callsign) || sw;
                     if (isParked(callsign) && hit?.found && (hit.altFt ?? 0) > 2000) {
                         unpark(callsign);

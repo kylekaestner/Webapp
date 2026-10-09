@@ -5799,9 +5799,15 @@
                 if (!cs || _calListPollers[cs]) return;
                 const liveEl = document.getElementById(`live-${cs}`);
                 if (!liveEl) return;
+                // This leg's own known departure airport (already baked into the markup, see
+                // data-dep-apt above) -- lets the server immediately recognize a genuinely new
+                // leg on a reused callsign (every one of Kyle's corporate flights; see
+                // deriveServerCallsign()'s comment in server.js) instead of waiting on a fresh
+                // live-feed origin that may be slow to arrive.
+                const depApt = el.dataset.depApt || '';
                 const poll = async () => {
                     try {
-                        const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(cs)}`).then(r => r.json());
+                        const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(cs)}${depApt ? `&origin=${encodeURIComponent(depApt)}` : ''}`).then(r => r.json());
                         // This only ever updated the small altitude/speed text below -- the
                         // cell's own "active-leg" border/background and "IN THE AIR" label are
                         // baked in once at render() time and nothing here re-evaluated them as
