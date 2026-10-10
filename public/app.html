@@ -5689,7 +5689,14 @@
             const carrier = pilotsCache[pilotKey]?.airline_code || '';
             if (fn) return normalizeFlightNum(fn, carrier) || null;
             if (carrier === 'SJJ') {
-                const digits = (seg.tail || '').replace(/\D/g, '');
+                // The real flight number SpiritJets actually uses is SJJ + the FIRST THREE
+                // digits of the tail (confirmed: N176US -> SJJ176), not every digit in the tail
+                // -- matters for any tail with more than three digits, which this used to get
+                // wrong. Matches server.js's sjjFlightNumber(), which is also now the real source
+                // of this value going forward (parseSchedaeroData() populates flight_number
+                // directly) -- this client-side fallback only still matters for segments synced
+                // before that fix.
+                const digits = (seg.tail || '').replace(/\D/g, '').slice(0, 3);
                 return digits ? `SJJ${digits}` : null;
             }
             return null;

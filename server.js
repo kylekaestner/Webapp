@@ -1307,6 +1307,20 @@ function asUtcIso(s) {
     return s + 'Z';
 }
 
+// Kyle's corporate (Part 91/135, SpiritJets/SJJ) flights don't get a dispatched flight number
+// the way an airline leg does -- the real, actually-used flight number is SJJ + the FIRST THREE
+// digits of the tail (confirmed directly: N176US -> SJJ176). Previously this wasn't computed at
+// all -- parseSchedaeroData() just stored flightNumber: null, so every Schedaero segment ever
+// synced has a null flight_number in the DB, and the frontend's own tail-based fallback
+// (deriveCallsign()) and the server's mirror of it (deriveServerCallsign()) both took ALL digits
+// from the tail rather than just the first three -- harmless for N176US (exactly three digits
+// already) but wrong for any tail with more than three, which would derive a callsign that
+// doesn't match the real one ADS-B/SWIM/FlightAware actually use for that aircraft.
+function sjjFlightNumber(tail) {
+    const digits = (tail || '').replace(/\D/g, '').slice(0, 3);
+    return digits ? `SJJ${digits}` : null;
+}
+
 function parseSchedaeroData(data, filterMonth, filterYear) {
     const crew = Array.isArray(data.crew) ? data.crew[0] : null;
     if (!crew) return [];
@@ -1328,7 +1342,7 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
             arrivalAirport: seg.arrivalAirport,
             tail: seg.aircraftDescription || null,
             trip: seg.tripName || null,
-            flightNumber: null
+            flightNumber: sjjFlightNumber(seg.aircraftDescription)
         });
     }
 
@@ -2655,7 +2669,11 @@ function importSchedaeroEvents(db, pilotId, events, month, year) {
                 const stmt = db.prepare(`INSERT INTO segments (pilot_id,type,departure_time,arrival_time,departure_airport,arrival_airport,tail,trip,flight_number,is_dh,block_minutes) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
                 let done = 0; const errs = [];
                 events.forEach(ev => {
-                    stmt.run([pilotId, ev.type, ev.departureTime||null, ev.arrivalTime||null, ev.departureAirport||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, null, 0, null], e => {
+                    // flight_number used to be hardcoded null here regardless of what
+                    // parseSchedaeroData() actually computed (see sjjFlightNumber()) -- same bug
+                    // class already documented and fixed for syncPilotICS()'s block_minutes: a
+                    // parser returning the right value isn't the same as it reaching the DB.
+                    stmt.run([pilotId, ev.type, ev.departureTime||null, ev.arrivalTime||null, ev.departureAirport||null, ev.arrivalAirport||null, ev.tail||null, ev.trip||null, ev.flightNumber||null, 0, null], e => {
                         if (e) errs.push(e.message);
                         if (++done === events.length) { stmt.finalize(); errs.length ? reject(new Error(errs.join('; '))) : resolve(events.length); }
                     });
@@ -3639,10 +3657,7 @@ function normalizeFlightNum(fn, carrier) {
 function deriveServerCallsign(row, airlineCode) {
     const rawFlightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
     if (rawFlightNum) return normalizeFlightNum(rawFlightNum, airlineCode);
-    if (airlineCode === 'SJJ') {
-        const digits = (row.tail || '').replace(/\D/g, '');
-        return digits ? `SJJ${digits}` : null;
-    }
+    if (airlineCode === 'SJJ') return sjjFlightNumber(row.tail);
     return null;
 }
 
