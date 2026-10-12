@@ -3434,12 +3434,16 @@ async function fetchLivePosition(callsign) {
     return withTfdmInfo(withEverAirborne(applyCallsignGroundState(adsbHit, callsign, 'adsb'), callsign), callsign);
 }
 
+// Stored key is "callsign|scheduledArrMs", not bare callsign -- see app.html's
+// _landedEarlyKey()/_isLandedEarly() for why: a same-day round trip can reuse one real flight
+// number both directions (confirmed live: Delta's DL2417 both ATL-MDW and MDW-ATL), and a
+// bare-callsign key let one leg landing early mark BOTH legs early-landed.
 app.post('/api/early-landing', express.json(), (req, res) => {
-    const { callsign, date } = req.body || {};
+    const { callsign, date, arrMs } = req.body || {};
     if (!callsign || !date) return res.status(400).json({ error: 'missing fields' });
     const cs = callsign.toUpperCase().trim();
     if (!_earlyLandings[date]) _earlyLandings[date] = new Set();
-    _earlyLandings[date].add(cs);
+    _earlyLandings[date].add(`${cs}|${arrMs || ''}`);
     res.json({ ok: true });
 });
 
