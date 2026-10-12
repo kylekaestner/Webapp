@@ -2027,6 +2027,19 @@
         // the actual source of truth, independent of render timing: at most one set of layers may
         // exist per callsign, enforced directly in startLiveTracking() itself.
         const _liveLayersByCallsign = {};
+        // Two DIFFERENT real-world legs can share one callsign on the same day (confirmed live:
+        // Delta's DL2417, both ATL-MDW and MDW-ATL) -- meaning two SEPARATE startLiveTracking()
+        // closures can both be alive for the same callsign key. Each call gets its own instance
+        // id so its update()/finishTracking()/scheduleNextPoll() can tell "am I still the one
+        // currently registered for this callsign, or did a newer leg's activation already take
+        // over" before touching any of the shared _liveLayersByCallsign/_livePollers/_liveLabels
+        // state -- without this, a stale poller whose in-flight update() call is still running
+        // the instant a newer leg tears it down finishes that update() anyway, re-arms its own
+        // next timer regardless, and that orphaned timer is no longer reachable through
+        // _livePollers[callsign] (the newer leg's id is there now) -- it keeps firing forever,
+        // redrawing a long-dead flight's trail/route using fresh position data that actually
+        // belongs to the newer leg, with no way for anything to ever cancel it short of a reload.
+        let _liveTrackingInstanceSeq = 0;
         // callsign -> [{ marker, html, direction, hidden }] -- one entry per visible route-point
         // label (VOR/fix/waypoint name tags). Kept separate from _liveLabels (the plane's own
         // callsign tooltip) since there can be many per flight rather than exactly one, but fed
@@ -6046,7 +6059,15 @@
                 _liveLabels.delete(callsign);
                 _liveLabelRefreshers.delete(callsign);
             }
-            _liveLayersByCallsign[callsign] = { markers, routeLines: newRouteLines, hitLines: newHitLines };
+            // This instance's own identity -- every closure below checks this against
+            // _liveLayersByCallsign[callsign]?.instanceId before touching shared state, so a
+            // still-in-flight update() from an older leg's poller (one that was just torn down
+            // above, or torn down by a later call to this same function) can never clobber or
+            // cancel a newer leg's own registration once it's no longer the current one. See
+            // _liveTrackingInstanceSeq's own declaration comment for the failure mode this fixes.
+            const _myInstanceId = ++_liveTrackingInstanceSeq;
+            const _isCurrent = () => _liveLayersByCallsign[callsign]?.instanceId === _myInstanceId;
+            _liveLayersByCallsign[callsign] = { markers, routeLines: newRouteLines, hitLines: newHitLines, instanceId: _myInstanceId };
 
             if (radarOn && !radarLayer) addRadarLayer();
 
@@ -6213,6 +6234,12 @@
             let _pollerStopped = false;
             const finishTracking = (savedEarly) => {
                 _pollerStopped = true;
+                // A newer leg's own startLiveTracking() call already superseded this instance (see
+                // _liveTrackingInstanceSeq's declaration comment) -- our own markers/lines were
+                // already torn down by that call, and _confirmedParked below must never be set on
+                // behalf of a stale poller, since the callsign may currently belong to a different,
+                // still-genuinely-flying leg. Nothing of ours is left to clean up; stop silently.
+                if (!_isCurrent()) return;
                 // Confirmed-live bug: this only ever cleaned up THIS map instance's own markers/
                 // arc/popup -- it never told isFlightStillActive() (app-wide, used by every other
                 // render path: grid, list, day-detail, the other map views) that the flight is
@@ -6249,6 +6276,21 @@
             let _pollDelayMs = CRUISE_POLL_MS;
 
             const update = async () => {
+                // A newer leg's own call already took over this callsign -- stop entirely rather
+                // than fetch/draw on its behalf (see _liveTrackingInstanceSeq's comment).
+                if (!_isCurrent()) { _pollerStopped = true; return; }
+                // Hard ceiling, independent of whether the fetch below keeps "finding" a position:
+                // on a reused callsign (same-day round trip, same real flight number both ways --
+                // confirmed live with Delta's DL2417) this poller would otherwise never naturally
+                // conclude "done," because a LATER leg sharing the callsign keeps feeding it a
+                // real, genuine position -- it just isn't this leg's. The existing miss-count
+                // thresholds below never catch that case since every poll still succeeds. A
+                // generous 4h-past-scheduled-arrival ceiling (matching the day map's own long-delay
+                // grace elsewhere) reclaims it regardless of what the fetch would say.
+                if (scheduledArrUTC && Date.now() > scheduledArrUTC.getTime() + 4 * 3600000) {
+                    finishTracking(false);
+                    return;
+                }
                 try {
                     const _depQs = scheduledDepUTC ? `&depTime=${Math.floor(scheduledDepUTC.getTime()/1000)}` : '';
                     const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}${_depQs}`).then(r => r.json());
@@ -6681,7 +6723,12 @@
                 // this before we get here -- without checking it, this self-rescheduling loop
                 // would just set a brand new timer right after, silently reviving a poller that
                 // was just supposed to stop (the one real risk a plain setInterval didn't have).
-                if (_pollerStopped) return;
+                // _isCurrent() catches the narrower race the instance-id system exists for: a
+                // newer leg's call superseded this one WHILE this tick's update() was already
+                // in-flight (mid-fetch) -- its own top-of-update() check already passed before
+                // that happened, so it still finishes this one tick using possibly-stale data,
+                // but must not be allowed to arm a next timer afterward.
+                if (_pollerStopped || !_isCurrent()) return;
                 _livePollers[callsign] = setTimeout(async () => { await update(); scheduleNextPoll(); }, _pollDelayMs);
             };
             update().then(scheduleNextPoll); // immediate first update, then start the adaptive loop
