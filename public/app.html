@@ -5724,6 +5724,27 @@
             return null;
         }
 
+        // A same-day round trip can reuse one real callsign both directions (confirmed live:
+        // Delta's DL2417, ATL-MDW then MDW-ATL, same tail). If this pilot has another flight
+        // segment today sharing this exact callsign with a LATER scheduled departure that has
+        // already passed, a newer leg has definitively started -- CrewSync's own schedule can
+        // tell these two legs apart even though the live feed itself can't (it's the same
+        // real-world callsign either way). Shared by the live map poller's own lifecycle
+        // (startLiveTracking()) and _legState()'s "active" determination (renderDayMap()) -- both
+        // independently trusted live-seen evidence unconditionally before this existed, which is
+        // exactly how leg 1 kept showing live/active using leg 2's genuinely-real position data.
+        function _hasNewerLegStarted(pilotKey, callsign, ownDepMs) {
+            if (!pilotKey || !callsign || !ownDepMs) return false;
+            return (pilotsCache[pilotKey]?.segments || []).some(s => {
+                if (s.type !== 'flight') return false;
+                const sDep = s.departure_time || s.departureTime;
+                if (!sDep) return false;
+                const sDepMs = flightUTCTime(sDep, s.departure_airport || s.departureAirport)?.getTime();
+                if (!sDepMs || sDepMs <= ownDepMs || Date.now() < sDepMs) return false;
+                return deriveCallsign(s, pilotKey) === callsign;
+            });
+        }
+
         function normalizeFlightNum(fn, carrier) {
             if (!fn) return '';
             for (const [iata, icao] of IATA_TO_CALLSIGN_ENTRIES) {
@@ -6280,22 +6301,11 @@
                 // than fetch/draw on its behalf (see _liveTrackingInstanceSeq's comment).
                 if (!_isCurrent()) { _pollerStopped = true; return; }
                 // Precise version of the ceiling below, for a short-turnaround round trip (Mark's
-                // real ~1h MDW layover) where even the 90min grace is far too slow: if THIS same
-                // pilot has another flight segment today sharing this exact callsign with a LATER
-                // scheduled departure that has already passed, a newer leg has definitively
-                // started -- the live feed itself can't tell the two legs apart (same real-world
-                // callsign), but CrewSync's own schedule can, immediately, with no grace needed.
-                if (pilotKey) {
-                    const _ownDepMs = scheduledDepUTC?.getTime();
-                    const _newerLegStarted = _ownDepMs && (pilotsCache[pilotKey]?.segments || []).some(s => {
-                        if (s.type !== 'flight') return false;
-                        const sDep = s.departure_time || s.departureTime;
-                        if (!sDep) return false;
-                        const sDepMs = flightUTCTime(sDep, s.departure_airport || s.departureAirport)?.getTime();
-                        if (!sDepMs || sDepMs <= _ownDepMs || Date.now() < sDepMs) return false;
-                        return deriveCallsign(s, pilotKey) === callsign;
-                    });
-                    if (_newerLegStarted) { finishTracking(false); return; }
+                // real ~1h MDW layover) where even the 90min grace is far too slow -- see
+                // _hasNewerLegStarted()'s own comment.
+                if (_hasNewerLegStarted(pilotKey, callsign, scheduledDepUTC?.getTime())) {
+                    finishTracking(false);
+                    return;
                 }
                 // Hard ceiling, independent of whether the fetch below keeps "finding" a position:
                 // on a reused callsign (same-day round trip, same real flight number both ways --
@@ -6994,7 +7004,7 @@
             //  scheduled  - before scheduled departure
             //  delayed    - departure time passed, not seen flying, estimated departure at least 5 minutes later
             //  due        - departure time passed, not seen flying, no delay estimate
-            const _legState = (cs, dMs, aMs, landedEarlyFlag) => {
+            const _legState = (cs, dMs, aMs, landedEarlyFlag, pilotKey) => {
                 const nowMs = now.getTime();
                 const etaMs = estTimes[cs]?.eta ? new Date(estTimes[cs].eta).getTime() : 0;
                 const effA = Math.max(aMs || 0, etaMs);
@@ -7007,10 +7017,17 @@
                 // departure has actually passed. Without this guard, leg 1 landing and sitting
                 // parked at the gate marked the shared callsign "parked," and leg 2 -- which
                 // hadn't even left the gate yet -- inherited "completed" from it. liveSeen is
-                // exempt: a real live position confirmed just now is authoritative regardless of
-                // scheduled time (e.g. an early departure), not stale cross-leg evidence.
+                // exempt from THIS guard: a real live position confirmed just now is authoritative
+                // regardless of scheduled time (e.g. an early departure), not stale cross-leg
+                // evidence -- but that exemption cuts the other way too: confirmed live, it let a
+                // COMPLETED leg (ATL-MDW) show "in the air" using leg 2's (MDW-ATL) genuinely-real
+                // position the instant leg 2 departed, since nothing checked whether a newer leg
+                // had actually started before trusting liveSeen. _hasNewerLegStarted() closes that
+                // specific gap without weakening the early-departure case it was added for.
                 const depHasPassed = !!dMs && nowMs >= dMs;
+                const newerLegStarted = _hasNewerLegStarted(pilotKey, cs, dMs);
                 if (landedEarlyFlag) return { state: 'completed' };
+                if (newerLegStarted) return { state: 'completed' };
                 if (cs && depHasPassed && _confirmedParked.has(cs) && !liveSeen.has(cs)) return { state: 'completed' };
                 if (cs && liveSeen.has(cs)) return { state: 'active' };
                 if (cs && depHasPassed && airborneSeen.has(cs) && nowMs < effA) return { state: 'active' };
@@ -7066,7 +7083,7 @@
                 const arrTime = flightUTCTime(f.arrivalTime || f.departureTime, f.arrivalAirport) || new Date(f.arrivalTime || f.departureTime);
                 const _cs = deriveCallsign(f, f.pilotKey);
                 const landedEarly = _isLandedEarly(_cs, arrTime?.getTime());
-                const _st = _legState(_cs, depTime?.getTime(), arrTime?.getTime(), landedEarly);
+                const _st = _legState(_cs, depTime?.getTime(), arrTime?.getTime(), landedEarly, f.pilotKey);
                 const isActive = _st.state === 'active';
                 const isPast = _st.state === 'completed';
                 const _delayed = _st.state === 'delayed';
@@ -7213,7 +7230,7 @@
                         const cs = deriveCallsign(f, pilotKey);
                         const _earlyHere = _isLandedEarly(cs, a?.getTime());
                         if (_earlyHere) return false;
-                        return _legState(cs, d?.getTime(), a?.getTime(), _earlyHere).state === 'active';
+                        return _legState(cs, d?.getTime(), a?.getTime(), _earlyHere, pilotKey).state === 'active';
                     });
                     if (isAirborne) return;
 
