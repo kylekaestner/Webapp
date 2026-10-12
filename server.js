@@ -3507,7 +3507,16 @@ app.get('/api/flight-status', (req, res) => {
     const times = {};
     for (const cs of list) {
         const t = tfms.getFlightTimes(cs);
-        if (t && (t.etd || t.eta)) times[cs] = { etd: t.etd || null, eta: t.eta || null };
+        // airlineOnTime/airlineInTime are the airline's own real OOOI report (actual touchdown /
+        // actual gate arrival) -- confirmed live as a real, authoritative "this flight is
+        // definitively done" signal that our own position-polling pipeline can miss entirely if
+        // it simply never had an active position fix right at touchdown (a real gap found live:
+        // a flight showed DELAYED with a stale ETD well after it had already landed and reached
+        // the gate per TFMS's own OOOI times, because parked/live/airborne were all empty -- the
+        // event-driven detection never caught this specific landing, but TFMS already knew).
+        if (t && (t.etd || t.eta || t.airlineOnTime || t.airlineInTime)) {
+            times[cs] = { etd: t.etd || null, eta: t.eta || null, airlineOnTime: t.airlineOnTime || null, airlineInTime: t.airlineInTime || null };
+        }
     }
     const airborne = list.filter(cs => !isParked(cs) && (
         _everAirborneCallsigns.has(cs) || /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || '')));

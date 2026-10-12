@@ -7043,11 +7043,24 @@
                 // specific gap without weakening the early-departure case it was added for.
                 const depHasPassed = !!dMs && nowMs >= dMs;
                 const newerLegStarted = _hasNewerLegStarted(pilotKey, cs, dMs);
+                // The airline's own real OOOI report (actual touchdown / actual gate arrival),
+                // not an estimate -- confirmed live as a real gap: our own position-polling
+                // pipeline (parked/live/airborne below) can simply miss a landing entirely if it
+                // never had an active position fix right at touchdown, leaving a genuinely-landed
+                // flight stuck showing DELAYED with a stale ETD. TFMS already knows regardless,
+                // independent of whether we ourselves caught the moment it happened.
+                // Checked AFTER liveSeen below, deliberately -- if we're still actively tracking a
+                // real position (e.g. visibly taxiing in), that's still worth showing as active,
+                // not short-circuited to completed the instant touchdown occurs. This is purely a
+                // fallback for when there's NO current live data to show at all -- the exact gap
+                // this exists for.
+                const realOnMs = estTimes[cs]?.airlineOnTime ? new Date(estTimes[cs].airlineOnTime).getTime() : null;
                 if (landedEarlyFlag) return { state: 'completed' };
                 if (newerLegStarted) return { state: 'completed' };
                 if (cs && depHasPassed && _confirmedParked.has(cs) && !liveSeen.has(cs)) return { state: 'completed' };
                 if (cs && liveSeen.has(cs)) return { state: 'active' };
                 if (cs && depHasPassed && airborneSeen.has(cs) && nowMs < effA) return { state: 'active' };
+                if (realOnMs && nowMs >= realOnMs) return { state: 'completed' };
                 if (flown && nowMs >= effA) return { state: 'completed' };
                 if (!flown && effA && nowMs >= effA + 3 * 3600000) return { state: 'completed' };
                 if (!dMs || nowMs < dMs) return { state: 'scheduled' };
