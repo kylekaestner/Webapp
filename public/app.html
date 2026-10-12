@@ -6919,10 +6919,20 @@
                 const effA = Math.max(aMs || 0, etaMs);
                 const etdMs = estTimes[cs]?.etd ? new Date(estTimes[cs].etd).getTime() : null;
                 const flown = !!cs && (airborneSeen.has(cs) || liveSeen.has(cs) || _confirmedParked.has(cs));
+                // A same-day round trip can legitimately share one real flight number/callsign
+                // both directions (confirmed live: Delta's own feed files DL2417 for both
+                // ATL-MDW and MDW-ATL on the same tail) -- evidence tied only to the callsign,
+                // not to this specific leg, can't be trusted until THIS leg's own scheduled
+                // departure has actually passed. Without this guard, leg 1 landing and sitting
+                // parked at the gate marked the shared callsign "parked," and leg 2 -- which
+                // hadn't even left the gate yet -- inherited "completed" from it. liveSeen is
+                // exempt: a real live position confirmed just now is authoritative regardless of
+                // scheduled time (e.g. an early departure), not stale cross-leg evidence.
+                const depHasPassed = !!dMs && nowMs >= dMs;
                 if (landedEarlyFlag) return { state: 'completed' };
-                if (cs && _confirmedParked.has(cs) && !liveSeen.has(cs)) return { state: 'completed' };
+                if (cs && depHasPassed && _confirmedParked.has(cs) && !liveSeen.has(cs)) return { state: 'completed' };
                 if (cs && liveSeen.has(cs)) return { state: 'active' };
-                if (cs && airborneSeen.has(cs) && nowMs < effA) return { state: 'active' };
+                if (cs && depHasPassed && airborneSeen.has(cs) && nowMs < effA) return { state: 'active' };
                 if (flown && nowMs >= effA) return { state: 'completed' };
                 if (!flown && effA && nowMs >= effA + 3 * 3600000) return { state: 'completed' };
                 if (!dMs || nowMs < dMs) return { state: 'scheduled' };
