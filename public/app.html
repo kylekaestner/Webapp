@@ -5735,10 +5735,27 @@
         // exactly how leg 1 kept showing live/active using leg 2's genuinely-real position data.
         function _hasNewerLegStarted(pilotKey, callsign, ownDepMs) {
             if (!pilotKey || !callsign || !ownDepMs) return false;
-            return (pilotsCache[pilotKey]?.segments || []).some(s => {
+            const segs = pilotsCache[pilotKey]?.segments;
+            if (!segs || !segs.length) return false;
+            // Cheap pre-filter before the real per-segment work below (flightUTCTime does a real
+            // timezone lookup, deriveCallsign does string parsing) -- a pilot's cached segments
+            // span their ENTIRE synced history (GET /api/pilots/:key returns it unbounded, a known
+            // standing limitation), and this runs on every render AND every live poll tick (every
+            // 3-8s) for every actively-tracked flight. Confirmed live this made the map noticeably
+            // slow to load and the legend filter's re-render visibly blank for longer -- scanning
+            // months of history on a tight timer adds up fast. A same-day round trip is only ever
+            // a few hours apart, so a generous +/-48h window on the raw ISO date string (not a
+            // parsed Date -- cheaper, and the window's already wide enough to absorb the
+            // UTC-vs-local slop from comparing a UTC cutoff against a local-time date string)
+            // discards the other 99%+ of a long history before any real work happens on what's left.
+            const windowStart = new Date(ownDepMs - 48 * 3600000).toISOString().slice(0, 10);
+            const windowEnd = new Date(ownDepMs + 48 * 3600000).toISOString().slice(0, 10);
+            return segs.some(s => {
                 if (s.type !== 'flight') return false;
                 const sDep = s.departure_time || s.departureTime;
                 if (!sDep) return false;
+                const sDepDate = sDep.slice(0, 10);
+                if (sDepDate < windowStart || sDepDate > windowEnd) return false;
                 const sDepMs = flightUTCTime(sDep, s.departure_airport || s.departureAirport)?.getTime();
                 if (!sDepMs || sDepMs <= ownDepMs || Date.now() < sDepMs) return false;
                 return deriveCallsign(s, pilotKey) === callsign;
