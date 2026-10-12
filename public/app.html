@@ -7530,7 +7530,13 @@
                     const arrTz  = arrApt  ? tzAbbr(arrApt, arrTime)  : '';
                     const tzTag  = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${lbl}</span>` : '';
                     const durMs  = (depTime && arrTime) ? new Date(arrTime) - new Date(depTime) : 0;
+                    const resRedeyeLabel = el.dataset.redeye === 'arr'
+                        ? `<div style="font-size:11px;color:#93c5fd;font-weight:700;margin-bottom:4px">🌙 Overnight — started the previous day</div>`
+                        : el.dataset.redeye === 'dep'
+                        ? `<div style="font-size:11px;color:#93c5fd;font-weight:700;margin-bottom:4px">🌙 Overnight — continues into the next day</div>`
+                        : '';
                     const html   = `<div style="font-weight:800;margin-bottom:6px;color:#fbbf24">ON CALL — ${typeLabel}</div>` +
+                        resRedeyeLabel +
                         (depApt ? `<div style="font-size:12px;color:#fbbf24;margin-bottom:4px">Base: ${depApt}</div>` : '') +
                         `<div style="font-size:12px;color:#cbd5e1">Start: ${depFmt}${tzTag(depTz)}</div>` +
                         `<div style="font-size:12px;color:#cbd5e1">End: &nbsp;&nbsp;${arrFmt}${tzTag(arrTz)}</div>` +
@@ -7660,7 +7666,10 @@
                     const dayEvents = segments.filter(s => {
                         if (!s.departureTime) return false;
                         if (flightLocalDate(s.departureTime, s.departureAirport) === dateKey) return true;
-                        if (s.type !== 'flight' || !s.arrivalTime) return false;
+                        // Flights AND reserve shifts that span midnight also appear on the END
+                        // day's cell, not just the start day's -- see the matching redEye marker
+                        // on the reserve-item block below for why that needs flagging.
+                        if ((s.type !== 'flight' && s.type !== 'reserve') || !s.arrivalTime) return false;
                         const arrLocal = flightLocalDate(s.arrivalTime, s.arrivalAirport);
                         const depLocal = flightLocalDate(s.departureTime, s.departureAirport);
                         return arrLocal === dateKey && arrLocal !== depLocal;
@@ -7806,8 +7815,19 @@
                         const depTz  = r.departureAirport ? tzAbbr(r.departureAirport, r.departureTime) : '';
                         const arrTz  = r.arrivalAirport   ? tzAbbr(r.arrivalAirport,  r.arrivalTime)   : '';
                         const tzS = (lbl) => lbl ? `<span style="font-size:7.5px;color:#78716c;font-weight:700;margin-left:1px">${lbl}</span>` : '';
-                        html += `<div class="rounded-lg px-2 py-[5px] reserve-item" style="font-size:10px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2)" data-dep-time="${r.departureTime||''}" data-arr-time="${r.arrivalTime||''}" data-dep-apt="${r.departureAirport||''}" data-arr-apt="${r.arrivalAirport||''}" data-res-type="${subType}">`;
-                        html += `<div style="font-weight:800;font-size:11px;color:#fbbf24">ON CALL <span style="font-size:9px;font-weight:600;color:#d97706">${subType}</span></div>`;
+                        // Same cross-midnight marker as .flight-item above -- a reserve shift
+                        // starting late and ending after midnight already appears on both the
+                        // start day's cell and the end day's cell (see dayEvents' filter), so flag
+                        // each side the same way a red-eye flight does.
+                        const _resDepLocal = r.departureTime ? flightLocalDate(r.departureTime, r.departureAirport) : '';
+                        const _resArrLocal = r.arrivalTime ? flightLocalDate(r.arrivalTime, r.arrivalAirport) : '';
+                        const resCrossesMidnight = _resDepLocal && _resArrLocal && _resDepLocal !== _resArrLocal;
+                        const resRedEyeDot = resCrossesMidnight
+                            ? `<span style="font-size:9px;font-weight:900;margin-left:3px">🌙</span>`
+                            : '';
+                        const resRedEyeAttr = resCrossesMidnight ? ` data-redeye="${dateKey === _resArrLocal ? 'arr' : 'dep'}"` : '';
+                        html += `<div class="rounded-lg px-2 py-[5px] reserve-item" style="font-size:10px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2)" data-dep-time="${r.departureTime||''}" data-arr-time="${r.arrivalTime||''}" data-dep-apt="${r.departureAirport||''}" data-arr-apt="${r.arrivalAirport||''}" data-res-type="${subType}"${resRedEyeAttr}>`;
+                        html += `<div style="font-weight:800;font-size:11px;color:#fbbf24">ON CALL <span style="font-size:9px;font-weight:600;color:#d97706">${subType}</span>${resRedEyeDot}</div>`;
                         if (depFmt) html += `<div style="color:#b45309;font-size:10px;margin-top:1px">${depFmt}${tzS(depTz)} – ${arrFmt}${tzS(arrTz)}</div>`;
                         html += `</div>`;
                     });
