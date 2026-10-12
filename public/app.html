@@ -5144,7 +5144,7 @@
                             const dots = worldPlaneMarkers(arcCoords[idx], makePlaneIcon(bearing, pilotColor, null, true));
                             dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(al, key);
-                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], alArrUTC, [], weight, monthHits, alDepUTC);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], alArrUTC, [], weight, monthHits, alDepUTC, key);
                         }
                     } else {
                         // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
@@ -5161,7 +5161,7 @@
                             const dots = worldPlaneMarkers(depC, makePlaneIcon(computeBearing(depC, arrC), pilotColor, null, true));
                             dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(pf, key);
-                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], pfArrUTC, [], weight, monthHits, pfDepUTC);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], pfArrUTC, [], weight, monthHits, pfDepUTC, key);
                         }
                     }
 
@@ -5401,7 +5401,7 @@
                         dots[2].bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                         dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(activeLeg, currentPilot);
-                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], arrTime, hereNowMarkers, weight, hitLines, depTime);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], arrTime, hereNowMarkers, weight, hitLines, depTime, currentPilot);
                     }
                 } else {
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
@@ -5416,7 +5416,7 @@
                         const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), '#22c55e', null, true));
                         dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(pf, currentPilot);
-                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], pfArrTime, hereNowMarkers, weight, hitLines, pfDepTime);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], pfArrTime, hereNowMarkers, weight, hitLines, pfDepTime, currentPilot);
                     }
                 }
 
@@ -6028,7 +6028,7 @@
         // not a literal frequency check-in (this app has no voice comms to check in on).
         const VCI_ICON_SVG = `<svg width="9" height="9" viewBox="0 0 16 16" style="display:inline-block;vertical-align:middle;margin-right:3px" fill="rgb(0,204,0)"><rect x="2" y="2" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="3" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="7" y="4" width="2" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="9" y="5" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="2" y="7" width="1" height="1"/><rect x="4" y="7" width="2" height="1"/><rect x="11" y="7" width="1" height="1"/><rect x="2" y="8" width="1" height="1"/><rect x="6" y="8" width="2" height="1"/><rect x="11" y="8" width="1" height="1"/><rect x="2" y="9" width="1" height="1"/><rect x="7" y="9" width="1" height="1"/><rect x="12" y="9" width="1" height="1"/><rect x="2" y="10" width="1" height="1"/><rect x="8" y="10" width="1" height="1"/><rect x="12" y="10" width="1" height="1"/><rect x="2" y="11" width="1" height="1"/><rect x="8" y="11" width="1" height="1"/><rect x="12" y="11" width="1" height="1"/><rect x="2" y="12" width="1" height="1"/><rect x="2" y="13" width="12" height="1"/></svg>`;
 
-        function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null) {
+        function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null, pilotKey = null) {
             const newRouteLines = Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
             const newHitLines = hitLines || [];
             // Flown trail reads as "already behind you, less important now" vs. the heavier
@@ -6279,15 +6279,38 @@
                 // A newer leg's own call already took over this callsign -- stop entirely rather
                 // than fetch/draw on its behalf (see _liveTrackingInstanceSeq's comment).
                 if (!_isCurrent()) { _pollerStopped = true; return; }
+                // Precise version of the ceiling below, for a short-turnaround round trip (Mark's
+                // real ~1h MDW layover) where even the 90min grace is far too slow: if THIS same
+                // pilot has another flight segment today sharing this exact callsign with a LATER
+                // scheduled departure that has already passed, a newer leg has definitively
+                // started -- the live feed itself can't tell the two legs apart (same real-world
+                // callsign), but CrewSync's own schedule can, immediately, with no grace needed.
+                if (pilotKey) {
+                    const _ownDepMs = scheduledDepUTC?.getTime();
+                    const _newerLegStarted = _ownDepMs && (pilotsCache[pilotKey]?.segments || []).some(s => {
+                        if (s.type !== 'flight') return false;
+                        const sDep = s.departure_time || s.departureTime;
+                        if (!sDep) return false;
+                        const sDepMs = flightUTCTime(sDep, s.departure_airport || s.departureAirport)?.getTime();
+                        if (!sDepMs || sDepMs <= _ownDepMs || Date.now() < sDepMs) return false;
+                        return deriveCallsign(s, pilotKey) === callsign;
+                    });
+                    if (_newerLegStarted) { finishTracking(false); return; }
+                }
                 // Hard ceiling, independent of whether the fetch below keeps "finding" a position:
                 // on a reused callsign (same-day round trip, same real flight number both ways --
                 // confirmed live with Delta's DL2417) this poller would otherwise never naturally
                 // conclude "done," because a LATER leg sharing the callsign keeps feeding it a
-                // real, genuine position -- it just isn't this leg's. The existing miss-count
-                // thresholds below never catch that case since every poll still succeeds. A
-                // generous 4h-past-scheduled-arrival ceiling (matching the day map's own long-delay
-                // grace elsewhere) reclaims it regardless of what the fetch would say.
-                if (scheduledArrUTC && Date.now() > scheduledArrUTC.getTime() + 4 * 3600000) {
+                // real, genuine position -- it just isn't this leg's, so it never looks "parked"
+                // and the miss-count thresholds below never fire either (every poll genuinely
+                // succeeds). Confirmed live: a first attempt at this ceiling used 4h, generous
+                // enough to match other long-delay grace windows elsewhere -- but that's the wrong
+                // comparison; those exist to avoid giving up on a flight TOO EARLY, while this one
+                // exists to reclaim a poller that's almost certainly a ghost, so it should be tight,
+                // not generous. Reused LATE_ARRIVAL_GRACE_MS (90min) instead -- the same "how long
+                // past scheduled arrival is a flight still plausibly this same flight" judgment
+                // call already made for the grid/list views, not a new number invented for this.
+                if (scheduledArrUTC && Date.now() > scheduledArrUTC.getTime() + LATE_ARRIVAL_GRACE_MS) {
                     finishTracking(false);
                     return;
                 }
@@ -7113,13 +7136,13 @@
                     dots[2].bindTooltip(`✈ ${(PILOT_NAMES[f.pilotKey] || '').split(' ')[0]} — in the air`, { permanent: false, className: 'dark-popup' });
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
-                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey);
                 } else if (!landedEarly && isPreflightWindow(depTime?.getTime(), now.getTime(), arrTime?.getTime())) {
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
                     const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), color, null, true));
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
-                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey);
                 }
             });
 
