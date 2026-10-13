@@ -3513,7 +3513,16 @@ app.get('/api/flight-status', (req, res) => {
     const list = String(req.query.callsigns || '').split(',')
         .map(s => s.toUpperCase().replace(/\s/g, '')).filter(Boolean).slice(0, 50);
     const now = Date.now();
+    // Excludes anything currently confirmed parked -- airborne (below) already did this, live
+    // didn't, which is how a callsign could show up in BOTH parked and live at once: a stale
+    // _liveCache entry from just before parked-detection fired (parked flights short-circuit
+    // /api/live-position's own handler before it ever writes a fresh cache entry, so the old
+    // "found" one just sits there until its own recency window lapses on its own). Confirmed
+    // live: _legState()'s parked->completed rule requires !liveSeen specifically so it never
+    // overrides a genuinely still-flying aircraft -- but that same guard let a landed flight's
+    // stale "live" flag block it from ever being marked completed, showing IN THE AIR instead.
     const live = list.filter(cs => {
+        if (isParked(cs)) return false;
         const c = _liveCache[cs];
         return c && c.data?.found && now - c.ts < 3 * 60 * 1000;
     });
