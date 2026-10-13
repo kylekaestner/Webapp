@@ -224,7 +224,9 @@ function processOneFiMessage(msgObj) {
         const s = String(t).trim();
         return s || null; // depRunwayConf in particular can be a lone space when no distinct dep config is active
     };
-    _airportConfig[String(airport).trim().toUpperCase()] = {
+    const key = String(airport).trim().toUpperCase();
+    const prev = _airportConfig[key];
+    const next = {
         facility: val('facility'),
         arrRunwayConf: val('arrRunwayConf'),
         depRunwayConf: val('depRunwayConf'),
@@ -235,6 +237,21 @@ function processOneFiMessage(msgObj) {
         updateTime: val('updateTime') || val('eventTime'),
         lastMsg: Date.now(),
     };
+    // TEMPORARY — logging only, to settle a real question with evidence instead of guessing:
+    // does FAA re-broadcast APTC periodically even when nothing changed (a heartbeat, in which
+    // case a long silence really does mean something's stale/wrong), or only when the
+    // configuration actually changes (in which case the 30min staleness window in
+    // getAirportConfig() is needlessly discarding good data and should be relaxed)? Compares
+    // every field except lastMsg/updateTime (which naturally differ message-to-message even with
+    // an unchanged config) against what was already stored for this airport. Remove once this
+    // has run long enough to answer the question.
+    const unchanged = prev && ['facility','arrRunwayConf','depRunwayConf','arrRate','depRate','weather','stratAar']
+        .every(k => prev[k] === next[k]);
+    const sinceLastMs = prev ? Date.now() - prev.lastMsg : null;
+    console.log(`[TFMS-APTC] ${key} ${unchanged ? 'UNCHANGED' : (prev ? 'CHANGED' : 'FIRST')}` +
+        (sinceLastMs != null ? ` (+${Math.round(sinceLastMs/60000)}min since last msg)` : '') +
+        ` dep=${next.depRunwayConf || '-'} arr=${next.arrRunwayConf || '-'}`);
+    _airportConfig[key] = next;
 }
 
 function handleMessage(xmlText) {
