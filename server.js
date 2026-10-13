@@ -3542,7 +3542,12 @@ app.get('/api/flight-status', (req, res) => {
     }
     const airborne = list.filter(cs => !isParked(cs) && (
         _everAirborneCallsigns.has(cs) || /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || '')));
-    res.json({ parked: list.filter(cs => isParked(cs)), live, airborne, times });
+    // Ground state for whichever callsigns are currently "live" -- lets the day map's static
+    // status line distinguish a flight that's genuinely airborne from one that's landed and
+    // taxiing in but not yet confirmed parked, instead of calling both "IN THE AIR".
+    const onGround = {};
+    for (const cs of live) { if (_liveCache[cs]?.data?.onGround) onGround[cs] = true; }
+    res.json({ parked: list.filter(cs => isParked(cs)), live, airborne, onGround, times });
 });
 
 app.get('/api/live-position', async (req, res) => {

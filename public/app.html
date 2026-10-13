@@ -7002,6 +7002,7 @@
             // landed. A scheduled departure time alone isn't evidence (the aircraft may still be at the gate).
             const liveSeen = new Set();
             const airborneSeen = new Set();
+            const onGroundSeen = new Set();
             const estTimes = {};
             if (_activeCs.size) {
                 try {
@@ -7010,6 +7011,7 @@
                     [..._activeCs].forEach(cs => { if (parkedNow.has(cs)) _confirmedParked.add(cs); else _confirmedParked.delete(cs); });
                     (st.live || []).forEach(cs => liveSeen.add(cs));
                     (st.airborne || []).forEach(cs => airborneSeen.add(cs));
+                    Object.keys(st.onGround || {}).forEach(cs => onGroundSeen.add(cs));
                     Object.assign(estTimes, st.times || {});
                 } catch (e) {}
                 if (gen !== mapRenderGen) return;
@@ -7140,7 +7142,7 @@
                 const blockMins = calcBlockMins(f);
                 const _pilotFirst = (PILOT_NAMES[f.pilotKey] || '').split(' ')[0];
                 const _statusLine = isActive
-                    ? `<div class="live-status-line" style="font-size:10px;color:#22c55e;font-weight:800;letter-spacing:.04em;margin-top:6px">▶ IN THE AIR</div>`
+                    ? `<div class="live-status-line" style="font-size:10px;color:#22c55e;font-weight:800;letter-spacing:.04em;margin-top:6px">▶ ${onGroundSeen.has(_cs) ? 'TAXIING IN' : 'IN THE AIR'}</div>`
                     : isPast
                     ? `<div class="live-status-line" style="font-size:10px;color:#3f3f46;font-weight:800;letter-spacing:.04em;margin-top:6px">✓ ${landedEarly ? 'LANDED EARLY' : 'COMPLETED'}</div>`
                     : (depTime && depTime <= now && _delayed)
