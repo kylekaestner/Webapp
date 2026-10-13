@@ -3245,7 +3245,20 @@ function resolveRouteWaypoints(routeParsed, callsign) {
     // per-flight assignment, so TFDM's real value always wins when it has one. Each field falls
     // back independently (e.g. TFDM might know the departure runway but not arrival yet).
     const depRunway = runwayInfo?.depRunway || tfms.splitRunwayConf(tfms.getAirportConfig(originWp?.name)?.depRunwayConf);
-    const arrRunway = runwayInfo?.arrRunway || tfms.splitRunwayConf(tfms.getAirportConfig(destWp?.name)?.arrRunwayConf);
+    // Requested directly: when the DESTINATION airport has no arrival-runway broadcast of its own
+    // (TFDM hasn't assigned one for this flight, and TFMS's APTC feed hasn't sent an arrival
+    // config recently either -- confirmed live for DTW: depRunwayConf populated, arrRunwayConf
+    // null), fall back to that SAME airport's own current DEPARTURE config as a proxy. An
+    // airport's active configuration is driven by wind and ties arrivals and departures to the
+    // same general flow direction together (e.g. "22 operations" vs "4 operations") even though
+    // the specific runway numbers for each aren't simply identical -- so this doesn't claim to
+    // know the exact landing runway, but for pickBody()'s purpose (which runway-specific STAR
+    // body to use, usually split by flow direction, not exact runway) it's a meaningfully better
+    // signal than falling all the way to bodies[0]'s arbitrary CSV-order guess with zero live
+    // data behind it at all.
+    const arrRunway = runwayInfo?.arrRunway
+        || tfms.splitRunwayConf(tfms.getAirportConfig(destWp?.name)?.arrRunwayConf)
+        || tfms.splitRunwayConf(tfms.getAirportConfig(destWp?.name)?.depRunwayConf);
 
     routeParsed.resolvedPath = navdata.resolveWaypoints(
         routeParsed.waypoints,
