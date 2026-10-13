@@ -2074,9 +2074,9 @@
         // the time, and only ever has something to show for a flight SWIM is tracking whose
         // sector actually resolves to a real vNAS-modeled position (not every real FAA facility
         // is modeled there -- see vnas.js's header). Same persisted-toggle pattern as Route
-        // Detail above.
-        let _showSectorOn = false;
-        try { _showSectorOn = localStorage.getItem('cs_show_sector') === '1'; } catch (_) {}
+        // Detail above -- now also defaulting on the same way, per explicit request.
+        let _showSectorOn = true;
+        try { _showSectorOn = localStorage.getItem('cs_show_sector') !== '0'; } catch (_) {}
         function toggleShowSector() {
             _showSectorOn = !_showSectorOn;
             try { localStorage.setItem('cs_show_sector', _showSectorOn ? '1' : '0'); } catch (_) {}
