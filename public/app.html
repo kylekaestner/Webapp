@@ -6413,6 +6413,17 @@
                                 return l;
                             });
                         }
+                        // The wide invisible hit-line (newHitLines, with the flight-info popup
+                        // already bound to it by the caller) was built against the plain
+                        // straight-line arc before any of this ran, and removeArc() above only
+                        // ever removed the VISIBLE plain arc, not this -- so it's still on the map,
+                        // just tracing the old straight path instead of the real filed route this
+                        // branch now draws. Confirmed live: that left exactly one clickable spot,
+                        // wherever the old straight line happens to geometrically cross the new
+                        // bowed-out real route (typically somewhere near the middle), everywhere
+                        // else on the visible route was unclickable. Reshape it to match the same
+                        // real path so the whole route stays clickable, same popup as always.
+                        newHitLines.forEach((h, i) => h.setLatLngs(fullU.map(([la, lo]) => [la, lo + WORLD_OFFSETS[i] * 360])));
                         return;
                     }
 
