@@ -108,7 +108,7 @@
                 border: none !important;
             }
             #calendar-grid-content > div > div:last-child .flight-item > div:first-child { font-size: 9px !important; font-weight: 800 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; line-height: 1.3 !important; }
-            #calendar-grid-content > div > div:last-child .flight-item > div:not(:first-child) { display: none !important; }
+            #calendar-grid-content > div > div:last-child .flight-item > div:not(:first-child):not(.leg-status-line) { display: none !important; }
 
             /* Non-flying days (away, hard off, off): show pill only */
             #calendar-grid-content > div:not(:has(.flight-item)) span[class*="rounded-full"] { font-size: 6px !important; padding: 1px 4px !important; }
@@ -1992,6 +1992,39 @@
         // Overrides the grace window immediately so a flight that really did land on schedule
         // doesn't sit tagged "in the air" for the full grace period.
         const _confirmedParked = new Set();
+        // Callsign+scheduled-departure -> the TFMS ETD (ISO string) that confirmed it, for a leg
+        // whose scheduled departure has passed with NO live evidence (ADS-B/SWIM/STDDS) found at
+        // all yet. Grid/list used to show the full green "active"/pulsing glow the instant
+        // scheduled departure passed, purely optimistic -- confirmed live (Brett's SCX3091,
+        // delayed ~42min with ADS-B being rate-limited the whole time) that's actively misleading:
+        // the cell looked "in the air" when nothing had actually confirmed it had even left the
+        // gate. Checked at render() time, same "optimistic until proven otherwise, corrected by a
+        // one-time re-render once the poller learns more" pattern as _confirmedParked above --
+        // startCalListLivePolling() sets this (see its own comment) and triggers exactly one
+        // render() on the transition, not a repeated one every poll tick. Composite-keyed by
+        // departure time, same reasoning as _landedEarlyKey -- a recurring callsign's next leg
+        // must never inherit a stale delayed flag from an earlier one.
+        const _confirmedDelayed = new Map();
+        function _delayedKey(cs, depMs) { return `${cs}|${depMs || ''}`; }
+        function _getConfirmedDelayEtd(cs, depMs) { return cs ? _confirmedDelayed.get(_delayedKey(cs, depMs)) : undefined; }
+        // Same idea, same key shape, for the map's other non-active state: scheduled departure has
+        // passed, still not found at all, but TFMS doesn't show a real delay either (no estimate,
+        // or one too close to scheduled to count) -- the map's own _legState falls through to this
+        // 'due' state as its actual default once nothing else applies, rather than ever assuming
+        // "active" just because the clock says so. Kept as a separate flag from _confirmedDelayed
+        // (not folded into one Map) since a leg can only ever be in one of these two states and
+        // keeping them apart avoids one flag's stale value being misread as the other's.
+        const _confirmedDue = new Set();
+        // Confirmed by at least one real position fix (ADS-B/SWIM/STDDS) -- the ONLY thing that
+        // earns the green "active/in the air" glow now. Confirmed live: Brett's SCX3091 visibly
+        // flashed green (render()'s old optimistic default the instant scheduled departure passed)
+        // then corrected to orange a moment later once the first poll came back -- not just
+        // "wrong for a few seconds" but actively confusing, since green-then-orange reads as "the
+        // app got it wrong," where neutral-then-colored reads as "it just found out." isActiveLeg
+        // alone no longer implies the glow; a brand new leg starts in the same plain/neutral look
+        // as a not-yet-departed one until this (or _confirmedDelayed/_confirmedDue) says otherwise,
+        // which normally resolves within one poll cycle anyway.
+        const _confirmedLive = new Set();
         // How long past scheduled arrival a flight is still worth treating as "maybe still
         // active" (showing live styling, kept eligible for live polling) instead of immediately
         // assuming it landed on schedule. Requested directly: a flight delayed on the ground
@@ -5144,7 +5177,7 @@
                             const dots = worldPlaneMarkers(arcCoords[idx], makePlaneIcon(bearing, pilotColor, null, true));
                             dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(al, key);
-                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], alArrUTC, [], weight, monthHits, alDepUTC, key);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], alArrUTC, [], weight, monthHits, alDepUTC, key, al.departure_airport);
                         }
                     } else {
                         // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
@@ -5161,7 +5194,7 @@
                             const dots = worldPlaneMarkers(depC, makePlaneIcon(computeBearing(depC, arrC), pilotColor, null, true));
                             dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(pf, key);
-                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], pfArrUTC, [], weight, monthHits, pfDepUTC, key);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], pfArrUTC, [], weight, monthHits, pfDepUTC, key, pf.departure_airport);
                         }
                     }
 
@@ -5401,7 +5434,7 @@
                         dots[2].bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                         dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(activeLeg, currentPilot);
-                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], arrTime, hereNowMarkers, weight, hitLines, depTime, currentPilot);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], arrTime, hereNowMarkers, weight, hitLines, depTime, currentPilot, activeLeg.departureAirport);
                     }
                 } else {
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
@@ -5416,7 +5449,7 @@
                         const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), '#22c55e', null, true));
                         dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(pf, currentPilot);
-                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], pfArrTime, hereNowMarkers, weight, hitLines, pfDepTime, currentPilot);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], pfArrTime, hereNowMarkers, weight, hitLines, pfDepTime, currentPilot, pf.departureAirport);
                     }
                 }
 
@@ -5868,13 +5901,39 @@
                 if (!cs || _calListPollers[cs]) return;
                 const liveEl = document.getElementById(`live-${cs}`);
                 if (!liveEl) return;
+                // Separate from liveEl -- the grid's copy of this lives inside .flight-item's
+                // FIRST child specifically, so the mobile "hide every child but the first" CSS
+                // override (which hides liveEl there on purpose, to keep cells compact) doesn't
+                // also hide the one piece of live status worth keeping visible on a phone: that
+                // the flight is actually running late. May be null (the list view, if its own
+                // per-row element happens not to exist for some reason) -- guarded below.
+                const delayEl = document.getElementById(`delay-${cs}`);
                 // This leg's own known departure airport (already baked into the markup, see
                 // data-dep-apt above) -- lets the server immediately recognize a genuinely new
                 // leg on a reused callsign (every one of Kyle's corporate flights; see
                 // deriveServerCallsign()'s comment in server.js) instead of waiting on a fresh
                 // live-feed origin that may be slow to arrive.
                 const depApt = el.dataset.depApt || '';
+                const arrApt = el.dataset.arrApt || '';
                 const poll = async () => {
+                    // Confirmed live (Kyle's SJJ176, landed at KSUS overnight): the only thing that
+                    // ever cleared a cell's glow was the server explicitly confirming `d.parked`
+                    // below -- if that detection simply never fires for a given landing (plausible
+                    // at a quieter GA field with sparser ADS-B/SWIM coverage right at touchdown),
+                    // nothing else ever re-checked isFlightStillActive()'s own schedule-based
+                    // LATE_ARRIVAL_GRACE_MS cutoff, so the cell just stayed frozen exactly as it
+                    // looked at the last render(), indefinitely, with no live evidence required to
+                    // ever time it out. This check needs no network round trip -- recompute the
+                    // same schedule-based condition render() itself used, and if it's already gone
+                    // false on its own, stop waiting on `d.parked` and re-render now.
+                    const depMs = el.dataset.depTime ? flightUTCTime(el.dataset.depTime, depApt)?.getTime() : null;
+                    const arrMs = el.dataset.arrTime ? flightUTCTime(el.dataset.arrTime, arrApt)?.getTime() : null;
+                    if (depMs && arrMs && !isFlightStillActive(depMs, arrMs, Date.now(), cs)) {
+                        clearInterval(_calListPollers[cs]);
+                        delete _calListPollers[cs];
+                        render();
+                        return;
+                    }
                     try {
                         const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(cs)}${depApt ? `&origin=${encodeURIComponent(depApt)}` : ''}`).then(r => r.json());
                         // This only ever updated the small altitude/speed text below -- the
@@ -5896,6 +5955,104 @@
                         }
                         let txt = '';
                         let txtColor = '#4ade80';
+                        const delayedKey = _delayedKey(cs, depMs);
+                        // The ONLY thing that earns the green glow now -- see _confirmedLive's own
+                        // header comment for why render() no longer assumes it just from the clock.
+                        // Checked and re-rendered (once) before anything else below, so a genuinely
+                        // on-time flight still gets the glow as soon as this poller can confirm it,
+                        // and any stale delayed/due flag from an earlier check gets cleared in the
+                        // same pass.
+                        if (d.found && !_confirmedLive.has(delayedKey)) {
+                            _confirmedLive.add(delayedKey);
+                            _confirmedDelayed.delete(delayedKey);
+                            _confirmedDue.delete(delayedKey);
+                            clearInterval(_calListPollers[cs]);
+                            delete _calListPollers[cs];
+                            render();
+                            return;
+                        }
+                        // Real TFDM departure-delay insight (uploaded schedule itself is never
+                        // touched) -- shown only pre-cruise, since by the time a flight is well
+                        // established en route the "it left late" fact is stale/less useful than
+                        // its current progress. Computed once, used by both liveEl (full text,
+                        // desktop/list) and delayEl (compact badge, grid -- see its own comment).
+                        const showDelay = d.departureDelayMin >= 10 && d.tfdmState && d.tfdmState !== 'EN_ROUTE' && d.tfdmState !== 'ON_FINAL' && d.tfdmState !== 'ARRIVAL';
+                        // d.found stays false for a flight with genuinely zero live evidence yet
+                        // (no ADS-B/SWIM/STDDS fix at all -- confirmed live: Brett's SCX3091, where
+                        // ADS-B was being rate-limited). The day map doesn't have this gap because
+                        // _legState separately consults /api/flight-status's TFMS times.etd; this
+                        // poller never did. Only worth the extra round trip in exactly this case
+                        // (not found at all) -- once a flight is found, the branch above already
+                        // handles it (TFDM's own showDelay just supplies supplementary text then).
+                        let notFoundDelayEtd = null;
+                        let notFoundChecked = false;
+                        if (!d.found && depMs) {
+                            try {
+                                // Same origin cross-check as /api/live-position above -- see
+                                // server.js's matchesExpectedOrigin()/timesOriginOk() comments.
+                                // Without this, a same-day reused flight number's real evidence
+                                // from an unrelated leg (not even in CrewSync's own data) could
+                                // still leak into this leg's delay/due/completed reading through
+                                // this endpoint's times object, even with /api/live-position
+                                // itself already correctly origin-checked.
+                                const statusData = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent(cs)}&origins=${encodeURIComponent(depApt || '')}`).then(r => r.json());
+                                notFoundChecked = true;
+                                // Real OOOI touchdown/gate-arrival time (not an estimate) -- same
+                                // last-resort completion signal the day map's _legState already
+                                // uses (see "TFMS's real OOOI arrival time" in CLAUDE.md), checked
+                                // here FIRST since it means this leg is actually done, outranking
+                                // any delayed/due label below. Confirmed live: Drew's GJS4608
+                                // (ROC-IAD) showed "DEPARTURE DUE" on the grid long after it had
+                                // genuinely landed (airlineOnTime well in the past), because this
+                                // poller fetched this exact endpoint for the delay check below but
+                                // never looked at this field -- the map did, via a separate code
+                                // path, which is exactly why the two disagreed. Reuses
+                                // _confirmedParked (not a new flag) since a confirmed real landing
+                                // is the same fact isFlightStillActive() already treats as done.
+                                const onTimeIso = statusData?.times?.[cs]?.airlineOnTime;
+                                if (onTimeIso && Date.now() >= new Date(onTimeIso).getTime() && !_confirmedParked.has(cs)) {
+                                    _confirmedParked.add(cs);
+                                    _confirmedDelayed.delete(delayedKey);
+                                    _confirmedDue.delete(delayedKey);
+                                    clearInterval(_calListPollers[cs]);
+                                    delete _calListPollers[cs];
+                                    render();
+                                    return;
+                                }
+                                const etdIso = statusData?.times?.[cs]?.etd;
+                                if (etdIso && (new Date(etdIso).getTime() - depMs) / 60000 >= 10) notFoundDelayEtd = etdIso;
+                            } catch (_) {}
+                        }
+                        // Two non-active outcomes once genuinely checked and still not found --
+                        // same split as the map's own _legState 'delayed' vs 'due': a real TFMS
+                        // ETD showing the flight running late, or (its actual default) just
+                        // "scheduled departure passed, nothing confirms it left yet, no particular
+                        // delay known either." Re-renders exactly once per state transition -- not
+                        // on every poll tick -- same pattern as _confirmedParked's own one-time
+                        // correction above.
+                        if (notFoundDelayEtd) {
+                            _confirmedDue.delete(delayedKey);
+                            if (!_confirmedDelayed.has(delayedKey)) {
+                                _confirmedDelayed.set(delayedKey, notFoundDelayEtd);
+                                clearInterval(_calListPollers[cs]);
+                                delete _calListPollers[cs];
+                                render();
+                                return;
+                            }
+                            _confirmedDelayed.set(delayedKey, notFoundDelayEtd); // keep the ETD itself current even without a full re-render
+                        } else if (notFoundChecked && !_confirmedDue.has(delayedKey)) {
+                            _confirmedDelayed.delete(delayedKey);
+                            _confirmedDue.add(delayedKey);
+                            clearInterval(_calListPollers[cs]);
+                            delete _calListPollers[cs];
+                            render();
+                            return;
+                        }
+                        // Note: d.parked is never true past this point -- the d.parked branch
+                        // earlier in this function already clears/renders/returns unconditionally
+                        // for that case. A stale _confirmedDelayed/_confirmedDue entry left behind
+                        // after a leg completes is harmless -- composite-keyed by departure time,
+                        // so it simply never matches any future leg's lookup again.
                         if (d.found && d.onGround && d.speedKts > 5) {
                             const _tfdmIn = /TAXI_IN|ARRIVAL/.test(d.tfdmState || '') ? 'in' : /TAXI_OUT/.test(d.tfdmState || '') ? 'for departure' : null;
                             txt = `Taxiing${_tfdmIn ? ' ' + _tfdmIn : ''} · ${Math.round(d.speedKts)} kts`;
@@ -5903,17 +6060,15 @@
                             const alt = d.altFt >= 18000 ? `FL${Math.round(d.altFt / 100)}` : `${Math.round(d.altFt).toLocaleString()} ft`;
                             const kts = d.speedKts ? ` · ${Math.round(d.speedKts)} kts` : '';
                             txt = `${alt}${kts}`;
-                            // Real TFDM departure-delay insight (uploaded schedule itself is never
-                            // touched) -- shown only pre-cruise, since by the time a flight is well
-                            // established en route the "it left late" fact is stale/less useful
-                            // than its current progress.
-                            if (d.departureDelayMin >= 10 && d.tfdmState && d.tfdmState !== 'EN_ROUTE' && d.tfdmState !== 'ON_FINAL' && d.tfdmState !== 'ARRIVAL') {
-                                txt += ` · Delayed ${d.departureDelayMin}m`;
-                            }
                         }
+                        if (showDelay) txt += `${txt ? ' · ' : ''}Delayed ${d.departureDelayMin}m`;
                         liveEl.style.color = txtColor;
                         liveEl.textContent = txt ? `✈ ${txt}` : '';
                         liveEl.style.display = txt ? '' : 'none';
+                        // Same wording/color as the day map's 'delayed'/'due' states.
+                        if (delayEl) delayEl.textContent = notFoundDelayEtd
+                            ? `DELAYED · ETD ${formatTimeISO(notFoundDelayEtd, depApt)}`
+                            : (_confirmedDue.has(delayedKey) ? 'DEPARTURE DUE' : '');
                     } catch (_) {}
                 };
                 poll();
@@ -6066,7 +6221,7 @@
         // not a literal frequency check-in (this app has no voice comms to check in on).
         const VCI_ICON_SVG = `<svg width="9" height="9" viewBox="0 0 16 16" style="display:inline-block;vertical-align:middle;margin-right:3px" fill="rgb(0,204,0)"><rect x="2" y="2" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="3" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="7" y="4" width="2" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="9" y="5" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="2" y="7" width="1" height="1"/><rect x="4" y="7" width="2" height="1"/><rect x="11" y="7" width="1" height="1"/><rect x="2" y="8" width="1" height="1"/><rect x="6" y="8" width="2" height="1"/><rect x="11" y="8" width="1" height="1"/><rect x="2" y="9" width="1" height="1"/><rect x="7" y="9" width="1" height="1"/><rect x="12" y="9" width="1" height="1"/><rect x="2" y="10" width="1" height="1"/><rect x="8" y="10" width="1" height="1"/><rect x="12" y="10" width="1" height="1"/><rect x="2" y="11" width="1" height="1"/><rect x="8" y="11" width="1" height="1"/><rect x="12" y="11" width="1" height="1"/><rect x="2" y="12" width="1" height="1"/><rect x="2" y="13" width="12" height="1"/></svg>`;
 
-        function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null, pilotKey = null) {
+        function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null, pilotKey = null, depAirportCode = null) {
             const newRouteLines = Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
             const newHitLines = hitLines || [];
             // Flown trail reads as "already behind you, less important now" vs. the heavier
@@ -6343,7 +6498,14 @@
                 }
                 try {
                     const _depQs = scheduledDepUTC ? `&depTime=${Math.floor(scheduledDepUTC.getTime()/1000)}` : '';
-                    const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}${_depQs}`).then(r => r.json());
+                    // Same origin cross-check grid/list's poller already sends -- see server.js's
+                    // matchesExpectedOrigin() comment. Without this the map had no way to reject a
+                    // same-day reused flight number's opposite-direction leg either: confirmed
+                    // live, Sam's LGA-TUL kept showing "in the air" with a real but WRONG dashed
+                    // route/position (Republic's genuine TUL-LGA return under the same RPA4605),
+                    // since this fetch never told the server which direction it actually meant.
+                    const _originQs = depAirportCode ? `&origin=${encodeURIComponent(depAirportCode)}` : '';
+                    const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}${_depQs}${_originQs}`).then(r => r.json());
 
                     // Server confirmed the plane is parked — flight complete
                     if (d.parked) {
@@ -6999,6 +7161,17 @@
             // Client-side _confirmedParked starts empty on every page load, so a flight that landed
             // inside its 90-min grace window would otherwise look airborne and drop its pilot's pin.
             const _activeCs = new Set();
+            // callsign -> departure airport, for the server-side origin cross-check below (see
+            // server.js's matchesExpectedOrigin() / this same fix applied to /api/flight-status).
+            // First-seen wins if two of OUR OWN segments genuinely share one callsign the same day
+            // (a same-day round trip) -- that specific case is already handled by the time-based
+            // _hasNewerLegStarted()/depHasPassed logic elsewhere, not by this map, so one entry here
+            // is enough; this map exists for the OTHER case, where the real-world reuse isn't even
+            // in our own data at all (confirmed live: Sam's RPA4605 LGA-TUL vs. Republic's own
+            // genuine TUL-LGA return under the same number, a flight that isn't anyone's segment
+            // in this app -- without telling the server which origin we actually mean, its real,
+            // currently-airborne evidence got attributed to Sam's already-landed leg instead).
+            const _csOrigin = new Map();
             Object.entries(allPilotSegments).forEach(([key, segs]) => segs.forEach(f => {
                 const cs = deriveCallsign(f, key);
                 if (!cs) return;
@@ -7006,7 +7179,10 @@
                 const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
                 // Long enough after arrival for the server to confirm the flight flew, so it can be marked completed.
                 const inWindow = (d && a) && now.getTime() >= d.getTime() - PREFLIGHT_ROUTE_MS && now.getTime() <= a.getTime() + 4 * 60 * 60 * 1000;
-                if (inWindow) _activeCs.add(cs);
+                if (inWindow) {
+                    _activeCs.add(cs);
+                    if (!_csOrigin.has(cs) && f.departureAirport) _csOrigin.set(cs, f.departureAirport);
+                }
             }));
             // Airborne on the day map needs real evidence: a live position seen in the last few minutes,
             // or the server having seen the aircraft airborne and no live contact since it should have
@@ -7017,7 +7193,9 @@
             const estTimes = {};
             if (_activeCs.size) {
                 try {
-                    const st = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent([..._activeCs].join(','))}`).then(r => r.json());
+                    const _csList = [..._activeCs];
+                    const _originsQs = _csList.map(cs => _csOrigin.get(cs) || '').join(',');
+                    const st = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent(_csList.join(','))}&origins=${encodeURIComponent(_originsQs)}`).then(r => r.json());
                     const parkedNow = new Set(st.parked || []);
                     [..._activeCs].forEach(cs => { if (parkedNow.has(cs)) _confirmedParked.add(cs); else _confirmedParked.delete(cs); });
                     (st.live || []).forEach(cs => liveSeen.add(cs));
@@ -7196,13 +7374,13 @@
                     dots[2].bindTooltip(`✈ ${(PILOT_NAMES[f.pilotKey] || '').split(' ')[0]} — in the air`, { permanent: false, className: 'dark-popup' });
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
-                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey, f.departureAirport);
                 } else if (!landedEarly && isPreflightWindow(depTime?.getTime(), now.getTime(), arrTime?.getTime())) {
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
                     const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), color, null, true));
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
-                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey, f.departureAirport);
                 }
             });
 
@@ -7686,6 +7864,8 @@
                         ? `<div style="font-size:11px;color:#93c5fd;font-weight:700;margin-bottom:4px">🌙 Overnight — started the previous day</div>`
                         : el.dataset.redeye === 'dep'
                         ? `<div style="font-size:11px;color:#93c5fd;font-weight:700;margin-bottom:4px">🌙 Overnight — continues into the next day</div>`
+                        : el.dataset.redeye === 'mid'
+                        ? `<div style="font-size:11px;color:#93c5fd;font-weight:700;margin-bottom:4px">🌙 Multi-day on-call — in effect all day</div>`
                         : '';
                     const html   = `<div style="font-weight:800;margin-bottom:6px;color:#fbbf24">ON CALL — ${typeLabel}</div>` +
                         resRedeyeLabel +
@@ -7817,14 +7997,25 @@
                     if (isToday) dayClasses.push('day-today');
                     const dayEvents = segments.filter(s => {
                         if (!s.departureTime) return false;
-                        if (flightLocalDate(s.departureTime, s.departureAirport) === dateKey) return true;
-                        // Flights AND reserve shifts that span midnight also appear on the END
-                        // day's cell, not just the start day's -- see the matching redEye marker
-                        // on the reserve-item block below for why that needs flagging.
-                        if ((s.type !== 'flight' && s.type !== 'reserve') || !s.arrivalTime) return false;
-                        const arrLocal = flightLocalDate(s.arrivalTime, s.arrivalAirport);
                         const depLocal = flightLocalDate(s.departureTime, s.departureAirport);
-                        return arrLocal === dateKey && arrLocal !== depLocal;
+                        if (depLocal === dateKey) return true;
+                        if (!s.arrivalTime) return false;
+                        const arrLocal = flightLocalDate(s.arrivalTime, s.arrivalAirport);
+                        if (s.type === 'reserve') {
+                            // A multi-day reserve ("Long Call") block must show on EVERY day it
+                            // spans, not just its start/end -- confirmed live against a real
+                            // Delta MiCrew feed: a genuine 4-calendar-day LC block (Nov 2 00:00 ->
+                            // Nov 5 05:59) only ever appeared on the 2nd and 5th, leaving the days
+                            // in between looking like ordinary off days despite being on call the
+                            // whole stretch. depLocal/arrLocal/dateKey are all plain 'YYYY-MM-DD'
+                            // strings, which compare correctly as plain strings (zero-padded ISO).
+                            return dateKey >= depLocal && dateKey <= arrLocal;
+                        }
+                        // Flights that span midnight also appear on the END day's cell, not just
+                        // the start day's -- see the matching redEye marker on the flight-item
+                        // block below for why that needs flagging. Scoped to exactly one extra day
+                        // (unlike reserve above) since a real flight leg never spans more than that.
+                        return s.type === 'flight' && arrLocal === dateKey && arrLocal !== depLocal;
                     });
                     const isHard = dayEvents.some(e => e.type === 'hard');
                     const isVacation = dayEvents.some(e => e.type === 'vacation');
@@ -7939,7 +8130,7 @@
                                 const atHome = isHomeOrBase(arrApt, currentPilot);
                                 const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
                                 const lbl = layoverLabel(groundMins, atHome, sameDay);
-                                if (lbl) groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl}</div>`;
+                                if (lbl) groundLine = `<div class="leg-status-line" style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl}</div>`;
                             }
                         }
                         const nowMs = Date.now();
@@ -7947,15 +8138,61 @@
                         const arrMs = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                         const csig = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
                         const isActiveLeg = isFlightStillActive(depMs, arrMs, nowMs, csig) && !_isLandedEarly(csig, arrMs);
-                        const cellBg = isActiveLeg
+                        // A leg that's done -- either landed early, or its scheduled arrival has
+                        // passed and it's no longer flagged active (past the full grace window, or
+                        // server-confirmed parked). Deliberately excludes a leg that just hasn't
+                        // departed yet (nowMs < arrMs and not landed early) -- only an actually
+                        // finished leg gets the checkmark below. Scoped to TODAY's legs only --
+                        // every past day already reads as "done" by definition (it's in the past),
+                        // so marking every single one would just be noise; the checkmark is useful
+                        // specifically for telling today's completed legs apart from today's
+                        // upcoming ones.
+                        const isCompletedLeg = !isActiveLeg && !!arrMs && (nowMs >= arrMs || _isLandedEarly(csig, arrMs)) && dateKey === _localToday();
+                        // Confirmed by the poller (see startCalListLivePolling()'s own comment):
+                        // scheduled departure has passed, nothing has been found airborne/on the
+                        // ground at all yet. Don't show the green "active/in the air" glow for a
+                        // flight nothing has actually confirmed left the gate -- two sub-cases, same
+                        // split and wording/colors as the day map's own _legState: a real TFMS ETD
+                        // showing it running late ('delayed', #f97316), or just "nothing confirms
+                        // it's left, no particular delay known either" ('due', #eab308 -- the map's
+                        // own actual default once nothing else applies). isActiveLeg itself stays
+                        // true regardless of either (keeps the live-status div + polling attached so
+                        // it can flip back to a real green glow the moment it's actually found).
+                        // The glow itself now requires _confirmedLive, not just isActiveLeg --
+                        // see that Set's own header comment for why (the green-then-orange flash
+                        // this used to produce the instant scheduled departure passed, confirmed
+                        // live on Brett's SCX3091). A brand new leg starts neutral, same look as a
+                        // not-yet-departed one, until one of the three poller-confirmed states below
+                        // resolves it -- normally within one poll cycle.
+                        const confirmedLive = isActiveLeg && _confirmedLive.has(_delayedKey(csig, depMs));
+                        const confirmedDelayEtd = isActiveLeg && !confirmedLive ? _getConfirmedDelayEtd(csig, depMs) : null;
+                        const confirmedDue = isActiveLeg && !confirmedLive && !confirmedDelayEtd && _confirmedDue.has(_delayedKey(csig, depMs));
+                        const showActiveGlow = confirmedLive;
+                        const _notConfirmedColor = confirmedDelayEtd ? '249,115,22' : '234,179,8'; // orange (delayed) vs amber (due)
+                        const cellBg = showActiveGlow
                             ? (isPersonal ? `background:rgba(109,40,217,0.15);border:2px solid rgba(34,197,94,0.85)` : isCommute ? `background:rgba(120,53,15,0.2);border:2px solid rgba(34,197,94,0.85)` : `background:rgba(0,0,0,0.4);border:2px solid rgba(34,197,94,0.85)`)
+                            : (confirmedDelayEtd || confirmedDue)
+                            ? (isPersonal ? `background:rgba(109,40,217,0.15);border:2px solid rgba(${_notConfirmedColor},0.85)` : isCommute ? `background:rgba(120,53,15,0.2);border:2px solid rgba(${_notConfirmedColor},0.85)` : `background:rgba(0,0,0,0.4);border:2px solid rgba(${_notConfirmedColor},0.85)`)
                             : (isPersonal ? 'background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.25)' : isCommute ? 'background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.25)' : 'background:rgba(0,0,0,0.4)');
-                        html += `<div class="rounded-lg px-2 py-[5px] flight-item${isActiveLeg ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}"${redEyeAttr}${isActiveLeg && csig ? ` data-live-callsign="${csig}"` : ''}>`;
+                        html += `<div class="rounded-lg px-2 py-[5px] flight-item${showActiveGlow ? ' active-leg' : ''}" style="font-size:10px;${cellBg}" data-dep-time="${depAttr}" data-arr-time="${arrAttr}" data-tail="${tailAttr}" data-trip="${tripAttr}" data-flight="${flightNumAttr}" data-dep-apt="${depApt}" data-arr-apt="${arrApt}" data-dh="${f.dh ? 'true' : 'false'}" data-block="${calcBlockMins(f) ?? ''}"${redEyeAttr}${isActiveLeg && csig ? ` data-live-callsign="${csig}"` : ''}>`;
                         const cellFlightLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
                         const flLabelSpan = cellFlightLabel ? flightAwareLink(cellFlightLabel, `<span style="font-size:9px;font-weight:700;color:#7dd3fc;margin-left:3px">${cellFlightLabel}</span>`, flightAwareEligible(depMs)) : '';
-                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}${redEyeDot}${flLabelSpan}</div>`;
+                        const completedCheck = isCompletedLeg ? `<span style="font-size:10px;font-weight:900;color:#4ade80;margin-left:2px" title="Completed">✓</span>` : '';
+                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}${redEyeDot}${flLabelSpan}${completedCheck}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
+                        // Placed right after groundLine (the overnight/layover line) so it reads as
+                        // "where it's headed next, then its current status" -- baked in directly
+                        // when already known at render time, same wording/color as the map's
+                        // 'delayed'/'due' states; startCalListLivePolling()'s poll() keeps it fresh
+                        // afterward (an ETD can itself shift, or this can resolve to found/parked).
+                        // Needs the same "leg-status-line" class as groundLine above -- the mobile
+                        // grid CSS override hides every .flight-item child but the first one to keep
+                        // cells compact, and both of these are deliberate exceptions to that.
+                        if (isActiveLeg && csig) {
+                            const _noteText = confirmedDelayEtd ? `DELAYED · ETD ${formatTimeISO(confirmedDelayEtd, depApt)}` : (confirmedDue ? 'DEPARTURE DUE' : '');
+                            html += `<div class="leg-status-line" id="delay-${csig}" style="font-size:9px;font-weight:800;color:#${confirmedDelayEtd ? 'f97316' : 'eab308'};margin-top:2px">${_noteText}</div>`;
+                        }
                         if (isActiveLeg && csig) html += `<div id="live-${csig}" style="font-size:9px;color:#4ade80;font-weight:700;margin-top:2px;display:none"></div>`;
                         html += `</div>`;
                     });
@@ -7977,10 +8214,36 @@
                         const resRedEyeDot = resCrossesMidnight
                             ? `<span style="font-size:9px;font-weight:900;margin-left:3px">🌙</span>`
                             : '';
-                        const resRedEyeAttr = resCrossesMidnight ? ` data-redeye="${dateKey === _resArrLocal ? 'arr' : 'dep'}"` : '';
+                        // A multi-day block (now shown on every day it spans, not just start/end
+                        // -- see dayEvents' own comment above) needs a third case for a day that's
+                        // neither: the binary arr/dep choice used to default a middle day to 'dep'
+                        // ("continues into the next day"), which is true but misses that it also
+                        // already started -- 'mid' says both.
+                        const resRedEyeAttr = resCrossesMidnight ? ` data-redeye="${dateKey === _resArrLocal ? 'arr' : dateKey === _resDepLocal ? 'dep' : 'mid'}"` : '';
+                        // Requested directly after a real multi-day "Long Call" block (Nov 2 00:00
+                        // -> Nov 5 05:59, one continuous ~78hr period, confirmed against the raw
+                        // feed) was mistaken for a recurring 12am-6am window each night -- every day
+                        // showed the SAME start/end clock times with no indication it was one span,
+                        // not several separate overnight reserves. A persistent date-range badge
+                        // next to the label makes the span itself unmistakable on every day it
+                        // covers, and the time line below says the right thing for THIS specific
+                        // day (starting/ongoing/ending) instead of always repeating the overall
+                        // start and end times, which is actively misleading on a middle day.
+                        const _fmtShortDate = (ymd) => { const [y, mo, dd] = ymd.split('-').map(Number); return new Date(y, mo - 1, dd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+                        const resSpanBadge = resCrossesMidnight ? `<span style="font-size:8px;font-weight:700;color:#92400e;margin-left:4px">${_fmtShortDate(_resDepLocal)}–${_fmtShortDate(_resArrLocal)}</span>` : '';
+                        let resTimeLine = '';
+                        if (!resCrossesMidnight) {
+                            if (depFmt) resTimeLine = `${depFmt}${tzS(depTz)} – ${arrFmt}${tzS(arrTz)}`;
+                        } else if (dateKey === _resDepLocal) {
+                            resTimeLine = `Starts ${depFmt}${tzS(depTz)} — ongoing`;
+                        } else if (dateKey === _resArrLocal) {
+                            resTimeLine = `Ends ${arrFmt}${tzS(arrTz)}`;
+                        } else {
+                            resTimeLine = `On call all day`;
+                        }
                         html += `<div class="rounded-lg px-2 py-[5px] reserve-item" style="font-size:10px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2)" data-dep-time="${r.departureTime||''}" data-arr-time="${r.arrivalTime||''}" data-dep-apt="${r.departureAirport||''}" data-arr-apt="${r.arrivalAirport||''}" data-res-type="${subType}"${resRedEyeAttr}>`;
-                        html += `<div style="font-weight:800;font-size:11px;color:#fbbf24">ON CALL <span style="font-size:9px;font-weight:600;color:#d97706">${subType}</span>${resRedEyeDot}</div>`;
-                        if (depFmt) html += `<div style="color:#b45309;font-size:10px;margin-top:1px">${depFmt}${tzS(depTz)} – ${arrFmt}${tzS(arrTz)}</div>`;
+                        html += `<div style="font-weight:800;font-size:11px;color:#fbbf24">ON CALL <span style="font-size:9px;font-weight:600;color:#d97706">${subType}</span>${resRedEyeDot}${resSpanBadge}</div>`;
+                        if (resTimeLine) html += `<div style="color:#b45309;font-size:10px;margin-top:1px">${resTimeLine}</div>`;
                         html += `</div>`;
                     });
                     html += `</div></div>`;
@@ -7994,11 +8257,15 @@
                     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const dayEvents = segments.filter(s => {
                         if (!s.departureTime) return false;
-                        if (flightLocalDate(s.departureTime, s.departureAirport) === dateKey) return true;
-                        if (s.type !== 'flight' || !s.arrivalTime) return false;
-                        const arrLocal = flightLocalDate(s.arrivalTime, s.arrivalAirport);
                         const depLocal = flightLocalDate(s.departureTime, s.departureAirport);
-                        return arrLocal === dateKey && arrLocal !== depLocal;
+                        if (depLocal === dateKey) return true;
+                        if (!s.arrivalTime) return false;
+                        const arrLocal = flightLocalDate(s.arrivalTime, s.arrivalAirport);
+                        // Same multi-day reserve span fix as the grid's own dayEvents filter --
+                        // see its comment. Every day a "Long Call" block covers needs its own
+                        // listing here too, not just the start day.
+                        if (s.type === 'reserve') return dateKey >= depLocal && dateKey <= arrLocal;
+                        return s.type === 'flight' && arrLocal === dateKey && arrLocal !== depLocal;
                     });
                     const dateObj = new Date(year, month, d);
                     const dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -8060,7 +8327,21 @@
                             const depTz = r.departureAirport ? tzAbbr(r.departureAirport, r.departureTime) : '';
                             const arrTz = r.arrivalAirport  ? tzAbbr(r.arrivalAirport,  r.arrivalTime)  : '';
                             const tzSup2 = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:2px">${lbl}</span>` : '';
-                            return `<div class="border border-amber-500/25 rounded-2xl px-4 py-3 bg-amber-950/20 text-sm text-amber-200"><div class="flex items-center justify-between"><div class="font-black text-amber-300 uppercase tracking-wide">On Call <span class="text-amber-600 text-xs font-semibold ml-1">${subType}</span></div><div class="text-right text-xs text-amber-400/70">${depFmt}${tzSup2(depTz)} – ${arrFmt}${tzSup2(arrTz)}</div></div></div>`;
+                            // Same multi-day clarity fix as the grid's reserve-item -- see its own
+                            // comment. Without this every day of a real multi-day "Long Call" block
+                            // showed the identical overall start/end clock times, reading like a
+                            // recurring nightly window instead of one continuous span.
+                            const _resDepLocal2 = r.departureTime ? flightLocalDate(r.departureTime, r.departureAirport) : '';
+                            const _resArrLocal2 = r.arrivalTime ? flightLocalDate(r.arrivalTime, r.arrivalAirport) : '';
+                            const resSpans2 = _resDepLocal2 && _resArrLocal2 && _resDepLocal2 !== _resArrLocal2;
+                            const _fmtShortDate2 = (ymd) => { const [y, mo, dd] = ymd.split('-').map(Number); return new Date(y, mo - 1, dd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+                            const spanBadge2 = resSpans2 ? `<span class="text-amber-600 text-[10px] font-semibold ml-1.5">${_fmtShortDate2(_resDepLocal2)}–${_fmtShortDate2(_resArrLocal2)}</span>` : '';
+                            let resTimeText2;
+                            if (!resSpans2) resTimeText2 = `${depFmt}${tzSup2(depTz)} – ${arrFmt}${tzSup2(arrTz)}`;
+                            else if (dateKey === _resDepLocal2) resTimeText2 = `Starts ${depFmt}${tzSup2(depTz)} — ongoing`;
+                            else if (dateKey === _resArrLocal2) resTimeText2 = `Ends ${arrFmt}${tzSup2(arrTz)}`;
+                            else resTimeText2 = `On call all day`;
+                            return `<div class="border border-amber-500/25 rounded-2xl px-4 py-3 bg-amber-950/20 text-sm text-amber-200"><div class="flex items-center justify-between"><div class="font-black text-amber-300 uppercase tracking-wide">On Call <span class="text-amber-600 text-xs font-semibold ml-1">${subType}</span>${spanBadge2}</div><div class="text-right text-xs text-amber-400/70">${resTimeText2}</div></div></div>`;
                         }).join('');
                     }
                     const allLegs = [...flights, ...groundLegs].sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
@@ -8132,16 +8413,35 @@
                                 const arrMs2 = arrAttr ? flightUTCTime(arrAttr, arrApt)?.getTime() : null;
                                 const csig2 = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
                                 const isActiveLeg2 = isFlightStillActive(depMs2, arrMs2, nowMs2, csig2) && !_isLandedEarly(csig2, arrMs2);
-                                const rowAccent2 = isActiveLeg2 ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
-                                const rowBg = isPersonal ? 'bg-violet-950/15' : isCommute ? 'bg-amber-950/15' : isActiveLeg2 ? 'bg-emerald-950/10' : 'bg-black/30';
+                                // Same "actually finished, not just not-yet-departed" check as the
+                                // grid -- see its own comment. Scoped to today only, same reasoning.
+                                const isCompletedLeg2 = !isActiveLeg2 && !!arrMs2 && (nowMs2 >= arrMs2 || _isLandedEarly(csig2, arrMs2)) && dateKey === _localToday();
+                                // Same "don't glow green for a flight nothing has confirmed left the
+                                // gate" check as the grid -- see its own comment.
+                                const confirmedLive2 = isActiveLeg2 && _confirmedLive.has(_delayedKey(csig2, depMs2));
+                                const confirmedDelayEtd2 = isActiveLeg2 && !confirmedLive2 ? _getConfirmedDelayEtd(csig2, depMs2) : null;
+                                const confirmedDue2 = isActiveLeg2 && !confirmedLive2 && !confirmedDelayEtd2 && _confirmedDue.has(_delayedKey(csig2, depMs2));
+                                const showActiveGlow2 = confirmedLive2;
+                                const rowAccent2 = showActiveGlow2 ? '#22c55e' : confirmedDelayEtd2 ? '#f97316' : confirmedDue2 ? '#eab308' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
+                                const rowBg = isPersonal ? 'bg-violet-950/15' : isCommute ? 'bg-amber-950/15' : showActiveGlow2 ? 'bg-emerald-950/10' : (confirmedDelayEtd2 || confirmedDue2) ? 'bg-orange-950/10' : 'bg-black/30';
                                 const editBtns = f.id ? `<div class="flex items-center gap-0.5 ml-1 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
                                 const _liveSlotBorder = 'rgba(34,197,94,0.15)';
                                 const liveSlot = isActiveLeg2 && csig2 ? `<div id="live-${csig2}" style="font-size:11px;color:#4ade80;font-weight:700;margin-top:6px;padding-top:5px;border-top:1px solid ${_liveSlotBorder};display:none"></div>` : '';
+                                // Same id convention as the grid's note -- startCalListLivePolling()'s
+                                // poll() fills both views from one shared lookup, keyed by callsign.
+                                // Placed under the block-time/layover line below (see its own comment),
+                                // not in badgeRow -- same "note sits under the overnight line" placement
+                                // as the grid. Pre-filled when already known at render time, same
+                                // wording/colors as the map's 'delayed'/'due' states.
+                                const delayLine2 = (isActiveLeg2 && csig2)
+                                    ? `<div id="delay-${csig2}" class="text-[10px] font-bold mt-0.5" style="color:${confirmedDelayEtd2 ? '#f97316' : '#eab308'}">${confirmedDelayEtd2 ? `DELAYED · ETD ${formatTimeISO(confirmedDelayEtd2, depApt)}` : (confirmedDue2 ? 'DEPARTURE DUE' : '')}</div>`
+                                    : '';
                                 const badgeRow = [
-                                    isActiveLeg2 ? `<span class="flex items-center gap-1 text-[10px] font-semibold text-emerald-400"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;display:inline-block;animation:pulse 1.5s infinite"></span>In the air</span>` : '',
+                                    showActiveGlow2 ? `<span class="flex items-center gap-1 text-[10px] font-semibold text-emerald-400"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;display:inline-block;animation:pulse 1.5s infinite"></span>In the air</span>` : '',
+                                    isCompletedLeg2 ? `<span class="flex items-center gap-1 text-[10px] font-semibold text-emerald-400">✓ Completed</span>` : '',
                                     dhBadge, personalBadge, commuteBadge
                                 ].filter(Boolean).join('');
-                                return `<div class="flight-row rounded-2xl overflow-hidden ${rowBg}${isActiveLeg2 ? ' active-leg' : ''}"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}" data-dep-time="${depAttr}" data-dep-apt="${depApt}"` : ''} style="border:1px solid ${rowAccent2}22">
+                                return `<div class="flight-row rounded-2xl overflow-hidden ${rowBg}${showActiveGlow2 ? ' active-leg' : ''}"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}" data-dep-time="${depAttr}" data-dep-apt="${depApt}" data-arr-time="${arrAttr}" data-arr-apt="${arrApt}"` : ''} style="border:1px solid ${rowAccent2}22">
                                     <div style="height:2px;background:linear-gradient(90deg,${rowAccent2},${rowAccent2}44,transparent)"></div>
                                     <div class="flex items-center gap-3 px-4 py-3">
                                         <div class="flex-1 min-w-0">
@@ -8156,6 +8456,7 @@
                                         <div class="text-right shrink-0">
                                             <div class="text-sm font-bold text-zinc-200 font-mono">${depTime}${tzSup(depTz)}<span class="text-zinc-600 mx-1">→</span>${arrTime}${tzSup(arrTz)}</div>
                                             <div class="text-[10px] text-zinc-500 mt-0.5">${blockMins !== null ? formatDurationMinutes(blockMins) : ''}${layoverText ? ` · <span style="color:#fbbf24;font-weight:600">${layoverText}</span>` : ''}</div>
+                                            ${delayLine2}
                                         </div>
                                         ${editBtns}
                                     </div>

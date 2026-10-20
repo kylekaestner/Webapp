@@ -50,6 +50,23 @@ const TFMS_ENABLED = !!(TFMS_HOST && TFMS_VPN && TFMS_USER && TFMS_PASS && TFMS_
 
 let _connected = false;
 let _relevantCallsigns = null; // same pattern as swim.js/stdds.js
+// callsign -> Set<scheduledDepUTCms> -- see setRelevantCallsigns()/isExpectedDay() below. Unlike
+// swim.js/stdds.js (live position only, self-evidently "right now"), TFMS carries pre-departure
+// flight-plan/schedule data, which is exactly what let a recurring flight number's NEXT calendar
+// day's flight get mistaken for today's -- confirmed live: Sam's RPA4492 (SDF-ORD, flown and
+// landed today) showed "delayed" with a nonsense ETD, because the real _flightTimes[cs] entry got
+// silently overwritten by a flightPlanInformation/flightTimeData message for TOMORROW's unrelated
+// physical flight under the same recurring number, the instant today's instance stopped
+// broadcasting. Real airline flight numbers recur daily -- this isn't an edge case.
+let _relevantDepTimes = new Map();
+// callsign -> Set<normalizedOrigin> -- see setRelevantOrigins()/isExpectedOrigin() below. The
+// day-check above stops a recurring flight number's NEXT calendar day's data from contaminating
+// today's; this stops a SAME-day, opposite-direction/different-route reuse of the same flight
+// number -- confirmed live: Republic's real TUL-LGA return flight shares callsign RPA4605 with
+// Sam's own LGA-TUL leg, same day, and isn't in CrewSync's own data at all, so no date check can
+// tell them apart. The real origin is parsed straight out of this feed's own filed-route string
+// (routeOrigin() below), not borrowed from any other feed.
+let _relevantOrigins = new Map();
 
 const _latest = {}; // callsign -> { route, fixes: [{name,lat?,lon?,time}], sid, star, lastMsg }
 // Estimated/airline times, kept apart from _latest so they survive restarts and pruning. Persisted to disk.
@@ -93,11 +110,98 @@ function textOf(val) {
     return val;
 }
 
-function setRelevantCallsigns(set) {
-    _relevantCallsigns = set instanceof Set ? set : new Set(set || []);
+function setRelevantCallsigns(input) {
+    // Accepts either a plain Set/array of callsign strings (no day-check -- permissive, same as
+    // before) or a Map<callsign, Iterable<number|Date|string>> giving each callsign's known
+    // scheduled departure time(s), used by isExpectedDay() below to reject a message describing a
+    // different calendar-day instance of a recurring flight number. server.js's
+    // runActiveFlightPoller passes the Map form; it already has each relevant row's real
+    // timezone-correct departure instant in scope when it builds the relevant set.
+    if (input instanceof Map) {
+        _relevantCallsigns = new Set(input.keys());
+        _relevantDepTimes = new Map();
+        for (const [cs, times] of input) {
+            const set = new Set();
+            for (const t of times) {
+                const ms = t instanceof Date ? t.getTime() : (typeof t === 'number' ? t : new Date(t).getTime());
+                if (!isNaN(ms)) set.add(ms);
+            }
+            if (set.size) _relevantDepTimes.set(cs, set);
+        }
+    } else {
+        _relevantCallsigns = input instanceof Set ? input : new Set(input || []);
+        _relevantDepTimes = new Map();
+    }
     for (const cs of Object.keys(_latest)) {
         if (!_relevantCallsigns.has(cs)) delete _latest[cs];
     }
+}
+
+// Pulls the origin airport out of a TFMS legacy-format route string, e.g. "KJFK./.TEYOU..." or
+// "KSUS..KAMA/0415" -> "SUS"/"SUS" (K-prefix stripped to match server.js's own normApt()
+// convention, same bare-code shape used throughout this codebase for airport comparisons).
+function routeOrigin(routeStr) {
+    if (!routeStr) return null;
+    const first = String(routeStr).trim().split(/[.\/\s]+/)[0];
+    if (!first) return null;
+    return first.toUpperCase().replace(/^K/, '');
+}
+
+// server.js calls this separately from setRelevantCallsigns() (not folded into the same Map
+// shape) so tfdm.js -- which shares that function's code but has its own, already-adequate
+// per-message origin/dest reset logic -- doesn't need to change at all. map: callsign ->
+// Iterable<airportCode> (bare or K-prefixed, either is fine -- normalized here the same way
+// routeOrigin() normalizes a parsed route's origin, so the two sides compare equal).
+function setRelevantOrigins(map) {
+    _relevantOrigins = new Map();
+    if (!map) return;
+    for (const [cs, origins] of map) {
+        const set = new Set();
+        for (const o of origins) {
+            const norm = o ? String(o).toUpperCase().trim().replace(/^K/, '') : null;
+            if (norm) set.add(norm);
+        }
+        if (set.size) _relevantOrigins.set(cs, set);
+    }
+}
+
+function isExpectedOrigin(cs, candidateOrigin) {
+    if (!candidateOrigin) return true; // nothing in this message to compare against -- don't block on missing data
+    const expected = _relevantOrigins.get(cs);
+    if (!expected || !expected.size) return true; // caller didn't supply origin info for this callsign -- permissive, unchanged behavior
+    return expected.has(candidateOrigin);
+}
+
+// Finds whichever route string this specific message actually carries (flightPlanInformation's
+// routeOfFlight, or an amendment's newRouteOfFlight), without running either handler's full side
+// effects -- used only to get a candidate origin to check isExpectedOrigin() against before
+// anything from this message gets merged.
+function messageRouteString(msgObj) {
+    const info = findDeep(msgObj, 'flightPlanInformation');
+    if (info) {
+        const routeEl = findDeep(info, 'routeOfFlight');
+        const route = routeEl ? findAttr(routeEl, 'legacyFormat') : null;
+        if (route) return route;
+    }
+    const amend = findDeep(msgObj, 'flightPlanAmendmentInformation');
+    if (amend) {
+        const amendData = findDeep(amend, 'amendmentData');
+        const routeEl = amendData ? findDeep(amendData, 'newRouteOfFlight') : null;
+        const route = routeEl ? findAttr(routeEl, 'legacyFormat') : null;
+        if (route) return route;
+    }
+    return null;
+}
+
+// Wide enough to tolerate any realistic ground delay, tight enough to reject a ~24h-later
+// recurrence of the same flight number (the actual failure mode this guards against).
+const DAY_CHECK_TOLERANCE_MS = 16 * 60 * 60 * 1000;
+function isExpectedDay(cs, candidateMs) {
+    if (candidateMs == null) return true; // nothing in this message to compare against -- don't block on missing data
+    const expected = _relevantDepTimes.get(cs);
+    if (!expected || !expected.size) return true; // caller didn't supply day info for this callsign -- permissive, unchanged behavior
+    for (const t of expected) if (Math.abs(candidateMs - t) <= DAY_CHECK_TOLERANCE_MS) return true;
+    return false;
 }
 
 let _unmappedWarnings = 0;
@@ -137,7 +241,7 @@ function processFlightPlanInfo(msgObj, cs) {
 
     const entry = _latest[cs] || (_latest[cs] = {});
     entry.lastMsg = Date.now();
-    if (route) entry.route = route;
+    if (route) { entry.route = route; const o = routeOrigin(route); if (o) entry.origin = o; }
     if (fixesList.length) entry.fixes = fixesList;
     if (waypointsList.length) entry.trajectory = waypointsList;
 }
@@ -152,9 +256,31 @@ function processAmendment(msgObj, cs) {
     const entry = _latest[cs] || (_latest[cs] = {});
     entry.lastMsg = Date.now();
     entry.route = route;
+    const o = routeOrigin(route);
+    if (o) entry.origin = o;
     // Stale until the next flightPlanInformation message re-derives these for the new route.
     entry.fixes = [];
     entry.trajectory = [];
+}
+
+// Pulls whatever departure-ish absolute timestamp this message actually has, to check against
+// isExpectedDay() before trusting it -- igtd (initial gate time departure) first since it's on
+// every qualifiedAircraftId block, falling back to etd's timeValue, then flightTimeData's
+// originalDeparture, in roughly most-reliably-present order.
+function candidateMessageTimeMs(msgObj) {
+    const iso = s => { if (!s) return null; const d = new Date(String(s).trim()); return isNaN(d) ? null : d.getTime(); };
+    const qid = findDeep(msgObj, 'qualifiedAircraftId');
+    const igtdMs = qid ? iso(textOf(findDeep(qid, 'igtd'))) : null;
+    if (igtdMs != null) return igtdMs;
+    const etdNode = findDeep(msgObj, 'etd');
+    const etdMs = etdNode ? iso(findAttr(etdNode, 'timeValue')) : null;
+    if (etdMs != null) return etdMs;
+    const ftd = findDeep(msgObj, 'flightTimeData');
+    if (ftd) {
+        const origMs = iso(findAttr(ftd, 'originalDeparture'));
+        if (origMs != null) return origMs;
+    }
+    return null;
 }
 
 function processOneFltdMessage(msgObj) {
@@ -162,6 +288,17 @@ function processOneFltdMessage(msgObj) {
     if (!acid) return;
     const cs = String(acid).trim().toUpperCase();
     if (_relevantCallsigns && !_relevantCallsigns.has(cs)) return;
+    // Reject a message describing a different calendar-day instance of a recurring flight number
+    // (see isExpectedDay()'s and _relevantDepTimes's header comments) before any of it gets
+    // merged into _latest/_flightTimes -- route, times, everything, not just one field.
+    if (!isExpectedDay(cs, candidateMessageTimeMs(msgObj))) return;
+    // Reject a message describing a same-day, different-route reuse of this flight number -- see
+    // _relevantOrigins's header comment. Prefers THIS message's own route-string origin when
+    // present; falls back to whatever origin was cached from this callsign's last route-bearing
+    // message, so a route-less times-only update doesn't slip past unchecked just because it
+    // doesn't carry a fresh route of its own.
+    const candidateOrigin = routeOrigin(messageRouteString(msgObj)) || (_latest[cs] && _latest[cs].origin) || null;
+    if (!isExpectedOrigin(cs, candidateOrigin)) return;
 
     const msgType = findAttr(msgObj, 'msgType');
     if (msgType === 'flightPlanInformation') processFlightPlanInfo(msgObj, cs);
@@ -442,4 +579,4 @@ function getFlightTimes(callsign) {
         gateDeparture, gateArrival, runwayDeparture, runwayArrival, originalDeparture, originalArrival };
 }
 
-module.exports = { connect, getFlightData, getFlightTimes, getAirportConfig, splitRunwayConf, setRelevantCallsigns, isEnabled: () => TFMS_ENABLED };
+module.exports = { connect, getFlightData, getFlightTimes, getAirportConfig, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };

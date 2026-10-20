@@ -57,6 +57,11 @@ function dumpSample(xmlText) {
 
 let _connected = false;
 let _relevantCallsigns = null; // same pattern as swim.js/stdds.js/tfms.js
+// callsign -> Set<scheduledDepUTCms> -- see setRelevantCallsigns()/isExpectedDay() below, same
+// mechanism and same reason as tfms.js's own copy of this (see its header comment for the real
+// incident: a recurring flight number's NEXT calendar day's pre-departure record overwriting
+// today's already-completed flight's evidence here too, via offBlockTime).
+let _relevantDepTimes = new Map();
 
 // callsign -> { depRunway, arrRunway, flightState, lastMsg, raw }
 const _latest = {};
@@ -82,11 +87,37 @@ function textOf(val) {
     return val;
 }
 
-function setRelevantCallsigns(set) {
-    _relevantCallsigns = set instanceof Set ? set : new Set(set || []);
+function setRelevantCallsigns(input) {
+    // Accepts either a plain Set/array of callsign strings (no day-check) or a
+    // Map<callsign, Iterable<number|Date|string>> of known scheduled departure time(s) -- see
+    // tfms.js's identical setRelevantCallsigns() for the full reasoning, shared verbatim here.
+    if (input instanceof Map) {
+        _relevantCallsigns = new Set(input.keys());
+        _relevantDepTimes = new Map();
+        for (const [cs, times] of input) {
+            const set = new Set();
+            for (const t of times) {
+                const ms = t instanceof Date ? t.getTime() : (typeof t === 'number' ? t : new Date(t).getTime());
+                if (!isNaN(ms)) set.add(ms);
+            }
+            if (set.size) _relevantDepTimes.set(cs, set);
+        }
+    } else {
+        _relevantCallsigns = input instanceof Set ? input : new Set(input || []);
+        _relevantDepTimes = new Map();
+    }
     for (const cs of Object.keys(_latest)) {
         if (!_relevantCallsigns.has(cs)) delete _latest[cs];
     }
+}
+
+const DAY_CHECK_TOLERANCE_MS = 16 * 60 * 60 * 1000; // same tolerance and reasoning as tfms.js
+function isExpectedDay(cs, candidateMs) {
+    if (candidateMs == null) return true;
+    const expected = _relevantDepTimes.get(cs);
+    if (!expected || !expected.size) return true;
+    for (const t of expected) if (Math.abs(candidateMs - t) <= DAY_CHECK_TOLERANCE_MS) return true;
+    return false;
 }
 
 let _unmappedWarnings = 0;
@@ -138,6 +169,13 @@ function processOneMessage(msgObj) {
 
     const departure = flight.departure;
     const arrival = flight.arrival;
+    // Reject a message describing a different calendar-day instance of a recurring flight number
+    // (see isExpectedDay()'s header comment) before any of it gets merged into _latest -- the
+    // origin/dest-based reset below only catches a genuinely DIFFERENT route on the same
+    // callsign, not the identical route flown again tomorrow, which is exactly this failure mode.
+    const offBlockIso = textOf(departure?.offBlockTime?.initial);
+    const scheduledDepMs = offBlockIso ? (d => isNaN(d) ? null : d.getTime())(new Date(offBlockIso)) : null;
+    if (!isExpectedDay(cs, scheduledDepMs)) return;
     const origin = departure ? findAttr(departure, 'departurePointText') : null;
     const dest = arrival ? findAttr(arrival, 'destinationPointText') : null;
     const depRunway = extractRunway(departure);

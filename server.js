@@ -2983,7 +2983,7 @@ function markParked(cs, origin) {
 // state file doesn't reset a flight that already landed.
 function restoreFromFlightLog() {
     const now = Date.now();
-    getDB().all(`SELECT callsign, airborne_at, parked_at FROM flight_log WHERE airborne_at >= ? OR parked_at >= ?`,
+    getDB().all(`SELECT callsign, origin, airborne_at, parked_at FROM flight_log WHERE airborne_at >= ? OR parked_at >= ?`,
         [now - AIRBORNE_TTL_MS, now - PARKED_TTL_MS], (err, rows) => {
             if (err || !rows) return;
             for (const r of rows) {
@@ -2993,6 +2993,19 @@ function restoreFromFlightLog() {
                 if (r.parked_at && now - r.parked_at <= PARKED_TTL_MS && !_parkedCallsigns.has(r.callsign)) {
                     _parkedCallsigns.add(r.callsign); _parkedAt[r.callsign] = r.parked_at;
                 }
+                // Restores the origin alongside the fact itself, independent of whether the Set
+                // already had this callsign from the JSON disk cache (which loads synchronously
+                // at startup, before this DB query resolves, and -- unlike this table -- never
+                // carried origin at all). Previously only the timestamp/Set membership ever
+                // survived a restart, silently emptying _everAirborneOrigin/_parkedOrigin every
+                // time. That's exactly what defeated the same-day-reused-callsign origin cross-
+                // check in /api/flight-status right after this server's last couple of restarts:
+                // the Set correctly still said "RPA4605 has been airborne today" (restored), but
+                // with no origin to compare against, every check against it fell back to
+                // permissive and let Republic's real, unrelated TUL-LGA return flight's evidence
+                // through for Sam's own already-landed LGA-TUL leg.
+                if (r.origin && !_everAirborneOrigin[r.callsign]) _everAirborneOrigin[r.callsign] = r.origin;
+                if (r.origin && !_parkedOrigin[r.callsign]) _parkedOrigin[r.callsign] = r.origin;
             }
         });
 }
@@ -3398,7 +3411,25 @@ function noteNoPosition(callsign) {
     console.log(`[live] no position from SWIM, STDDS or ADS-B for ${callsign}`);
 }
 
-async function fetchLivePosition(callsign) {
+// expectedOrigin (optional): the CALLER's own known scheduled departure airport for the specific
+// leg it's asking about. A regional flight number is routinely reused the SAME day for the
+// return/opposite-direction leg (confirmed live: Republic's RPA4605 flies LGA-TUL, then the same
+// number flies TUL-LGA back later that day) -- unlike every earlier same-callsign fix (all
+// timing-based: "has enough schedule time passed that stale evidence can't still be the old
+// leg"), this is genuinely fresh, real, currently-active position data, just for a DIFFERENT
+// physical leg than the one being asked about. Without this check a poll for Sam's own LGA-TUL
+// leg returned the real TUL-LGA return flight's position, showing "in the air" for a leg that
+// had actually landed hours earlier. Only checked when both sides are actually known (ADS-B-
+// sourced hits carry no route data at all, so this can't apply there) -- a real mismatch means
+// "not found FOR THIS LEG", not "not found at all", so the data is dropped before it can
+// contaminate any trail/state tracking, not just hidden from the response.
+function matchesExpectedOrigin(data, expectedOrigin) {
+    if (!expectedOrigin || !data?.origin) return true;
+    const norm = a => String(a || '').toUpperCase().replace(/^K/, '');
+    return norm(data.origin) === norm(expectedOrigin);
+}
+
+async function fetchLivePosition(callsign, expectedOrigin) {
     const swimHit = swim.getSwimPosition(callsign);
     if (swimHit?.sector) swimHit.sector = withResolvedFrequency(swimHit.sector);
     const stddsHit = stdds.getGroundPosition(callsign);
@@ -3436,10 +3467,12 @@ async function fetchLivePosition(callsign) {
             _swimTrailBackfilled.delete(cs);
             clearAirborne(cs);
         }
+        if (!matchesExpectedOrigin(stddsHit, expectedOrigin)) return { found: false };
         return withTfdmInfo(withEverAirborne(applyCallsignGroundState(stddsHit, callsign, 'stdds'), callsign), callsign);
     }
     if (swimHit) {
         resolveRouteWaypoints(swimHit.routeParsed, callsign);
+        if (!matchesExpectedOrigin(swimHit, expectedOrigin)) return { found: false };
         return withTfdmInfo(withEverAirborne(applyCallsignGroundState(swimHit, callsign, 'swim'), callsign), callsign);
     }
     const adsbHit = await fetchAdsbPosition(callsign);
@@ -3465,6 +3498,23 @@ app.get('/api/early-landings', (req, res) => {
     if (!date) return res.json({ callsigns: [] });
     const set = _earlyLandings[date];
     res.json({ callsigns: set ? [...set] : [] });
+});
+
+// TEMP — read-only inspector for the ever-airborne/parked origin-tracking state, used to debug
+// the same-day reused-callsign origin cross-check in /api/flight-status without guessing.
+app.get('/api/debug/origin-state/:callsign', (req, res) => {
+    const cs = req.params.callsign.toUpperCase().trim();
+    getDB().all(`SELECT * FROM flight_log WHERE callsign = ? ORDER BY day DESC`, [cs], (err, rows) => {
+        res.json({
+            everAirborne: _everAirborneCallsigns.has(cs),
+            everAirborneAt: _everAirborneAt[cs] || null,
+            everAirborneOrigin: _everAirborneOrigin[cs] || null,
+            parked: _parkedCallsigns.has(cs),
+            parkedAt: _parkedAt[cs] || null,
+            parkedOrigin: _parkedOrigin[cs] || null,
+            flightLogRows: err ? `ERROR: ${err.message}` : rows
+        });
+    });
 });
 
 // TEMP — read-only inspector for what TFDM actually has cached for a callsign (runway
@@ -3512,6 +3562,26 @@ app.post('/api/debug/seed-flight', express.json(), (req, res) => {
 app.get('/api/flight-status', (req, res) => {
     const list = String(req.query.callsigns || '').split(',')
         .map(s => s.toUpperCase().replace(/\s/g, '')).filter(Boolean).slice(0, 50);
+    // Parallel list, same order/length as callsigns -- the caller's own known scheduled
+    // departure airport for the SPECIFIC leg it's asking about each callsign for. See
+    // matchesExpectedOrigin()'s own comment for the full reasoning (same fix as
+    // /api/live-position, applied here too): this endpoint is batched across many callsigns
+    // with zero per-leg context otherwise, so a real-world reuse of a flight number that isn't
+    // even in CrewSync's own data at all (confirmed live: Republic's real TUL-LGA return under
+    // Sam's own RPA4605) had no way to be told apart from the leg actually being asked about --
+    // the day map kept showing "in the air" for Sam's already-landed LGA-TUL leg because this
+    // endpoint's live/airborne/parked arrays have no concept of "which direction."  Optional and
+    // best-effort: a blank or missing entry for a given callsign is permissive (unfiltered),
+    // same "fail open on missing data" posture as everywhere else in this file.
+    const origins = String(req.query.origins || '').split(',').map(s => s.toUpperCase().trim());
+    const expectedOrigin = {};
+    list.forEach((cs, i) => { if (origins[i]) expectedOrigin[cs] = origins[i]; });
+    const normApt = a => String(a || '').toUpperCase().replace(/^K/, '');
+    const originOk = (cs, actualOrigin) => {
+        const exp = expectedOrigin[cs];
+        if (!exp || !actualOrigin) return true;
+        return normApt(actualOrigin) === normApt(exp);
+    };
     const now = Date.now();
     // Excludes anything currently confirmed parked -- airborne (below) already did this, live
     // didn't, which is how a callsign could show up in BOTH parked and live at once: a stale
@@ -3524,10 +3594,27 @@ app.get('/api/flight-status', (req, res) => {
     const live = list.filter(cs => {
         if (isParked(cs)) return false;
         const c = _liveCache[cs];
-        return c && c.data?.found && now - c.ts < 3 * 60 * 1000;
+        return c && c.data?.found && now - c.ts < 3 * 60 * 1000 && originOk(cs, c.data?.origin);
     });
+    // tfms.js now parses the real origin out of its own route string (routeOrigin(), see its own
+    // comment) and rejects a mismatched message at ingestion time via
+    // setRelevantOrigins()/isExpectedOrigin() -- this is the defense-in-depth check on the way
+    // out, for messages that slipped in before the relevant set existed or whatever else.
+    // getFlightData(cs)?.origin is tfms.js's own real, route-derived value when available; falls
+    // back to the older _everAirborneOrigin/_parkedOrigin proxy (confirmed, live-evidence-sourced
+    // origin of whichever leg this callsign's airborne/parked evidence actually belongs to) for
+    // when tfms.js hasn't cached a route-bearing message for this callsign at all (relevance
+    // pruned it, or none has arrived yet this run). Permissive when nothing is known either way --
+    // no data means no way to cross-check, not a reason to hide real TFMS data for a genuinely
+    // untracked flight.
+    const timesOriginOk = cs => {
+        const realOrigin = tfms.getFlightData(cs)?.origin;
+        if (realOrigin) return originOk(cs, realOrigin);
+        return originOk(cs, _everAirborneOrigin[cs]) && originOk(cs, _parkedOrigin[cs]);
+    };
     const times = {};
     for (const cs of list) {
+        if (!timesOriginOk(cs)) continue;
         const t = tfms.getFlightTimes(cs);
         // airlineOnTime/airlineInTime are the airline's own real OOOI report (actual touchdown /
         // actual gate arrival) -- confirmed live as a real, authoritative "this flight is
@@ -3540,14 +3627,14 @@ app.get('/api/flight-status', (req, res) => {
             times[cs] = { etd: t.etd || null, eta: t.eta || null, airlineOnTime: t.airlineOnTime || null, airlineInTime: t.airlineInTime || null };
         }
     }
-    const airborne = list.filter(cs => !isParked(cs) && (
+    const airborne = list.filter(cs => !isParked(cs) && originOk(cs, _everAirborneOrigin[cs]) && (
         _everAirborneCallsigns.has(cs) || /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || '')));
     // Ground state for whichever callsigns are currently "live" -- lets the day map's static
     // status line distinguish a flight that's genuinely airborne from one that's landed and
     // taxiing in but not yet confirmed parked, instead of calling both "IN THE AIR".
     const onGround = {};
     for (const cs of live) { if (_liveCache[cs]?.data?.onGround) onGround[cs] = true; }
-    res.json({ parked: list.filter(cs => isParked(cs)), live, airborne, onGround, times });
+    res.json({ parked: list.filter(cs => isParked(cs) && originOk(cs, _parkedOrigin[cs])), live, airborne, onGround, times });
 });
 
 app.get('/api/live-position', async (req, res) => {
@@ -3569,20 +3656,28 @@ app.get('/api/live-position', async (req, res) => {
         if (isParked(callsign)) {
             const hit = stdds.getGroundPosition(callsign) || sw;
             if (!(hit?.found && (hit.altFt ?? 0) > 2000)) return res.json({ found: false, parked: true });
+            // Same origin cross-check as fetchLivePosition()'s own matchesExpectedOrigin() --
+            // this branch calls swim/stdds directly and used to call markAirborne()
+            // unconditionally, bypassing that guard entirely. Confirmed live as a real,
+            // separate leak of the same bug: a same-day reused callsign's genuinely-airborne
+            // but WRONG-leg hit could still re-confirm this callsign airborne (and persist that
+            // wrong leg's origin via logFlightEvent) even after the main return-path check was
+            // already fixed, because this one never went through it.
+            if (!matchesExpectedOrigin(hit, knownOrigin)) return res.json({ found: false, parked: true });
             unpark(callsign);
             markAirborne(callsign);
         }
     }
 
     const cached = _liveCache[callsign];
-    if (cached) {
+    if (cached && matchesExpectedOrigin(cached.data, knownOrigin)) {
         const ttl = cached.data?.source === 'adsb' ? ADSB_CACHE_TTL : LIVE_TTL;
         if (Date.now() - cached.ts < ttl) return res.json(cached.data);
     }
 
     let data;
     try {
-        data = await fetchLivePosition(callsign);
+        data = await fetchLivePosition(callsign, knownOrigin);
     } catch (e) {
         const details = e instanceof AggregateError
             ? e.errors.map(err => err.message).join(' | ')
@@ -3743,17 +3838,36 @@ async function runActiveFlightPoller() {
             if (err) return;
             const polled = new Set();       // drives real fetchAdsbPosition() calls — narrow window
             const swimRelevant = new Set(); // drives swim/stdds/tfms/tfdm — wider window, no API cost
+            // callsign -> Set<scheduledDepUTCms> — feeds tfms.js/tfdm.js's own day-check so a
+            // recurring flight number's NEXT calendar day's pre-departure record (same flight
+            // number flown again tomorrow, which every scheduled airline does) never gets mistaken
+            // for today's already-completed flight. Confirmed live: Sam's RPA4492 (ORD-SDF-ORD,
+            // flown today) showed a bogus "delayed" status because tomorrow's unrelated RPA4492
+            // instance's flight-plan data silently overwrote today's in tfms.js/tfdm.js, both of
+            // which keyed their caches by bare callsign with no date of their own to check against.
+            // swim.js/stdds.js don't get this treatment — they're live-position-only feeds, and a
+            // real position report is self-evidently "right now," immune to this failure mode.
+            const swimDepTimes = new Map();
+            // callsign -> Set<departureAirport> — same day-check idea as swimDepTimes, but for the
+            // one TFMS field that has no reliable date to check at all: estimated/airline times
+            // (_flightTimes in tfms.js). Confirmed live: Sam's RPA4605 (LGA-TUL) showed Republic's
+            // real, unrelated same-day TUL-LGA return flight's estimated/actual times, because
+            // _flightTimes is keyed by bare callsign with nothing distinguishing "today's 2nd leg,
+            // opposite direction" from "today's 1st leg" the way a date check could. tfms.js now
+            // checks each incoming message's own filed-route origin (when present) against this set
+            // via setRelevantOrigins()/isExpectedOrigin() before merging anything from it.
+            const swimOrigins = new Map();
             for (const row of (rows || [])) {
                 // Real, timezone-correct relevance check, now actually measured in true elapsed
                 // time rather than a same-looking-but-different-timezone string comparison.
                 // No known timezone for this airport → treat as "in both windows" rather than
                 // silently dropping a flight we can't accurately check.
-                let inAdsbWindow = true, inSwimWindow = true;
+                let inAdsbWindow = true, inSwimWindow = true, depUTC = null;
                 if (row.departure_time && row.departure_airport) {
                     const tz = _aptTimezone[row.departure_airport];
                     if (tz) {
                         const compact = row.departure_time.replace(/[-:]/g, '');
-                        const depUTC = new Date(localTZToUTC(compact, tz));
+                        depUTC = new Date(localTZToUTC(compact, tz));
                         const diffMs = now.getTime() - depUTC.getTime();
                         inAdsbWindow = diffMs <= POLLER_LOOKBACK_MS && diffMs >= -ADSB_LOOKAHEAD_MS;
                         inSwimWindow = diffMs <= POLLER_LOOKBACK_MS && diffMs >= -SWIM_LOOKAHEAD_MS;
@@ -3781,17 +3895,46 @@ async function runActiveFlightPoller() {
                     // callsign reused across same-day legs on the same tail (every one of Kyle's
                     // corporate flights -- see deriveServerCallsign()) could stay incorrectly
                     // "parked" from the previous leg for the entire duration of the next one.
-                    if (inSwimWindow) swimRelevant.add(callsign);
+                    if (inSwimWindow) {
+                        swimRelevant.add(callsign);
+                        // Every relevant callsign needs a key here even with no known depUTC (an
+                        // empty Set), so tfms.js/tfdm.js's own _relevantCallsigns — derived from
+                        // this map's keys — doesn't silently drop a callsign just because its
+                        // departure airport's timezone wasn't resolvable; isExpectedDay() already
+                        // treats an empty/missing time set as permissive for exactly this reason.
+                        if (!swimDepTimes.has(callsign)) swimDepTimes.set(callsign, new Set());
+                        if (depUTC) swimDepTimes.get(callsign).add(depUTC.getTime());
+                        if (row.departure_airport) {
+                            if (!swimOrigins.has(callsign)) swimOrigins.set(callsign, new Set());
+                            swimOrigins.get(callsign).add(row.departure_airport);
+                        }
+                    }
                     const sw = swim.getSwimPosition(callsign);
                     unparkIfNewLeg(callsign, row.departure_airport || sw?.origin);
                     const hit = stdds.getGroundPosition(callsign) || sw;
-                    if (isParked(callsign) && hit?.found && (hit.altFt ?? 0) > 2000) {
+                    // Same origin cross-check as /api/live-position's own parked-recovery branch
+                    // (see its comment) -- this is the poller's copy of the identical unguarded
+                    // call, and confirmed live as the actual, repeating source of the
+                    // contamination: THIS branch runs every 15s regardless of any client request,
+                    // so it kept re-confirming Republic's real TUL-LGA return flight as "airborne"
+                    // under Sam's own RPA4605 row (origin LGA) and re-persisting its KTUL origin
+                    // via logFlightEvent on every tick, long after the one-off fix to
+                    // fetchLivePosition()'s own return paths.
+                    if (isParked(callsign) && hit?.found && (hit.altFt ?? 0) > 2000 && matchesExpectedOrigin(hit, row.departure_airport)) {
                         unpark(callsign);
                         markAirborne(callsign);
                     }
                     continue;
                 }
-                if (inSwimWindow) swimRelevant.add(callsign);
+                if (inSwimWindow) {
+                    swimRelevant.add(callsign);
+                    if (!swimDepTimes.has(callsign)) swimDepTimes.set(callsign, new Set());
+                    if (depUTC) swimDepTimes.get(callsign).add(depUTC.getTime());
+                    if (row.departure_airport) {
+                        if (!swimOrigins.has(callsign)) swimOrigins.set(callsign, new Set());
+                        swimOrigins.get(callsign).add(row.departure_airport);
+                    }
+                }
                 if (!inAdsbWindow || polled.has(callsign)) continue;
                 polled.add(callsign);
                 const depUnixSec = row.departure_time ? Math.floor(new Date(row.departure_time).getTime() / 1000) : null;
@@ -3805,7 +3948,14 @@ async function runActiveFlightPoller() {
                     // of this cache write clobbering a fresher SWIM-sourced _liveCache entry with a
                     // stale ADS-B one for up to LIVE_TTL. processPositionUpdate() is a no-op for a
                     // SWIM/STDDS-sourced result (no .hex), same as before for those sources.
-                    const data = await fetchLivePosition(callsign);
+                    // Passes this row's own known scheduled departure airport so a same-day
+                    // reused flight number's opposite-direction/return leg (see
+                    // fetchLivePosition()'s own matchesExpectedOrigin() comment) never gets
+                    // written into the shared _liveCache in the first place -- confirmed live as
+                    // the actual source of the contamination on Sam's RPA4605: this poller's own
+                    // unguarded write cached the wrong leg's real position well before any client
+                    // ever polled for it.
+                    const data = await fetchLivePosition(callsign, row.departure_airport);
                     processPositionUpdate(data, depUnixSec);
                     // Update the live cache so the next client poll gets pre-built data
                     _liveCache[callsign] = { ts: Date.now(), data };
@@ -3817,8 +3967,15 @@ async function runActiveFlightPoller() {
             // (see ADSB_LOOKAHEAD_MS/SWIM_LOOKAHEAD_MS above).
             swim.setRelevantCallsigns(swimRelevant);
             stdds.setRelevantCallsigns(swimRelevant);
-            tfms.setRelevantCallsigns(swimRelevant);
-            tfdm.setRelevantCallsigns(swimRelevant);
+            // tfms.js/tfdm.js get the richer Map (callsign -> known departure times) so they can
+            // reject a different calendar day's recurrence of the same flight number — see
+            // swimDepTimes's own header comment above for why swim.js/stdds.js don't need this.
+            tfms.setRelevantCallsigns(swimDepTimes);
+            tfdm.setRelevantCallsigns(swimDepTimes);
+            // tfms.js-only: real per-leg origin check for its estimated/airline times cache — see
+            // swimOrigins's own header comment above for why this isn't shared with tfdm.js (its
+            // existing per-message origin/dest reset already covers its own exposure to this bug).
+            tfms.setRelevantOrigins(swimOrigins);
         }
     );
 }
