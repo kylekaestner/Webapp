@@ -108,7 +108,7 @@
                 border: none !important;
             }
             #calendar-grid-content > div > div:last-child .flight-item > div:first-child { font-size: 9px !important; font-weight: 800 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; line-height: 1.3 !important; }
-            #calendar-grid-content > div > div:last-child .flight-item > div:not(:first-child):not(.leg-status-line) { display: none !important; }
+            #calendar-grid-content > div > div:last-child .flight-item > div:not(:first-child):not(.leg-delay-line) { display: none !important; }
 
             /* Non-flying days (away, hard off, off): show pill only */
             #calendar-grid-content > div:not(:has(.flight-item)) span[class*="rounded-full"] { font-size: 6px !important; padding: 1px 4px !important; }
@@ -8130,7 +8130,7 @@
                                 const atHome = isHomeOrBase(arrApt, currentPilot);
                                 const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
                                 const lbl = layoverLabel(groundMins, atHome, sameDay);
-                                if (lbl) groundLine = `<div class="leg-status-line" style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl}</div>`;
+                                if (lbl) groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl}</div>`;
                             }
                         }
                         const nowMs = Date.now();
@@ -8186,12 +8186,17 @@
                         // when already known at render time, same wording/color as the map's
                         // 'delayed'/'due' states; startCalListLivePolling()'s poll() keeps it fresh
                         // afterward (an ETD can itself shift, or this can resolve to found/parked).
-                        // Needs the same "leg-status-line" class as groundLine above -- the mobile
-                        // grid CSS override hides every .flight-item child but the first one to keep
-                        // cells compact, and both of these are deliberate exceptions to that.
+                        // "leg-delay-line" (not groundLine's class, which has none) is the mobile
+                        // grid CSS override's one exception to hiding every .flight-item child but
+                        // the first -- confirmed live this needs to be its OWN class, not shared
+                        // with groundLine's: an earlier version reused one shared class for both,
+                        // which meant exempting this line from the mobile hide rule also exempted
+                        // the overnight/turn-time line, cluttering the mobile grid and making legs
+                        // harder to scroll through/read -- the exact thing that CSS rule exists to
+                        // prevent for every other non-first child.
                         if (isActiveLeg && csig) {
                             const _noteText = confirmedDelayEtd ? `DELAYED · ETD ${formatTimeISO(confirmedDelayEtd, depApt)}` : (confirmedDue ? 'DEPARTURE DUE' : '');
-                            html += `<div class="leg-status-line" id="delay-${csig}" style="font-size:9px;font-weight:800;color:#${confirmedDelayEtd ? 'f97316' : 'eab308'};margin-top:2px">${_noteText}</div>`;
+                            html += `<div class="leg-delay-line" id="delay-${csig}" style="font-size:9px;font-weight:800;color:#${confirmedDelayEtd ? 'f97316' : 'eab308'};margin-top:2px">${_noteText}</div>`;
                         }
                         if (isActiveLeg && csig) html += `<div id="live-${csig}" style="font-size:9px;color:#4ade80;font-weight:700;margin-top:2px;display:none"></div>`;
                         html += `</div>`;
