@@ -660,7 +660,7 @@
                         </div>
                         <div class="flex gap-1">
                             <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
-                            <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill map-ctrl-on" title="Toggle route detail (VOR/fix/waypoint symbols)">✦ RTE</button>
+                            <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill" title="Toggle route detail (VOR/fix/waypoint symbols)">✦ RTE</button>
                             <button id="btn-show-sector" onclick="toggleShowSector()" class="map-ctrl-pill" title="Show the real ATC frequency currently controlling each live flight, when it resolves">📻 FREQ</button>
                         </div>
                         <div id="day-nav" class="hidden items-center gap-1 relative">
@@ -2089,6 +2089,13 @@
         // state that needs to be shared or read back server-side.
         let _routeDetailOn = true;
         try { _routeDetailOn = localStorage.getItem('cs_route_detail') !== '0'; } catch (_) {}
+        // The button's own class can't be hardcoded to match this default in the static HTML --
+        // confirmed live as the actual bug behind FREQ (see _showSectorOn below): the class only
+        // ever got updated by toggleRouteDetail()'s own click handler, so a fresh page load (or a
+        // stored '0' from a previous explicit turn-off) never re-synced the pill's visual on/off
+        // state to match the real persisted value, and the two could silently disagree -- the
+        // pill just reflects whatever this app happened to ship with in markup, not the real state.
+        document.getElementById('btn-route-detail')?.classList.toggle('map-ctrl-on', _routeDetailOn);
         function toggleRouteDetail() {
             _routeDetailOn = !_routeDetailOn;
             try { localStorage.setItem('cs_route_detail', _routeDetailOn ? '1' : '0'); } catch (_) {}
@@ -2110,6 +2117,13 @@
         // Detail above -- now also defaulting on the same way, per explicit request.
         let _showSectorOn = true;
         try { _showSectorOn = localStorage.getItem('cs_show_sector') !== '0'; } catch (_) {}
+        // Real, confirmed-live bug this fixes: the button's static HTML never had the
+        // "map-ctrl-on" class at all, so on every page load it rendered OFF regardless of
+        // _showSectorOn's actual value (true by default, or whatever was last persisted) --
+        // the button looked off, the real toggle underneath was frequently on, and the two
+        // states had no way to ever reconcile since nothing but a click ever set this class.
+        // Same sync-from-real-state fix as _routeDetailOn above, not just a one-off patch here.
+        document.getElementById('btn-show-sector')?.classList.toggle('map-ctrl-on', _showSectorOn);
         function toggleShowSector() {
             _showSectorOn = !_showSectorOn;
             try { localStorage.setItem('cs_show_sector', _showSectorOn ? '1' : '0'); } catch (_) {}
@@ -8443,7 +8457,7 @@
                                     : '';
                                 const badgeRow = [
                                     showActiveGlow2 ? `<span class="flex items-center gap-1 text-[10px] font-semibold text-emerald-400"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;display:inline-block;animation:pulse 1.5s infinite"></span>In the air</span>` : '',
-                                    isCompletedLeg2 ? `<span class="flex items-center gap-1 text-[10px] font-semibold text-emerald-400">✓ Completed</span>` : '',
+                                    isCompletedLeg2 ? `<span class="text-[11px] font-black text-emerald-400" title="Completed">✓</span>` : '',
                                     dhBadge, personalBadge, commuteBadge
                                 ].filter(Boolean).join('');
                                 return `<div class="flight-row rounded-2xl overflow-hidden ${rowBg}${showActiveGlow2 ? ' active-leg' : ''}"${isActiveLeg2 && csig2 ? ` data-live-callsign="${csig2}" data-dep-time="${depAttr}" data-dep-apt="${depApt}" data-arr-time="${arrAttr}" data-arr-apt="${arrApt}"` : ''} style="border:1px solid ${rowAccent2}22">
@@ -8837,6 +8851,11 @@
                     }
                 }
                 const isActiveLeg = isFlightStillActive(dMs, aMs, nowMs, _dayCs) && !_isLandedEarly(_dayCs, aMs);
+                // Same rule as the grid/list's own completed checkmark (isCompletedLeg/isCompletedLeg2)
+                // -- scoped to today only, since every past day already reads as "done" by definition.
+                // Added because the day-detail sheet (opened by tapping a grid cell) was the one place
+                // showing a completed leg with no indicator at all, after the grid itself got one.
+                const isCompletedLeg = !isActiveLeg && !!aMs && (nowMs >= aMs || _isLandedEarly(_dayCs, aMs)) && dateKey === _localToday();
                 const accentColor = isActiveLeg ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
                 const cardBorder = isActiveLeg ? 'border-emerald-500/50' : isPersonal ? 'border-violet-500/20' : isCommute ? 'border-amber-500/20' : `border-[${accentColor}25]`;
                 const cardBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : isActiveLeg ? 'bg-emerald-950/10' : 'bg-zinc-900/60';
@@ -8848,7 +8867,7 @@
                 const groundBadgeTxt = groundBadge.replace(/<[^>]+>/g,'').trim();
                 const depCity = _intelAreaLabel(dep) || '';
                 const arrCity = _intelAreaLabel(arr) || '';
-                const hasStub = (_dayFlLabel || f.flightNumber) || f.tail || groundBadgeTxt;
+                const hasStub = (_dayFlLabel || f.flightNumber) || f.tail || groundBadgeTxt || isCompletedLeg;
                 html += `<div class="bp-card border mb-3 ${cardBg}" style="border-color:${accentColor}28">
                     <div class="bp-top-bar" style="background:linear-gradient(90deg,${accentColor},${accentColor}44,transparent)"></div>
                     <div class="flex items-center gap-2 px-4 pt-3 pb-0 flex-wrap">
@@ -8877,6 +8896,7 @@
                         ${_dayFlLabel || f.flightNumber ? `<div class="bp-stub-field"><div class="bp-stub-label">Flight</div><div class="bp-stub-value">${_dayFlLabel ? flightAwareLink(_dayFlLabel, _dayFlLabel, flightAwareEligible(dMs)) : f.flightNumber}</div></div>` : ''}
                         ${f.tail ? `<div class="bp-stub-field"><div class="bp-stub-label">Tail</div><div class="bp-stub-value">${f.tail}</div></div>` : ''}
                         ${groundBadgeTxt ? `<div class="bp-stub-field"><div class="bp-stub-label">Layover</div><div class="bp-stub-value" style="color:#fbbf24">${groundBadgeTxt}</div></div>` : ''}
+                        ${isCompletedLeg ? `<span class="text-[13px] font-black text-emerald-400 ml-auto" title="Completed">✓</span>` : ''}
                     </div>` : ''}
                     ${editActions}
                 </div>`;
