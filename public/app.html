@@ -1775,7 +1775,7 @@
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">CC Schedule (CC52/60/72/76 only)</label>
-                <p class="text-[10px] text-zinc-500 mb-1">If you're on a CC schedule, paste your monthly schedule email here instead of (or in addition to) the rotation above — it overrides the Line-based rotation for any day it covers.</p>
+                <p class="text-[10px] text-zinc-500 mb-1">If you're on a CC schedule, use the <strong>Upload Schedule</strong> button like any other pilot — PDF (Print to PDF from the email) or .txt both work, it overrides the Line-based rotation above for any day it covers. A PDF can take up to a minute to process. Or paste it directly below instead:</p>
                 <textarea id="my-info-cc-schedule-text" rows="4" placeholder="Sun, Nov 01, 2026 OFF&#10;Mon, Nov 02, 2026 X&#10;..." class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none"></textarea>
                 <button type="button" onclick="saveMyCcSchedule()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Parse &amp; Save</button>
                 <p id="my-info-cc-schedule-status" class="text-[10px] text-zinc-500 mt-1"></p>
@@ -9040,15 +9040,24 @@
 
         async function handleUpload(input) {
             if (_isDemo || !input.files[0]) return;
-            
+
             const file = input.files[0];
             // Get selected pilot from dropdown
             const uploadPilot = document.getElementById('upload-pilot-select').value;
 
+            // A PDF schedule goes through server-side OCR (the only real NetJets CC-schedule
+            // export, Microsoft Print-to-PDF, has no extractable text layer) -- genuinely slow
+            // (~30-60s on this box), so say so up front instead of leaving the button looking dead.
+            if (file.name.toLowerCase().endsWith('.pdf')) {
+                showToast('Reading PDF schedule — this can take up to a minute…', 'info', 8000);
+            }
+
             const result = await uploadPilotSchedule(uploadPilot, file);
-            
+
             if (result && result.success) {
-                showToast(`Schedule uploaded — ${result.segmentsAdded} segments added for ${uploadPilot}`);
+                showToast(result.ccSchedule
+                    ? `Schedule uploaded — ${result.daysParsed} days parsed for ${uploadPilot}`
+                    : `Schedule uploaded — ${result.segmentsAdded} segments added for ${uploadPilot}`);
                 if (myPilot === null && !myViewer && result.warnings && result.warnings.length) {
                     showToast(`⚠ ${result.warnings.length} unrecognized item${result.warnings.length > 1 ? 's' : ''} in this schedule — see Admin → Manage Users for details.`, 'info', 6000);
                 }
@@ -9720,9 +9729,14 @@ let _blockUserEdited = false;
             const file = input.files[0];
             const uploadPilot = document.getElementById('mobile-upload-pilot-select').value;
             document.getElementById('mobile-upload-sheet').classList.add('hidden');
+            if (file.name.toLowerCase().endsWith('.pdf')) {
+                showToast('Reading PDF schedule — this can take up to a minute…', 'info', 8000);
+            }
             const result = await uploadPilotSchedule(uploadPilot, file);
             if (result && result.success) {
-                showToast(`Schedule uploaded — ${result.segmentsAdded} segments for ${uploadPilot}`);
+                showToast(result.ccSchedule
+                    ? `Schedule uploaded — ${result.daysParsed} days parsed for ${uploadPilot}`
+                    : `Schedule uploaded — ${result.segmentsAdded} segments for ${uploadPilot}`);
                 if (myPilot === null && !myViewer && result.warnings && result.warnings.length) {
                     showToast(`⚠ ${result.warnings.length} unrecognized item${result.warnings.length > 1 ? 's' : ''} in this schedule — see Admin → Manage Users for details.`, 'info', 6000);
                 }

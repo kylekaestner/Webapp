@@ -3,6 +3,9 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const os = require('os');
+const crypto = require('crypto');
+const { execFile } = require('child_process');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const { getDB, generateToken, pruneFlightLog } = require('./db');
@@ -1426,6 +1429,66 @@ function parseCcScheduleText(text) {
     return { days, warnings };
 }
 
+// Real NetJets pilots' only way to export a CC schedule is "Print/Save as PDF" from the Yahoo
+// Mail message (confirmed directly against a real sample, 11-2026.pdf) -- but that specific
+// driver (Producer: "Microsoft: Print To PDF") produces a PDF with no extractable Unicode text
+// layer, confirmed by testing two different pdf-parse versions against the real sample (both
+// returned effectively empty text despite the page visually showing crisp real text). The only
+// way to get the content back out is OCR: rasterize each page with poppler's `pdftoppm`, then
+// recognize each page image with the native `tesseract` CLI (both system packages installed on
+// the droplet). Deliberately the CLI, not the `tesseract.js` npm package -- tried that first and
+// confirmed live that its worker_threads-based worker doesn't actually exit when
+// `worker.terminate()` resolves (a stray test process sat there burning ~70% CPU and 188MB for
+// minutes after finishing, on a 1 vCPU/1GB box with ~425MB available -- unacceptable to ship).
+// The native CLI is a plain one-shot child process like `pdftoppm` already is: confirmed exit
+// code 0 and zero lingering processes after a real run. `timeout`+`killSignal` on both execFile
+// calls as a hard backstop against a malformed/huge input hanging either tool.
+const _OCR_EXEC_TIMEOUT_MS = 60000;
+async function _ocrPdfBuffer(buffer) {
+    const tmpDir = path.join(os.tmpdir(), 'cc-pdf-' + crypto.randomBytes(8).toString('hex'));
+    fs.mkdirSync(tmpDir, { recursive: true });
+    try {
+        const pdfPath = path.join(tmpDir, 'input.pdf');
+        fs.writeFileSync(pdfPath, buffer);
+        const pagePrefix = path.join(tmpDir, 'page');
+        await new Promise((resolve, reject) => {
+            execFile('pdftoppm', ['-png', '-r', '200', pdfPath, pagePrefix],
+                { timeout: _OCR_EXEC_TIMEOUT_MS, killSignal: 'SIGKILL' },
+                (err, stdout, stderr) => {
+                    if (err) return reject(new Error(`pdftoppm failed: ${stderr || err.message}`));
+                    resolve();
+                });
+        });
+        const pageFiles = fs.readdirSync(tmpDir)
+            .filter(f => f.startsWith('page') && f.endsWith('.png'))
+            .sort((a, b) => {
+                // "page-1.png", "page-2.png", ... -- numeric sort, not lexical (avoids "page-10"
+                // sorting before "page-2").
+                const na = parseInt(a.match(/-(\d+)\.png$/)?.[1] || '0', 10);
+                const nb = parseInt(b.match(/-(\d+)\.png$/)?.[1] || '0', 10);
+                return na - nb;
+            });
+        if (!pageFiles.length) throw new Error('pdftoppm produced no page images');
+
+        let text = '';
+        for (const f of pageFiles) {
+            const outPrefix = path.join(tmpDir, path.basename(f, '.png') + '-ocr');
+            await new Promise((resolve, reject) => {
+                execFile('tesseract', [path.join(tmpDir, f), outPrefix],
+                    { timeout: _OCR_EXEC_TIMEOUT_MS, killSignal: 'SIGKILL' },
+                    (err, stdout, stderr) => {
+                        if (err) return reject(new Error(`tesseract failed: ${stderr || err.message}`));
+                        resolve();
+                    });
+            });
+            text += fs.readFileSync(outPrefix + '.txt', 'utf-8') + '\n';
+        }
+        return text;
+    } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+}
+
 // Mirror of tfms.js's routeOrigin() for the OTHER end of a legacy-format route string
 // (e.g. "KJFK./.TEYOU..KP75C..TBC..JASSE.Q90.DNERO.ANJLL4.KLAX/0739" -> "LAX"). Not added to
 // tfms.js itself -- that module is already well-tested and this is NetJets-leg-creation-only, so
@@ -2282,6 +2345,42 @@ async function _handlePilotUpload(req, res, db, pilotKey) {
         let parserType = getParserForPilot(pilotKey, pilot);
         const airlineCode = pilot.airline_code || '';
 
+        // CC52/60/72/76 NetJets pilots upload their monthly schedule email (saved as a plain
+        // text file) the exact same way every other pilot uploads their own schedule file --
+        // no flight-leg segments come out of this, so it short-circuits before the
+        // segments-table-oriented logic below entirely. Safe to attempt regardless of file
+        // extension (the parser itself is what decides whether it recognizes the content); a
+        // 7&7/8&6 NetJets pilot who has no reason to use this just gets a clean "no recognizable
+        // schedule days" error if they ever pick a file here, not a silently-wrong result.
+        if (parserType === 'manual_netjets') {
+            let fileContent;
+            if (filename.endsWith('.pdf')) {
+                // The real NetJets export pilots actually have is "Print/Save as PDF" of the
+                // Yahoo Mail schedule message via Microsoft's Print-to-PDF driver -- confirmed
+                // directly against a real sample (11-2026.pdf) that this driver's output has NO
+                // extractable text layer (two different text-extraction libraries both came back
+                // empty against the real file, despite the page visually showing crisp text), so
+                // OCR via _ocrPdfBuffer() is required, not optional, for this specific case.
+                try {
+                    fileContent = await _ocrPdfBuffer(req.file.buffer);
+                } catch (pdfErr) {
+                    return res.status(400).json({ error: `Could not read PDF: ${pdfErr.message}` });
+                }
+            } else {
+                fileContent = req.file.buffer.toString('utf-8');
+            }
+            const { days, warnings: ccWarnings } = parseCcScheduleText(fileContent);
+            db.run('UPDATE pilots SET parser_warnings = ? WHERE id = ?', [ccWarnings.length ? JSON.stringify(ccWarnings) : null, pilot.id]);
+            if (!days.length) {
+                return res.status(400).json({ error: 'No recognizable schedule days found in that file', warnings: ccWarnings });
+            }
+            return _saveCcScheduleDays(db, pilot.id, days, err2 => {
+                if (err2) return res.status(500).json({ error: err2.message });
+                logEvent(pilotKey, 'upload:cc-schedule');
+                res.json({ success: true, ccSchedule: true, daysParsed: days.length, warnings: ccWarnings });
+            });
+        }
+
         try {
             const fileContent = req.file.buffer.toString('utf-8');
             if (parserType === 'other') {
@@ -2661,10 +2760,20 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
     });
 });
 
-// CC52/60/72/76 pilots paste their monthly schedule email text here -- see
-// parseCcScheduleText()'s own header comment for the confirmed format/status codes. Upserts one
-// row per day (ON CONFLICT so re-pasting the same month, or a corrected re-send, updates in
-// place rather than duplicating) and returns any parser warnings for lines that didn't match.
+// Shared by the direct paste endpoint below AND _handlePilotUpload()'s manual_netjets branch --
+// upserts one row per day (ON CONFLICT so re-pasting/re-uploading the same month, or a corrected
+// re-send, updates in place rather than duplicating).
+function _saveCcScheduleDays(db, pilotId, days, cb) {
+    const stmt = db.prepare(`INSERT INTO pilot_cc_schedule_day (pilot_id, date, status) VALUES (?, ?, ?)
+            ON CONFLICT(pilot_id, date) DO UPDATE SET status=excluded.status`);
+    for (const d of days) stmt.run(pilotId, d.date, d.status);
+    stmt.finalize(cb);
+}
+
+// CC52/60/72/76 pilots paste their monthly schedule email text here directly -- see
+// parseCcScheduleText()'s own header comment for the confirmed format/status codes. Kept as a
+// secondary path alongside the standard upload flow below (_handlePilotUpload()'s manual_netjets
+// branch, which is the primary/expected one -- same upload button every other pilot uses).
 app.post('/api/pilots/:pilotKey/cc-schedule', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
@@ -2677,10 +2786,7 @@ app.post('/api/pilots/:pilotKey/cc-schedule', (req, res) => {
         db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
             if (err) return res.status(500).json({ error: err.message });
             if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
-            const stmt = db.prepare(`INSERT INTO pilot_cc_schedule_day (pilot_id, date, status) VALUES (?, ?, ?)
-                    ON CONFLICT(pilot_id, date) DO UPDATE SET status=excluded.status`);
-            for (const d of days) stmt.run(pilotRow.id, d.date, d.status);
-            stmt.finalize(err2 => {
+            _saveCcScheduleDays(db, pilotRow.id, days, err2 => {
                 if (err2) return res.status(500).json({ error: err2.message });
                 res.json({ success: true, daysParsed: days.length, warnings });
             });
