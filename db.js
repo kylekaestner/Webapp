@@ -246,6 +246,12 @@ function initDB() {
             UNIQUE(pilot_id, date)
         )`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_cc_schedule_day_pilot ON pilot_cc_schedule_day(pilot_id)`);
+        // Which CC program (52/60/72/76 -- the trimester day-count) a pilot bids, e.g. "72".
+        // Purely informational/display -- the real on/off-duty truth always comes from
+        // pilot_cc_schedule_day's actual uploaded day records, never computed from this number
+        // (requested directly: shows on the Family/Line-equivalent picker in My Info, "the Line
+        // should be 52/60/72/76, not 1-14" when Family=CC).
+        db.run(`ALTER TABLE pilots ADD COLUMN cc_variant TEXT`, () => {});
 
         // Dedup for the "tour starts tomorrow, add your tail" reminder (server.js's
         // checkNetjetsTourReminders) -- without this, a pilot who hasn't entered a tail yet would

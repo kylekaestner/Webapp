@@ -1760,12 +1760,9 @@
                         <option value="13">Line 13</option><option value="14">Line 14</option>
                     </select>
                 </div>
-                <div id="my-info-rotation-line-group">
-                    <p class="text-[10px] text-zinc-500">Pick your schedule family and bid line.</p>
-                    <button type="button" onclick="saveMyRotation()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save Rotation</button>
-                    <p id="my-info-rotation-status" class="text-[10px] text-zinc-500 mt-1"></p>
-                </div>
-                <p id="my-info-rotation-cc-note" class="hidden text-[10px] text-zinc-500">CC schedules bid a per-trimester day total, not a repeating line — there's no formula to pick here. Use the <strong>Upload Schedule</strong> button like any other pilot: PDF (Print to PDF from the email) or .txt both work. A PDF can take up to a minute to process.</p>
+                <p id="my-info-rotation-note" class="text-[10px] text-zinc-500">Pick your schedule family and bid line.</p>
+                <button type="button" onclick="saveMyRotation()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save</button>
+                <p id="my-info-rotation-status" class="text-[10px] text-zinc-500 mt-1"></p>
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Current Tour Tail</label>
@@ -10561,8 +10558,9 @@ async function openAdminPanel(tab = 'users') {
                     // CC overrides any Line-based rotation whenever it has data (same precedence
                     // _isNetJetsOnDuty() uses) -- report that, not a possibly-stale rotation row.
                     const todays = ccDays.find(d => d.date === todayStr);
+                    const variantLabel = data.cc_variant ? `CC${data.cc_variant}` : 'CC schedule';
                     el.innerHTML = [
-                        `CC schedule — ${ccDays.length} day${ccDays.length === 1 ? '' : 's'} on file.`,
+                        `${variantLabel} — ${ccDays.length} day${ccDays.length === 1 ? '' : 's'} on file.`,
                         todays ? `Today (${todayStr}): ${todays.status}` : `No CC day on file for today (${todayStr}).`,
                     ].map(l => `<span class="block">${l}</span>`).join('');
                     return;
@@ -10811,13 +10809,14 @@ async function openAdminPanel(tab = 'users') {
                 pilotsCache[myPilot] = pilot; // _tourStartDateFor/_tourTailFor read through this cache
                 const rh = pilot?.rotation_history || [];
                 document.getElementById('my-info-rotation-family').value = '';
-                document.getElementById('my-info-rotation-line').value = '';
+                let lineValueToSet = '';
                 if ((pilot?.cc_schedule_days || []).length) {
                     // A CC schedule overrides any Line-based rotation whenever it has data (see
                     // _isNetJetsOnDuty()'s precedence) -- showing "CC" here reflects what's
                     // actually governing, even if a stale 7&7/8&6 rotation row also still exists
                     // underneath it from before the pilot switched onto a CC schedule.
                     document.getElementById('my-info-rotation-family').value = 'CC';
+                    if (pilot?.cc_variant) lineValueToSet = String(pilot.cc_variant);
                 } else {
                     // NOT rh[rh.length-1] -- that's just "latest effective_from in the array,"
                     // which is wrong the moment a FUTURE-dated row exists (e.g. a stray test save
@@ -10831,10 +10830,14 @@ async function openAdminPanel(tab = 'users') {
                         // from how many days the stored anchor sits past the reference date.
                         document.getElementById('my-info-rotation-family').value = String(rotation.days_on === 8 ? 8 : 7);
                         const lineNum = _anchorDateToLine(rotation.anchor_date);
-                        if (lineNum) document.getElementById('my-info-rotation-line').value = String(lineNum);
+                        if (lineNum) lineValueToSet = String(lineNum);
                     }
                 }
+                // Rebuilds the Line select's options for the now-set family BEFORE applying the
+                // saved value -- _onRotationFamilyChange() replaces the <select>'s innerHTML, so
+                // setting .value first would just get wiped out by that rebuild.
                 _onRotationFamilyChange();
+                if (lineValueToSet) document.getElementById('my-info-rotation-line').value = lineValueToSet;
                 _refreshMyInfoNetjetsStatus();
             }
             document.getElementById('edit-my-info-modal').classList.remove('hidden');
@@ -10872,23 +10875,53 @@ async function openAdminPanel(tab = 'users') {
         // plain "use the Upload button" note on instead. The note itself is just explanatory; a CC
         // pilot's actual schedule always comes in through the standard Upload button (see
         // _handlePilotUpload()'s manual_netjets branch, server.js), never a save here.
+        // CC has no line/formula -- the "Line" dropdown becomes a program picker (52/60/72/76)
+        // instead of Line 1-14. Still saved through the same dropdown+button, just a different
+        // save path (saveMyRotation() branches on family === 'CC').
+        const _ROTATION_LINE_OPTIONS = Array.from({ length: 14 }, (_, i) => [String(i + 1), `Line ${i + 1}`]);
+        const _CC_VARIANT_OPTIONS = [['52', 'CC52'], ['60', 'CC60'], ['72', 'CC72'], ['76', 'CC76']];
         function _onRotationFamilyChange() {
             const family = document.getElementById('my-info-rotation-family').value;
             const isCC = family === 'CC';
-            document.getElementById('my-info-rotation-line-group').classList.toggle('hidden', isCC);
-            document.getElementById('my-info-rotation-cc-note').classList.toggle('hidden', !isCC);
+            const lineSel = document.getElementById('my-info-rotation-line');
+            const prevValue = lineSel.value;
+            const opts = isCC ? _CC_VARIANT_OPTIONS : _ROTATION_LINE_OPTIONS;
+            lineSel.innerHTML = `<option value="">${isCC ? '— Program —' : '— Line —'}</option>`
+                + opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+            // Keep the current selection if it's still valid under the new option set (e.g.
+            // toggling Family back and forth shouldn't silently clear a real choice).
+            if (opts.some(([v]) => v === prevValue)) lineSel.value = prevValue;
+            document.getElementById('my-info-rotation-note').textContent = isCC
+                ? 'Pick which CC program you bid. The real on/off-duty schedule always comes from your uploaded monthly export (Upload Schedule button) — this is just for reference.'
+                : 'Pick your schedule family and bid line.';
         }
 
         async function saveMyRotation() {
             const statusEl = document.getElementById('my-info-rotation-status');
-            const family = document.getElementById('my-info-rotation-family').value; // '7' = 7&7, '8' = 8&6
-            if (family === 'CC') return; // no formula to save -- the Save button is hidden in this state anyway
+            const family = document.getElementById('my-info-rotation-family').value; // '7' = 7&7, '8' = 8&6, 'CC' = CC52/60/72/76
             const lineSel = document.getElementById('my-info-rotation-line').value;
             // Both dropdowns default to a blank placeholder specifically so this can't slip
             // through unnoticed -- confirmed live as a real failure mode: a pilot could click
             // Save with 7&7/Line 1 still sitting there from the default, saving the wrong
             // rotation without ever having chosen it.
             if (!family || !lineSel) { statusEl.textContent = 'Pick both a family and a line first.'; return; }
+
+            if (family === 'CC') {
+                statusEl.textContent = 'Saving…';
+                try {
+                    const r = await fetch(`${API_BASE}/pilots/${myPilot}/rotation`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: myToken, ccVariant: lineSel })
+                    });
+                    if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
+                    if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
+                    pilotsCache[myPilot].cc_variant = lineSel;
+                    statusEl.textContent = 'Saved.';
+                } catch { statusEl.textContent = 'Save failed — try again.'; }
+                return;
+            }
+
             const lineNum = parseInt(lineSel, 10);
             const daysOn  = family === '8' ? 8 : 7;
             const daysOff = family === '8' ? 6 : 7;

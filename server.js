@@ -1799,7 +1799,7 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
     _resolvePilotToken(req.query.token, db, (status, msg, viewerKey, viewerRole) => {
         if (status) return res.status(status).json({ error: msg });
 
-        db.get('SELECT id, pilot_key, name, base, home_airport, role, parser_type, airline_code FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
+        db.get('SELECT id, pilot_key, name, base, home_airport, role, parser_type, airline_code, cc_variant FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
@@ -2698,10 +2698,27 @@ app.put('/api/pilots/:pilotKey', (req, res) => {
 app.put('/api/pilots/:pilotKey/rotation', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
-    const { token, anchorDate, daysOn, daysOff, effectiveFrom, family, lineNum, previousFamily, previousLine } = req.body;
+    const { token, anchorDate, daysOn, daysOff, effectiveFrom, family, lineNum, previousFamily, previousLine, ccVariant } = req.body;
     _resolvePilotToken(token, db, (status, msg, callerKey) => {
         if (status) return res.status(status).json({ error: msg });
         if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+
+        // CC has no anchor-date/days-on-off formula to save -- this just records which program
+        // (52/60/72/76) the pilot bids, purely informational/display (pilots.cc_variant). The
+        // real on/off-duty truth always comes from pilot_cc_schedule_day's uploaded day records,
+        // never computed from this number. Short-circuits before the line-formula validation
+        // below, which doesn't apply here at all.
+        if (ccVariant) {
+            if (!['52', '60', '72', '76'].includes(String(ccVariant))) {
+                return res.status(400).json({ error: 'ccVariant must be 52, 60, 72, or 76' });
+            }
+            return db.run('UPDATE pilots SET cc_variant=? WHERE pilot_key=?', [String(ccVariant), pilotKey], function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
+                res.json({ success: true });
+            });
+        }
+
         const on = parseInt(daysOn, 10), off = parseInt(daysOff, 10);
         if (!anchorDate || !effectiveFrom || !Number.isFinite(on) || on <= 0 || !Number.isFinite(off) || off <= 0) {
             return res.status(400).json({ error: 'anchorDate, effectiveFrom, daysOn, daysOff (positive integers) required' });
