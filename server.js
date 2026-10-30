@@ -4433,9 +4433,17 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
 
         const tfdmInfo = tfdm.getFlightInfo(cs);
         const tfmsInfo = tfms.getFlightData(cs);
+        const tfmsTimes = tfms.getFlightTimes(cs) || {};
         const norm3 = a => { if (!a) return null; const up = String(a).toUpperCase().replace(/^K/, ''); return up.length === 3 ? up : (icaoToIataAirport(up.length === 4 ? up : 'K' + up) || up); };
         let liveOrigin = norm3(tfdmInfo?.origin || tfmsInfo?.origin || null);
         let liveDest = norm3(tfdmInfo?.dest || (tfmsInfo?.route ? routeDest(tfmsInfo.route) : null));
+
+        // TEMPORARY diagnostic (added 2026-10-30, remove once enough real-world samples are in)
+        // -- building a timeline to compare against real ground truth (FlightAware) rather than
+        // guessing at a fix for NetJets' same-callsign-all-day filing pattern. Logs every poll,
+        // accept or reject, with both feeds' raw fields so we can tell whether TFDM/TFMS ever
+        // self-correct to the actually-active leg, or persistently echo a pre-filed later leg.
+        console.log(`[NetJets-trace] ${new Date().toISOString()} ${nj.pilotKey} ${cs} leg=${legNum + (current?.auto_leg_complete ? 1 : 0)} expectedOrigin=${expectedOrigin||'-'} liveOrigin=${liveOrigin||'-'} liveDest=${liveDest||'-'} tfdmOrigin=${tfdmInfo?.origin||'-'} tfdmDest=${tfdmInfo?.dest||'-'} tfdmState=${tfdmInfo?.flightState||'-'} tfmsOrigin=${tfmsInfo?.origin||'-'} tfmsRoute=${tfmsInfo?.route||'-'} tfmsEtd=${tfmsTimes.etd||'-'} tfmsEta=${tfmsTimes.eta||'-'} currentRow=${current?`${current.departure_airport}->${current.arrival_airport}(complete=${current.auto_leg_complete})`:'none'}`);
 
         // Disagreement between what we already know and what this poll's feed says is treated
         // the same way a callsign collision would be elsewhere in this app -- don't trust it,
