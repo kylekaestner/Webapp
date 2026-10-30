@@ -87,6 +87,32 @@ function textOf(val) {
     return val;
 }
 
+// TEMPORARY (added 2026-10-30, remove once the NetJets same-callsign-all-day filing
+// investigation is done): treats every real EJA callsign as relevant, not just the handful
+// server.js explicitly lists. Deliberately NOT implemented by enumerating hundreds of individual
+// tails into _relevantCallsigns -- that would turn the cheap per-message substring pre-filter in
+// handleMessage() (a loop over every relevant callsign, checked against every message TFDM
+// delivers nationwide) into an O(hundreds) cost per message, the exact CPU mistake swim.js's own
+// handleMessage comment documents a real past incident over. A single `includes('EJA')` check is
+// O(1) regardless of how many individual tails this ends up covering.
+const NETJETS_RESEARCH_MODE = true;
+function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && /^EJA\d+$/.test(cs); }
+
+// Dedicated log file (not pm2's general console output) so the investigation's own volume
+// doesn't bury or get buried by normal app logs, and only written ON CHANGE per callsign (not
+// every repeated message -- a flight sends position/plan updates every few seconds to minutes,
+// and this now potentially covers the whole active NetJets fleet, not one or two watched tails).
+const _NETJETS_RESEARCH_LOG_PATH = path.join(__dirname, '.netjets_research.log');
+const _netjetsResearchLastSig = new Map(); // callsign -> last-logged detail string
+function _netjetsResearchLog(source, cs, detail) {
+    const key = `${source}|${cs}`;
+    if (_netjetsResearchLastSig.get(key) === detail) return;
+    _netjetsResearchLastSig.set(key, detail);
+    try {
+        fs.appendFileSync(_NETJETS_RESEARCH_LOG_PATH, `${new Date().toISOString()} [${source}] ${cs} ${detail}\n`);
+    } catch (_) {}
+}
+
 function setRelevantCallsigns(input) {
     // Accepts either a plain Set/array of callsign strings (no day-check) or a
     // Map<callsign, Iterable<number|Date|string>> of known scheduled departure time(s) -- see
@@ -107,7 +133,7 @@ function setRelevantCallsigns(input) {
         _relevantDepTimes = new Map();
     }
     for (const cs of Object.keys(_latest)) {
-        if (!_relevantCallsigns.has(cs)) delete _latest[cs];
+        if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) delete _latest[cs];
     }
 }
 
@@ -165,7 +191,7 @@ function processOneMessage(msgObj) {
         if (_unmappedWarnings++ < WARN_CAP) console.warn('[TFDM] flight had no aircraftIdentification attribute — check scratch/tfdm-samples/ for a shape change');
         return;
     }
-    if (_relevantCallsigns && !_relevantCallsigns.has(cs)) return;
+    if (_relevantCallsigns && !_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) return;
 
     const departure = flight.departure;
     const arrival = flight.arrival;
@@ -176,13 +202,14 @@ function processOneMessage(msgObj) {
     const offBlockIso = textOf(departure?.offBlockTime?.initial);
     const scheduledDepMs = offBlockIso ? (d => isNaN(d) ? null : d.getTime())(new Date(offBlockIso)) : null;
     // TEMPORARY research trace (added 2026-10-30, remove once the NetJets same-callsign
-    // investigation is done -- see server.js's _NETJETS_RESEARCH_CALLSIGNS for the full why).
-    // Logs every raw TFDM message for a watched EJA callsign BEFORE isExpectedDay() has a chance
-    // to reject anything, specifically to see whether a message's own offBlockTime ever points at
-    // a different calendar day than today while a NetJets tour is still in progress.
-    if (/^EJA\d+$/.test(cs)) {
+    // investigation is done). Logs every raw TFDM message for ANY EJA callsign BEFORE
+    // isExpectedDay() has a chance to reject anything, specifically to see whether a message's
+    // own offBlockTime ever points at a different calendar day than today -- but only ON CHANGE
+    // (see _netjetsResearchLog()), not every repeated message, to keep log volume sane now that
+    // this covers the whole NetJets fleet rather than one or two watched tails.
+    if (_isResearchRelevant(cs)) {
         const dayGapHrs = scheduledDepMs != null ? ((scheduledDepMs - Date.now()) / 3600000).toFixed(1) : '-';
-        console.log(`[NetJets-research][TFDM] ${new Date().toISOString()} ${cs} offBlockTime=${offBlockIso || '-'} (${dayGapHrs}h from now) origin=${departure ? findAttr(departure, 'departurePointText') : '-'} dest=${arrival ? findAttr(arrival, 'destinationPointText') : '-'} state=${findAttr(flight.flightStatus?.tfdmFlightState, 'value') || '-'}`);
+        _netjetsResearchLog('TFDM', cs, `offBlockTime=${offBlockIso || '-'} (${dayGapHrs}h from now) origin=${departure ? findAttr(departure, 'departurePointText') : '-'} dest=${arrival ? findAttr(arrival, 'destinationPointText') : '-'} state=${findAttr(flight.flightStatus?.tfdmFlightState, 'value') || '-'}`);
     }
     if (!isExpectedDay(cs, scheduledDepMs)) return;
     const origin = departure ? findAttr(departure, 'departurePointText') : null;
@@ -235,8 +262,8 @@ function handleMessage(xmlText) {
     // for the production incident this exists to prevent. Skipped only once _relevantCallsigns is
     // actually set; null means the startup grace window, same as every other feed here.
     if (_relevantCallsigns) {
-        let hasRelevant = false;
-        for (const cs of _relevantCallsigns) {
+        let hasRelevant = NETJETS_RESEARCH_MODE && xmlText.includes('EJA');
+        if (!hasRelevant) for (const cs of _relevantCallsigns) {
             if (xmlText.includes(cs)) { hasRelevant = true; break; }
         }
         if (!hasRelevant && _dumpCount >= DUMP_CAP) return;
