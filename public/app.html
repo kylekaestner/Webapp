@@ -1745,10 +1745,11 @@
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Duty Rotation</label>
                 <div class="grid grid-cols-2 gap-2 mb-2">
-                    <select id="my-info-rotation-family" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                    <select id="my-info-rotation-family" onchange="_onRotationFamilyChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
                         <option value="">— Family —</option>
                         <option value="7">7 &amp; 7</option>
                         <option value="8">8 &amp; 6</option>
+                        <option value="CC">CC (52/60/72/76)</option>
                     </select>
                     <select id="my-info-rotation-line" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
                         <option value="">— Line —</option>
@@ -1759,9 +1760,12 @@
                         <option value="13">Line 13</option><option value="14">Line 14</option>
                     </select>
                 </div>
-                <p class="text-[10px] text-zinc-500">Pick your schedule family and bid line.</p>
-                <button type="button" onclick="saveMyRotation()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save Rotation</button>
-                <p id="my-info-rotation-status" class="text-[10px] text-zinc-500 mt-1"></p>
+                <div id="my-info-rotation-line-group">
+                    <p class="text-[10px] text-zinc-500">Pick your schedule family and bid line.</p>
+                    <button type="button" onclick="saveMyRotation()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save Rotation</button>
+                    <p id="my-info-rotation-status" class="text-[10px] text-zinc-500 mt-1"></p>
+                </div>
+                <p id="my-info-rotation-cc-note" class="hidden text-[10px] text-zinc-500">CC schedules bid a per-trimester day total, not a repeating line — there's no formula to pick here. Use the <strong>Upload Schedule</strong> button like any other pilot: PDF (Print to PDF from the email) or .txt both work. A PDF can take up to a minute to process.</p>
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Current Tour Tail</label>
@@ -1772,13 +1776,6 @@
                 </div>
                 <p class="text-[10px] text-zinc-500">Just the number off your tail (N163QS → 163). No need to type N, QS, or EJA. Starting airport is wherever you're meeting the aircraft on Day 1 — helps the tracker confirm the right flight.</p>
                 <p id="my-info-tour-tail-status" class="text-[10px] text-zinc-500 mt-1"></p>
-            </div>
-            <div>
-                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">CC Schedule (CC52/60/72/76 only)</label>
-                <p class="text-[10px] text-zinc-500 mb-1">If you're on a CC schedule, use the <strong>Upload Schedule</strong> button like any other pilot — PDF (Print to PDF from the email) or .txt both work, it overrides the Line-based rotation above for any day it covers. A PDF can take up to a minute to process. Or paste it directly below instead:</p>
-                <textarea id="my-info-cc-schedule-text" rows="4" placeholder="Sun, Nov 01, 2026 OFF&#10;Mon, Nov 02, 2026 X&#10;..." class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none"></textarea>
-                <button type="button" onclick="saveMyCcSchedule()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Parse &amp; Save</button>
-                <p id="my-info-cc-schedule-status" class="text-[10px] text-zinc-500 mt-1"></p>
             </div>
         </div>
         <div id="my-info-error" class="hidden text-xs text-red-400 font-bold"></div>
@@ -10559,6 +10556,17 @@ async function openAdminPanel(tab = 'users') {
                 const data = await fetch(`${API_BASE}/pilots/${pilotKey}?token=${encodeURIComponent(myToken)}`).then(r => r.json());
                 pilotsCache[pilotKey] = data;
                 const todayStr = _todayLocalDateStr();
+                const ccDays = data.cc_schedule_days || [];
+                if (ccDays.length) {
+                    // CC overrides any Line-based rotation whenever it has data (same precedence
+                    // _isNetJetsOnDuty() uses) -- report that, not a possibly-stale rotation row.
+                    const todays = ccDays.find(d => d.date === todayStr);
+                    el.innerHTML = [
+                        `CC schedule — ${ccDays.length} day${ccDays.length === 1 ? '' : 's'} on file.`,
+                        todays ? `Today (${todayStr}): ${todays.status}` : `No CC day on file for today (${todayStr}).`,
+                    ].map(l => `<span class="block">${l}</span>`).join('');
+                    return;
+                }
                 const rotation = _resolveRotationAt(data.rotation_history, todayStr);
                 if (!rotation) { el.textContent = 'No rotation saved yet.'; return; }
                 const tourStart = _tourStartDateFor(pilotKey, todayStr);
@@ -10802,19 +10810,31 @@ async function openAdminPanel(tab = 'users') {
             if (asel === 'EJA') {
                 pilotsCache[myPilot] = pilot; // _tourStartDateFor/_tourTailFor read through this cache
                 const rh = pilot?.rotation_history || [];
-                // NOT rh[rh.length-1] -- that's just "latest effective_from in the array," which
-                // is wrong the moment a FUTURE-dated row exists (e.g. a stray test save for next
-                // week): it would sort after today's actually-current row and get shown instead.
-                // _resolveRotationAt correctly picks whichever row is actually in effect today.
-                const rotation = _resolveRotationAt(rh, _todayLocalDateStr());
-                if (rotation) {
-                    // Every rotation is now saved via the line formula, so this reverse-maps
-                    // exactly (no guessing) -- family comes straight from days_on, line number
-                    // from how many days the stored anchor sits past the reference date.
-                    document.getElementById('my-info-rotation-family').value = String(rotation.days_on === 8 ? 8 : 7);
-                    const lineNum = _anchorDateToLine(rotation.anchor_date);
-                    if (lineNum) document.getElementById('my-info-rotation-line').value = String(lineNum);
+                document.getElementById('my-info-rotation-family').value = '';
+                document.getElementById('my-info-rotation-line').value = '';
+                if ((pilot?.cc_schedule_days || []).length) {
+                    // A CC schedule overrides any Line-based rotation whenever it has data (see
+                    // _isNetJetsOnDuty()'s precedence) -- showing "CC" here reflects what's
+                    // actually governing, even if a stale 7&7/8&6 rotation row also still exists
+                    // underneath it from before the pilot switched onto a CC schedule.
+                    document.getElementById('my-info-rotation-family').value = 'CC';
+                } else {
+                    // NOT rh[rh.length-1] -- that's just "latest effective_from in the array,"
+                    // which is wrong the moment a FUTURE-dated row exists (e.g. a stray test save
+                    // for next week): it would sort after today's actually-current row and get
+                    // shown instead. _resolveRotationAt correctly picks whichever row is actually
+                    // in effect today.
+                    const rotation = _resolveRotationAt(rh, _todayLocalDateStr());
+                    if (rotation) {
+                        // Every rotation is now saved via the line formula, so this reverse-maps
+                        // exactly (no guessing) -- family comes straight from days_on, line number
+                        // from how many days the stored anchor sits past the reference date.
+                        document.getElementById('my-info-rotation-family').value = String(rotation.days_on === 8 ? 8 : 7);
+                        const lineNum = _anchorDateToLine(rotation.anchor_date);
+                        if (lineNum) document.getElementById('my-info-rotation-line').value = String(lineNum);
+                    }
                 }
+                _onRotationFamilyChange();
                 _refreshMyInfoNetjetsStatus();
             }
             document.getElementById('edit-my-info-modal').classList.remove('hidden');
@@ -10848,9 +10868,21 @@ async function openAdminPanel(tab = 'users') {
             }
         }
 
+        // CC has no line/formula to pick -- toggles the Line-select+Save-button group off and a
+        // plain "use the Upload button" note on instead. The note itself is just explanatory; a CC
+        // pilot's actual schedule always comes in through the standard Upload button (see
+        // _handlePilotUpload()'s manual_netjets branch, server.js), never a save here.
+        function _onRotationFamilyChange() {
+            const family = document.getElementById('my-info-rotation-family').value;
+            const isCC = family === 'CC';
+            document.getElementById('my-info-rotation-line-group').classList.toggle('hidden', isCC);
+            document.getElementById('my-info-rotation-cc-note').classList.toggle('hidden', !isCC);
+        }
+
         async function saveMyRotation() {
             const statusEl = document.getElementById('my-info-rotation-status');
             const family = document.getElementById('my-info-rotation-family').value; // '7' = 7&7, '8' = 8&6
+            if (family === 'CC') return; // no formula to save -- the Save button is hidden in this state anyway
             const lineSel = document.getElementById('my-info-rotation-line').value;
             // Both dropdowns default to a blank placeholder specifically so this can't slip
             // through unnoticed -- confirmed live as a real failure mode: a pilot could click
@@ -10918,37 +10950,6 @@ async function openAdminPanel(tab = 'users') {
                 pilotsCache[myPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || prior?.start_airport || null }];
                 tailStatus.textContent = 'Saved.';
             } catch { tailStatus.textContent = 'Save failed — try again.'; }
-        }
-
-        async function saveMyCcSchedule() {
-            const statusEl = document.getElementById('my-info-cc-schedule-status');
-            const rawText = document.getElementById('my-info-cc-schedule-text').value;
-            if (!rawText.trim()) { statusEl.textContent = 'Paste your schedule email text first.'; return; }
-            statusEl.textContent = 'Parsing…';
-            try {
-                const r = await fetch(`${API_BASE}/pilots/${myPilot}/cc-schedule`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: myToken, rawText })
-                });
-                const data = await r.json().catch(() => ({}));
-                if (!r.ok) { statusEl.textContent = data.error || 'Save failed — try again.'; return; }
-                if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
-                // Refetch rather than hand-merge -- the server already upserted (updates existing
-                // days, adds new ones), and the full day list is small enough that a clean refetch
-                // is simpler and less error-prone than reconstructing the merge client-side.
-                try {
-                    const fresh = await fetch(`${API_BASE}/pilots/${myPilot}?token=${encodeURIComponent(myToken)}`).then(res => res.json());
-                    pilotsCache[myPilot].cc_schedule_days = fresh.cc_schedule_days || [];
-                } catch (_) {}
-                statusEl.textContent = `Saved ${data.daysParsed} day${data.daysParsed === 1 ? '' : 's'}.`
-                    + (data.warnings?.length ? ` ${data.warnings.length} line${data.warnings.length === 1 ? '' : 's'} not recognized -- check console.` : '');
-                if (data.warnings?.length) console.warn('CC schedule parse warnings:', data.warnings);
-                if (currentPilot === myPilot) {
-                    render();
-                    if (document.getElementById('view-overlap')?.classList.contains('view-active')) computeOffDays();
-                }
-            } catch { statusEl.textContent = 'Save failed — try again.'; }
         }
 
         let _myInfoOriginalBase = '';

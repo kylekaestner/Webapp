@@ -2760,39 +2760,15 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
     });
 });
 
-// Shared by the direct paste endpoint below AND _handlePilotUpload()'s manual_netjets branch --
-// upserts one row per day (ON CONFLICT so re-pasting/re-uploading the same month, or a corrected
-// re-send, updates in place rather than duplicating).
+// Used by _handlePilotUpload()'s manual_netjets branch -- upserts one row per day (ON CONFLICT
+// so re-uploading the same month, or a corrected re-send, updates in place rather than
+// duplicating).
 function _saveCcScheduleDays(db, pilotId, days, cb) {
     const stmt = db.prepare(`INSERT INTO pilot_cc_schedule_day (pilot_id, date, status) VALUES (?, ?, ?)
             ON CONFLICT(pilot_id, date) DO UPDATE SET status=excluded.status`);
     for (const d of days) stmt.run(pilotId, d.date, d.status);
     stmt.finalize(cb);
 }
-
-// CC52/60/72/76 pilots paste their monthly schedule email text here directly -- see
-// parseCcScheduleText()'s own header comment for the confirmed format/status codes. Kept as a
-// secondary path alongside the standard upload flow below (_handlePilotUpload()'s manual_netjets
-// branch, which is the primary/expected one -- same upload button every other pilot uses).
-app.post('/api/pilots/:pilotKey/cc-schedule', (req, res) => {
-    const db = getDB();
-    const { pilotKey } = req.params;
-    const { token, rawText } = req.body;
-    _resolvePilotToken(token, db, (status, msg, callerKey) => {
-        if (status) return res.status(status).json({ error: msg });
-        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
-        const { days, warnings } = parseCcScheduleText(rawText);
-        if (!days.length) return res.status(400).json({ error: 'No recognizable schedule days found in that text', warnings });
-        db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
-            if (err) return res.status(500).json({ error: err.message });
-            if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
-            _saveCcScheduleDays(db, pilotRow.id, days, err2 => {
-                if (err2) return res.status(500).json({ error: err2.message });
-                res.json({ success: true, daysParsed: days.length, warnings });
-            });
-        });
-    });
-});
 
 // Delete pilot and their segments (admin-only -- was previously callable by anyone with no
 // token at all, same gap the PUT endpoint above had).
