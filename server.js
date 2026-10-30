@@ -1637,9 +1637,10 @@ try {
 try {
     const rawLines = fs.readFileSync(path.join(__dirname, 'data', 'airports_raw.csv'), 'utf8').split('\n');
     // columns: id,ident,type,name,lat,lon,elev,continent,country,region,muni,sched,icao,iata,gps,local,...
+    const localCandidates = []; // local_code entries, applied in a separate pass below -- see why
     for (let i = 1; i < rawLines.length; i++) {
         const cols = rawLines[i].split(',').map(s => s.replace(/^"|"$/g, '').trim());
-        const ident = cols[1], icao = cols[12], iata = cols[13], gps = cols[14];
+        const ident = cols[1], icao = cols[12], iata = cols[13], gps = cols[14], local = cols[15];
         const lat = parseFloat(cols[4]), lon = parseFloat(cols[5]);
         if (!isFinite(lat) || !isFinite(lon)) continue;
         // Index by ident and gps_code (these are the ICAO-style identifiers pilots use)
@@ -1655,6 +1656,18 @@ try {
             if (!_iataToIcaoApt[iata.toUpperCase()]) _iataToIcaoApt[iata.toUpperCase()] = icao.toUpperCase();
             if (!_icaoToIataApt[icao.toUpperCase()]) _icaoToIataApt[icao.toUpperCase()] = iata.toUpperCase();
         }
+        if (local && local !== 'N/A') localCandidates.push([local.toUpperCase(), lat, lon]);
+    }
+    // local_code (bare FAA LID, e.g. "F70") pass -- same fix and same reasoning as
+    // scripts/build-airports.js's own local_code pass (see its comment for the full story: a
+    // NetJets leg into French Valley Airport had no coords anywhere in the app because
+    // local_code was parsed but never indexed). Must run strictly AFTER every row's primary
+    // fields have already claimed their codes above, never interleaved with that loop --
+    // confirmed live the hard way there that an interleaved version let an explicitly
+    // "[UNUSABLE]"-marked airstrip in Indonesia (local_code "SUS") clobber Kyle's own home
+    // airport (KSUS, whose real code is also "SUS" via iata_code) purely by CSV row-order luck.
+    for (const [code, lat, lon] of localCandidates) {
+        if (!_aptCoords[code]) _aptCoords[code] = [lat, lon];
     }
     console.log(`Airport DB (OurAirports supplement): ${Object.keys(_aptCoords).length} total codes`);
 } catch (e) {
