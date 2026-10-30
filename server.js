@@ -4369,6 +4369,11 @@ function _getOnDutyNetjetsPilots(db, todayStr, cb) {
 // today's own still-resolving activity hasn't finished yet.
 const FUTURE_LEG_GUARD_MS = 10 * 60 * 60 * 1000;
 
+// TEMPORARY -- see its one call site in runActiveFlightPoller() for the full explanation. Real
+// NetJets callsigns being watched purely for investigation, not tied to any CrewSync pilot's own
+// tour. Add/remove callsigns here as the investigation needs a wider or different sample.
+const _NETJETS_RESEARCH_CALLSIGNS = ['EJA303'];
+
 async function _createNetjetsLeg(db, nj, legNum, origin, dest) {
     const autoLegKey = `${nj.callsign}|${nj.tourStart}|${legNum}`;
     const times = tfms.getFlightTimes(nj.callsign) || {};
@@ -4732,6 +4737,23 @@ async function runActiveFlightPoller() {
                         _liveCache[nj.callsign] = { ts: Date.now(), data };
                     } catch (_) {}
                 }
+            }
+            // TEMPORARY research tracking (added 2026-10-30, remove once the investigation into
+            // NetJets' same-callsign-all-day filing pattern is done) -- watching a small, fixed
+            // set of real NetJets callsigns NOT tied to any CrewSync pilot, purely to build a
+            // timeline of when TFDM/TFMS actually report route/time data relative to when each
+            // leg really happens (per FlightAware), and specifically whether a flight plan for a
+            // FUTURE calendar day ever shows up while today's duty day is still in progress --
+            // explicit direction: "we may need to start looking for flight plans being filed for
+            // flights tomorrow." Deliberately given an empty swimDepTimes entry (same permissive
+            // treatment on-duty NetJets pilots already get above) so isExpectedDay() doesn't
+            // filter anything out before we get a chance to see it -- the whole point here is to
+            // observe raw, unfiltered behavior, not to test a safeguard that doesn't exist yet for
+            // this pilot type. See tfdm.js's processOneMessage()/tfms.js's processOneFltdMessage()
+            // for the actual log lines this produces.
+            for (const rcs of _NETJETS_RESEARCH_CALLSIGNS) {
+                swimRelevant.add(rcs);
+                if (!swimDepTimes.has(rcs)) swimDepTimes.set(rcs, new Set());
             }
             // Wider swimRelevant set, refreshed every 15s — SWIM only needs to retain state for
             // these, not every callsign nationwide. Deliberately NOT the same set `polled` drives

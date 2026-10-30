@@ -288,16 +288,29 @@ function processOneFltdMessage(msgObj) {
     if (!acid) return;
     const cs = String(acid).trim().toUpperCase();
     if (_relevantCallsigns && !_relevantCallsigns.has(cs)) return;
+    const candidateMs = candidateMessageTimeMs(msgObj);
+    const candidateOrigin = routeOrigin(messageRouteString(msgObj)) || (_latest[cs] && _latest[cs].origin) || null;
+    // TEMPORARY research trace (added 2026-10-30, remove once the NetJets same-callsign
+    // investigation is done -- see server.js's _NETJETS_RESEARCH_CALLSIGNS for the full why).
+    // Logs every raw TFMS message for a watched EJA callsign BEFORE either day/origin check below
+    // has a chance to reject anything, specifically to see whether a message's own candidate time
+    // ever points at a different calendar day than today while a NetJets tour is still in
+    // progress -- isExpectedDay()/isExpectedOrigin() are both permissive no-ops for an EJA
+    // callsign right now (no known schedule to check against), so nothing here is actually being
+    // filtered yet; this is purely to see what the raw feed looks like.
+    if (/^EJA\d+$/.test(cs)) {
+        const dayGapHrs = candidateMs != null ? ((candidateMs - Date.now()) / 3600000).toFixed(1) : '-';
+        console.log(`[NetJets-research][TFMS] ${new Date().toISOString()} ${cs} msgType=${findAttr(msgObj, 'msgType') || '-'} candidateTime=${candidateMs != null ? new Date(candidateMs).toISOString() : '-'} (${dayGapHrs}h from now) candidateOrigin=${candidateOrigin || '-'} route=${messageRouteString(msgObj) || '-'}`);
+    }
     // Reject a message describing a different calendar-day instance of a recurring flight number
     // (see isExpectedDay()'s and _relevantDepTimes's header comments) before any of it gets
     // merged into _latest/_flightTimes -- route, times, everything, not just one field.
-    if (!isExpectedDay(cs, candidateMessageTimeMs(msgObj))) return;
+    if (!isExpectedDay(cs, candidateMs)) return;
     // Reject a message describing a same-day, different-route reuse of this flight number -- see
     // _relevantOrigins's header comment. Prefers THIS message's own route-string origin when
     // present; falls back to whatever origin was cached from this callsign's last route-bearing
     // message, so a route-less times-only update doesn't slip past unchecked just because it
     // doesn't carry a fresh route of its own.
-    const candidateOrigin = routeOrigin(messageRouteString(msgObj)) || (_latest[cs] && _latest[cs].origin) || null;
     if (!isExpectedOrigin(cs, candidateOrigin)) return;
 
     const msgType = findAttr(msgObj, 'msgType');

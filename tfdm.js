@@ -175,6 +175,15 @@ function processOneMessage(msgObj) {
     // callsign, not the identical route flown again tomorrow, which is exactly this failure mode.
     const offBlockIso = textOf(departure?.offBlockTime?.initial);
     const scheduledDepMs = offBlockIso ? (d => isNaN(d) ? null : d.getTime())(new Date(offBlockIso)) : null;
+    // TEMPORARY research trace (added 2026-10-30, remove once the NetJets same-callsign
+    // investigation is done -- see server.js's _NETJETS_RESEARCH_CALLSIGNS for the full why).
+    // Logs every raw TFDM message for a watched EJA callsign BEFORE isExpectedDay() has a chance
+    // to reject anything, specifically to see whether a message's own offBlockTime ever points at
+    // a different calendar day than today while a NetJets tour is still in progress.
+    if (/^EJA\d+$/.test(cs)) {
+        const dayGapHrs = scheduledDepMs != null ? ((scheduledDepMs - Date.now()) / 3600000).toFixed(1) : '-';
+        console.log(`[NetJets-research][TFDM] ${new Date().toISOString()} ${cs} offBlockTime=${offBlockIso || '-'} (${dayGapHrs}h from now) origin=${departure ? findAttr(departure, 'departurePointText') : '-'} dest=${arrival ? findAttr(arrival, 'destinationPointText') : '-'} state=${findAttr(flight.flightStatus?.tfdmFlightState, 'value') || '-'}`);
+    }
     if (!isExpectedDay(cs, scheduledDepMs)) return;
     const origin = departure ? findAttr(departure, 'departurePointText') : null;
     const dest = arrival ? findAttr(arrival, 'destinationPointText') : null;
