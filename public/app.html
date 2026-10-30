@@ -616,6 +616,12 @@
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md" style="background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.4)"></span>Personal</div>
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md" style="background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.4)"></span>Commute</div>
                         <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block px-1.5 text-pink-300 text-[8px] font-black rounded bg-pink-950/40 border border-pink-500/30">DH</span>Deadhead</div>
+                        <div class="w-px self-stretch bg-zinc-800/60"></div>
+                        <div id="grid-month-totals" class="flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[9px] font-black uppercase tracking-wide text-zinc-500">
+                            <div><span id="grid-total-flown" class="text-zinc-200">0</span> Flown</div>
+                            <div><span id="grid-total-off" class="text-zinc-200">0</span> Off</div>
+                            <div><span id="grid-total-oncall" class="text-zinc-200">0</span> On Call</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1627,12 +1633,17 @@
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
-                    <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                    <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=normApt(this.value); _onEditUserBaseChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
                 </div>
                 <div>
                     <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
                     <input id="edit-user-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
                 </div>
+            </div>
+            <div id="edit-user-base-effective-row" class="hidden space-y-1">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block">Base Change Effective From</label>
+                <input id="edit-user-base-effective" type="date" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                <p class="text-[10px] text-zinc-500">Any trip still in progress on this date (even one landing after it) keeps counting as the old base. Past schedule history stays correct either way.</p>
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
@@ -1647,6 +1658,7 @@
                     <option value="SWA">Southwest Airlines (CrewHub)</option>
                     <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
                     <option value="SCX">Sun Country Airlines</option>
+                    <option value="EJA">NetJets (Manual — Beta)</option>
                     <option value="OTHER">Other / Auto-detect</option>
                 </select>
             </div>
@@ -1654,6 +1666,10 @@
                 <label class="text-[9px] font-black text-zinc-500 uppercase block" id="edit-user-ics-label">ICS Calendar URL</label>
                 <input id="edit-user-ics-url" type="url" placeholder="https://…" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
                 <p class="text-[10px] text-zinc-600" id="edit-user-ics-hint">Paste the private subscription link from your airline's scheduling app.</p>
+            </div>
+            <div id="edit-user-netjets-section" class="hidden space-y-1 p-3 rounded-xl bg-zinc-900/60 border border-zinc-800">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block">NetJets Status (read-only — set by the pilot in My Info)</label>
+                <p id="edit-user-netjets-summary" class="text-xs text-zinc-300 leading-relaxed">Loading…</p>
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Role / Description</label>
@@ -1691,12 +1707,17 @@
         <div class="grid grid-cols-2 gap-4">
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
-                <input id="my-info-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <input id="my-info-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=normApt(this.value); _onMyInfoBaseChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
                 <input id="my-info-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             </div>
+        </div>
+        <div id="my-info-base-effective-row" class="hidden space-y-1">
+            <label class="text-[9px] font-black text-zinc-500 uppercase block">Base Change Effective From</label>
+            <input id="my-info-base-effective" type="date" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+            <p class="text-[10px] text-zinc-500">Any trip still in progress on this date (even one landing after it) keeps counting as your old base. Past schedule history stays correct either way.</p>
         </div>
         <div>
             <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
@@ -1711,6 +1732,7 @@
                 <option value="SWA">Southwest Airlines (CrewHub)</option>
                 <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
                 <option value="SCX">Sun Country Airlines</option>
+                <option value="EJA">NetJets (Manual — Beta)</option>
                 <option value="OTHER">Other / Auto-detect</option>
             </select>
         </div>
@@ -1719,8 +1741,46 @@
             <input id="my-info-ics-url" type="url" placeholder="https://…" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
             <p class="text-[10px] text-zinc-600" id="my-info-ics-hint">Paste the private subscription link from your airline's scheduling app.</p>
         </div>
+        <div id="my-info-netjets-section" class="hidden space-y-4 pt-3 border-t border-zinc-800">
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Duty Rotation</label>
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <input id="my-info-rotation-on" type="number" min="1" max="60" placeholder="Days On" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                    <input id="my-info-rotation-off" type="number" min="1" max="60" placeholder="Days Off" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                </div>
+                <input id="my-info-rotation-anchor" type="date" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none mb-1">
+                <p class="text-[10px] text-zinc-500">Pick a date you know was Day 1 of an on-duty stretch. This rotation applies from that date forward.</p>
+                <button type="button" onclick="saveMyRotation()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save Rotation</button>
+                <p id="my-info-rotation-status" class="text-[10px] text-zinc-500 mt-1"></p>
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Current Tour Tail</label>
+                <div class="flex gap-2 mb-2">
+                    <input id="my-info-tour-tail" type="text" inputmode="numeric" maxlength="3" placeholder="e.g. 163" class="flex-1 px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none" oninput="this.value=this.value.replace(/\D/g,'').slice(0,3)">
+                    <input id="my-info-tour-start-airport" type="text" placeholder="Starting Apt" maxlength="4" oninput="this.value=normApt(this.value)" class="w-[7.5rem] px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                    <button type="button" onclick="saveMyTourTail()" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save</button>
+                </div>
+                <p class="text-[10px] text-zinc-500">Just the number off your tail (N163QS → 163). No need to type N, QS, or EJA. Starting airport is wherever you're meeting the aircraft on Day 1 — helps the tracker confirm the right flight.</p>
+                <p id="my-info-tour-tail-status" class="text-[10px] text-zinc-500 mt-1"></p>
+            </div>
+        </div>
         <div id="my-info-error" class="hidden text-xs text-red-400 font-bold"></div>
     </div>
+    </div>
+</div>
+
+<!-- NetJets Day-1 tail reminder -->
+<div id="netjets-tail-reminder-modal" class="hidden fixed inset-0 z-[1010] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)dismissNetjetsTailReminder()">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-xs bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+        <div class="px-6 pt-6 pb-5 space-y-2">
+            <p class="text-sm font-black uppercase tracking-wide text-white">Tour Starts Today</p>
+            <p class="text-xs text-zinc-400 leading-relaxed">Add your tail # and starting airport before you depart — a leg flown before it's saved can't be recovered after the fact. Also worth logging any deadhead/commute to get to the aircraft.</p>
+        </div>
+        <div class="flex border-t border-zinc-800">
+            <button onclick="dismissNetjetsTailReminder()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Not Now</button>
+            <button onclick="_openMyInfoFromNetjetsReminder()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30 transition-colors">Add Tail #</button>
+        </div>
     </div>
 </div>
 
@@ -3230,6 +3290,110 @@
         function isHomeOrBase(airport, pilotKey) {
             return isHomeAirport(airport, pilotKey) || isBaseAirport(airport, pilotKey);
         }
+        // Resolves which airline base was actually in effect on a given date, for a pilot whose
+        // base changed over time (e.g. a regional reassignment) -- baseHistory is the pilot's
+        // `base_history` array from the API ([{base, effective_from}], ascending), and falls back
+        // to the pilot's current `base` untouched when there's no history (every pilot who's never
+        // had a recorded base change).
+        function resolveBaseAt(base, baseHistory, atDate) {
+            const current = base ? normApt(base) : null;
+            if (!baseHistory || !baseHistory.length) return current;
+            const t = atDate instanceof Date ? atDate.getTime() : new Date(atDate).getTime();
+            let resolved = current;
+            for (const h of baseHistory) {
+                if (new Date(h.effective_from).getTime() <= t) resolved = normApt(h.base);
+                else break;
+            }
+            return resolved;
+        }
+
+        // Shown once per day (localStorage-deduped) when a NetJets pilot is on-duty today with no
+        // tail saved for this tour -- the server also sends a push the night before (same reason:
+        // a leg flown before the tail is saved can't be recovered after the fact, SWIM has no
+        // backlog to replay), this is the client-side companion for whenever they actually open
+        // the app that day.
+        function _maybeShowNetjetsTailReminder(pilotKey, data) {
+            if (data?.parser_type !== 'manual_netjets') return;
+            const todayStr = _todayLocalDateStr();
+            const tourStart = _tourStartDateFor(pilotKey, todayStr);
+            if (!tourStart) return;
+            if (todayStr !== tourStart) return; // Day 1 only -- matches the server's night-before push, which also only ever fires once per tour
+            if (_tourTailFor(pilotKey, tourStart)) return;
+            const dedupKey = `cs_netjets_tail_nudge_${pilotKey}_${tourStart}_${todayStr}`;
+            try { if (localStorage.getItem(dedupKey)) return; } catch (_) {}
+            const modal = document.getElementById('netjets-tail-reminder-modal');
+            if (modal) modal.classList.remove('hidden');
+            try { localStorage.setItem(dedupKey, '1'); } catch (_) {}
+        }
+        function dismissNetjetsTailReminder() {
+            document.getElementById('netjets-tail-reminder-modal')?.classList.add('hidden');
+        }
+        function _openMyInfoFromNetjetsReminder() {
+            dismissNetjetsTailReminder();
+            openEditMyInfoModal();
+        }
+
+        // NetJets-style manual tracking (parser_type 'manual_netjets', no feed exists). History-
+        // preserving like resolveBaseAt above -- walk forward, keep the last entry still <= the
+        // target date, since a pilot's rotation cadence itself can change over time and a past
+        // date must resolve against whatever cadence was actually in effect then.
+        function _resolveRotationAt(rotationHistory, dateStr) {
+            if (!rotationHistory || !rotationHistory.length) return null;
+            let resolved = null;
+            for (const r of rotationHistory) {
+                if (r.effective_from <= dateStr) resolved = r;
+                else break;
+            }
+            return resolved;
+        }
+
+        // Given a resolved rotation (anchor_date + days_on/days_off), is dateStr an on-duty day?
+        // Modular arithmetic off the anchor -- the ((x % n) + n) % n form handles dates before the
+        // anchor too (a negative JS modulo result), not just dates after it.
+        function _isNetJetsOnDuty(pilotKey, dateStr) {
+            return _tourStartDateFor(pilotKey, dateStr) !== null;
+        }
+
+        // Null if off-duty (or no rotation configured) on dateStr; otherwise the calendar date
+        // (YYYY-MM-DD) of day 1 of the on-duty tour containing dateStr -- the key used to look up
+        // / save that tour's tail in pilot_tour_tail.
+        function _tourStartDateFor(pilotKey, dateStr) {
+            const rotation = _resolveRotationAt(pilotsCache[pilotKey]?.rotation_history, dateStr);
+            if (!rotation) return null;
+            const period = rotation.days_on + rotation.days_off;
+            if (period <= 0) return null;
+            const anchor = new Date(rotation.anchor_date + 'T12:00:00');
+            const d = new Date(dateStr + 'T12:00:00');
+            const daysSince = Math.round((d - anchor) / 86400000);
+            const cyclePos = ((daysSince % period) + period) % period;
+            if (cyclePos >= rotation.days_on) return null;
+            const tourStartOffset = daysSince - cyclePos;
+            const start = new Date(anchor.getTime() + tourStartOffset * 86400000);
+            const _pad = n => String(n).padStart(2, '0');
+            return `${start.getFullYear()}-${_pad(start.getMonth() + 1)}-${_pad(start.getDate())}`;
+        }
+
+        // The tail already saved for a given tour (keyed by that tour's own start date), or null.
+        function _tourTailFor(pilotKey, tourStartDate) {
+            if (!tourStartDate) return null;
+            const row = (pilotsCache[pilotKey]?.tour_tails || []).find(t => t.tour_start_date === tourStartDate);
+            return row ? row.tail : null;
+        }
+        function _tourStartAirportFor(pilotKey, tourStartDate) {
+            if (!tourStartDate) return null;
+            const row = (pilotsCache[pilotKey]?.tour_tails || []).find(t => t.tour_start_date === tourStartDate);
+            return row ? (row.start_airport || null) : null;
+        }
+
+        // Shared by renderCommonOffSection/renderOffDayCalendar/showOffDayDetail's per-pilot "is
+        // this day off" check -- a NetJets pilot with no rotation set up yet falls straight back
+        // to pure segment-based (_isNetJetsOnDuty returns false with no rotation_history), same as
+        // any other pilot; one a rotation covers is "off" only when NEITHER a real logged segment
+        // NOR the rotation itself says they're working that day.
+        function _isOffDutyGeneric(pilotKey, dateStr, pilotFlyingDates) {
+            const flying = pilotFlyingDates[pilotKey]?.has(dateStr) || _isNetJetsOnDuty(pilotKey, dateStr);
+            return !flying;
+        }
 
         function loadAirportDB() {
             fetch('/airports.json').then(r => {
@@ -3348,19 +3512,39 @@
         // Synthesizes 'away' day markers between consecutive flights when the pilot
         // overnights away from their home base. Injected into segments[] so the
         // calendar grid can color those days correctly without storing them in the DB.
-        function inferAwayLayovers(segList, base) {
+        function inferAwayLayovers(segList, base, baseHistory) {
             const sorted = sortSegmentsByTime(segList);
             const awayEvents = [];
             const flights = sorted.filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime && s.trip !== 'PERSONAL');
-            
+
+            // Same anchor-walk as buildGroundPeriods's baseAt() (app.html, buildGroundPeriods) --
+            // a trip already in progress when a base change takes effect stays on the OLD base for
+            // its whole duration, even for legs landing after the change. See that function's
+            // comment for the full reasoning; kept as a local copy here since this operates on the
+            // camelCase segment shape (departureTime/departureAirport) rather than the raw API one.
+            const knownBases = new Set();
+            if (base) knownBases.add(normApt(base));
+            (baseHistory || []).forEach(h => h.base && knownBases.add(normApt(h.base)));
+            const allDeps = sorted.filter(s => s.departureTime && s.departureAirport);
+            const baseAt = (d) => {
+                const atDate = d instanceof Date ? d : new Date(d);
+                let anchor = atDate;
+                for (const n of allDeps) {
+                    const nT = new Date(n.departureTime);
+                    if (nT > atDate) break;
+                    if (knownBases.has(normApt(n.departureAirport))) anchor = nT;
+                }
+                return resolveBaseAt(base, baseHistory, anchor);
+            };
+
             for (let i = 0; i < flights.length - 1; i++) {
                 const current = flights[i];
                 const next = flights[i + 1];
-                
+
                 if (!current.arrivalAirport) continue;
                 if (!next.departureTime) continue;
-                // Never generate away events when the pilot is at their airline base or home city
-                if (sameApt(current.arrivalAirport, base)) continue;
+                // Never generate away events when the pilot is at their airline base or home city.
+                if (sameApt(current.arrivalAirport, baseAt(current.arrivalTime))) continue;
                 if (isHomeAirport(current.arrivalAirport, currentPilot)) continue;
 
                 try {
@@ -3464,6 +3648,7 @@
 
                 // Cache pilot data for use in render()
                 pilotsCache[pilot] = data;
+                if (pilot === myPilot) _maybeShowNetjetsTailReminder(pilot, data);
 
                 // Sync dynamic pilot metadata from DB (role, name) — handles newly joined pilots
                 if (data.name)  PILOT_NAMES[pilot] = data.name;
@@ -3474,7 +3659,7 @@
                 if (pilot === myPilot) updateUploadSyncButtons(pilot);
 
                 const pilotBase = data.base || null;
-                segments = inferAwayLayovers(segmentData || [], pilotBase);
+                segments = inferAwayLayovers(segmentData || [], pilotBase, data.base_history);
                 const displayName = data.name || pilot;
                 const firstName   = displayName.split(' ')[0];
                 // Personalized header: "Your Schedule" / "[Name]'s Schedule" / full name for admin
@@ -3746,7 +3931,7 @@
                         const avail = kyleAvail(dateStr);
                         return avail !== 'no' ? [{ key: k, certain: avail === 'certain' }] : [];
                     }
-                    return !pilotFlyingDates[k].has(dateStr) ? [{ key: k, certain: true }] : [];
+                    return _isOffDutyGeneric(k, dateStr, pilotFlyingDates) ? [{ key: k, certain: true }] : [];
                 });
                 if (offPilots.length >= 2) commonOffDays.push({ date: new Date(d), dateStr, pilots: offPilots });
             }
@@ -3999,7 +4184,7 @@
             });
 
             const rows = activeKeys.map(k => {
-                const off   = k === 'kyle' ? (kyleHardOff.has(dateStr) || kyleVac.has(dateStr)) : !pilotFlyingDates[k].has(dateStr);
+                const off   = k === 'kyle' ? (kyleHardOff.has(dateStr) || kyleVac.has(dateStr)) : _isOffDutyGeneric(k, dateStr, pilotFlyingDates);
                 const pc    = PILOT_COLORS[k];
                 const statusLabel = off ? 'Off' : 'Working';
                 const statusColor = off ? '#22c55e' : '#52525b';
@@ -4095,7 +4280,7 @@
                 pilotFlyingDates[k] = flying;
             });
 
-            const isOff = (k, ds) => k === 'kyle' ? (kyleHardOffDates.has(ds) || kyleVacDates.has(ds)) : !pilotFlyingDates[k].has(ds);
+            const isOff = (k, ds) => k === 'kyle' ? (kyleHardOffDates.has(ds) || kyleVacDates.has(ds)) : _isOffDutyGeneric(k, ds, pilotFlyingDates);
 
             // Responsive sizing
             const mob = window.innerWidth < 600;
@@ -4318,8 +4503,11 @@
                 }
             }));
 
-            function buildGroundPeriods(segments, homeBase, homeCity) {
+            function buildGroundPeriods(segments, homeBase, homeCity, baseHistory) {
                 // Normalize all airport codes so KLGA === LGA, CYYZ === YYZ, etc.
+                // `home` is the pilot's base AS OF TODAY, used for homeC/nextFromBase matching
+                // below; baseAt() (defined after allDeps, which it needs) resolves whichever base
+                // actually governed a given moment, for a pilot whose base changed over time.
                 const home  = homeBase  ? normApt(homeBase)  : null;
                 const homeC = homeCity  ? normApt(homeCity)  : null;
                 const flights = segments
@@ -4330,6 +4518,33 @@
                 const allDeps = segments
                     .filter(s => s.departure_time && s.departure_airport)
                     .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
+
+                // baseAt(d) resolves whichever base actually governed the pilot AT A GIVEN MOMENT,
+                // for one whose base changed (baseHistory from the API, see resolveBaseAt). It is
+                // NOT a plain date lookup against baseHistory's own effective_from -- a trip already
+                // in progress when the change takes effect must stay on the OLD base for its whole
+                // duration, even for legs landing after the change, not just whichever exact day the
+                // change happened to land on. So baseAt first finds the pairing's own anchor: the
+                // most recent moment, at or before `d`, that the pilot departed from ANY base
+                // they've ever had (old or current) -- not necessarily today's `home`. Everything
+                // from that departure up to the next one like it belongs to the same trip, and the
+                // trip's governing base is whichever applied back when it actually left.
+                // No `trip`/pairing number is relied on since not every parser populates one (e.g.
+                // Republic/csv). Falls back to `d` itself (today's base) when there's no history at
+                // all, which resolves identically to the pilot's single, unchanging base either way.
+                const knownBases = new Set();
+                if (home) knownBases.add(home);
+                (baseHistory || []).forEach(h => h.base && knownBases.add(normApt(h.base)));
+                const baseAt = (d) => {
+                    const atDate = d instanceof Date ? d : new Date(d);
+                    let anchor = atDate;
+                    for (const n of allDeps) {
+                        const nT = new Date(n.departure_time);
+                        if (nT > atDate) break;
+                        if (knownBases.has(normApt(n.departure_airport))) anchor = nT;
+                    }
+                    return resolveBaseAt(homeBase, baseHistory, anchor);
+                };
                 const periods = [];
 
                 flights.forEach((f, i) => {
@@ -4347,7 +4562,7 @@
                     // on the same trip. A departure from any other airport between recentArr and now
                     // means the pilot went home and came back; use a fresh 2h window instead.
                     const useRecentArr = recentArr && (
-                        dep === home
+                        dep === baseAt(depT)
                             ? (depT - recentArrT) < 24 * 3600000
                             : !allDeps.some(n =>
                                 normApt(n.departure_airport) !== dep &&
@@ -4363,14 +4578,17 @@
 
                     // Skip post-arrival period at airline base — UNLESS the pilot's home city IS their
                     // base (non-commuters like Drew/Kyle). For them, fall through to the homeCity branch
-                    // so a ground period is generated covering the at-home stay.
-                    if (home && arr === home && homeC !== home) {
+                    // so a ground period is generated covering the at-home stay. Base is resolved as of
+                    // this specific arrival so a pilot whose base changed mid-history is judged against
+                    // whichever base actually applied back then, not today's.
+                    const baseHere = baseAt(arrT);
+                    if (baseHere && arr === baseHere && homeC !== baseHere) {
                         // Commuter back at base: the trip home isn't logged, so they're at their home city once the
                         // commute window has passed, until they next leave from home or base.
                         const commuteStart = new Date(arrT.getTime() + 3 * 3600000);
                         const nextLeave = allDeps.find(n => {
                             const dep = normApt(n.departure_airport);
-                            return (dep === homeC || dep === home) && new Date(n.departure_time) > commuteStart;
+                            return (dep === homeC || dep === baseAt(n.departure_time)) && new Date(n.departure_time) > commuteStart;
                         });
                         const commuteEnd = nextLeave ? new Date(nextLeave.departure_time) : new Date(arrT.getTime() + 7 * 86400000);
                         if (homeC && commuteEnd > commuteStart) {
@@ -4390,7 +4608,7 @@
                     let groundEnd;
                     if (homeC && arr === homeC) {
                         const nextFromBase = home ? flights.slice(i + 1).find(n =>
-                            normApt(n.departure_airport) === home &&
+                            normApt(n.departure_airport) === baseAt(n.departure_time) &&
                             (!nextFromArr || new Date(n.departure_time) < new Date(nextFromArr.departure_time))
                         ) : null;
                         // Stays put until the next logged flight; the seven-day bound only stops a stay with nothing
@@ -4441,7 +4659,7 @@
             const overlapKeys = [...VALID_PILOTS];
             overlapKeys.forEach(key => {
                 const data = pilotsCache[key];
-                pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base, data.home_airport || PILOT_HOME[key]) : [];
+                pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base, data.home_airport || PILOT_HOME[key], data.base_history) : [];
             });
 
             const getCoords = code => AIRPORTS[code] || AIRPORTS['K' + code] || null;
@@ -5768,6 +5986,13 @@
                 const digits = (seg.tail || '').replace(/\D/g, '').slice(0, 3);
                 return digits ? `SJJ${digits}` : null;
             }
+            if (carrier === 'EJA') {
+                // NetJets' real ATC callsign is EJA + the FULL numeric run of the tail, no
+                // truncation (confirmed: N14QS -> EJA14, N163QS -> EJA163, N22QS -> EJA22) --
+                // matches server.js's ejaFlightNumber(). Manual entry only, no feed exists.
+                const digits = (seg.tail || '').replace(/\D/g, '');
+                return digits ? `EJA${digits}` : null;
+            }
             return null;
         }
 
@@ -6009,7 +6234,8 @@
                                 // still leak into this leg's delay/due/completed reading through
                                 // this endpoint's times object, even with /api/live-position
                                 // itself already correctly origin-checked.
-                                const statusData = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent(cs)}&origins=${encodeURIComponent(depApt || '')}`).then(r => r.json());
+                                const _arrIso = arrMs ? new Date(arrMs).toISOString() : '';
+                                const statusData = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent(cs)}&origins=${encodeURIComponent(depApt || '')}&arrivals=${encodeURIComponent(_arrIso)}`).then(r => r.json());
                                 notFoundChecked = true;
                                 // Real OOOI touchdown/gate-arrival time (not an estimate) -- same
                                 // last-resort completion signal the day map's _legState already
@@ -7186,6 +7412,16 @@
             // in this app -- without telling the server which origin we actually mean, its real,
             // currently-airborne evidence got attributed to Sam's already-landed leg instead).
             const _csOrigin = new Map();
+            // Same first-seen-wins pairing as _csOrigin, but the scheduled ARRIVAL -- lets the
+            // server's own staleness check (notStale() in /api/flight-status, see its comment)
+            // tell a flat-TTL evidence proxy that's coasting well past this specific leg's own
+            // arrival apart from a later, unrelated flight reusing the same callsign. Confirmed
+            // live on Brett's AAL2987 DH (PHL-CVG): his leg had genuinely landed, but the server's
+            // airborne/times evidence stayed "true" off a stale fallback that happened to
+            // origin-match his own leg (the real fix was adding TFDM as a second origin source --
+            // see server.js -- this arrival param is the defense-in-depth backstop for whenever
+            // neither TFMS nor TFDM has anything cached for the current message at all).
+            const _csArrival = new Map();
             Object.entries(allPilotSegments).forEach(([key, segs]) => segs.forEach(f => {
                 const cs = deriveCallsign(f, key);
                 if (!cs) return;
@@ -7196,6 +7432,7 @@
                 if (inWindow) {
                     _activeCs.add(cs);
                     if (!_csOrigin.has(cs) && f.departureAirport) _csOrigin.set(cs, f.departureAirport);
+                    if (!_csArrival.has(cs) && a) _csArrival.set(cs, a.toISOString());
                 }
             }));
             // Airborne on the day map needs real evidence: a live position seen in the last few minutes,
@@ -7209,7 +7446,8 @@
                 try {
                     const _csList = [..._activeCs];
                     const _originsQs = _csList.map(cs => _csOrigin.get(cs) || '').join(',');
-                    const st = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent(_csList.join(','))}&origins=${encodeURIComponent(_originsQs)}`).then(r => r.json());
+                    const _arrivalsQs = _csList.map(cs => _csArrival.get(cs) || '').join(',');
+                    const st = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent(_csList.join(','))}&origins=${encodeURIComponent(_originsQs)}&arrivals=${encodeURIComponent(_arrivalsQs)}`).then(r => r.json());
                     const parkedNow = new Set(st.parked || []);
                     [..._activeCs].forEach(cs => { if (parkedNow.has(cs)) _confirmedParked.add(cs); else _confirmedParked.delete(cs); });
                     (st.live || []).forEach(cs => liveSeen.add(cs));
@@ -7991,6 +8229,13 @@
                         fetch(_pilotFetchUrl(k)).then(r => r.json()).then(d => { pilotsCache[k] = d; }).catch(() => {});
                     }
                 });
+                // Monthly totals shown next to the legend below, tallied from the exact same
+                // per-day `tag` precedence the cell itself ends up colored with (so a day never
+                // reads one status on its cell and a different one in the total) -- FLYING/TRAINING
+                // count as flown (duty time), ON CALL (reserve, or Kyle's assumed-on-call default
+                // when nothing else is logged) counts separately, and everything else (HARD OFF,
+                // VAC, AWAY, plain OFF) counts as off.
+                let monthFlown = 0, monthOff = 0, monthOnCall = 0;
                 const firstDay = new Date(year, month, 1).getDay();
                 const dayOffset = firstDay; // 0=Sun, 1=Mon, … — getDay() is already Sunday-first
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -8073,6 +8318,9 @@
                     else if (awayApt) { style = "border-yellow-500/40 bg-yellow-900/20"; tag = `AWAY - ${awayApt}`; }
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
                     else if (isAllCrewOff) { style = "border-amber-400/60 bg-amber-950/30"; tag = "✦ ALL OFF"; }
+                    if (tag === 'FLYING' || tag === 'TRAINING') monthFlown++;
+                    else if (tag === 'ON CALL') monthOnCall++;
+                    else monthOff++;
                     const glowStyle = isAllCrewOff ? 'box-shadow:0 0 0 1px rgba(251,191,36,0.45),0 0 18px rgba(251,191,36,0.18);' : '';
                     // Cell: fixed height with scrollable inner flight list
                     let html = `<div class="border rounded-xl flex flex-col ${style} ${dayClasses.join(' ')}" style="height:170px;${glowStyle}" onclick="showDayDetail('${dateKey}')">`;
@@ -8269,6 +8517,12 @@
                     gridHtml += html;
                 }
                 gridContainer.innerHTML = gridHtml;
+                const flownEl = document.getElementById('grid-total-flown');
+                if (flownEl) {
+                    flownEl.textContent = monthFlown;
+                    document.getElementById('grid-total-off').textContent = monthOff;
+                    document.getElementById('grid-total-oncall').textContent = monthOnCall;
+                }
             } else if (currentView === 'list') {
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
                 let listHtml = '';
@@ -9102,6 +9356,19 @@ let _blockUserEdited = false;
             document.getElementById('add-arr-next-day-label').textContent = '';
             document.getElementById('add-flight-error').classList.add('hidden');
             setAddFlightType('work');
+            // NetJets: tail/flight-number stay the same for the whole tour, so pre-fill from
+            // whatever was saved for TODAY's tour rather than making them retype it per leg --
+            // the whole point of entering it once on day 1 (see netjets_tracking_plan).
+            const targetKey = myPilot || currentPilot;
+            if (pilotsCache[targetKey]?.parser_type === 'manual_netjets') {
+                const tourStart = _tourStartDateFor(targetKey, _localToday());
+                const tail = _tourTailFor(targetKey, tourStart);
+                if (tail) {
+                    document.getElementById('add-tail-num').value = tail;
+                    const digits = tail.replace(/\D/g, '');
+                    if (digits) document.getElementById('add-flight-num').value = `EJA${digits}`;
+                }
+            }
             document.getElementById('add-flight-modal').classList.remove('hidden');
         }
 
@@ -10081,8 +10348,22 @@ async function openAdminPanel(tab = 'users') {
             { icao: 'SJJ',   dbCode: 'SJJ', parser: 'schedaero', needsIcs: false },
             { icao: 'SCX',   dbCode: 'SCX', parser: 'ics_scx',     needsIcs: true,
               icsLabel: 'eCrew ICS URL', icsHint: 'The calendar subscription link from eCrew.' },
+            // Beta/internal only -- NetJets has no exportable schedule feed at all, so this is
+            // pure manual entry (needsIcs: false, no sync button -- see updateUploadSyncButtons(),
+            // isSyncPilot only matches 'schedaero'/'ics*'). See the netjets_tracking_plan memory
+            // for the fuller design (rotation cadence, tour tail, ADS-B-derived auto-legs) -- none
+            // of that is built yet; this option alone just lets a NetJets pilot's row exist with
+            // the right parser_type/airline_code so live tracking's EJA-callsign derivation
+            // (deriveCallsign() here, ejaFlightNumber() server-side) works once legs are entered.
+            { icao: 'EJA',   dbCode: 'EJA', parser: 'manual_netjets', needsIcs: false },
             { icao: 'OTHER', dbCode: '',    parser: 'other', needsIcs: false },
         ];
+
+        let _editUserOriginalBase = '';
+        function _onEditUserBaseChange() {
+            const changed = document.getElementById('edit-user-base').value.trim() !== _editUserOriginalBase;
+            document.getElementById('edit-user-base-effective-row').classList.toggle('hidden', !changed);
+        }
 
         function _onAirlineChange() {
             const val = document.getElementById('edit-user-airline-sel').value;
@@ -10091,6 +10372,12 @@ async function openAdminPanel(tab = 'users') {
             document.getElementById('edit-user-ics-label').textContent = opt?.icsLabel || 'ICS Calendar URL';
             document.getElementById('edit-user-ics-hint').textContent  = opt?.icsHint
                 || "Paste the private subscription link from your airline's scheduling app.";
+            // Role/Description is cosmetic-only (never parsed/enforced -- see CLAUDE.md), but
+            // NetJets has no feed at all to otherwise signal "this account works differently," so
+            // default it in when picking NetJets specifically -- only if nothing's been typed yet,
+            // so this never clobbers an existing pilot's own wording.
+            const roleEl = document.getElementById('edit-user-role');
+            if (val === 'EJA' && roleEl && !roleEl.value.trim()) roleEl.value = 'NetJets · Home-based';
         }
 
         function _airlineSelectValue(airlineCode, parserType) {
@@ -10129,6 +10416,39 @@ async function openAdminPanel(tab = 'users') {
         // Admin-only friend management inside the edit-user modal — bypasses the request/accept
         // flow (POST/DELETE /api/admin/friends create or remove an already-accepted row directly).
         let _editUserFriendKeys = new Set(); // accepted friends of the pilot currently being edited
+
+        // Read-only admin view into a NetJets pilot's self-service rotation/tour data (set by the
+        // pilot themselves in My Info -- admin has no edit UI for this, just visibility, same
+        // reasoning as "Known, deliberately out-of-scope remainders" elsewhere in this app: build
+        // the thing that's actually needed, not speculative admin-editing for a one-pilot beta).
+        async function _loadEditUserNetjetsStatus(pilotKey) {
+            const el = document.getElementById('edit-user-netjets-summary');
+            try {
+                const data = await fetch(`${API_BASE}/pilots/${pilotKey}?token=${encodeURIComponent(myToken)}`).then(r => r.json());
+                pilotsCache[pilotKey] = data;
+                const todayStr = _todayLocalDateStr();
+                const rotation = _resolveRotationAt(data.rotation_history, todayStr);
+                if (!rotation) { el.textContent = 'No rotation saved yet.'; return; }
+                const tourStart = _tourStartDateFor(pilotKey, todayStr);
+                const lines = [`Rotation: ${rotation.days_on} on / ${rotation.days_off} off (since ${rotation.effective_from}).`];
+                if (tourStart) {
+                    const tail = _tourTailFor(pilotKey, tourStart);
+                    const startApt = _tourStartAirportFor(pilotKey, tourStart);
+                    lines.push(`On duty — tour started ${tourStart}.`);
+                    lines.push(tail ? `Tail: ${tail} (${ejaCallsignFor(tail)})` : 'No tail saved for this tour yet.');
+                    if (startApt) lines.push(`Starting airport: ${startApt}`);
+                } else {
+                    lines.push('Currently off-duty.');
+                }
+                el.innerHTML = lines.map(l => `<span class="block">${l}</span>`).join('');
+            } catch {
+                el.textContent = 'Failed to load.';
+            }
+        }
+        function ejaCallsignFor(tail) {
+            const digits = (tail || '').replace(/\D/g, '');
+            return digits ? `EJA${digits}` : '—';
+        }
 
         async function _loadEditUserFriends(pilotKey) {
             const listEl = document.getElementById('edit-user-friends-list');
@@ -10194,6 +10514,9 @@ async function openAdminPanel(tab = 'users') {
                     document.getElementById('edit-user-first').value = nameParts[0] || '';
                     document.getElementById('edit-user-last').value = nameParts.slice(1).join(' ') || '';
                     document.getElementById('edit-user-base').value = u.base || '';
+                    _editUserOriginalBase = (u.base || '').toUpperCase().trim();
+                    document.getElementById('edit-user-base-effective-row').classList.add('hidden');
+                    document.getElementById('edit-user-base-effective').value = new Date().toISOString().slice(0, 10);
                     document.getElementById('edit-user-home').value = u.home_airport || '';
                     const asel = _airlineSelectValue(u.airline_code || '', u.parser_type || '');
                     document.getElementById('edit-user-airline-sel').value = asel;
@@ -10206,6 +10529,14 @@ async function openAdminPanel(tab = 'users') {
                             .then(r => r.ok ? r.json() : null)
                             .then(d => { if (d?.url) document.getElementById('edit-user-ics-url').value = d.url; })
                             .catch(() => {});
+                    }
+                    const netjetsSection = document.getElementById('edit-user-netjets-section');
+                    if (asel === 'EJA') {
+                        netjetsSection.classList.remove('hidden');
+                        document.getElementById('edit-user-netjets-summary').textContent = 'Loading…';
+                        _loadEditUserNetjetsStatus(u.pilot_key);
+                    } else {
+                        netjetsSection.classList.add('hidden');
                     }
                     if (pilotKey === 'admin') {
                         friendsSection.classList.add('hidden');
@@ -10220,6 +10551,10 @@ async function openAdminPanel(tab = 'users') {
                 document.getElementById('edit-user-airline-sel').value = '';
                 document.getElementById('edit-user-ics-url').value = '';
                 document.getElementById('edit-user-ics-row').classList.add('hidden');
+                document.getElementById('edit-user-netjets-section').classList.add('hidden');
+                // A brand-new pilot has no prior base to protect -- nothing to date.
+                _editUserOriginalBase = '';
+                document.getElementById('edit-user-base-effective-row').classList.add('hidden');
                 friendsSection.classList.add('hidden');
             }
             document.getElementById('edit-user-modal').classList.remove('hidden');
@@ -10234,6 +10569,8 @@ async function openAdminPanel(tab = 'users') {
             const firstName = document.getElementById('edit-user-first').value.trim();
             const lastName  = document.getElementById('edit-user-last').value.trim();
             const base        = _editUserIsViewer ? '' : document.getElementById('edit-user-base').value.trim();
+            const baseChanged  = !_editUserIsViewer && pilotKey && base !== _editUserOriginalBase;
+            const baseEffectiveFrom = baseChanged ? (document.getElementById('edit-user-base-effective').value || null) : null;
             const homeAirport = _editUserIsViewer ? '' : document.getElementById('edit-user-home').value.trim();
             const airlineSel  = document.getElementById('edit-user-airline-sel').value;
             const airlineOpt  = AIRLINE_OPTIONS.find(o => o.icao === airlineSel) || { dbCode: '', parser: 'other', needsIcs: false };
@@ -10256,7 +10593,7 @@ async function openAdminPanel(tab = 'users') {
                     const r = await fetch(`${API_BASE}/pilots/${pilotKey}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ token: myToken, name: `${firstName} ${lastName}`.trim(), base, homeAirport, role, parserType: parser, airlineCode: airline })
+                        body: JSON.stringify({ token: myToken, name: `${firstName} ${lastName}`.trim(), base, homeAirport, role, parserType: parser, airlineCode: airline, baseEffectiveFrom })
                     });
                     if (!r.ok) { errEl.textContent = 'Save failed — try again'; errEl.classList.remove('hidden'); return; }
                 } else {
@@ -10315,6 +10652,9 @@ async function openAdminPanel(tab = 'users') {
                 catch { pilot = {}; }
             }
             document.getElementById('my-info-base').value = pilot?.base || '';
+            _myInfoOriginalBase = (pilot?.base || '').toUpperCase().trim();
+            document.getElementById('my-info-base-effective-row').classList.add('hidden');
+            document.getElementById('my-info-base-effective').value = new Date().toISOString().slice(0, 10);
             document.getElementById('my-info-home').value = pilot?.home_airport || '';
             const asel = _airlineSelectValue(pilot?.airline_code || '', pilot?.parser_type || '');
             document.getElementById('my-info-airline-sel').value = asel;
@@ -10327,7 +10667,93 @@ async function openAdminPanel(tab = 'users') {
                     .then(d => { if (d?.url) document.getElementById('my-info-ics-url').value = d.url; })
                     .catch(() => {});
             }
+            if (asel === 'EJA') {
+                pilotsCache[myPilot] = pilot; // _tourStartDateFor/_tourTailFor read through this cache
+                const rh = pilot?.rotation_history || [];
+                const rotation = rh[rh.length - 1];
+                document.getElementById('my-info-rotation-on').value     = rotation?.days_on || '';
+                document.getElementById('my-info-rotation-off').value    = rotation?.days_off || '';
+                document.getElementById('my-info-rotation-anchor').value = rotation?.anchor_date || '';
+                _refreshMyInfoNetjetsStatus();
+            }
             document.getElementById('edit-my-info-modal').classList.remove('hidden');
+        }
+
+        function _todayLocalDateStr() {
+            const n = new Date();
+            return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+        }
+
+        function _refreshMyInfoNetjetsStatus() {
+            const todayStr = _todayLocalDateStr();
+            const tourStart = _tourStartDateFor(myPilot, todayStr);
+            const rotStatus = document.getElementById('my-info-rotation-status');
+            const tailStatus = document.getElementById('my-info-tour-tail-status');
+            const tailInput = document.getElementById('my-info-tour-tail');
+            const airportInput = document.getElementById('my-info-tour-start-airport');
+            if (!rotStatus || !tailStatus || !tailInput || !airportInput) return;
+            if (tourStart === null) {
+                rotStatus.textContent = _resolveRotationAt(pilotsCache[myPilot]?.rotation_history, todayStr)
+                    ? 'Currently off-duty.' : 'No rotation saved yet.';
+                tailStatus.textContent = 'Not currently on a tour.';
+                tailInput.value = ''; airportInput.value = '';
+                tailInput.disabled = true; airportInput.disabled = true;
+            } else {
+                rotStatus.textContent = `Currently on duty — this tour started ${tourStart}.`;
+                tailStatus.textContent = '';
+                tailInput.disabled = false; airportInput.disabled = false;
+                tailInput.value = _tourTailFor(myPilot, tourStart) || '';
+                airportInput.value = _tourStartAirportFor(myPilot, tourStart) || '';
+            }
+        }
+
+        async function saveMyRotation() {
+            const daysOn  = document.getElementById('my-info-rotation-on').value;
+            const daysOff = document.getElementById('my-info-rotation-off').value;
+            const anchor  = document.getElementById('my-info-rotation-anchor').value;
+            const statusEl = document.getElementById('my-info-rotation-status');
+            if (!daysOn || !daysOff || !anchor) { statusEl.textContent = 'Days On, Days Off, and the anchor date are all required.'; return; }
+            statusEl.textContent = 'Saving…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}/rotation`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, anchorDate: anchor, daysOn, daysOff, effectiveFrom: anchor })
+                });
+                if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
+                if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
+                pilotsCache[myPilot].rotation_history = [...(pilotsCache[myPilot].rotation_history || []), { anchor_date: anchor, days_on: Number(daysOn), days_off: Number(daysOff), effective_from: anchor }];
+                _refreshMyInfoNetjetsStatus();
+            } catch { statusEl.textContent = 'Save failed — try again.'; }
+        }
+
+        async function saveMyTourTail() {
+            const tailStatus = document.getElementById('my-info-tour-tail-status');
+            const tail = document.getElementById('my-info-tour-tail').value.trim();
+            const startAirport = document.getElementById('my-info-tour-start-airport').value.trim();
+            const tourStart = _tourStartDateFor(myPilot, _todayLocalDateStr());
+            if (!tourStart) { tailStatus.textContent = 'Not currently on a tour.'; return; }
+            if (!tail) { tailStatus.textContent = 'Enter the number off your tail first.'; return; }
+            tailStatus.textContent = 'Saving…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}/tour-tail`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, tourStartDate: tourStart, tail, startAirport })
+                });
+                if (!r.ok) { tailStatus.textContent = 'Save failed — try again.'; return; }
+                if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
+                const existing = (pilotsCache[myPilot].tour_tails || []).filter(t => t.tour_start_date !== tourStart);
+                const prior = (pilotsCache[myPilot].tour_tails || []).find(t => t.tour_start_date === tourStart);
+                pilotsCache[myPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || prior?.start_airport || null }];
+                tailStatus.textContent = 'Saved.';
+            } catch { tailStatus.textContent = 'Save failed — try again.'; }
+        }
+
+        let _myInfoOriginalBase = '';
+        function _onMyInfoBaseChange() {
+            const changed = document.getElementById('my-info-base').value.trim() !== _myInfoOriginalBase;
+            document.getElementById('my-info-base-effective-row').classList.toggle('hidden', !changed);
         }
 
         function _onMyInfoAirlineChange() {
@@ -10337,6 +10763,7 @@ async function openAdminPanel(tab = 'users') {
             document.getElementById('my-info-ics-label').textContent = opt?.icsLabel || 'ICS Calendar URL';
             document.getElementById('my-info-ics-hint').textContent  = opt?.icsHint
                 || "Paste the private subscription link from your airline's scheduling app.";
+            document.getElementById('my-info-netjets-section').classList.toggle('hidden', val !== 'EJA');
         }
 
         function closeEditMyInfoModal() {
@@ -10346,6 +10773,8 @@ async function openAdminPanel(tab = 'users') {
         async function saveMyInfo() {
             if (!myPilot) return;
             const base        = document.getElementById('my-info-base').value.trim();
+            const baseChanged  = base !== _myInfoOriginalBase;
+            const baseEffectiveFrom = baseChanged ? (document.getElementById('my-info-base-effective').value || null) : null;
             const homeAirport = document.getElementById('my-info-home').value.trim();
             const airlineSel  = document.getElementById('my-info-airline-sel').value;
             const airlineOpt  = AIRLINE_OPTIONS.find(o => o.icao === airlineSel) || { dbCode: '', parser: 'other', needsIcs: false };
@@ -10363,7 +10792,7 @@ async function openAdminPanel(tab = 'users') {
                 const r = await fetch(`${API_BASE}/pilots/${myPilot}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: myToken, name: PILOT_NAMES[myPilot] || myPilot, base, homeAirport, parserType: parser, airlineCode: airline })
+                    body: JSON.stringify({ token: myToken, name: PILOT_NAMES[myPilot] || myPilot, base, homeAirport, parserType: parser, airlineCode: airline, baseEffectiveFrom })
                 });
                 if (!r.ok) { errEl.textContent = 'Save failed — try again'; errEl.classList.remove('hidden'); return; }
 

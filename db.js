@@ -143,6 +143,73 @@ function initDB() {
             UNIQUE(requester_key, recipient_key)
         )`);
 
+        // A pilot's airline base can change over time (a regional reassignment, e.g. Sam's
+        // LGA -> ORD move effective Nov 2026) -- pilots.base is still the CURRENT/forward-looking
+        // value (admin panel, My Info, map "here now" pin all want "today's" base), but any
+        // date-sensitive logic over past segments (buildGroundPeriods's base-skip rule,
+        // inferAwayLayovers) must judge an old arrival against whichever base actually applied
+        // back then, not today's. One row per base period; effective_from is inclusive and rows
+        // are read in ascending order to find the one in effect on a given date. A pilot who's
+        // never had a recorded base change simply has no rows here, and every call site falls
+        // back to pilots.base untouched -- this table is purely additive.
+        db.run(`CREATE TABLE IF NOT EXISTS pilot_base_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pilot_id INTEGER NOT NULL,
+            base TEXT NOT NULL,
+            effective_from TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE
+        )`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_base_history_pilot ON pilot_base_history(pilot_id)`);
+
+        // NetJets-style manual tracking (parser_type 'manual_netjets' -- no feed exists, see
+        // CLAUDE.md's "FAA SWIM integration"/memory netjets_tracking_plan for the full design).
+        // Rotation cadence is history-preserving like pilot_base_history above -- a pilot's
+        // schedule pattern itself can change (7&7 -> 8&6, etc.), and past dates must keep
+        // resolving against whatever cadence was actually in effect then, not today's current one.
+        db.run(`CREATE TABLE IF NOT EXISTS pilot_duty_rotation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pilot_id INTEGER NOT NULL,
+            anchor_date TEXT NOT NULL,
+            days_on INTEGER NOT NULL,
+            days_off INTEGER NOT NULL,
+            effective_from TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE
+        )`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_duty_rotation_pilot ON pilot_duty_rotation(pilot_id)`);
+
+        // One tail per tour instance, keyed by that tour's own on-duty start date (not per-leg --
+        // explicitly rejected as too much manual entry). UNIQUE so re-saving the same tour's tail
+        // (a correction, or a mid-tour swap recorded after the fact) updates via ON CONFLICT
+        // instead of stacking a duplicate row.
+        db.run(`CREATE TABLE IF NOT EXISTS pilot_tour_tail (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pilot_id INTEGER NOT NULL,
+            tour_start_date TEXT NOT NULL,
+            tail TEXT NOT NULL,
+            start_airport TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE,
+            UNIQUE(pilot_id, tour_start_date)
+        )`);
+        // Covers a table that may have already been created (locally, pre-deploy) without this
+        // column -- harmless no-op once the column already exists.
+        db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN start_airport TEXT`, () => {});
+        db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_tour_tail_pilot ON pilot_tour_tail(pilot_id)`);
+
+        // Dedup for the "tour starts tomorrow, add your tail" reminder (server.js's
+        // checkNetjetsTourReminders) -- without this, a pilot who hasn't entered a tail yet would
+        // get re-notified every time that check runs (every few hours) until they do, instead of
+        // once per tour. UNIQUE lets a repeat check just INSERT OR IGNORE with no extra query.
+        db.run(`CREATE TABLE IF NOT EXISTS pilot_tour_reminder_sent (
+            pilot_id INTEGER NOT NULL,
+            tour_start_date TEXT NOT NULL,
+            sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (pilot_id, tour_start_date),
+            FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE
+        )`);
+
         // Indexes — none existed anywhere in this schema before (only the implicit ones SQLite
         // creates for PRIMARY KEY/UNIQUE columns, e.g. pilots.pilot_key). Every one of these is a
         // real, frequently-hit query pattern that was doing a full table scan: a pilot's segments
@@ -164,6 +231,23 @@ function initDB() {
         // Migrations: add columns if they don't exist yet
         db.run(`ALTER TABLE segments ADD COLUMN is_manual BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE segments ADD COLUMN block_minutes INTEGER`, () => {});
+        // NetJets auto-leg-creation marker (server.js's _pollNetjetsLegCreation) -- non-null means
+        // this row was created/is maintained by that system, never a real upload/sync/manual entry.
+        // Lets it safely find-and-update its own rows without ever touching anything it didn't
+        // create itself. Format: "<callsign>|<tourStartDate>|<legNumber>". Deliberately NOT kept
+        // in server-side memory as the source of truth for "what leg is currently open" -- a pm2
+        // restart would silently wipe an in-memory cache and risk a duplicate row for a leg that
+        // was already partially recorded; querying this column back out of the DB on every poll
+        // makes the whole thing restart-safe by construction instead.
+        db.run(`ALTER TABLE segments ADD COLUMN auto_leg_key TEXT`, () => {});
+        // Set once the leg is confirmed landed/parked -- lets the next poll know to open a NEW
+        // leg rather than keep refining this one, and survives a restart (same reasoning above).
+        db.run(`ALTER TABLE segments ADD COLUMN auto_leg_complete INTEGER DEFAULT 0`, () => {});
+        // Set the moment a human edits an auto-created row (server.js's segment-edit endpoint) --
+        // once set, _pollNetjetsLegCreation never automatically touches this row's fields again,
+        // only reads its arrival_airport back out as the next leg's expected origin. Protects a
+        // pilot's manual correction from being silently overwritten by the next poll.
+        db.run(`ALTER TABLE segments ADD COLUMN auto_leg_edited INTEGER DEFAULT 0`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN role TEXT DEFAULT ''`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN parser_type TEXT DEFAULT 'other'`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN airline_code TEXT DEFAULT ''`, () => {});

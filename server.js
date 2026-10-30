@@ -1321,6 +1321,77 @@ function sjjFlightNumber(tail) {
     return digits ? `SJJ${digits}` : null;
 }
 
+// NetJets' real ATC callsign is EJA + the FULL numeric run of the tail, no truncation --
+// confirmed against 3 real tails: N14QS -> EJA14, N163QS -> EJA163, N22QS -> EJA22. Unlike SJJ's
+// first-three-digits rule above, NetJets doesn't truncate, so this must not either.
+function ejaFlightNumber(tail) {
+    const digits = (tail || '').replace(/\D/g, '');
+    return digits ? `EJA${digits}` : null;
+}
+
+// Mirror of tfms.js's routeOrigin() for the OTHER end of a legacy-format route string
+// (e.g. "KJFK./.TEYOU..KP75C..TBC..JASSE.Q90.DNERO.ANJLL4.KLAX/0739" -> "LAX"). Not added to
+// tfms.js itself -- that module is already well-tested and this is NetJets-leg-creation-only, so
+// keeping it local here avoids touching a feed every other pilot also depends on. Scans from the
+// end and skips the trailing altitude suffix (pure digits after the final "/"), same loose,
+// no-strict-ICAO-validation style routeOrigin() already uses.
+function routeDest(routeStr) {
+    if (!routeStr) return null;
+    const tokens = String(routeStr).trim().split(/[.\/\s]+/).filter(Boolean);
+    for (let i = tokens.length - 1; i >= 0; i--) {
+        if (!/^\d+$/.test(tokens[i])) return tokens[i].toUpperCase().replace(/^K/, '');
+    }
+    return null;
+}
+
+// Server-side mirror of app.html's _resolveRotationAt()/_tourStartDateFor() -- same
+// history-walk/modular-arithmetic logic, duplicated rather than shared since one side is browser
+// JS reading pilotsCache and the other is Node reading SQLite rows directly; keep both in sync if
+// either changes. UTC noon anchors keep the day-math stable regardless of host TZ/DST.
+function _resolveRotationAtServer(rotationHistory, dateStr) {
+    if (!rotationHistory || !rotationHistory.length) return null;
+    let resolved = null;
+    for (const r of rotationHistory) {
+        if (r.effective_from <= dateStr) resolved = r;
+        else break;
+    }
+    return resolved;
+}
+function _tourStartDateForServer(rotation, dateStr) {
+    if (!rotation) return null;
+    const period = rotation.days_on + rotation.days_off;
+    if (period <= 0) return null;
+    const anchor = new Date(rotation.anchor_date + 'T12:00:00Z');
+    const d = new Date(dateStr + 'T12:00:00Z');
+    const daysSince = Math.round((d - anchor) / 86400000);
+    const cyclePos = ((daysSince % period) + period) % period;
+    if (cyclePos >= rotation.days_on) return null;
+    const tourStartOffset = daysSince - cyclePos;
+    return new Date(anchor.getTime() + tourStartOffset * 86400000).toISOString().slice(0, 10);
+}
+
+// Haversine nearest-airport lookup against the existing _aptCoords table (already loaded for
+// timezone/distance purposes elsewhere in this file) -- used only as NetJets auto-leg-creation's
+// last-resort fallback when neither TFMS's filed route nor TFDM's parsed origin/dest has anything,
+// so a landing position still becomes a real airport code instead of a dead end. Linear scan over
+// ~85k entries is fine here -- this only runs once per detected landing, never in a tight loop.
+function _findNearestAirportCode(lat, lon) {
+    if (!isFinite(lat) || !isFinite(lon)) return null;
+    let bestCode = null, bestDist = Infinity;
+    const toRad = d => d * Math.PI / 180;
+    for (const code in _aptCoords) {
+        const [alat, alon] = _aptCoords[code];
+        const dLat = toRad(alat - lat), dLon = toRad(alon - lon);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat)) * Math.cos(toRad(alat)) * Math.sin(dLon / 2) ** 2;
+        const dist = 2 * Math.asin(Math.min(1, Math.sqrt(a)));
+        if (dist < bestDist) { bestDist = dist; bestCode = code; }
+    }
+    if (!bestCode) return null;
+    // Prefer the 3-letter IATA-style form, consistent with how every other parser in this app
+    // stores departure_airport/arrival_airport.
+    return bestCode.length === 3 ? bestCode : (icaoToIataAirport(bestCode) || bestCode);
+}
+
 function parseSchedaeroData(data, filterMonth, filterYear) {
     const crew = Array.isArray(data.crew) ? data.crew[0] : null;
     if (!crew) return [];
@@ -1585,8 +1656,24 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
                     if (err) {
                         return res.status(500).json({ error: err.message });
                     }
-                    const resolvedParser = getParserForPilot(pilotKey, pilot);
-                    res.json({ ...pilot, parser_type: resolvedParser, airline_code: pilot.airline_code || '', segments });
+                    // Ascending by effective_from so the frontend can walk forward and take the
+                    // last entry still <= a given date (resolveBaseAt in app.html). Empty for any
+                    // pilot who's never had a recorded base change -- the normal case.
+                    db.all('SELECT base, effective_from FROM pilot_base_history WHERE pilot_id = ? ORDER BY effective_from ASC', [pilot.id], (err2, baseHistory) => {
+                        if (err2) {
+                            return res.status(500).json({ error: err2.message });
+                        }
+                        // Cheap even for non-NetJets pilots -- these two tables are only ever
+                        // populated for parser_type 'manual_netjets', empty otherwise.
+                        db.all('SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id = ? ORDER BY effective_from ASC', [pilot.id], (err3, rotationHistory) => {
+                            if (err3) return res.status(500).json({ error: err3.message });
+                            db.all('SELECT tour_start_date, tail, start_airport FROM pilot_tour_tail WHERE pilot_id = ? ORDER BY tour_start_date ASC', [pilot.id], (err4, tourTails) => {
+                                if (err4) return res.status(500).json({ error: err4.message });
+                                const resolvedParser = getParserForPilot(pilotKey, pilot);
+                                res.json({ ...pilot, parser_type: resolvedParser, airline_code: pilot.airline_code || '', segments, base_history: baseHistory || [], rotation_history: rotationHistory || [], tour_tails: tourTails || [] });
+                            });
+                        });
+                    });
                 });
             });
         });
@@ -2288,8 +2375,12 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
         const blockMin = (block_minutes != null && block_minutes > 0) ? Math.round(block_minutes) : null;
 
         db.run(
+            // auto_leg_edited=1 unconditionally -- a no-op for a normal segment that never had an
+            // auto_leg_key, but marks a NetJets auto-created row as hands-off from here on the
+            // instant a human edits it, so _pollNetjetsLegCreation never silently overwrites a
+            // manual correction on its next poll (see that function's own header comment).
             `UPDATE segments SET type=?, departure_time=?, arrival_time=?, departure_airport=?, arrival_airport=?,
-             flight_number=?, tail=?, trip=?, is_dh=?, is_manual=1, block_minutes=?
+             flight_number=?, tail=?, trip=?, is_dh=?, is_manual=1, block_minutes=?, auto_leg_edited=1
              WHERE id=? AND pilot_id=?`,
             [dbType, departure_time, arrival_time || null,
              departure_airport ? departure_airport.trim().toUpperCase() : null,
@@ -2343,24 +2434,111 @@ app.put('/api/pilots/:pilotKey', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
     if (pilotKey === 'admin') return res.status(400).json({ error: 'Cannot modify admin' });
-    const { token, name, base, homeAirport, role, parserType, airlineCode } = req.body;
+    const { token, name, base, homeAirport, role, parserType, airlineCode, baseEffectiveFrom } = req.body;
     _resolvePilotToken(token, db, (status, msg, callerKey) => {
         if (status) return res.status(status).json({ error: msg });
         const isAdmin = callerKey === 'admin';
         if (!isAdmin && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to edit this pilot' });
         if (!name) return res.status(400).json({ error: 'name required' });
-        const sql = isAdmin
-            ? `UPDATE pilots SET name=?, base=?, home_airport=?, role=?, parser_type=?, airline_code=? WHERE pilot_key=?`
-            : `UPDATE pilots SET name=?, base=?, home_airport=?, parser_type=?, airline_code=? WHERE pilot_key=?`;
-        const params = isAdmin
-            ? [name.trim(), (base || '').toUpperCase().trim(), (homeAirport || '').toUpperCase().trim(),
-               (role || '').trim(), (parserType || 'other').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey]
-            : [name.trim(), (base || '').toUpperCase().trim(), (homeAirport || '').toUpperCase().trim(),
-               (parserType || 'other').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey];
-        db.run(sql, params, function(err) {
+        const newBase = (base || '').toUpperCase().trim();
+
+        function applyUpdate() {
+            const sql = isAdmin
+                ? `UPDATE pilots SET name=?, base=?, home_airport=?, role=?, parser_type=?, airline_code=? WHERE pilot_key=?`
+                : `UPDATE pilots SET name=?, base=?, home_airport=?, parser_type=?, airline_code=? WHERE pilot_key=?`;
+            const params = isAdmin
+                ? [name.trim(), newBase, (homeAirport || '').toUpperCase().trim(),
+                   (role || '').trim(), (parserType || 'other').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey]
+                : [name.trim(), newBase, (homeAirport || '').toUpperCase().trim(),
+                   (parserType || 'other').trim(), (airlineCode || '').toUpperCase().trim(), pilotKey];
+            db.run(sql, params, function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
+                res.json({ success: true });
+            });
+        }
+
+        // A dated base change (baseEffectiveFrom given, and the base is actually different from
+        // what's on file) -- record it in pilot_base_history so past segments still resolve
+        // against the OLD base (buildGroundPeriods/inferAwayLayovers in app.html), instead of a
+        // reassignment silently applying to the pilot's entire history the moment it's saved.
+        if (baseEffectiveFrom && newBase) {
+            db.get('SELECT id, base FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
+                if (err || !pilotRow || newBase === (pilotRow.base || '').toUpperCase().trim()) {
+                    return applyUpdate();
+                }
+                db.get('SELECT COUNT(*) as cnt FROM pilot_base_history WHERE pilot_id=?', [pilotRow.id], (err2, cntRow) => {
+                    const seedOldBase = (cb) => {
+                        if (!err2 && cntRow && cntRow.cnt > 0) return cb();
+                        // First-ever recorded change for this pilot: bootstrap a floor row for the
+                        // OLD base far enough in the past to cover their entire real history.
+                        db.run('INSERT INTO pilot_base_history (pilot_id, base, effective_from) VALUES (?, ?, ?)',
+                            [pilotRow.id, pilotRow.base || '', '2000-01-01'], () => cb());
+                    };
+                    seedOldBase(() => {
+                        db.run('INSERT INTO pilot_base_history (pilot_id, base, effective_from) VALUES (?, ?, ?)',
+                            [pilotRow.id, newBase, baseEffectiveFrom], () => applyUpdate());
+                    });
+                });
+            });
+        } else {
+            applyUpdate();
+        }
+    });
+});
+
+// NetJets-style manual tracking: duty rotation + per-tour tail. See the netjets_tracking_plan
+// design notes -- this is the "rotation/off-days first" slice of that build order, deliberately
+// before any ADS-B-driven auto-leg-creation. Same admin-or-self auth pattern as the profile PUT
+// above. History-preserving like pilot_base_history -- a new row is always INSERTed, never
+// overwrites a prior one, so a past date keeps resolving against whatever cadence/tail was
+// actually true then even if it's since changed.
+app.put('/api/pilots/:pilotKey/rotation', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { token, anchorDate, daysOn, daysOff, effectiveFrom } = req.body;
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+        const on = parseInt(daysOn, 10), off = parseInt(daysOff, 10);
+        if (!anchorDate || !effectiveFrom || !Number.isFinite(on) || on <= 0 || !Number.isFinite(off) || off <= 0) {
+            return res.status(400).json({ error: 'anchorDate, effectiveFrom, daysOn, daysOff (positive integers) required' });
+        }
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
             if (err) return res.status(500).json({ error: err.message });
-            if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
-            res.json({ success: true });
+            if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
+            db.run('INSERT INTO pilot_duty_rotation (pilot_id, anchor_date, days_on, days_off, effective_from) VALUES (?, ?, ?, ?, ?)',
+                [pilotRow.id, anchorDate, on, off, effectiveFrom], function(err2) {
+                    if (err2) return res.status(500).json({ error: err2.message });
+                    res.json({ success: true });
+                });
+        });
+    });
+});
+
+// One tail per tour instance, keyed by that tour's own on-duty start date -- upserted via ON
+// CONFLICT since a correction or a recorded mid-tour swap should replace the row, not stack one.
+app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { token, tourStartDate, tail, startAirport } = req.body;
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+        const cleanTail = (tail || '').toUpperCase().trim();
+        const cleanStartAirport = (startAirport || '').toUpperCase().trim() || null;
+        if (!tourStartDate || !cleanTail) return res.status(400).json({ error: 'tourStartDate and tail required' });
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
+            // COALESCE(excluded.start_airport, start_airport) -- a re-save that only touches the
+            // tail field (e.g. a mid-tour swap) shouldn't blank out an already-saved start airport.
+            db.run(`INSERT INTO pilot_tour_tail (pilot_id, tour_start_date, tail, start_airport) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(pilot_id, tour_start_date) DO UPDATE SET tail=excluded.tail, start_airport=COALESCE(excluded.start_airport, start_airport)`,
+                [pilotRow.id, tourStartDate, cleanTail, cleanStartAirport], function(err2) {
+                    if (err2) return res.status(500).json({ error: err2.message });
+                    res.json({ success: true });
+                });
         });
     });
 });
@@ -3524,6 +3702,36 @@ app.get('/api/debug/tfdm/:callsign', (req, res) => {
     res.json(tfdm.getFlightInfo(req.params.callsign) || { found: false });
 });
 
+// TEMP — read-only inspector for NetJets auto-leg-creation: on-duty/tour-tail resolution, the
+// derived callsign, the current leg state as re-derived from the segments table (the same query
+// _pollNetjetsLegCreation itself runs -- there's no separate in-memory state to inspect since
+// that was deliberately removed for restart-safety, see that function's header comment), and
+// whatever TFDM/TFMS currently have cached for it. Same posture as the other debug endpoints
+// above -- for verifying this against a real tour without guessing, not yet removed.
+app.get('/api/debug/netjets/:pilotKey', (req, res) => {
+    const db = getDB();
+    const todayStr = new Date().toISOString().slice(0, 10);
+    _getOnDutyNetjetsPilots(db, todayStr, (onDuty) => {
+        const nj = onDuty.find(p => p.pilotKey === req.params.pilotKey);
+        if (!nj) return res.json({ onDuty: false });
+        db.get(
+            `SELECT id, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_key
+             FROM segments WHERE pilot_id=? AND auto_leg_key LIKE ? ORDER BY id DESC LIMIT 1`,
+            [nj.pilotId, `${nj.callsign}|${nj.tourStart}|%`],
+            (err, currentLeg) => {
+                res.json({
+                    onDuty: true, tourStart: nj.tourStart, tail: nj.tail, callsign: nj.callsign, startAirport: nj.startAirport,
+                    currentLeg: err ? null : (currentLeg || null),
+                    tfdm: tfdm.getFlightInfo(nj.callsign) || null,
+                    tfms: tfms.getFlightData(nj.callsign) || null,
+                    tfmsTimes: tfms.getFlightTimes(nj.callsign) || null,
+                    liveCache: _liveCache[nj.callsign]?.data || null,
+                });
+            }
+        );
+    });
+});
+
 // TEMP — same pattern, for TFMS's airport-configuration (APTC) cache. Accepts a bare 3-letter or
 // 4-letter ICAO code (getAirportConfig() normalizes either). Used to verify real APTC data is
 // actually flowing/fresh for a given airport before trusting it as a pickBody() fallback.
@@ -3583,6 +3791,32 @@ app.get('/api/flight-status', (req, res) => {
         return normApt(actualOrigin) === normApt(exp);
     };
     const now = Date.now();
+    // Parallel to origins -- each callsign's own scheduled arrival (ISO), for the SPECIFIC leg
+    // being asked about. Confirmed live on Brett's DH on AAL2987 (PHL-CVG): his real leg landed
+    // on schedule, but the server's _everAirborneCallsigns/_everAirborneOrigin evidence is a flat
+    // 12h TTL with no per-leg expiry, and American reused AAL2987 that same evening for the real
+    // CVG-PHL return -- which happens to ALSO touch PHL, so the origin check alone couldn't tell
+    // them apart (matchesExpectedOrigin correctly rejects it for /api/live-position's real-time
+    // POSITION check, which has no such ambiguity, but this endpoint's airborne/times fields fall
+    // back to the stale evidence proxy whenever tfms.js has no route-derived origin cached for
+    // the CURRENT message). Once well past the caller's own expected arrival with nothing
+    // currently, freshly confirming it (a real live position seen in the last 3 min, itself
+    // origin-checked), the old evidence is almost certainly about a later, unrelated flight under
+    // the same number and gets excluded rather than left to coast on a flat TTL. Same 90-minute
+    // grace as the client's own LATE_ARRIVAL_GRACE_MS, so a genuinely late arrival within that
+    // window is unaffected. Optional and permissive like origins -- a missing arrival for a given
+    // callsign just skips this check for it.
+    const ARRIVAL_STALE_GRACE_MS = 90 * 60 * 1000;
+    const arrivals = String(req.query.arrivals || '').split(',');
+    const expectedArrival = {};
+    list.forEach((cs, i) => { const t = arrivals[i] ? Date.parse(arrivals[i]) : NaN; if (!isNaN(t)) expectedArrival[cs] = t; });
+    const notStale = cs => {
+        const exp = expectedArrival[cs];
+        if (!exp) return true;
+        if (now < exp + ARRIVAL_STALE_GRACE_MS) return true;
+        const c = _liveCache[cs];
+        return !!(c && c.data?.found && now - c.ts < 3 * 60 * 1000 && originOk(cs, c.data?.origin));
+    };
     // Excludes anything currently confirmed parked -- airborne (below) already did this, live
     // didn't, which is how a callsign could show up in BOTH parked and live at once: a stale
     // _liveCache entry from just before parked-detection fired (parked flights short-circuit
@@ -3596,25 +3830,33 @@ app.get('/api/flight-status', (req, res) => {
         const c = _liveCache[cs];
         return c && c.data?.found && now - c.ts < 3 * 60 * 1000 && originOk(cs, c.data?.origin);
     });
-    // tfms.js now parses the real origin out of its own route string (routeOrigin(), see its own
+    // tfms.js parses the real origin out of its own route string (routeOrigin(), see its own
     // comment) and rejects a mismatched message at ingestion time via
     // setRelevantOrigins()/isExpectedOrigin() -- this is the defense-in-depth check on the way
     // out, for messages that slipped in before the relevant set existed or whatever else.
-    // getFlightData(cs)?.origin is tfms.js's own real, route-derived value when available; falls
-    // back to the older _everAirborneOrigin/_parkedOrigin proxy (confirmed, live-evidence-sourced
-    // origin of whichever leg this callsign's airborne/parked evidence actually belongs to) for
-    // when tfms.js hasn't cached a route-bearing message for this callsign at all (relevance
-    // pruned it, or none has arrived yet this run). Permissive when nothing is known either way --
-    // no data means no way to cross-check, not a reason to hide real TFMS data for a genuinely
-    // untracked flight.
-    const timesOriginOk = cs => {
-        const realOrigin = tfms.getFlightData(cs)?.origin;
+    // tfdm.getFlightInfo(cs)?.origin is a second, independent real-evidence source (TFDM reports
+    // actual origin/dest per flight, separately from TFMS's filed-route parsing) -- confirmed live
+    // on Brett's AAL2987 (PHL-CVG DH): TFMS had no route-derived origin cached for the real CVG-PHL
+    // return flight reusing that callsign, but TFDM did (origin:"KCVG"), correctly mismatching
+    // Brett's expected PHL. Both are tried before falling back to the older _everAirborneOrigin/
+    // _parkedOrigin proxy (confirmed, live-evidence-sourced origin of whichever leg this callsign's
+    // airborne/parked evidence actually belongs to) -- that fallback is a known false correlation
+    // (see "Same-day round trip sharing one callsign" in CLAUDE.md): it's frozen at whichever leg
+    // was first confirmed airborne under this callsign and never corrected afterward, so it can
+    // coincidentally match a pilot's own expected origin even when current evidence belongs to an
+    // entirely different, later flight reusing the same number (exactly what happened here -- the
+    // return leg's arrival airport is the same as Brett's own leg's departure airport). Permissive
+    // when nothing is known at all -- no data means no way to cross-check, not a reason to hide
+    // real TFMS data for a genuinely untracked flight.
+    const resolveKnownOrigin = cs => tfms.getFlightData(cs)?.origin || tfdm.getFlightInfo(cs)?.origin || null;
+    const originCheckOk = cs => {
+        const realOrigin = resolveKnownOrigin(cs);
         if (realOrigin) return originOk(cs, realOrigin);
         return originOk(cs, _everAirborneOrigin[cs]) && originOk(cs, _parkedOrigin[cs]);
     };
     const times = {};
     for (const cs of list) {
-        if (!timesOriginOk(cs)) continue;
+        if (!originCheckOk(cs) || !notStale(cs)) continue;
         const t = tfms.getFlightTimes(cs);
         // airlineOnTime/airlineInTime are the airline's own real OOOI report (actual touchdown /
         // actual gate arrival) -- confirmed live as a real, authoritative "this flight is
@@ -3627,14 +3869,30 @@ app.get('/api/flight-status', (req, res) => {
             times[cs] = { etd: t.etd || null, eta: t.eta || null, airlineOnTime: t.airlineOnTime || null, airlineInTime: t.airlineInTime || null };
         }
     }
-    const airborne = list.filter(cs => !isParked(cs) && originOk(cs, _everAirborneOrigin[cs]) && (
-        _everAirborneCallsigns.has(cs) || /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || '')));
+    // Split, not a single shared check -- "ever confirmed airborne" is an inherently HISTORICAL
+    // fact (the origin it happened at is frozen in _everAirborneOrigin precisely so a later reuse
+    // of the callsign can't corrupt it -- see originCheckOk's own comment), permanently true and
+    // permanently correct about Brett's own leg regardless of what's happening under this callsign
+    // later today -- so it gets ONLY the historical-origin check, no notStale and no current
+    // TFDM/TFMS state. notStale guards the CURRENT-evidence branch (a live TFDM phase, which really
+    // is about right now), and times below (a single, non-history-aware cache slot that genuinely
+    // can go stale once the callsign's current instance is a different, later flight).
+    // Confirmed live, in order: (1) judging the historical fact against today's current TFDM
+    // state flipped Brett's completed AAL2987 DH to "DEPARTURE DUE" (TFDM's current CVG origin,
+    // for the real return flight, doesn't match his PHL leg, even though that has no bearing on
+    // whether HIS leg ever flew); (2) applying notStale to the historical fact too then left NO
+    // evidence available at all until the separate 3-hour-never-seen-flying fallback caught up --
+    // nearly an hour of showing "DEPARTURE DUE" for a flight that had already landed on schedule.
+    const airborne = list.filter(cs => !isParked(cs) && (
+        (_everAirborneCallsigns.has(cs) && originOk(cs, _everAirborneOrigin[cs])) ||
+        (notStale(cs) && originCheckOk(cs) && /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || ''))
+    ));
     // Ground state for whichever callsigns are currently "live" -- lets the day map's static
     // status line distinguish a flight that's genuinely airborne from one that's landed and
     // taxiing in but not yet confirmed parked, instead of calling both "IN THE AIR".
     const onGround = {};
     for (const cs of live) { if (_liveCache[cs]?.data?.onGround) onGround[cs] = true; }
-    res.json({ parked: list.filter(cs => isParked(cs) && originOk(cs, _parkedOrigin[cs])), live, airborne, onGround, times });
+    res.json({ parked: list.filter(cs => isParked(cs) && originCheckOk(cs)), live, airborne, onGround, times });
 });
 
 app.get('/api/live-position', async (req, res) => {
@@ -3793,6 +4051,7 @@ function deriveServerCallsign(row, airlineCode) {
     const rawFlightNum = (row.flight_number || '').replace(/\s/g, '').toUpperCase();
     if (rawFlightNum) return normalizeFlightNum(rawFlightNum, airlineCode);
     if (airlineCode === 'SJJ') return sjjFlightNumber(row.tail);
+    if (airlineCode === 'EJA') return ejaFlightNumber(row.tail);
     return null;
 }
 
@@ -3810,6 +4069,218 @@ function deriveServerCallsign(row, airlineCode) {
 const ADSB_LOOKAHEAD_MS = 30 * 60 * 1000;
 const SWIM_LOOKAHEAD_MS = 4 * 60 * 60 * 1000;
 const POLLER_LOOKBACK_MS = 8 * 60 * 60 * 1000; // both feeds: how long after departure to keep caring
+
+// NetJets manual-tracking: resolves every parser_type='manual_netjets' pilot currently on-duty
+// (per their saved rotation) with a tail saved for THIS tour, deriving the EJA+digits callsign
+// for each. Returns [] immediately (no query cost beyond the one pilots lookup) for a pilot with
+// no rotation configured yet, or one who's off-duty today -- same "degrade to doing nothing"
+// posture as every other NetJets piece in this app.
+function _getOnDutyNetjetsPilots(db, todayStr, cb) {
+    db.all(`SELECT id, pilot_key, base FROM pilots WHERE parser_type='manual_netjets'`, [], (err, pilots) => {
+        if (err || !pilots || !pilots.length) return cb([]);
+        const results = [];
+        let remaining = pilots.length;
+        const done = () => { if (--remaining === 0) cb(results); };
+        pilots.forEach(p => {
+            db.all(`SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id=? ORDER BY effective_from ASC`, [p.id], (err2, rotHist) => {
+                if (err2) return done();
+                const rotation = _resolveRotationAtServer(rotHist || [], todayStr);
+                const tourStart = _tourStartDateForServer(rotation, todayStr);
+                if (!tourStart) return done();
+                db.get(`SELECT tail, start_airport FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?`, [p.id, tourStart], (err3, tailRow) => {
+                    if (!err3 && tailRow && tailRow.tail) {
+                        const callsign = ejaFlightNumber(tailRow.tail);
+                        if (callsign) results.push({ pilotId: p.id, pilotKey: p.pilot_key, base: p.base || '', tail: tailRow.tail, callsign, tourStart, startAirport: (tailRow.start_airport || '').toUpperCase().trim() || null });
+                    }
+                    done();
+                });
+            });
+        });
+    });
+}
+
+// Inserts one new auto-created leg and returns its id. origin/dest may be null (filled in by a
+// later poll). depTime defaults to "now" only as an absolute last resort (no TFMS estimate/actual
+// exists yet) -- updated to a real value the moment one arrives, same as every field here.
+// How far ahead a filed-but-not-yet-relevant leg can sit before it's worth creating. NetJets
+// dispatch can file a flight plan hours ahead of an actual departure -- including, on an
+// overnight layover, for TOMORROW's first leg while today's tour activity is still wrapping up.
+// Confirmed the expected-origin cross-check above already catches most of that (a different
+// airport than today's known position disagrees and gets deferred on its own) -- but if tomorrow
+// happens to depart from the exact same airport tonight's leg lands at, that check passes
+// legitimately and this is the only thing left to stop it from being recorded too early, while
+// today's own still-resolving activity hasn't finished yet.
+const FUTURE_LEG_GUARD_MS = 10 * 60 * 60 * 1000;
+
+async function _createNetjetsLeg(db, nj, legNum, origin, dest) {
+    const autoLegKey = `${nj.callsign}|${nj.tourStart}|${legNum}`;
+    const times = tfms.getFlightTimes(nj.callsign) || {};
+    const depTime = times.airlineOutTime || times.etd || times.igtd || new Date().toISOString();
+    if (new Date(depTime).getTime() - Date.now() > FUTURE_LEG_GUARD_MS) {
+        console.log(`[NetJets] ${nj.pilotKey}: deferring ${autoLegKey} (${origin || '?'}->${dest || '?'}) -- filed too far ahead (${depTime})`);
+        return;
+    }
+    try {
+        await new Promise((resolve, reject) => {
+            db.run(
+                `INSERT INTO segments (pilot_id, type, departure_time, departure_airport, arrival_airport, tail, flight_number, is_manual, auto_leg_key) VALUES (?, 'flight', ?, ?, ?, ?, ?, 0, ?)`,
+                [nj.pilotId, depTime, origin || nj.base || '', dest || '', nj.tail, nj.callsign, autoLegKey],
+                function (err) { err ? reject(err) : resolve(this.lastID); }
+            );
+        });
+        console.log(`[NetJets] ${nj.pilotKey}: new leg ${autoLegKey} ${origin || '?'}->${dest || '?'}`);
+    } catch (e) { console.error('[NetJets] insert failed:', e.message); }
+}
+
+// Builds/updates real flight segments for on-duty NetJets pilots from live FAA data. SWIM-first:
+// TFDM's parsed per-flight origin/dest (most authoritative -- a real field, not a route-string
+// parse) is preferred, then TFMS's filed route string (routeOrigin/routeDest), with raw
+// ADS-B/STDDS position + reverse-geocoding (_findNearestAirportCode) as the last-resort fallback
+// for whatever neither SWIM feed ever reported -- same precedence fetchLivePosition() already
+// uses for live position generally. The uploaded-schedule-is-truth principle doesn't apply here
+// the way it does for every other pilot (there IS no uploaded schedule) -- these rows are
+// genuinely observed, not scheduled, which is why auto_leg_key exists: to mark them as such and
+// let this function safely find-and-update only what it created.
+//
+// Deliberately re-derives "what leg is currently open" from the segments table on every single
+// poll instead of trusting an in-memory cache -- a pm2 restart (which happens on every
+// server.js/db.js deploy) would otherwise silently wipe that cache and risk creating a duplicate
+// row for a leg that was already partially recorded before the restart.
+async function _pollNetjetsLegCreation(db, onDutyList) {
+    for (const nj of onDutyList) {
+        const cs = nj.callsign;
+        const current = await new Promise(resolve => {
+            db.get(
+                `SELECT id, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_key
+                 FROM segments WHERE pilot_id=? AND auto_leg_key LIKE ? ORDER BY id DESC LIMIT 1`,
+                [nj.pilotId, `${cs}|${nj.tourStart}|%`],
+                (err, row) => resolve(err ? null : row)
+            );
+        });
+        const legNum = current ? (parseInt(String(current.auto_leg_key).split('|')[2], 10) || 1) : 0;
+        // The trusted origin for whichever leg comes next -- CrewSync's own best knowledge, not
+        // the live feed's: the saved tour-start airport for leg 1, otherwise wherever the most
+        // recent known leg actually ended. Same "trust our own data over a live feed" posture as
+        // matchesExpectedOrigin() uses for every other pilot's tracking.
+        const expectedOrigin = current ? (current.arrival_airport || null) : (nj.startAirport || null);
+
+        const tfdmInfo = tfdm.getFlightInfo(cs);
+        const tfmsInfo = tfms.getFlightData(cs);
+        const norm3 = a => { if (!a) return null; const up = String(a).toUpperCase().replace(/^K/, ''); return up.length === 3 ? up : (icaoToIataAirport(up.length === 4 ? up : 'K' + up) || up); };
+        let liveOrigin = norm3(tfdmInfo?.origin || tfmsInfo?.origin || null);
+        let liveDest = norm3(tfdmInfo?.dest || (tfmsInfo?.route ? routeDest(tfmsInfo.route) : null));
+
+        // Disagreement between what we already know and what this poll's feed says is treated
+        // the same way a callsign collision would be elsewhere in this app -- don't trust it,
+        // skip this pilot this tick rather than risk writing a wrong leg.
+        if (expectedOrigin && liveOrigin && liveOrigin !== expectedOrigin) {
+            console.warn(`[NetJets] ${nj.pilotKey}: live origin ${liveOrigin} for ${cs} doesn't match expected ${expectedOrigin} -- ignoring this poll`);
+            continue;
+        }
+
+        const flightState = tfdmInfo?.flightState || '';
+        const landed = /ARRIVAL|TAXI_IN|LUAW/.test(flightState) || isParked(cs);
+
+        if (!current) {
+            // No leg recorded for this tour yet -- wait for a real signal (don't create an empty
+            // row the instant the pilot's on-duty with nothing actually happening yet).
+            if (!liveDest && !expectedOrigin && !_liveCache[cs]?.data?.found) continue;
+            await _createNetjetsLeg(db, nj, 1, expectedOrigin || liveOrigin, liveDest);
+            continue;
+        }
+
+        if (current.auto_leg_edited) {
+            // Hands-off from here on -- a human already corrected this row. Only ever read back
+            // (via expectedOrigin above) to detect that a genuinely new leg has started; never
+            // written to again.
+            if (liveDest && current.arrival_airport && liveDest !== current.arrival_airport) {
+                await _createNetjetsLeg(db, nj, legNum + 1, current.arrival_airport, liveDest);
+            }
+            continue;
+        }
+
+        if (current.auto_leg_complete) {
+            if (liveDest || liveOrigin) await _createNetjetsLeg(db, nj, legNum + 1, expectedOrigin || liveOrigin, liveDest);
+            continue;
+        }
+
+        // Still-open leg. A genuinely different destination showing up while this one never
+        // resolved its own (same-day-reused-callsign shape, see CLAUDE.md's "Same-day round trip
+        // sharing one callsign") means it's over -- finalize what's known, open the next leg.
+        if (liveDest && current.arrival_airport && liveDest !== current.arrival_airport) {
+            db.run(`UPDATE segments SET auto_leg_complete=1 WHERE id=?`, [current.id], () => {});
+            await _createNetjetsLeg(db, nj, legNum + 1, current.arrival_airport, liveDest);
+            continue;
+        }
+
+        // Refine the open leg with whatever's newly known.
+        const times = tfms.getFlightTimes(cs) || {};
+        const depTime = times.airlineOutTime || times.etd || times.igtd || null;
+        const arrTime = times.airlineInTime || times.airlineOnTime || times.eta || null;
+        let finalDest = liveDest || current.arrival_airport;
+        if (landed && !finalDest) {
+            // Last resort: neither SWIM feed ever gave a destination -- reverse-geocode the last
+            // known live position instead of leaving this leg with no arrival at all.
+            const lastPos = _liveCache[cs]?.data;
+            if (lastPos && lastPos.lat != null && lastPos.lon != null) finalDest = _findNearestAirportCode(lastPos.lat, lastPos.lon);
+        }
+        const updates = [], params = [];
+        if (liveOrigin && liveOrigin !== current.departure_airport) { updates.push('departure_airport=?'); params.push(liveOrigin); }
+        if (finalDest && finalDest !== current.arrival_airport) { updates.push('arrival_airport=?'); params.push(finalDest); }
+        if (depTime && depTime !== current.departure_time) { updates.push('departure_time=?'); params.push(depTime); }
+        if (arrTime && arrTime !== current.arrival_time) { updates.push('arrival_time=?'); params.push(arrTime); }
+        // Both times are always real UTC ISO strings (tfms.js's processFlightTimes() runs every
+        // field through .toISOString()), so block time is a plain diff -- no airport-timezone
+        // lookup needed the way other parsers require for local-time-stored segments.
+        const finalDepTime = depTime || current.departure_time;
+        const finalArrTime = arrTime || current.arrival_time;
+        if (finalDepTime && finalArrTime) {
+            const block = Math.round((new Date(finalArrTime) - new Date(finalDepTime)) / 60000);
+            if (isFinite(block) && block > 0) { updates.push('block_minutes=?'); params.push(block); }
+        }
+        if (landed) updates.push('auto_leg_complete=1');
+        if (updates.length) {
+            params.push(current.id, current.auto_leg_key);
+            db.run(`UPDATE segments SET ${updates.join(', ')} WHERE id=? AND auto_leg_key=?`, params, () => {});
+            if (landed) console.log(`[NetJets] ${nj.pilotKey}: leg ${current.auto_leg_key} complete (${liveOrigin || current.departure_airport || '?'}->${finalDest || '?'})`);
+        }
+    }
+}
+
+// Proactive "add your tail" reminder, one day ahead of each NetJets tour -- requested directly
+// after confirming entering the tail late (after the first leg already landed) genuinely loses
+// that leg with no way to recover it (SWIM has no backlog/snapshot to replay, see the "NOTAMs via
+// SWIM" section in CLAUDE.md for the same limitation hit before). Also nudges logging any
+// deadhead/commute to get to the aircraft (the existing manual "Commute" flight type already
+// covers this -- no new data model needed, just a reminder to use it) since that leg is invisible
+// to tail-based tracking entirely. Deduped via pilot_tour_reminder_sent so a pilot who hasn't
+// entered a tail yet isn't renotified every time this runs, only once per tour.
+function checkNetjetsTourReminders() {
+    const db = getDB();
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    db.all(`SELECT id, pilot_key FROM pilots WHERE parser_type='manual_netjets'`, [], (err, pilots) => {
+        if (err || !pilots || !pilots.length) return;
+        pilots.forEach(p => {
+            db.all(`SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id=? ORDER BY effective_from ASC`, [p.id], (err2, rotHist) => {
+                if (err2) return;
+                const rotation = _resolveRotationAtServer(rotHist || [], tomorrow);
+                const tourStart = _tourStartDateForServer(rotation, tomorrow);
+                if (tourStart !== tomorrow) return; // tomorrow isn't day 1 of a tour -- nothing to remind about
+                db.get(`SELECT tail FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?`, [p.id, tourStart], (err3, tailRow) => {
+                    if (!err3 && tailRow && tailRow.tail) return; // already set, nothing to nudge
+                    db.run(`INSERT OR IGNORE INTO pilot_tour_reminder_sent (pilot_id, tour_start_date) VALUES (?, ?)`, [p.id, tourStart], function(err4) {
+                        if (err4 || this.changes === 0) return; // already sent for this tour
+                        _notifyPilot(db, p.pilot_key, 'Tour starts tomorrow',
+                            "Add your tail # and starting airport in My Info before you depart — a leg flown before it's saved can't be recovered. Also log any deadhead/commute to get to the aircraft.",
+                            '/app');
+                    });
+                });
+            });
+        });
+    });
+}
+setTimeout(checkNetjetsTourReminders, 10000);
+setInterval(checkNetjetsTourReminders, 6 * 60 * 60 * 1000);
 
 async function runActiveFlightPoller() {
     const db = getDB();
@@ -3962,6 +4433,31 @@ async function runActiveFlightPoller() {
                     if (data.found && !data.parked) console.log(`Poller: ${callsign} ${data.onGround ? (data.speedKts > 5 ? 'taxiing' : 'ground') : `${data.altFt ? Math.round(data.altFt) + 'ft' : 'airborne'}`} trail=${_posTrail[data.hex]?.length ?? 0}pts${data.source ? ` [${data.source}]` : ''}`);
                 } catch (_) {} // flight not yet airborne or no source available
             }
+            // NetJets manual-tracking: merge in whoever's currently on-duty with a tour tail set.
+            // These have no scheduled departure_time at all (the whole point -- nothing's logged
+            // ahead of time), so they're kept out of the main query/loop above entirely and
+            // layered in here instead, right before the one call site that actually sets
+            // relevance -- merging anywhere else would risk the per-row loop's scheduled-flight
+            // assumptions (unparkIfNewLeg/matchesExpectedOrigin using a known departure_airport,
+            // which isn't meaningful for a tour that's already past its first leg). An empty
+            // swimDepTimes entry is deliberately permissive (see that Map's own header comment
+            // above) -- there's no "day" to check a NetJets leg against either.
+            let onDutyNetjets = [];
+            try {
+                onDutyNetjets = await new Promise(resolve => _getOnDutyNetjetsPilots(db, now.toISOString().slice(0, 10), resolve));
+            } catch (_) {}
+            for (const nj of onDutyNetjets) {
+                swimRelevant.add(nj.callsign);
+                if (!swimDepTimes.has(nj.callsign)) swimDepTimes.set(nj.callsign, new Set());
+                if (!polled.has(nj.callsign)) {
+                    polled.add(nj.callsign);
+                    try {
+                        const data = await fetchLivePosition(nj.callsign); // no expected origin -- it changes leg to leg, nothing to check against
+                        processPositionUpdate(data);
+                        _liveCache[nj.callsign] = { ts: Date.now(), data };
+                    } catch (_) {}
+                }
+            }
             // Wider swimRelevant set, refreshed every 15s — SWIM only needs to retain state for
             // these, not every callsign nationwide. Deliberately NOT the same set `polled` drives
             // (see ADSB_LOOKAHEAD_MS/SWIM_LOOKAHEAD_MS above).
@@ -3976,6 +4472,9 @@ async function runActiveFlightPoller() {
             // swimOrigins's own header comment above for why this isn't shared with tfdm.js (its
             // existing per-message origin/dest reset already covers its own exposure to this bug).
             tfms.setRelevantOrigins(swimOrigins);
+            if (onDutyNetjets.length) {
+                try { await _pollNetjetsLegCreation(db, onDutyNetjets); } catch (e) { console.error('[NetJets] leg-creation poll failed:', e.message); }
+            }
         }
     );
 }
