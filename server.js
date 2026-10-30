@@ -4415,11 +4415,21 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             );
         });
         const legNum = current ? (parseInt(String(current.auto_leg_key).split('|')[2], 10) || 1) : 0;
-        // The trusted origin for whichever leg comes next -- CrewSync's own best knowledge, not
-        // the live feed's: the saved tour-start airport for leg 1, otherwise wherever the most
-        // recent known leg actually ended. Same "trust our own data over a live feed" posture as
-        // matchesExpectedOrigin() uses for every other pilot's tracking.
-        const expectedOrigin = current ? (current.arrival_airport || null) : (nj.startAirport || null);
+        // The trusted origin for whatever this poll is about to look at -- CrewSync's own best
+        // knowledge, not the live feed's: the saved tour-start airport for a brand-new leg 1,
+        // the CURRENT leg's own departure airport while it's still open (that's this leg's
+        // origin, full stop -- not where it's headed), or wherever the most recent leg actually
+        // ended once it's marked complete (THAT'S when an arrival airport becomes the next leg's
+        // expected origin). Found live 2026-10-30: this used to read current.arrival_airport
+        // unconditionally whenever any row existed, even a still-open one -- comparing a live
+        // feed's correct, unchanged origin against the open leg's own (possibly still-estimated)
+        // destination instead of its departure, so every single poll of a genuinely in-progress
+        // leg rejected itself as a false "origin mismatch" and never refined past its first write.
+        const expectedOrigin = !current
+            ? (nj.startAirport || null)
+            : current.auto_leg_complete
+                ? (current.arrival_airport || null)
+                : (current.departure_airport || null);
 
         const tfdmInfo = tfdm.getFlightInfo(cs);
         const tfmsInfo = tfms.getFlightData(cs);
