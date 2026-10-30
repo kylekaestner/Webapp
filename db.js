@@ -175,8 +175,20 @@ function initDB() {
             days_off INTEGER NOT NULL,
             effective_from TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE
+            FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE,
+            UNIQUE(pilot_id, effective_from)
         )`);
+        // Migration for a table that may already exist (pre-dates the UNIQUE constraint above) --
+        // real duplicate rows were found live (several test saves on the same day, all sharing
+        // the same effective_from with no tie-breaker, which made the "most recent" row
+        // ambiguous and could resolve to a stale one). Keep only the latest (highest id) per
+        // (pilot_id, effective_from) before adding the index, or the index creation itself would
+        // fail against the existing duplicates.
+        db.run(`DELETE FROM pilot_duty_rotation WHERE id NOT IN (
+            SELECT MAX(id) FROM pilot_duty_rotation GROUP BY pilot_id, effective_from
+        )`, () => {
+            db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_pilot_duty_rotation_unique ON pilot_duty_rotation(pilot_id, effective_from)`, () => {});
+        });
         db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_duty_rotation_pilot ON pilot_duty_rotation(pilot_id)`);
 
         // One tail per tour instance, keyed by that tour's own on-duty start date (not per-leg --
@@ -197,6 +209,43 @@ function initDB() {
         // column -- harmless no-op once the column already exists.
         db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN start_airport TEXT`, () => {});
         db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_tour_tail_pilot ON pilot_tour_tail(pilot_id)`);
+
+        // A line-to-line switch (7&7<->8&6 or within the same family) isn't a clean cutover --
+        // confirmed directly from the real "Seam Visualizer" tool's own source: there's a real
+        // 28-day day-by-day transition pattern (data/seam-table-a.txt/seam-table-b.txt, parsed
+        // into public/seam-tables.json by scripts/build-seam-tables.js) that overrides the normal
+        // on/off formula during that window. One row per switch (history-preserving, same spirit
+        // as pilot_duty_rotation) -- only ever inserted when there WAS a previous rotation to
+        // switch FROM; a first-time setup has nothing to seam from.
+        db.run(`CREATE TABLE IF NOT EXISTS pilot_duty_rotation_seam (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pilot_id INTEGER NOT NULL,
+            window_start_date TEXT NOT NULL,
+            from_key TEXT NOT NULL,
+            to_key TEXT NOT NULL,
+            table_letter TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE
+        )`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_duty_rotation_seam_pilot ON pilot_duty_rotation_seam(pilot_id)`);
+
+        // CC52/60/72/76 schedules aren't a formula at all -- confirmed directly from a real
+        // pilot's monthly schedule email: NetJets sends a literal day-by-day export (Date,
+        // Status), bid monthly, with no feed CrewSync can pull. A CC pilot pastes that email text
+        // in and it's parsed into one row per day here. Explicit day records are the highest-
+        // precedence signal for on-duty/off-duty -- they override both the Line-formula rotation
+        // AND any seam transition for the same date, since this is literally what NetJets says is
+        // actually happening that day, not an inference.
+        db.run(`CREATE TABLE IF NOT EXISTS pilot_cc_schedule_day (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pilot_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE,
+            UNIQUE(pilot_id, date)
+        )`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_cc_schedule_day_pilot ON pilot_cc_schedule_day(pilot_id)`);
 
         // Dedup for the "tour starts tomorrow, add your tail" reminder (server.js's
         // checkNetjetsTourReminders) -- without this, a pilot who hasn't entered a tail yet would

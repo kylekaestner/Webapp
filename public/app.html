@@ -1745,11 +1745,21 @@
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Duty Rotation</label>
                 <div class="grid grid-cols-2 gap-2 mb-2">
-                    <input id="my-info-rotation-on" type="number" min="1" max="60" placeholder="Days On" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
-                    <input id="my-info-rotation-off" type="number" min="1" max="60" placeholder="Days Off" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                    <select id="my-info-rotation-family" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                        <option value="">— Family —</option>
+                        <option value="7">7 &amp; 7</option>
+                        <option value="8">8 &amp; 6</option>
+                    </select>
+                    <select id="my-info-rotation-line" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                        <option value="">— Line —</option>
+                        <option value="1">Line 1</option><option value="2">Line 2</option><option value="3">Line 3</option>
+                        <option value="4">Line 4</option><option value="5">Line 5</option><option value="6">Line 6</option>
+                        <option value="7">Line 7</option><option value="8">Line 8</option><option value="9">Line 9</option>
+                        <option value="10">Line 10</option><option value="11">Line 11</option><option value="12">Line 12</option>
+                        <option value="13">Line 13</option><option value="14">Line 14</option>
+                    </select>
                 </div>
-                <input id="my-info-rotation-anchor" type="date" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none mb-1">
-                <p class="text-[10px] text-zinc-500">Pick a date you know was Day 1 of an on-duty stretch. This rotation applies from that date forward.</p>
+                <p class="text-[10px] text-zinc-500">Pick your schedule family and bid line.</p>
                 <button type="button" onclick="saveMyRotation()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save Rotation</button>
                 <p id="my-info-rotation-status" class="text-[10px] text-zinc-500 mt-1"></p>
             </div>
@@ -1762,6 +1772,13 @@
                 </div>
                 <p class="text-[10px] text-zinc-500">Just the number off your tail (N163QS → 163). No need to type N, QS, or EJA. Starting airport is wherever you're meeting the aircraft on Day 1 — helps the tracker confirm the right flight.</p>
                 <p id="my-info-tour-tail-status" class="text-[10px] text-zinc-500 mt-1"></p>
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">CC Schedule (CC52/60/72/76 only)</label>
+                <p class="text-[10px] text-zinc-500 mb-1">If you're on a CC schedule, paste your monthly schedule email here instead of (or in addition to) the rotation above — it overrides the Line-based rotation for any day it covers.</p>
+                <textarea id="my-info-cc-schedule-text" rows="4" placeholder="Sun, Nov 01, 2026 OFF&#10;Mon, Nov 02, 2026 X&#10;..." class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none"></textarea>
+                <button type="button" onclick="saveMyCcSchedule()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Parse &amp; Save</button>
+                <p id="my-info-cc-schedule-status" class="text-[10px] text-zinc-500 mt-1"></p>
             </div>
         </div>
         <div id="my-info-error" class="hidden text-xs text-red-400 font-bold"></div>
@@ -3350,8 +3367,80 @@
         // Given a resolved rotation (anchor_date + days_on/days_off), is dateStr an on-duty day?
         // Modular arithmetic off the anchor -- the ((x % n) + n) % n form handles dates before the
         // anchor too (a negative JS modulo result), not just dates after it.
+        // Checks every stored seam row for this pilot (normally at most one applies to a given
+        // date) and returns 1 (on-duty) / 0 (off-duty) from the real transition table if dateStr
+        // falls inside that 28-day window, or null if none applies / data not loaded yet --
+        // callers fall back to the normal rotation formula on null.
+        function _seamOverrideFor(pilotKey, dateStr) {
+            if (!_seamTables) return null;
+            const seams = pilotsCache[pilotKey]?.rotation_seams;
+            if (!seams || !seams.length) return null;
+            for (const s of seams) {
+                const windowStart = new Date(s.window_start_date + 'T12:00:00');
+                const d = new Date(dateStr + 'T12:00:00');
+                const dayIndex = Math.round((d - windowStart) / 86400000);
+                if (dayIndex < 0 || dayIndex > 27) continue;
+                const arr = _seamTables[s.table_letter]?.[s.from_key]?.[s.to_key];
+                if (arr) return arr[dayIndex];
+            }
+            return null;
+        }
+
+        // Highest-precedence signal of all -- an explicit CC-schedule day record is literally what
+        // NetJets says happened that day (pasted from the pilot's own monthly email), not an
+        // inference from any formula. 'X' = on-duty; anything else (OFF, P<n> PTO) = off-duty.
+        function _ccScheduleOverrideFor(pilotKey, dateStr) {
+            const days = pilotsCache[pilotKey]?.cc_schedule_days;
+            if (!days || !days.length) return null;
+            const row = days.find(d => d.date === dateStr);
+            return row ? (row.status === 'X' ? 1 : 0) : null;
+        }
+
         function _isNetJetsOnDuty(pilotKey, dateStr) {
+            const cc = _ccScheduleOverrideFor(pilotKey, dateStr);
+            if (cc !== null) return !!cc;
+            const seam = _seamOverrideFor(pilotKey, dateStr);
+            if (seam !== null) return !!seam;
             return _tourStartDateFor(pilotKey, dateStr) !== null;
+        }
+
+        // Line 1's first on-duty day, confirmed directly from the real line-visualizer tool's own
+        // source (same reference date used for both the 7&7 and 8&6 families there -- only
+        // days_on/days_off differ by family, not this anchor). Line N = this date + (N-1) days.
+        // Purely a phase reference for the modular math below -- NOT a real "this rotation became
+        // effective in 2021" date, so callers must set their own effectiveFrom separately.
+        const _LINE_REFERENCE_DATE = '2021-12-24';
+        function _lineToAnchorDate(lineNum) {
+            const ref = new Date(_LINE_REFERENCE_DATE + 'T12:00:00');
+            const d = new Date(ref.getTime() + (lineNum - 1) * 86400000);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+        // Inverse of _lineToAnchorDate -- exact, not a guess, since manual date entry no longer
+        // exists as an alternate path (removed per explicit request: "the old day off and on
+        // should just go away"), so every stored anchor_date was produced by this same formula.
+        // Returns null for anything outside 1-14 (shouldn't happen, but don't silently mis-map).
+        function _anchorDateToLine(anchorDate) {
+            if (!anchorDate) return null;
+            const ref = new Date(_LINE_REFERENCE_DATE + 'T12:00:00');
+            const d = new Date(anchorDate + 'T12:00:00');
+            const lineNum = Math.round((d - ref) / 86400000) + 1;
+            return (lineNum >= 1 && lineNum <= 14) ? lineNum : null;
+        }
+
+        // Shared by the grid/list/day-detail default-status fallback -- a day with no logged
+        // flight/reserve/vacation/hard-off segment defaults to "OFF" for everyone except Kyle
+        // (whose default has always been "assumed on-call"); a NetJets pilot gets that same
+        // assumed-on-call default on any day their saved rotation says they're on duty. Lowest
+        // precedence in all three call sites -- any real logged segment still overrides it.
+        function _pilotOnDutyDefault(pilotKey, dateKey) {
+            return pilotKey === 'kyle' || (pilotsCache[pilotKey]?.parser_type === 'manual_netjets' && _isNetJetsOnDuty(pilotKey, dateKey));
+        }
+        // Kyle's assumed-on-call default and a NetJets pilot's rotation-on-duty default are the
+        // same PRECEDENCE (lowest -- any real logged segment overrides either), but not the same
+        // real-world meaning -- a NetJets pilot on a tour day isn't waiting for a call, they're on
+        // a scheduled rotation. Separate label so the two don't read identically.
+        function _onDutyDefaultLabel(pilotKey) {
+            return pilotsCache[pilotKey]?.parser_type === 'manual_netjets' ? 'ON TOUR' : 'ON CALL';
         }
 
         // Null if off-duty (or no rotation configured) on dateStr; otherwise the calendar date
@@ -3419,6 +3508,16 @@
         }
 
         loadAirportDB();
+
+        // NetJets line-switch "seam" transition data -- see server.js's own header comment above
+        // _seamKey()/_computeSeamWindow() for the full reasoning. Loaded once; a failed/missing
+        // fetch just means no seam override is available, same fail-open posture as the airport
+        // DB above -- the normal rotation formula still works fine without it.
+        let _seamTables = null;
+        function loadSeamTables() {
+            fetch('/seam-tables.json').then(r => r.ok ? r.json() : null).then(data => { _seamTables = data; }).catch(() => {});
+        }
+        loadSeamTables();
 
         function resolveAirport(code) {
             if (!code) return null;
@@ -3721,7 +3820,11 @@
                 const emptyBanner = document.getElementById('empty-schedule-banner');
                 if (emptyBanner) {
                     const isOwn = myPilot && myPilot === pilot && !isDemo;
-                    emptyBanner.classList.toggle('hidden', !(isOwn && segmentData.length === 0));
+                    // NetJets has no feed to upload at all -- a zero-segment schedule is the
+                    // normal starting state until legs are auto-created or manually added, not a
+                    // "newly joined, go upload something" situation this banner is meant for.
+                    const isNetjets = pilotsCache[pilot]?.parser_type === 'manual_netjets';
+                    emptyBanner.classList.toggle('hidden', !(isOwn && segmentData.length === 0 && !isNetjets));
                 }
                 checkScheduleUploadReminder(pilot);
                 dismissSplash();
@@ -3908,7 +4011,10 @@
 
             const stalePilots = allDatesMax
                 ? activeKeys.filter(k => {
-                    if (k === 'kyle') return false;
+                    // Same reasoning as Kyle's exclusion -- a manual-tracking pilot's segment
+                    // data is sparse by design (legs only exist once auto-created or manually
+                    // added), not a sign their schedule is actually out of date.
+                    if (k === 'kyle' || pilotsCache[k]?.parser_type === 'manual_netjets') return false;
                     const diff = (new Date(allDatesMax) - new Date(pilotMaxDate[k] || '2000-01-01')) / 86400000;
                     return diff > 7;
                   })
@@ -8307,8 +8413,14 @@
                         });
                     }); */
 
-                    let style = "border-zinc-800 bg-zinc-900/20";
-                    let tag = (currentPilot === 'kyle') ? "ON CALL" : "OFF";
+                    const _onDuty = _pilotOnDutyDefault(currentPilot, dateKey);
+                    const _onDutyLabel = _onDuty ? _onDutyDefaultLabel(currentPilot) : null;
+                    // NetJets' "ON TOUR" default gets its own indigo tint (distinct from Reserve's
+                    // amber -- it's an inferred status from the rotation, not a real logged
+                    // segment) -- Kyle's bare "ON CALL" default stays the plain, unstyled gray it
+                    // always was.
+                    let style = (_onDutyLabel === 'ON TOUR') ? "border-indigo-400/30 bg-indigo-400/5" : "border-zinc-800 bg-zinc-900/20";
+                    let tag = _onDutyLabel || "OFF";
                     if (isVacation) { style = "border-teal-500/50 bg-teal-900/30 text-teal-100"; tag = awayApt ? `VAC · AWAY - ${awayApt}` : "VAC"; }
                     else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = awayApt ? `HARD OFF · AWAY - ${awayApt}` : "HARD OFF"; }
                     else if (isTraining && !isFlying) { style = "border-orange-500/40 bg-orange-900/25"; tag = "TRAINING"; }
@@ -8319,7 +8431,7 @@
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
                     else if (isAllCrewOff) { style = "border-amber-400/60 bg-amber-950/30"; tag = "✦ ALL OFF"; }
                     if (tag === 'FLYING' || tag === 'TRAINING') monthFlown++;
-                    else if (tag === 'ON CALL') monthOnCall++;
+                    else if (tag === 'ON CALL' || tag === 'ON TOUR') monthOnCall++;
                     else monthOff++;
                     const glowStyle = isAllCrewOff ? 'box-shadow:0 0 0 1px rgba(251,191,36,0.45),0 0 18px rgba(251,191,36,0.18);' : '';
                     // Cell: fixed height with scrollable inner flight list
@@ -8569,7 +8681,8 @@
                         const rawAMs = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport)?.getTime() : null;
                         return dMs && rawAMs && dMs <= _listNow && _listNow <= rawAMs && !_isLandedEarly(cs, rawAMs);
                     });
-                    let bgColor, labelColor, sidebarColor, sidebarBorder, label = currentPilot === 'kyle' ? "ON CALL" : "OFF";
+                    const _listOnDutyLabel = _pilotOnDutyDefault(currentPilot, dateKey) ? _onDutyDefaultLabel(currentPilot) : null;
+                    let bgColor, labelColor, sidebarColor, sidebarBorder, label = _listOnDutyLabel || "OFF";
                     if (isVacation) {
                         bgColor = "bg-teal-950/40 border-teal-500/40"; labelColor = "text-teal-300"; sidebarColor = "text-teal-300"; sidebarBorder = "border-teal-700/50"; label = awayApt ? `VAC · AWAY - ${awayApt}` : "VAC";
                     } else if (isHard) {
@@ -8588,6 +8701,8 @@
                         bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${away.arrivalAirport}`;
                     } else if (awayApt) {
                         bgColor = "bg-yellow-900/20 border-yellow-600/40"; labelColor = "text-yellow-400"; sidebarColor = "text-yellow-400"; sidebarBorder = "border-yellow-700/40"; label = `AWAY - ${awayApt}`;
+                    } else if (_listOnDutyLabel === 'ON TOUR') {
+                        bgColor = "bg-indigo-950/30 border-indigo-500/30"; labelColor = "text-indigo-300"; sidebarColor = "text-indigo-300"; sidebarBorder = "border-indigo-700/40";
                     } else {
                         bgColor = "bg-zinc-900/20 border-zinc-700/50"; labelColor = "text-zinc-500"; sidebarColor = "text-zinc-400"; sidebarBorder = "border-zinc-700/50";
                     }
@@ -8990,7 +9105,7 @@
                 return { dMs, aMs: rawAMs, cs };
             });
             const anyLive = flightMs.some(({dMs, aMs, cs}) => isFlightStillActive(dMs, aMs, nowMs, cs) && !_isLandedEarly(cs, aMs));
-            let label = currentPilot === 'kyle' ? 'ON CALL' : 'DAY OFF';
+            let label = _pilotOnDutyDefault(currentPilot, dateKey) ? 'ON CALL' : 'DAY OFF';
             let labelColor = 'text-zinc-400';
             if (isVacation) { label = awayApt ? `VACATION · AWAY - ${awayApt}` : 'VACATION'; labelColor = 'text-teal-400'; }
             else if (isHard) { label = awayApt ? `HARD OFF · AWAY - ${awayApt}` : 'HARD OFF'; labelColor = 'text-red-400'; }
@@ -9905,9 +10020,12 @@ let _blockUserEdited = false;
         // ── Schedule upload reminder ─────────────────────────────────────
         function checkScheduleUploadReminder(pilot) {
             if (!myPilot || pilot !== myPilot || isDemo) return;
-            // Only remind pilots who manually upload files (Schedaero and ICS pilots auto-sync)
+            // Only remind pilots who manually upload files (Schedaero and ICS pilots auto-sync;
+            // NetJets has no feed to upload or sync at all -- legs come from auto-leg-creation or
+            // the Add Flight modal, so "no flights found, upload your schedule" would be a
+            // standing, permanent false alarm for this pilot type).
             const parser = pilotsCache[pilot]?.parser_type || '';
-            if (parser === 'schedaero' || parser === 'ics_rosterbuster' || parser.startsWith('ics')) return;
+            if (parser === 'schedaero' || parser === 'ics_rosterbuster' || parser.startsWith('ics') || parser === 'manual_netjets') return;
 
             const now = new Date();
             const day = now.getDate();
@@ -10670,10 +10788,19 @@ async function openAdminPanel(tab = 'users') {
             if (asel === 'EJA') {
                 pilotsCache[myPilot] = pilot; // _tourStartDateFor/_tourTailFor read through this cache
                 const rh = pilot?.rotation_history || [];
-                const rotation = rh[rh.length - 1];
-                document.getElementById('my-info-rotation-on').value     = rotation?.days_on || '';
-                document.getElementById('my-info-rotation-off').value    = rotation?.days_off || '';
-                document.getElementById('my-info-rotation-anchor').value = rotation?.anchor_date || '';
+                // NOT rh[rh.length-1] -- that's just "latest effective_from in the array," which
+                // is wrong the moment a FUTURE-dated row exists (e.g. a stray test save for next
+                // week): it would sort after today's actually-current row and get shown instead.
+                // _resolveRotationAt correctly picks whichever row is actually in effect today.
+                const rotation = _resolveRotationAt(rh, _todayLocalDateStr());
+                if (rotation) {
+                    // Every rotation is now saved via the line formula, so this reverse-maps
+                    // exactly (no guessing) -- family comes straight from days_on, line number
+                    // from how many days the stored anchor sits past the reference date.
+                    document.getElementById('my-info-rotation-family').value = String(rotation.days_on === 8 ? 8 : 7);
+                    const lineNum = _anchorDateToLine(rotation.anchor_date);
+                    if (lineNum) document.getElementById('my-info-rotation-line').value = String(lineNum);
+                }
                 _refreshMyInfoNetjetsStatus();
             }
             document.getElementById('edit-my-info-modal').classList.remove('hidden');
@@ -10708,22 +10835,51 @@ async function openAdminPanel(tab = 'users') {
         }
 
         async function saveMyRotation() {
-            const daysOn  = document.getElementById('my-info-rotation-on').value;
-            const daysOff = document.getElementById('my-info-rotation-off').value;
-            const anchor  = document.getElementById('my-info-rotation-anchor').value;
             const statusEl = document.getElementById('my-info-rotation-status');
-            if (!daysOn || !daysOff || !anchor) { statusEl.textContent = 'Days On, Days Off, and the anchor date are all required.'; return; }
+            const family = document.getElementById('my-info-rotation-family').value; // '7' = 7&7, '8' = 8&6
+            const lineSel = document.getElementById('my-info-rotation-line').value;
+            // Both dropdowns default to a blank placeholder specifically so this can't slip
+            // through unnoticed -- confirmed live as a real failure mode: a pilot could click
+            // Save with 7&7/Line 1 still sitting there from the default, saving the wrong
+            // rotation without ever having chosen it.
+            if (!family || !lineSel) { statusEl.textContent = 'Pick both a family and a line first.'; return; }
+            const lineNum = parseInt(lineSel, 10);
+            const daysOn  = family === '8' ? 8 : 7;
+            const daysOff = family === '8' ? 6 : 7;
+            const anchor  = _lineToAnchorDate(lineNum);
+            // The line formula is valid for any date, past or future -- a first-time setup
+            // should backfill the pilot's ENTIRE history (Off Days for past months shouldn't
+            // stay blank just because the rotation was entered late), so it gets a far-past floor
+            // effectiveFrom, same pattern pilot_base_history already uses for a pilot's first-ever
+            // recorded change. A pilot who already has a rotation and is switching to a new line
+            // is a real dated change, not a backfill -- that one is forward-only from today, so it
+            // doesn't retroactively overwrite the old line's own history.
+            const existingRotation = _resolveRotationAt(pilotsCache[myPilot]?.rotation_history, _todayLocalDateStr());
+            const effectiveFrom = existingRotation ? _todayLocalDateStr() : '2000-01-01';
+            // A real switch (there's a current rotation to switch FROM) gets a seam row -- the
+            // 28-day transition isn't a clean cutover, see _computeSeamWindow()'s own comment.
+            // First-time setup has nothing to seam from, so these stay null.
+            const previousFamily = existingRotation ? (existingRotation.days_on === 8 ? '8' : '7') : null;
+            const previousLine = existingRotation ? _anchorDateToLine(existingRotation.anchor_date) : null;
             statusEl.textContent = 'Saving…';
             try {
                 const r = await fetch(`${API_BASE}/pilots/${myPilot}/rotation`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: myToken, anchorDate: anchor, daysOn, daysOff, effectiveFrom: anchor })
+                    body: JSON.stringify({ token: myToken, anchorDate: anchor, daysOn, daysOff, effectiveFrom, family, lineNum, previousFamily, previousLine })
                 });
                 if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
                 if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
-                pilotsCache[myPilot].rotation_history = [...(pilotsCache[myPilot].rotation_history || []), { anchor_date: anchor, days_on: Number(daysOn), days_off: Number(daysOff), effective_from: anchor }];
+                pilotsCache[myPilot].rotation_history = [...(pilotsCache[myPilot].rotation_history || []), { anchor_date: anchor, days_on: Number(daysOn), days_off: Number(daysOff), effective_from: effectiveFrom }];
                 _refreshMyInfoNetjetsStatus();
+                statusEl.textContent = 'Saved.';
+                // The cache update above is enough for the My Info modal's own status text, but
+                // nothing else re-renders on its own -- the grid/list and Off Days views were
+                // already built from the OLD rotation and don't know anything changed.
+                if (currentPilot === myPilot) {
+                    render();
+                    if (document.getElementById('view-overlap')?.classList.contains('view-active')) computeOffDays();
+                }
             } catch { statusEl.textContent = 'Save failed — try again.'; }
         }
 
@@ -10748,6 +10904,37 @@ async function openAdminPanel(tab = 'users') {
                 pilotsCache[myPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || prior?.start_airport || null }];
                 tailStatus.textContent = 'Saved.';
             } catch { tailStatus.textContent = 'Save failed — try again.'; }
+        }
+
+        async function saveMyCcSchedule() {
+            const statusEl = document.getElementById('my-info-cc-schedule-status');
+            const rawText = document.getElementById('my-info-cc-schedule-text').value;
+            if (!rawText.trim()) { statusEl.textContent = 'Paste your schedule email text first.'; return; }
+            statusEl.textContent = 'Parsing…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}/cc-schedule`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, rawText })
+                });
+                const data = await r.json().catch(() => ({}));
+                if (!r.ok) { statusEl.textContent = data.error || 'Save failed — try again.'; return; }
+                if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
+                // Refetch rather than hand-merge -- the server already upserted (updates existing
+                // days, adds new ones), and the full day list is small enough that a clean refetch
+                // is simpler and less error-prone than reconstructing the merge client-side.
+                try {
+                    const fresh = await fetch(`${API_BASE}/pilots/${myPilot}?token=${encodeURIComponent(myToken)}`).then(res => res.json());
+                    pilotsCache[myPilot].cc_schedule_days = fresh.cc_schedule_days || [];
+                } catch (_) {}
+                statusEl.textContent = `Saved ${data.daysParsed} day${data.daysParsed === 1 ? '' : 's'}.`
+                    + (data.warnings?.length ? ` ${data.warnings.length} line${data.warnings.length === 1 ? '' : 's'} not recognized -- check console.` : '');
+                if (data.warnings?.length) console.warn('CC schedule parse warnings:', data.warnings);
+                if (currentPilot === myPilot) {
+                    render();
+                    if (document.getElementById('view-overlap')?.classList.contains('view-active')) computeOffDays();
+                }
+            } catch { statusEl.textContent = 'Save failed — try again.'; }
         }
 
         let _myInfoOriginalBase = '';

@@ -1329,6 +1329,103 @@ function ejaFlightNumber(tail) {
     return digits ? `EJA${digits}` : null;
 }
 
+// NetJets line-switch "seam" transition data -- confirmed directly against the real Seam
+// Visualizer tool's own source (see public/seam-tables.json's build script for the full
+// reasoning). Loaded once; a missing file degrades to "no seam override available" rather than
+// crashing, same posture as every other optional reference dataset in this file.
+let _seamTables = null;
+try {
+    _seamTables = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'seam-tables.json'), 'utf8'));
+} catch (e) { console.warn('seam-tables.json not available:', e.message); }
+
+function _seamKey(family, lineNum) { return `${family}Line${lineNum}`; }
+
+// The last Friday of a given calendar month -- confirmed this is ALL "seamStart" actually is in
+// the real tool, despite its code nesting the check inside line-specific iteration; that nesting
+// just walks consecutive calendar days for an unrelated purpose (painting work/off cells) and the
+// Friday-in-the-last-7-days-of-the-month check fires independent of which line is involved.
+function _lastFridayOfMonth(year, monthIdx0) {
+    const daysInMonth = new Date(year, monthIdx0 + 1, 0).getDate();
+    for (let d = daysInMonth; d > daysInMonth - 7; d--) {
+        const dt = new Date(year, monthIdx0, d, 12);
+        if (dt.getDay() === 5) return dt;
+    }
+    return null;
+}
+
+// Computes the 28-day seam window for a pilot switching FROM (oldFamily,oldLine) TO
+// (newFamily,newLine), anchored off effectiveFromStr (the new rotation's effective date) --
+// "firstMonth" (the last month on the old line) is taken as the month immediately before
+// effectiveFrom's month, matching the real tool's own month-pair model. Returns null if seam
+// data isn't loaded or the month math fails (shouldn't happen).
+function _computeSeamWindow(oldFamily, oldLine, newFamily, newLine, effectiveFromStr) {
+    if (!_seamTables) return null;
+    const effDate = new Date(effectiveFromStr + 'T12:00:00');
+    let firstMonthIdx0 = effDate.getMonth() - 1, firstYear = effDate.getFullYear();
+    if (firstMonthIdx0 < 0) { firstMonthIdx0 = 11; firstYear -= 1; }
+    const seamStart = _lastFridayOfMonth(firstYear, firstMonthIdx0);
+    if (!seamStart) return null;
+    const seamReferenceDate = new Date('2002-02-01T12:00:00');
+    const daysBetween = Math.round((seamStart.getTime() - seamReferenceDate.getTime()) / 86400000);
+    const tableLetter = (((daysBetween % 14) + 14) % 14 === 0) ? 'a' : 'b';
+    const windowStart = new Date(seamStart.getTime() - 7 * 86400000);
+    const pad = n => String(n).padStart(2, '0');
+    return {
+        windowStartStr: `${windowStart.getFullYear()}-${pad(windowStart.getMonth() + 1)}-${pad(windowStart.getDate())}`,
+        fromKey: _seamKey(oldFamily, oldLine), toKey: _seamKey(newFamily, newLine), tableLetter
+    };
+}
+
+// Given a stored seam row and a target date, returns 1 (on-duty)/0 (off-duty) if the date falls
+// within that 28-day window, or null if outside it or the lookup data is missing.
+function _seamDayValue(seamRow, dateStr) {
+    if (!_seamTables || !seamRow) return null;
+    const windowStart = new Date(seamRow.window_start_date + 'T12:00:00');
+    const d = new Date(dateStr + 'T12:00:00');
+    const dayIndex = Math.round((d - windowStart) / 86400000);
+    if (dayIndex < 0 || dayIndex > 27) return null;
+    const arr = _seamTables[seamRow.table_letter]?.[seamRow.from_key]?.[seamRow.to_key];
+    return arr ? arr[dayIndex] : null;
+}
+
+// CC52/60/72/76 schedules have no feed at all -- confirmed directly against a real pilot's
+// monthly schedule email, which is a literal day-by-day plain-text export the pilot pastes in.
+// Format confirmed from that real sample, one line per day:
+//   "Sun, Nov 01, 2026 OFF" / "Mon, Nov 02, 2026 X" / "Sat, Nov 14, 2026 P1"
+// Status codes confirmed from the email's own legend: X = regular duty, OFF = day off,
+// P<n> = PTO (n days charged). Same "don't guess, flag what doesn't match" posture as the
+// American/Southwest ICS parsers -- an unrecognized line is skipped and reported, not silently
+// dropped or misclassified.
+const _CC_MONTHS = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+function parseCcScheduleText(text) {
+    const days = [];
+    const warnings = [];
+    const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const lineRe = /^[A-Za-z]{3},\s*([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})\s+(\S.*)$/;
+    for (const line of lines) {
+        const m = line.match(lineRe);
+        if (!m) {
+            // The legend lines ("X - Regular duty assignment", etc.) and blank/header lines never
+            // match the date pattern at all -- only warn on something that looks date-shaped but
+            // still didn't parse, so the legend itself doesn't spam a false "unrecognized" report.
+            if (/\d{4}/.test(line)) warnings.push(`Line looked like a schedule day but didn't match the expected format: "${line}"`);
+            continue;
+        }
+        const monKey = m[1].toLowerCase();
+        const monthIdx0 = _CC_MONTHS[monKey];
+        if (monthIdx0 === undefined) { warnings.push(`Unrecognized month abbreviation: "${m[1]}" in "${line}"`); continue; }
+        const day = parseInt(m[2], 10), year = parseInt(m[3], 10);
+        const status = m[4].trim().toUpperCase();
+        const pad = n => String(n).padStart(2, '0');
+        const dateStr = `${year}-${pad(monthIdx0 + 1)}-${pad(day)}`;
+        if (status !== 'X' && status !== 'OFF' && !/^P\d+$/.test(status)) {
+            warnings.push(`Unrecognized status code "${status}" on ${dateStr} -- treated as off-duty, confirm this is correct`);
+        }
+        days.push({ date: dateStr, status });
+    }
+    return { days, warnings };
+}
+
 // Mirror of tfms.js's routeOrigin() for the OTHER end of a legacy-format route string
 // (e.g. "KJFK./.TEYOU..KP75C..TBC..JASSE.Q90.DNERO.ANJLL4.KLAX/0739" -> "LAX"). Not added to
 // tfms.js itself -- that module is already well-tested and this is NetJets-leg-creation-only, so
@@ -1665,12 +1762,18 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
                         }
                         // Cheap even for non-NetJets pilots -- these two tables are only ever
                         // populated for parser_type 'manual_netjets', empty otherwise.
-                        db.all('SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id = ? ORDER BY effective_from ASC', [pilot.id], (err3, rotationHistory) => {
+                        db.all('SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id = ? ORDER BY effective_from ASC, id ASC', [pilot.id], (err3, rotationHistory) => {
                             if (err3) return res.status(500).json({ error: err3.message });
                             db.all('SELECT tour_start_date, tail, start_airport FROM pilot_tour_tail WHERE pilot_id = ? ORDER BY tour_start_date ASC', [pilot.id], (err4, tourTails) => {
                                 if (err4) return res.status(500).json({ error: err4.message });
-                                const resolvedParser = getParserForPilot(pilotKey, pilot);
-                                res.json({ ...pilot, parser_type: resolvedParser, airline_code: pilot.airline_code || '', segments, base_history: baseHistory || [], rotation_history: rotationHistory || [], tour_tails: tourTails || [] });
+                                db.all('SELECT window_start_date, from_key, to_key, table_letter FROM pilot_duty_rotation_seam WHERE pilot_id = ? ORDER BY window_start_date ASC', [pilot.id], (err5, rotationSeams) => {
+                                    if (err5) return res.status(500).json({ error: err5.message });
+                                    db.all('SELECT date, status FROM pilot_cc_schedule_day WHERE pilot_id = ? ORDER BY date ASC', [pilot.id], (err6, ccDays) => {
+                                        if (err6) return res.status(500).json({ error: err6.message });
+                                        const resolvedParser = getParserForPilot(pilotKey, pilot);
+                                        res.json({ ...pilot, parser_type: resolvedParser, airline_code: pilot.airline_code || '', segments, base_history: baseHistory || [], rotation_history: rotationHistory || [], tour_tails: tourTails || [], rotation_seams: rotationSeams || [], cc_schedule_days: ccDays || [] });
+                                    });
+                                });
                             });
                         });
                     });
@@ -2496,7 +2599,7 @@ app.put('/api/pilots/:pilotKey', (req, res) => {
 app.put('/api/pilots/:pilotKey/rotation', (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
-    const { token, anchorDate, daysOn, daysOff, effectiveFrom } = req.body;
+    const { token, anchorDate, daysOn, daysOff, effectiveFrom, family, lineNum, previousFamily, previousLine } = req.body;
     _resolvePilotToken(token, db, (status, msg, callerKey) => {
         if (status) return res.status(status).json({ error: msg });
         if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
@@ -2507,9 +2610,24 @@ app.put('/api/pilots/:pilotKey/rotation', (req, res) => {
         db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
             if (err) return res.status(500).json({ error: err.message });
             if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
-            db.run('INSERT INTO pilot_duty_rotation (pilot_id, anchor_date, days_on, days_off, effective_from) VALUES (?, ?, ?, ?, ?)',
+            // Upsert on (pilot_id, effective_from) -- a repeat save on the same day (testing, or
+            // just re-saving the same change) updates that same row instead of piling up
+            // duplicates with an identical effective_from and no way to tell which is "latest".
+            db.run(`INSERT INTO pilot_duty_rotation (pilot_id, anchor_date, days_on, days_off, effective_from) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(pilot_id, effective_from) DO UPDATE SET anchor_date=excluded.anchor_date, days_on=excluded.days_on, days_off=excluded.days_off`,
                 [pilotRow.id, anchorDate, on, off, effectiveFrom], function(err2) {
                     if (err2) return res.status(500).json({ error: err2.message });
+                    // A real switch (previousFamily/previousLine given, not a first-time setup)
+                    // gets a seam row too -- the 28-day transition isn't a clean cutover, see
+                    // _computeSeamWindow()'s own header comment.
+                    if (previousFamily && previousLine && family && lineNum) {
+                        const seam = _computeSeamWindow(previousFamily, previousLine, family, lineNum, effectiveFrom);
+                        if (seam) {
+                            db.run(`INSERT INTO pilot_duty_rotation_seam (pilot_id, window_start_date, from_key, to_key, table_letter) VALUES (?, ?, ?, ?, ?)`,
+                                [pilotRow.id, seam.windowStartStr, seam.fromKey, seam.toKey, seam.tableLetter], () => res.json({ success: true }));
+                            return;
+                        }
+                    }
                     res.json({ success: true });
                 });
         });
@@ -2539,6 +2657,33 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
                     if (err2) return res.status(500).json({ error: err2.message });
                     res.json({ success: true });
                 });
+        });
+    });
+});
+
+// CC52/60/72/76 pilots paste their monthly schedule email text here -- see
+// parseCcScheduleText()'s own header comment for the confirmed format/status codes. Upserts one
+// row per day (ON CONFLICT so re-pasting the same month, or a corrected re-send, updates in
+// place rather than duplicating) and returns any parser warnings for lines that didn't match.
+app.post('/api/pilots/:pilotKey/cc-schedule', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { token, rawText } = req.body;
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+        const { days, warnings } = parseCcScheduleText(rawText);
+        if (!days.length) return res.status(400).json({ error: 'No recognizable schedule days found in that text', warnings });
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
+            const stmt = db.prepare(`INSERT INTO pilot_cc_schedule_day (pilot_id, date, status) VALUES (?, ?, ?)
+                    ON CONFLICT(pilot_id, date) DO UPDATE SET status=excluded.status`);
+            for (const d of days) stmt.run(pilotRow.id, d.date, d.status);
+            stmt.finalize(err2 => {
+                if (err2) return res.status(500).json({ error: err2.message });
+                res.json({ success: true, daysParsed: days.length, warnings });
+            });
         });
     });
 });
@@ -4082,7 +4227,7 @@ function _getOnDutyNetjetsPilots(db, todayStr, cb) {
         let remaining = pilots.length;
         const done = () => { if (--remaining === 0) cb(results); };
         pilots.forEach(p => {
-            db.all(`SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id=? ORDER BY effective_from ASC`, [p.id], (err2, rotHist) => {
+            db.all(`SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id=? ORDER BY effective_from ASC, id ASC`, [p.id], (err2, rotHist) => {
                 if (err2) return done();
                 const rotation = _resolveRotationAtServer(rotHist || [], todayStr);
                 const tourStart = _tourStartDateForServer(rotation, todayStr);
@@ -4261,7 +4406,7 @@ function checkNetjetsTourReminders() {
     db.all(`SELECT id, pilot_key FROM pilots WHERE parser_type='manual_netjets'`, [], (err, pilots) => {
         if (err || !pilots || !pilots.length) return;
         pilots.forEach(p => {
-            db.all(`SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id=? ORDER BY effective_from ASC`, [p.id], (err2, rotHist) => {
+            db.all(`SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id=? ORDER BY effective_from ASC, id ASC`, [p.id], (err2, rotHist) => {
                 if (err2) return;
                 const rotation = _resolveRotationAtServer(rotHist || [], tomorrow);
                 const tourStart = _tourStartDateForServer(rotation, tomorrow);

@@ -1,0 +1,400 @@
+7Line1	7Line1	X	X	X	X	X	X	X								X	X	X	X	X	X	X							
+7Line1	7Line2	X	X	X	X	X	X	X									X	X	X	X	X	X	X						
+7Line1	7Line3	X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X					
+7Line1	7Line4	X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X				
+7Line1	7Line5	X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X			
+7Line1	7Line6	X	X	X	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X	X		
+7Line1	7Line7	X	X	X	X	X	X	X					X	X	X	X	X	X				X	X	X	X	X	X	X	
+7Line1	7Line8	X	X	X	X	X	X	X					X	X	X	X	X	X	X				X	X	X	X	X	X	X
+7Line1	7Line9	X	X	X	X	X	X	X					X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line1	7Line10	X	X	X	X	X	X	X					X	X	X	X	X	X	X						X	X	X	X	X
+7Line1	7Line11	X	X	X	X	X	X	X					X	X	X	X	X	X	X							X	X	X	X
+7Line1	7Line12	X	X	X	X	X	X	X					X	X	X	X	X	X	X								X	X	X
+7Line1	7Line13	X	X	X	X	X	X	X						X	X	X	X	X	X	X								X	X
+7Line1	7Line14	X	X	X	X	X	X	X							X	X	X	X	X	X	X								X
+7Line1	8Line2	X	X	X	X	X	X	X									X	X	X	X	X	X	X	X					
+7Line1	8Line4	X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X			
+7Line1	8Line6	X	X	X	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X	X	X	
+7Line1	8Line9	X	X	X	X	X	X	X					X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line1	8Line11	X	X	X	X	X	X	X					X	X	X	X	X	X	X							X	X	X	X
+7Line1	8Line13	X	X	X	X	X	X	X						X	X	X	X	X	X	X								X	X
+7Line2	7Line1		X	X	X	X	X	X	X							X	X	X	X	X	X	X							
+7Line2	7Line2		X	X	X	X	X	X	X								X	X	X	X	X	X	X						
+7Line2	7Line3		X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X					
+7Line2	7Line4		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X				
+7Line2	7Line5		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X			
+7Line2	7Line6		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X		
+7Line2	7Line7		X	X	X	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X	X	
+7Line2	7Line8		X	X	X	X	X	X	X				X	X	X	X	X	X	X				X	X	X	X	X	X	X
+7Line2	7Line9		X	X	X	X	X	X	X				X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line2	7Line10		X	X	X	X	X	X	X				X	X	X	X	X	X	X						X	X	X	X	X
+7Line2	7Line11		X	X	X	X	X	X	X				X	X	X	X	X	X	X							X	X	X	X
+7Line2	7Line12		X	X	X	X	X	X	X				X	X	X	X	X	X	X								X	X	X
+7Line2	7Line13		X	X	X	X	X	X	X					X	X	X	X	X	X	X								X	X
+7Line2	7Line14		X	X	X	X	X	X	X						X	X	X	X	X	X	X								X
+7Line2	8Line2		X	X	X	X	X	X	X								X	X	X	X	X	X	X	X					
+7Line2	8Line4		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X			
+7Line2	8Line6		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X	X	
+7Line2	8Line9		X	X	X	X	X	X	X				X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line2	8Line11		X	X	X	X	X	X	X				X	X	X	X	X	X	X							X	X	X	X
+7Line2	8Line13		X	X	X	X	X	X	X					X	X	X	X	X	X	X								X	X
+7Line3	7Line1			X	X	X	X	X	X	X						X	X	X	X	X	X	X							
+7Line3	7Line2			X	X	X	X	X	X	X							X	X	X	X	X	X	X						
+7Line3	7Line3			X	X	X	X	X	X	X								X	X	X	X	X	X	X					
+7Line3	7Line4			X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X				
+7Line3	7Line5			X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X			
+7Line3	7Line6			X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X		
+7Line3	7Line7			X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X	
+7Line3	7Line8			X	X	X	X	X	X	X				X	X	X	X	X	X				X	X	X	X	X	X	X
+7Line3	7Line9			X	X	X	X	X	X	X				X	X	X	X	X	X					X	X	X	X	X	X
+7Line3	7Line10			X	X	X	X	X	X	X				X	X	X	X	X	X						X	X	X	X	X
+7Line3	7Line11			X	X	X	X	X	X	X				X	X	X	X	X	X							X	X	X	X
+7Line3	7Line12			X	X	X	X	X	X	X				X	X	X	X	X	X								X	X	X
+7Line3	7Line13			X	X	X	X	X	X	X				X	X	X	X	X	X	X								X	X
+7Line3	7Line14			X	X	X	X	X	X	X					X	X	X	X	X	X	X								X
+7Line3	8Line2			X	X	X	X	X	X	X							X	X	X	X	X	X	X	X					
+7Line3	8Line4			X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X			
+7Line3	8Line6			X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X	
+7Line3	8Line9			X	X	X	X	X	X	X				X	X	X	X	X	X					X	X	X	X	X	X
+7Line3	8Line11			X	X	X	X	X	X	X				X	X	X	X	X	X							X	X	X	X
+7Line3	8Line13			X	X	X	X	X	X	X				X	X	X	X	X	X	X								X	X
+7Line4	7Line1				X	X	X	X	X	X	X					X	X	X	X	X	X	X							
+7Line4	7Line2				X	X	X	X	X	X	X						X	X	X	X	X	X	X						
+7Line4	7Line3				X	X	X	X	X	X	X							X	X	X	X	X	X	X					
+7Line4	7Line4				X	X	X	X	X	X	X								X	X	X	X	X	X	X				
+7Line4	7Line5				X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X			
+7Line4	7Line6				X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X		
+7Line4	7Line7				X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	
+7Line4	7Line8				X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X
+7Line4	7Line9				X	X	X	X	X	X	X				X	X	X	X	X					X	X	X	X	X	X
+7Line4	7Line10				X	X	X	X	X	X	X				X	X	X	X	X						X	X	X	X	X
+7Line4	7Line11				X	X	X	X	X	X	X				X	X	X	X	X							X	X	X	X
+7Line4	7Line12				X	X	X	X	X	X	X				X	X	X	X	X								X	X	X
+7Line4	7Line13				X	X	X	X	X	X	X					X	X	X	X	X								X	X
+7Line4	7Line14				X	X	X	X	X	X	X					X	X	X	X	X	X								X
+7Line4	8Line2				X	X	X	X	X	X	X						X	X	X	X	X	X	X	X					
+7Line4	8Line4				X	X	X	X	X	X	X								X	X	X	X	X	X	X	X			
+7Line4	8Line6				X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	
+7Line4	8Line9				X	X	X	X	X	X	X				X	X	X	X	X					X	X	X	X	X	X
+7Line4	8Line11				X	X	X	X	X	X	X				X	X	X	X	X							X	X	X	X
+7Line4	8Line13				X	X	X	X	X	X	X					X	X	X	X	X								X	X
+7Line5	7Line1					X	X	X	X	X	X	X				X	X	X	X	X	X	X							
+7Line5	7Line2					X	X	X	X	X	X	X					X	X	X	X	X	X	X						
+7Line5	7Line3					X	X	X	X	X	X	X						X	X	X	X	X	X	X					
+7Line5	7Line4					X	X	X	X	X	X	X							X	X	X	X	X	X	X				
+7Line5	7Line5					X	X	X	X	X	X	X								X	X	X	X	X	X	X			
+7Line5	7Line6					X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X		
+7Line5	7Line7					X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	
+7Line5	7Line8					X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X
+7Line5	7Line9					X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X
+7Line5	7Line10					X	X	X	X	X	X	X				X	X	X	X	X					X	X	X	X	X
+7Line5	7Line11					X	X	X	X	X	X	X				X	X	X	X	X						X	X	X	X
+7Line5	7Line12					X	X	X	X	X	X	X				X	X	X	X	X							X	X	X
+7Line5	7Line13					X	X	X	X	X	X	X				X	X	X	X	X								X	X
+7Line5	7Line14					X	X	X	X	X	X	X				X	X	X	X	X	X								X
+7Line5	8Line2					X	X	X	X	X	X	X					X	X	X	X	X	X	X	X					
+7Line5	8Line4					X	X	X	X	X	X	X							X	X	X	X	X	X	X	X			
+7Line5	8Line6					X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	
+7Line5	8Line9					X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X
+7Line5	8Line11					X	X	X	X	X	X	X				X	X	X	X	X						X	X	X	X
+7Line5	8Line13					X	X	X	X	X	X	X				X	X	X	X	X								X	X
+7Line6	7Line1						X	X	X	X	X	X				X	X	X	X	X	X	X							
+7Line6	7Line2						X	X	X	X	X	X	X				X	X	X	X	X	X	X						
+7Line6	7Line3						X	X	X	X	X	X	X					X	X	X	X	X	X	X					
+7Line6	7Line4						X	X	X	X	X	X	X						X	X	X	X	X	X	X				
+7Line6	7Line5						X	X	X	X	X	X	X							X	X	X	X	X	X	X			
+7Line6	7Line6						X	X	X	X	X	X	X								X	X	X	X	X	X	X		
+7Line6	7Line7						X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	
+7Line6	7Line8						X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X
+7Line6	7Line9						X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X
+7Line6	7Line10						X	X	X	X	X	X				X	X	X	X	X					X	X	X	X	X
+7Line6	7Line11						X	X	X	X	X	X				X	X	X	X	X						X	X	X	X
+7Line6	7Line12						X	X	X	X	X	X				X	X	X	X	X							X	X	X
+7Line6	7Line13						X	X	X	X	X	X				X	X	X	X	X								X	X
+7Line6	7Line14						X	X	X	X	X	X				X	X	X	X	X	X								X
+7Line6	8Line2						X	X	X	X	X	X	X				X	X	X	X	X	X	X	X					
+7Line6	8Line4						X	X	X	X	X	X	X						X	X	X	X	X	X	X	X			
+7Line6	8Line6						X	X	X	X	X	X	X								X	X	X	X	X	X	X	X	
+7Line6	8Line9						X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X
+7Line6	8Line11						X	X	X	X	X	X				X	X	X	X	X						X	X	X	X
+7Line6	8Line13						X	X	X	X	X	X				X	X	X	X	X								X	X
+7Line7	7Line1							X	X	X	X	X				X	X	X	X	X	X	X							
+7Line7	7Line2							X	X	X	X	X	X				X	X	X	X	X	X	X						
+7Line7	7Line3							X	X	X	X	X	X	X				X	X	X	X	X	X	X					
+7Line7	7Line4							X	X	X	X	X	X	X					X	X	X	X	X	X	X				
+7Line7	7Line5							X	X	X	X	X	X	X						X	X	X	X	X	X	X			
+7Line7	7Line6							X	X	X	X	X	X	X							X	X	X	X	X	X	X		
+7Line7	7Line7							X	X	X	X	X	X	X								X	X	X	X	X	X	X	
+7Line7	7Line8							X	X	X	X	X	X	X									X	X	X	X	X	X	X
+7Line7	7Line9							X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X
+7Line7	7Line10							X	X	X	X	X				X	X	X	X	X					X	X	X	X	X
+7Line7	7Line11							X	X	X	X	X				X	X	X	X	X						X	X	X	X
+7Line7	7Line12							X	X	X	X	X				X	X	X	X	X							X	X	X
+7Line7	7Line13							X	X	X	X	X				X	X	X	X	X								X	X
+7Line7	7Line14							X	X	X	X	X				X	X	X	X	X	X								X
+7Line7	8Line2							X	X	X	X	X	X				X	X	X	X	X	X	X	X					
+7Line7	8Line4							X	X	X	X	X	X	X					X	X	X	X	X	X	X	X			
+7Line7	8Line6							X	X	X	X	X	X	X							X	X	X	X	X	X	X	X	
+7Line7	8Line9							X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X
+7Line7	8Line11							X	X	X	X	X				X	X	X	X	X						X	X	X	X
+7Line7	8Line13							X	X	X	X	X				X	X	X	X	X								X	X
+7Line8	7Line1								X	X	X	X	X	X				X	X	X	X	X							
+7Line8	7Line2								X	X	X	X	X	X				X	X	X	X	X	X						
+7Line8	7Line3								X	X	X	X	X	X				X	X	X	X	X	X	X					
+7Line8	7Line4								X	X	X	X	X	X	X				X	X	X	X	X	X	X				
+7Line8	7Line5								X	X	X	X	X	X	X					X	X	X	X	X	X	X			
+7Line8	7Line6								X	X	X	X	X	X	X						X	X	X	X	X	X	X		
+7Line8	7Line7								X	X	X	X	X	X	X							X	X	X	X	X	X	X	
+7Line8	7Line8								X	X	X	X	X	X	X								X	X	X	X	X	X	X
+7Line8	7Line9									X	X	X	X	X	X	X								X	X	X	X	X	X
+7Line8	7Line10								X	X	X	X	X				X	X	X	X	X				X	X	X	X	X
+7Line8	7Line11								X	X	X	X	X				X	X	X	X	X					X	X	X	X
+7Line8	7Line12								X	X	X	X	X	X				X	X	X	X	X					X	X	X
+7Line8	7Line13								X	X	X	X	X	X				X	X	X	X	X						X	X
+7Line8	7Line14								X	X	X	X	X	X				X	X	X	X	X							X
+7Line8	8Line2								X	X	X	X	X	X				X	X	X	X	X	X	X					
+7Line8	8Line4								X	X	X	X	X	X	X				X	X	X	X	X	X	X	X			
+7Line8	8Line6								X	X	X	X	X	X	X						X	X	X	X	X	X	X	X	
+7Line8	8Line9									X	X	X	X	X	X	X								X	X	X	X	X	X
+7Line8	8Line11								X	X	X	X	X				X	X	X	X	X					X	X	X	X
+7Line8	8Line13								X	X	X	X	X	X				X	X	X	X	X						X	X
+7Line9	7Line1	X								X	X	X	X	X				X	X	X	X	X							
+7Line9	7Line2	X								X	X	X	X	X	X				X	X	X	X	X						
+7Line9	7Line3	X									X	X	X	X	X	X				X	X	X	X	X					
+7Line9	7Line4	X									X	X	X	X	X	X				X	X	X	X	X	X				
+7Line9	7Line5	X									X	X	X	X	X	X				X	X	X	X	X	X	X			
+7Line9	7Line6	X								X	X	X	X	X	X	X					X	X	X	X	X	X	X		
+7Line9	7Line7	X									X	X	X	X	X	X						X	X	X	X	X	X	X	
+7Line9	7Line8	X								X	X	X	X	X	X	X							X	X	X	X	X	X	X
+7Line9	7Line9	X								X	X	X	X	X	X	X								X	X	X	X	X	X
+7Line9	7Line10	X									X	X	X	X	X	X	X								X	X	X	X	X
+7Line9	7Line11	X								X	X	X	X	X				X	X	X	X	X				X	X	X	X
+7Line9	7Line12	X								X	X	X	X	X				X	X	X	X	X					X	X	X
+7Line9	7Line13	X								X	X	X	X	X				X	X	X	X	X						X	X
+7Line9	7Line14	X								X	X	X	X	X				X	X	X	X	X							X
+7Line9	8Line2	X								X	X	X	X	X	X				X	X	X	X	X	X					
+7Line9	8Line4	X									X	X	X	X	X	X				X	X	X	X	X	X	X			
+7Line9	8Line6	X								X	X	X	X	X	X	X					X	X	X	X	X	X	X	X	
+7Line9	8Line9	X								X	X	X	X	X	X	X								X	X	X	X	X	X
+7Line9	8Line11	X								X	X	X	X	X				X	X	X	X	X				X	X	X	X
+7Line9	8Line13	X								X	X	X	X	X				X	X	X	X	X						X	X
+7Line10	7Line1	X	X							X	X	X	X	X				X	X	X	X	X							
+7Line10	7Line2	X	X							X	X	X	X	X				X	X	X	X	X	X						
+7Line10	7Line3	X	X								X	X	X	X	X	X				X	X	X	X	X					
+7Line10	7Line4	X	X								X	X	X	X	X	X				X	X	X	X	X	X				
+7Line10	7Line5	X	X									X	X	X	X	X				X	X	X	X	X	X	X			
+7Line10	7Line6	X	X									X	X	X	X	X					X	X	X	X	X	X	X		
+7Line10	7Line7	X	X								X	X	X	X	X	X						X	X	X	X	X	X	X	
+7Line10	7Line8	X	X								X	X	X	X	X	X	X						X	X	X	X	X	X	X
+7Line10	7Line9	X	X								X	X	X	X	X	X	X							X	X	X	X	X	X
+7Line10	7Line10	X	X								X	X	X	X	X	X	X								X	X	X	X	X
+7Line10	7Line11	X	X									X	X	X	X	X	X	X								X	X	X	X
+7Line10	7Line12	X	X							X	X	X	X	X				X	X	X	X	X					X	X	X
+7Line10	7Line13	X	X							X	X	X	X	X				X	X	X	X	X						X	X
+7Line10	7Line14	X	X							X	X	X	X	X				X	X	X	X	X							X
+7Line10	8Line2	X	X							X	X	X	X	X				X	X	X	X	X	X	X					
+7Line10	8Line4	X	X								X	X	X	X	X	X				X	X	X	X	X	X	X			
+7Line10	8Line6	X	X									X	X	X	X	X					X	X	X	X	X	X	X	X	
+7Line10	8Line9	X	X								X	X	X	X	X	X	X							X	X	X	X	X	X
+7Line10	8Line11	X	X									X	X	X	X	X	X	X								X	X	X	X
+7Line10	8Line13	X	X							X	X	X	X	X				X	X	X	X	X						X	X
+7Line11	7Line1	X	X	X						X	X	X	X	X				X	X	X	X	X							
+7Line11	7Line2	X	X	X						X	X	X	X	X				X	X	X	X	X	X						
+7Line11	7Line3	X	X	X								X	X	X	X	X				X	X	X	X	X					
+7Line11	7Line4	X	X	X								X	X	X	X	X				X	X	X	X	X	X				
+7Line11	7Line5	X	X	X								X	X	X	X	X				X	X	X	X	X	X	X			
+7Line11	7Line6	X	X	X								X	X	X	X	X					X	X	X	X	X	X	X		
+7Line11	7Line7	X	X	X								X	X	X	X	X	X					X	X	X	X	X	X	X	
+7Line11	7Line8	X	X	X								X	X	X	X	X	X	X					X	X	X	X	X	X	X
+7Line11	7Line9	X	X	X								X	X	X	X	X	X	X						X	X	X	X	X	X
+7Line11	7Line10	X	X	X								X	X	X	X	X	X	X							X	X	X	X	X
+7Line11	7Line11	X	X	X								X	X	X	X	X	X	X								X	X	X	X
+7Line11	7Line12	X	X	X									X	X	X	X	X	X	X								X	X	X
+7Line11	7Line13	X	X	X						X	X	X	X	X				X	X	X	X	X						X	X
+7Line11	7Line14	X	X	X						X	X	X	X	X				X	X	X	X	X							X
+7Line11	8Line2	X	X	X						X	X	X	X	X				X	X	X	X	X	X	X					
+7Line11	8Line4	X	X	X								X	X	X	X	X				X	X	X	X	X	X	X			
+7Line11	8Line6	X	X	X								X	X	X	X	X					X	X	X	X	X	X	X	X	
+7Line11	8Line9	X	X	X								X	X	X	X	X	X	X						X	X	X	X	X	X
+7Line11	8Line11	X	X	X								X	X	X	X	X	X	X								X	X	X	X
+7Line11	8Line13	X	X	X						X	X	X	X	X				X	X	X	X	X						X	X
+7Line12	7Line1	X	X	X	X					X	X	X	X	X				X	X	X	X	X							
+7Line12	7Line2	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X						
+7Line12	7Line3	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X	X					
+7Line12	7Line4	X	X	X	X							X	X	X	X	X				X	X	X	X	X	X				
+7Line12	7Line5	X	X	X	X							X	X	X	X	X				X	X	X	X	X	X	X			
+7Line12	7Line6	X	X	X	X								X	X	X	X	X				X	X	X	X	X	X	X		
+7Line12	7Line7	X	X	X	X								X	X	X	X	X	X				X	X	X	X	X	X	X	
+7Line12	7Line8	X	X	X	X							X	X	X	X	X	X	X					X	X	X	X	X	X	X
+7Line12	7Line9	X	X	X	X								X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line12	7Line10	X	X	X	X								X	X	X	X	X	X	X						X	X	X	X	X
+7Line12	7Line11	X	X	X	X								X	X	X	X	X	X	X							X	X	X	X
+7Line12	7Line12	X	X	X	X								X	X	X	X	X	X	X								X	X	X
+7Line12	7Line13	X	X	X	X					X	X	X	X	X				X	X	X	X	X						X	X
+7Line12	7Line14	X	X	X	X					X	X	X	X	X				X	X	X	X	X							X
+7Line12	8Line2	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X	X					
+7Line12	8Line4	X	X	X	X							X	X	X	X	X				X	X	X	X	X	X	X			
+7Line12	8Line6	X	X	X	X								X	X	X	X	X				X	X	X	X	X	X	X	X	
+7Line12	8Line9	X	X	X	X								X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line12	8Line11	X	X	X	X								X	X	X	X	X	X	X							X	X	X	X
+7Line12	8Line13	X	X	X	X					X	X	X	X	X				X	X	X	X	X						X	X
+7Line13	7Line1	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X							
+7Line13	7Line2	X	X	X	X	X					X	X	X	X	X				X	X	X	X	X						
+7Line13	7Line3	X	X	X	X	X						X	X	X	X	X				X	X	X	X	X					
+7Line13	7Line4	X	X	X	X	X						X	X	X	X	X				X	X	X	X	X	X				
+7Line13	7Line5	X	X	X	X	X						X	X	X	X	X				X	X	X	X	X	X	X			
+7Line13	7Line6	X	X	X	X	X							X	X	X	X	X				X	X	X	X	X	X	X		
+7Line13	7Line7	X	X	X	X	X							X	X	X	X	X	X				X	X	X	X	X	X	X	
+7Line13	7Line8	X	X	X	X	X						X	X	X	X	X	X	X					X	X	X	X	X	X	X
+7Line13	7Line9	X	X	X	X	X							X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line13	7Line10	X	X	X	X	X							X	X	X	X	X	X	X						X	X	X	X	X
+7Line13	7Line11	X	X	X	X	X							X	X	X	X	X	X	X							X	X	X	X
+7Line13	7Line12	X	X	X	X	X							X	X	X	X	X	X	X								X	X	X
+7Line13	7Line13	X	X	X	X	X								X	X	X	X	X	X	X								X	X
+7Line13	7Line14	X	X	X	X	X								X	X	X	X	X	X	X									X
+7Line13	8Line2	X	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X					
+7Line13	8Line4	X	X	X	X	X						X	X	X	X	X				X	X	X	X	X	X	X			
+7Line13	8Line6	X	X	X	X	X							X	X	X	X	X				X	X	X	X	X	X	X	X	
+7Line13	8Line9	X	X	X	X	X							X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line13	8Line11	X	X	X	X	X							X	X	X	X	X	X	X							X	X	X	X
+7Line13	8Line13	X	X	X	X	X								X	X	X	X	X	X	X								X	X
+7Line14	7Line1	X	X	X	X	X	X								X	X	X	X	X	X	X								
+7Line14	7Line2	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X						
+7Line14	7Line3	X	X	X	X	X	X					X	X	X	X	X				X	X	X	X	X					
+7Line14	7Line4	X	X	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X				
+7Line14	7Line5	X	X	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X	X			
+7Line14	7Line6	X	X	X	X	X	X						X	X	X	X	X				X	X	X	X	X	X	X		
+7Line14	7Line7	X	X	X	X	X	X						X	X	X	X	X	X				X	X	X	X	X	X	X	
+7Line14	7Line8	X	X	X	X	X	X					X	X	X	X	X	X	X					X	X	X	X	X	X	X
+7Line14	7Line9	X	X	X	X	X	X						X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line14	7Line10	X	X	X	X	X	X						X	X	X	X	X	X	X						X	X	X	X	X
+7Line14	7Line11	X	X	X	X	X	X						X	X	X	X	X	X	X							X	X	X	X
+7Line14	7Line12	X	X	X	X	X	X						X	X	X	X	X	X	X								X	X	X
+7Line14	7Line13	X	X	X	X	X	X							X	X	X	X	X	X	X								X	X
+7Line14	7Line14	X	X	X	X	X	X								X	X	X	X	X	X	X								X
+7Line14	8Line2	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X					
+7Line14	8Line4	X	X	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X	X			
+7Line14	8Line6	X	X	X	X	X	X						X	X	X	X	X				X	X	X	X	X	X	X	X	
+7Line14	8Line9	X	X	X	X	X	X						X	X	X	X	X	X	X					X	X	X	X	X	X
+7Line14	8Line11	X	X	X	X	X	X						X	X	X	X	X	X	X							X	X	X	X
+7Line14	8Line13	X	X	X	X	X	X							X	X	X	X	X	X	X								X	X
+8Line2	7Line1		X	X	X	X	X	X	X	X						X	X	X	X	X	X	X							
+8Line2	7Line2		X	X	X	X	X	X	X	X							X	X	X	X	X	X	X						
+8Line2	7Line3		X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X					
+8Line2	7Line4		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X				
+8Line2	7Line5		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X			
+8Line2	7Line6		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X		
+8Line2	7Line7		X	X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X	
+8Line2	7Line8		X	X	X	X	X	X	X				X	X	X	X	X	X	X				X	X	X	X	X	X	X
+8Line2	7Line9		X	X	X	X	X	X	X				X	X	X	X	X	X	X	X				X	X	X	X	X	X
+8Line2	7Line10		X	X	X	X	X	X	X				X	X	X	X	X	X	X	X					X	X	X	X	X
+8Line2	7Line11		X	X	X	X	X	X	X				X	X	X	X	X	X	X	X						X	X	X	X
+8Line2	7Line12		X	X	X	X	X	X	X				X	X	X	X	X	X	X	X							X	X	X
+8Line2	7Line13		X	X	X	X	X	X	X					X	X	X	X	X	X	X	X							X	X
+8Line2	7Line14		X	X	X	X	X	X	X						X	X	X	X	X	X	X	X							X
+8Line2	8Line2		X	X	X	X	X	X	X	X							X	X	X	X	X	X	X	X					
+8Line2	8Line4		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X			
+8Line2	8Line6		X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X	X	
+8Line2	8Line9		X	X	X	X	X	X	X				X	X	X	X	X	X	X					X	X	X	X	X	X
+8Line2	8Line11		X	X	X	X	X	X	X				X	X	X	X	X	X	X	X						X	X	X	X
+8Line2	8Line13		X	X	X	X	X	X	X					X	X	X	X	X	X	X	X							X	X
+8Line4	7Line1				X	X	X	X	X	X	X	X				X	X	X	X	X	X	X							
+8Line4	7Line2				X	X	X	X	X	X	X	X					X	X	X	X	X	X	X						
+8Line4	7Line3				X	X	X	X	X	X	X	X						X	X	X	X	X	X	X					
+8Line4	7Line4				X	X	X	X	X	X	X	X							X	X	X	X	X	X	X				
+8Line4	7Line5				X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X			
+8Line4	7Line6				X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X		
+8Line4	7Line7				X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	
+8Line4	7Line8				X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X
+8Line4	7Line9				X	X	X	X	X	X	X				X	X	X	X	X					X	X	X	X	X	X
+8Line4	7Line10				X	X	X	X	X	X	X				X	X	X	X	X						X	X	X	X	X
+8Line4	7Line11				X	X	X	X	X	X	X				X	X	X	X	X							X	X	X	X
+8Line4	7Line12				X	X	X	X	X	X	X				X	X	X	X	X								X	X	X
+8Line4	7Line13				X	X	X	X	X	X	X	X				X	X	X	X	X								X	X
+8Line4	7Line14				X	X	X	X	X	X	X	X				X	X	X	X	X	X								X
+8Line4	8Line2				X	X	X	X	X	X	X	X					X	X	X	X	X	X	X	X					
+8Line4	8Line4				X	X	X	X	X	X	X	X							X	X	X	X	X	X	X	X			
+8Line4	8Line6				X	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	
+8Line4	8Line9				X	X	X	X	X	X	X				X	X	X	X	X					X	X	X	X	X	X
+8Line4	8Line11				X	X	X	X	X	X	X				X	X	X	X	X							X	X	X	X
+8Line4	8Line13				X	X	X	X	X	X	X	X				X	X	X	X	X								X	X
+8Line6	7Line1						X	X	X	X	X	X				X	X	X	X	X	X	X							
+8Line6	7Line2						X	X	X	X	X	X	X				X	X	X	X	X	X	X						
+8Line6	7Line3						X	X	X	X	X	X	X	X				X	X	X	X	X	X	X					
+8Line6	7Line4						X	X	X	X	X	X	X	X					X	X	X	X	X	X	X				
+8Line6	7Line5						X	X	X	X	X	X	X	X						X	X	X	X	X	X	X			
+8Line6	7Line6						X	X	X	X	X	X	X	X							X	X	X	X	X	X	X		
+8Line6	7Line7						X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	
+8Line6	7Line8						X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X	X
+8Line6	7Line9						X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X
+8Line6	7Line10						X	X	X	X	X	X				X	X	X	X	X	X				X	X	X	X	X
+8Line6	7Line11						X	X	X	X	X	X				X	X	X	X	X	X					X	X	X	X
+8Line6	7Line12						X	X	X	X	X	X				X	X	X	X	X	X						X	X	X
+8Line6	7Line13						X	X	X	X	X	X				X	X	X	X	X	X							X	X
+8Line6	7Line14						X	X	X	X	X	X				X	X	X	X	X	X	X							X
+8Line6	8Line2						X	X	X	X	X	X	X				X	X	X	X	X	X	X	X					
+8Line6	8Line4						X	X	X	X	X	X	X	X					X	X	X	X	X	X	X	X			
+8Line6	8Line6						X	X	X	X	X	X	X	X							X	X	X	X	X	X	X	X	
+8Line6	8Line9						X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X
+8Line6	8Line11						X	X	X	X	X	X				X	X	X	X	X	X					X	X	X	X
+8Line6	8Line13						X	X	X	X	X	X				X	X	X	X	X	X							X	X
+8Line9	7Line1	X	X						X	X	X	X	X	X				X	X	X	X	X							
+8Line9	7Line2	X	X						X	X	X	X	X	X	X				X	X	X	X	X						
+8Line9	7Line3	X	X							X	X	X	X	X	X	X				X	X	X	X	X					
+8Line9	7Line4	X	X							X	X	X	X	X	X	X				X	X	X	X	X	X				
+8Line9	7Line5	X	X							X	X	X	X	X	X	X				X	X	X	X	X	X	X			
+8Line9	7Line6	X	X							X	X	X	X	X	X	X	X				X	X	X	X	X	X	X		
+8Line9	7Line7	X	X							X	X	X	X	X	X	X						X	X	X	X	X	X	X	
+8Line9	7Line8	X	X							X	X	X	X	X	X	X	X						X	X	X	X	X	X	X
+8Line9	7Line9	X	X							X	X	X	X	X	X	X	X							X	X	X	X	X	X
+8Line9	7Line10	X	X								X	X	X	X	X	X	X	X							X	X	X	X	X
+8Line9	7Line11	X	X						X	X	X	X	X	X				X	X	X	X	X				X	X	X	X
+8Line9	7Line12	X	X						X	X	X	X	X	X				X	X	X	X	X					X	X	X
+8Line9	7Line13	X	X						X	X	X	X	X	X				X	X	X	X	X						X	X
+8Line9	7Line14	X	X						X	X	X	X	X	X				X	X	X	X	X							X
+8Line9	8Line2	X	X						X	X	X	X	X	X	X				X	X	X	X	X	X					
+8Line9	8Line4	X	X							X	X	X	X	X	X	X				X	X	X	X	X	X	X			
+8Line9	8Line6	X	X						X	X	X	X	X	X	X	X					X	X	X	X	X	X	X	X	
+8Line9	8Line9	X	X							X	X	X	X	X	X	X	X							X	X	X	X	X	X
+8Line9	8Line11	X	X						X	X	X	X	X	X				X	X	X	X	X				X	X	X	X
+8Line9	8Line13	X	X						X	X	X	X	X	X				X	X	X	X	X						X	X
+8Line11	7Line1	X	X	X	X					X	X	X	X	X				X	X	X	X	X							
+8Line11	7Line2	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X						
+8Line11	7Line3	X	X	X	X							X	X	X	X	X				X	X	X	X	X					
+8Line11	7Line4	X	X	X	X							X	X	X	X	X				X	X	X	X	X	X				
+8Line11	7Line5	X	X	X	X							X	X	X	X	X				X	X	X	X	X	X	X			
+8Line11	7Line6	X	X	X	X							X	X	X	X	X					X	X	X	X	X	X	X		
+8Line11	7Line7	X	X	X	X							X	X	X	X	X	X					X	X	X	X	X	X	X	
+8Line11	7Line8	X	X	X	X							X	X	X	X	X	X	X	X				X	X	X	X	X	X	X
+8Line11	7Line9	X	X	X	X							X	X	X	X	X	X	X	X					X	X	X	X	X	X
+8Line11	7Line10	X	X	X	X							X	X	X	X	X	X	X	X						X	X	X	X	X
+8Line11	7Line11	X	X	X	X							X	X	X	X	X	X	X	X							X	X	X	X
+8Line11	7Line12	X	X	X	X								X	X	X	X	X	X	X	X							X	X	X
+8Line11	7Line13	X	X	X	X					X	X	X	X	X				X	X	X	X	X						X	X
+8Line11	7Line14	X	X	X	X					X	X	X	X	X				X	X	X	X	X							X
+8Line11	8Line2	X	X	X	X					X	X	X	X	X				X	X	X	X	X	X	X					
+8Line11	8Line4	X	X	X	X							X	X	X	X	X				X	X	X	X	X	X	X			
+8Line11	8Line6	X	X	X	X							X	X	X	X	X					X	X	X	X	X	X	X	X	
+8Line11	8Line9	X	X	X	X							X	X	X	X	X	X	X	X					X	X	X	X	X	X
+8Line11	8Line11	X	X	X	X							X	X	X	X	X	X	X	X							X	X	X	X
+8Line11	8Line13	X	X	X	X					X	X	X	X	X				X	X	X	X	X						X	X
+8Line13	7Line1	X	X	X	X	X	X				X	X	X	X				X	X	X	X	X							
+8Line13	7Line2	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X						
+8Line13	7Line3	X	X	X	X	X	X				X	X	X	X	X	X				X	X	X	X	X					
+8Line13	7Line4	X	X	X	X	X	X				X	X	X	X	X	X				X	X	X	X	X	X				
+8Line13	7Line5	X	X	X	X	X	X				X	X	X	X	X	X				X	X	X	X	X	X	X			
+8Line13	7Line6	X	X	X	X	X	X					X	X	X	X	X	X				X	X	X	X	X	X	X		
+8Line13	7Line7	X	X	X	X	X	X					X	X	X	X	X	X	X				X	X	X	X	X	X	X	
+8Line13	7Line8	X	X	X	X	X	X					X	X	X	X	X	X	X	X				X	X	X	X	X	X	X
+8Line13	7Line9	X	X	X	X	X	X						X	X	X	X	X	X	X	X				X	X	X	X	X	X
+8Line13	7Line10	X	X	X	X	X	X						X	X	X	X	X	X	X	X					X	X	X	X	X
+8Line13	7Line11	X	X	X	X	X	X						X	X	X	X	X	X	X	X						X	X	X	X
+8Line13	7Line12	X	X	X	X	X	X						X	X	X	X	X	X	X	X							X	X	X
+8Line13	7Line13	X	X	X	X	X	X							X	X	X	X	X	X	X	X							X	X
+8Line13	7Line14	X	X	X	X	X	X							X	X	X	X	X	X	X	X								X
+8Line13	8Line2	X	X	X	X	X	X				X	X	X	X	X				X	X	X	X	X	X					
+8Line13	8Line4	X	X	X	X	X	X				X	X	X	X	X	X				X	X	X	X	X	X	X			
+8Line13	8Line6	X	X	X	X	X	X					X	X	X	X	X	X				X	X	X	X	X	X	X	X	
+8Line13	8Line9	X	X	X	X	X	X					X	X	X	X	X	X	X	X					X	X	X	X	X	X
+8Line13	8Line11	X	X	X	X	X	X						X	X	X	X	X	X	X	X						X	X	X	X
+8Line13	8Line13	X	X	X	X	X	X							X	X	X	X	X	X	X	X							X	X
