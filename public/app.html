@@ -9109,7 +9109,7 @@
                 return { dMs, aMs: rawAMs, cs };
             });
             const anyLive = flightMs.some(({dMs, aMs, cs}) => isFlightStillActive(dMs, aMs, nowMs, cs) && !_isLandedEarly(cs, aMs));
-            let label = _pilotOnDutyDefault(currentPilot, dateKey) ? 'ON CALL' : 'DAY OFF';
+            let label = _pilotOnDutyDefault(currentPilot, dateKey) ? _onDutyDefaultLabel(currentPilot) : 'DAY OFF';
             let labelColor = 'text-zinc-400';
             if (isVacation) { label = awayApt ? `VACATION · AWAY - ${awayApt}` : 'VACATION'; labelColor = 'text-teal-400'; }
             else if (isHard) { label = awayApt ? `HARD OFF · AWAY - ${awayApt}` : 'HARD OFF'; labelColor = 'text-red-400'; }
@@ -9130,8 +9130,14 @@
             </div>`;
 
             if (flights.length === 0 && reserves.length === 0 && groundLegs.length === 0) {
-                const icon = isVacation ? '🌴' : isHard ? '🔴' : isTraining ? '🎓' : away ? '🏨' : currentPilot === 'kyle' ? '📟' : '😴';
-                const msg  = isVacation ? 'Vacation' : isHard ? 'Hard Day Off' : isTraining ? (trainingLoc ? `Training · ${trainingLoc}` : 'Training Day') : away ? `Away at ${away.arrivalAirport}` : currentPilot === 'kyle' ? 'On Call' : 'Day Off';
+                // Must agree with the header label above (line), not re-derive its own answer --
+                // this used to hardcode "On Call" for Kyle only (his reserve system) and "Day
+                // Off" for literally everyone else, so a NetJets pilot's rotation/CC on-call day
+                // showed "ON CALL" in the header and "Day Off" in the body simultaneously. Found
+                // live on Mack while on tour.
+                const _onDutyHere = _pilotOnDutyDefault(currentPilot, dateKey);
+                const icon = isVacation ? '🌴' : isHard ? '🔴' : isTraining ? '🎓' : away ? '🏨' : _onDutyHere ? '📟' : '😴';
+                const msg  = isVacation ? 'Vacation' : isHard ? 'Hard Day Off' : isTraining ? (trainingLoc ? `Training · ${trainingLoc}` : 'Training Day') : away ? `Away at ${away.arrivalAirport}` : _onDutyHere ? (_onDutyDefaultLabel(currentPilot) === 'ON TOUR' ? 'On Tour' : 'On Call') : 'Day Off';
                 const specialSeg = isTraining ? dayEvents.find(e => e.type === 'training') : isVacation ? dayEvents.find(e => e.type === 'vacation') : null;
                 const specialEditActions = (specialSeg?.id && canEdit()) ? `<div class="flex gap-2 mt-4 pt-4 border-t border-white/10">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${specialSeg.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
