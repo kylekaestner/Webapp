@@ -56,6 +56,7 @@ const coords  = {};  // code → [lat, lon]
 const iataAssigned = new Set(); // IATA codes that appear in the iata_code field
 
 let processed = 0, skipped = 0;
+const rows = []; // parsed rows, kept for the local_code second pass below
 
 for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -79,7 +80,8 @@ for (let i = 1; i < lines.length; i++) {
     const hasCoords = isFinite(lat) && isFinite(lon);
     const label = cityLabel(muni, region, country);
 
-    // Collect all codes that should point to this airport
+    // Collect all codes that should point to this airport -- PRIMARY fields only (ident/icao/
+    // gps/iata). local_code is deliberately handled in a separate pass below, never here.
     const allCodes = new Set();
     if (ident) allCodes.add(ident.toUpperCase());
     if (icao  && icao  !== 'N/A' && icao  !== '\\N') allCodes.add(icao.toUpperCase());
@@ -95,14 +97,32 @@ for (let i = 1; i < lines.length; i++) {
         if (label    && !cities[code]) cities[code] = label;
     }
 
+    if (local && local !== 'N/A' && local !== '\\N' && hasCoords) {
+        rows.push({ local: local.toUpperCase(), lat, lon, label });
+    }
+
     processed++;
 }
 
-// Remove 3-letter city/coord entries where the code is actually a proper IATA code
-// assigned to a DIFFERENT airport (the one with local_code matching but a different ident).
-// We do this by a second pass: if a 3-letter code appears in iataAssigned, keep only
-// the entry that was written when iata_code === that code (not from local_code).
-// (Already handled by writing iata_code entries vs skipping local_code entries above.)
+// local_code (the bare FAA LID, e.g. "F70") second pass -- added 2026-10-30 after a NetJets
+// auto-created leg into French Valley Airport (KF70/RBK/F70) showed up with no timezone/
+// local-time conversion anywhere in the app, because "F70" -- the exact code TFDM reports, and
+// the only one a small private airstrip like this is commonly known by -- had no coords entry
+// at all. Must run strictly AFTER every row's primary fields (ident/icao/gps/iata) have already
+// claimed their codes above, never interleaved with that loop -- confirmed live the hard way:
+// an interleaved version let Suswa Airstrip in Indonesia (local_code "SUS", explicitly marked
+// "[UNUSABLE]" in the source data) silently clobber Kyle's own home airport, KSUS/Spirit of St
+// Louis (whose real code is also "SUS", via its iata_code field) -- Suswa's row happened to
+// appear earlier in the raw CSV and won the "first writer wins" race purely by file-order luck.
+// This two-pass structure makes that class of collision structurally impossible: local_code can
+// only ever fill a genuine gap no primary field claimed anywhere in the whole dataset, never
+// outrank one that was merely processed later.
+let localAdded = 0;
+for (const r of rows) {
+    if (!coords[r.local]) { coords[r.local] = [r.lat, r.lon]; localAdded++; }
+    if (r.label && !cities[r.local]) cities[r.local] = r.label;
+}
+console.log(`local_code pass: added ${localAdded} new coord entries`);
 
 console.log(`Processed ${processed} airports, skipped ${skipped}`);
 console.log(`City entries: ${Object.keys(cities).length}`);
