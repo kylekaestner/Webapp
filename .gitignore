@@ -15,3 +15,4 @@ npm-debug.log*
 scratch/
 .tfms_times_cache.json
 .parked_cache.json
+.airborne_cache.json
