@@ -3119,6 +3119,7 @@
             const input = document.getElementById(inputId);
             const parser = pilotsCache[pilot]?.parser_type || '';
             input.accept = (parser === 'csv_skywest' || parser === 'vcs_skywest') ? '.csv,.vcs'
+                : parser === 'manual_netjets' ? '.pdf,.txt'
                 : '.ics,.csv';
             input.click();
         }
