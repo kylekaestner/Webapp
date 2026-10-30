@@ -3959,6 +3959,26 @@ app.get('/api/debug/tfdm/:callsign', (req, res) => {
     res.json(tfdm.getFlightInfo(req.params.callsign) || { found: false });
 });
 
+// TEMP — proof-of-concept inspector for the multi-leg-per-callsign fix (2026-10-30): every
+// distinct leg tfdm.js currently has for this callsign (real origin/dest/offBlockTime, fully
+// disambiguated per message -- see tfdm.js's _legs comment) merged with whatever TFMS leg-times
+// entry matches the same origin/dest pair. This is the actual answer to "can we get accurate
+// ETD/ETA for a NetJets tail's future, not-yet-departed legs to build a schedule from" -- a
+// callsign with legs still ahead of its current one should list multiple distinct rows here,
+// each with its own real scheduled time, not one record clobbered by whichever leg's message
+// arrived last.
+app.get('/api/debug/netjets-legs/:callsign', (req, res) => {
+    const cs = req.params.callsign.toUpperCase().trim();
+    const norm = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
+    const legs = tfdm.getAllLegs(cs);
+    const legTimes = tfms.getAllLegTimes(cs);
+    const merged = legs.map(l => ({
+        ...l,
+        times: legTimes.find(lt => norm(lt.origin) === norm(l.origin) && norm(lt.dest) === norm(l.dest)) || null,
+    }));
+    res.json({ callsign: cs, legCount: merged.length, legs: merged, legTimesOnlyCount: legTimes.length, legTimes });
+});
+
 // TEMP — read-only inspector for NetJets auto-leg-creation: on-duty/tour-tail resolution, the
 // derived callsign, the current leg state as re-derived from the segments table (the same query
 // _pollNetjetsLegCreation itself runs -- there's no separate in-memory state to inspect since
@@ -4436,10 +4456,27 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                 ? (current.arrival_airport || null)
                 : (current.departure_airport || null);
 
-        const tfdmInfo = tfdm.getFlightInfo(cs);
-        const tfmsInfo = tfms.getFlightData(cs);
-        const tfmsTimes = tfms.getFlightTimes(cs) || {};
         const norm3 = a => { if (!a) return null; const up = String(a).toUpperCase().replace(/^K/, ''); return up.length === 3 ? up : (icaoToIataAirport(up.length === 4 ? up : 'K' + up) || up); };
+
+        // Real fix for the EJA458 corruption (see CLAUDE.md "Same-day round trip sharing one
+        // callsign" / NetJets section): tfdm.getAllLegs() returns every distinct concurrently-
+        // filed leg for this callsign (fully disambiguated per message -- real origin/dest/
+        // offBlock, no route-string guessing), not just whichever one a flat per-callsign cache
+        // happened to hold most recently. Pick the leg whose origin matches what CrewSync already
+        // knows this leg's origin to be, and pull times ONLY from the TFMS leg-times entry for
+        // that SAME origin/dest pair -- never the old flat tfms.getFlightTimes(cs), which has no
+        // leg awareness at all and is exactly what overwrote this leg's real times with a later
+        // leg's estimate. Falls back to the flat caches when no leg-specific match exists yet
+        // (e.g. brand-new leg 1, nothing filed/matched under this origin yet).
+        const tfdmLegs = tfdm.getAllLegs(cs);
+        const matchedLeg = expectedOrigin ? (tfdmLegs.find(l => norm3(l.origin) === expectedOrigin) || null) : null;
+        const tfdmInfo = matchedLeg || tfdm.getFlightInfo(cs);
+        const tfmsInfo = tfms.getFlightData(cs);
+        const tfmsLegTimes = tfms.getAllLegTimes(cs);
+        const matchedLegTimes = matchedLeg
+            ? (tfmsLegTimes.find(l => norm3(l.origin) === norm3(matchedLeg.origin) && norm3(l.dest) === norm3(matchedLeg.dest)) || null)
+            : null;
+        const tfmsTimes = matchedLegTimes || tfms.getFlightTimes(cs) || {};
         let liveOrigin = norm3(tfdmInfo?.origin || tfmsInfo?.origin || null);
         let liveDest = norm3(tfdmInfo?.dest || (tfmsInfo?.route ? routeDest(tfmsInfo.route) : null));
 
@@ -4448,7 +4485,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
         // guessing at a fix for NetJets' same-callsign-all-day filing pattern. Logs every poll,
         // accept or reject, with both feeds' raw fields so we can tell whether TFDM/TFMS ever
         // self-correct to the actually-active leg, or persistently echo a pre-filed later leg.
-        console.log(`[NetJets-trace] ${new Date().toISOString()} ${nj.pilotKey} ${cs} leg=${legNum + (current?.auto_leg_complete ? 1 : 0)} expectedOrigin=${expectedOrigin||'-'} liveOrigin=${liveOrigin||'-'} liveDest=${liveDest||'-'} tfdmOrigin=${tfdmInfo?.origin||'-'} tfdmDest=${tfdmInfo?.dest||'-'} tfdmState=${tfdmInfo?.flightState||'-'} tfmsOrigin=${tfmsInfo?.origin||'-'} tfmsRoute=${tfmsInfo?.route||'-'} tfmsEtd=${tfmsTimes.etd||'-'} tfmsEta=${tfmsTimes.eta||'-'} currentRow=${current?`${current.departure_airport}->${current.arrival_airport}(complete=${current.auto_leg_complete})`:'none'}`);
+        console.log(`[NetJets-trace] ${new Date().toISOString()} ${nj.pilotKey} ${cs} leg=${legNum + (current?.auto_leg_complete ? 1 : 0)} expectedOrigin=${expectedOrigin||'-'} matchedLeg=${matchedLeg?`${matchedLeg.origin}->${matchedLeg.dest}`:'none'} liveOrigin=${liveOrigin||'-'} liveDest=${liveDest||'-'} tfdmOrigin=${tfdmInfo?.origin||'-'} tfdmDest=${tfdmInfo?.dest||'-'} tfdmState=${tfdmInfo?.flightState||'-'} tfmsOrigin=${tfmsInfo?.origin||'-'} tfmsRoute=${tfmsInfo?.route||'-'} tfmsEtd=${tfmsTimes.etd||'-'} tfmsEta=${tfmsTimes.eta||'-'} totalLegsSeen=${tfdmLegs.length} currentRow=${current?`${current.departure_airport}->${current.arrival_airport}(complete=${current.auto_leg_complete})`:'none'}`);
 
         // Disagreement between what we already know and what this poll's feed says is treated
         // the same way a callsign collision would be elsewhere in this app -- don't trust it,
@@ -4493,8 +4530,11 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             continue;
         }
 
-        // Refine the open leg with whatever's newly known.
-        const times = tfms.getFlightTimes(cs) || {};
+        // Refine the open leg with whatever's newly known. Uses tfmsTimes (matched to THIS leg's
+        // origin/dest above), not a fresh flat tfms.getFlightTimes(cs) call -- re-fetching the
+        // flat cache here is exactly what silently overwrote a real leg's times with a later,
+        // concurrently-filed leg's estimate (confirmed live on Mack's EJA458 leg 2026-10-30).
+        const times = tfmsTimes;
         const depTime = times.airlineOutTime || times.etd || times.igtd || null;
         const arrTime = times.airlineInTime || times.airlineOnTime || times.eta || null;
         let finalDest = liveDest || current.arrival_airport;

@@ -84,9 +84,27 @@ function scheduleTimesSave() {
         _timesSaveTimer = null;
         const now = Date.now();
         for (const cs of Object.keys(_flightTimes)) if (now - (_flightTimes[cs].timesUpdated || 0) > TIMES_TTL_MS) delete _flightTimes[cs];
+        for (const cs of Object.keys(_legTimes)) {
+            const legsMap = _legTimes[cs];
+            for (const [k, leg] of legsMap) if (now - (leg.lastMsg || 0) > LEG_TIMES_STALE_MS) legsMap.delete(k);
+            if (legsMap.size === 0) delete _legTimes[cs];
+        }
         try { fs.writeFileSync(TIMES_CACHE_PATH, JSON.stringify(_flightTimes)); } catch (_) {}
     }, 2000);
 }
+// callsign -> Map(legKey -> {...FLIGHT_TIME_ATTRS, etd, eta, igtd, origin, dest, scheduledDepMs,
+// lastMsg}) -- the per-leg counterpart to _flightTimes above. _flightTimes is a flat,
+// single-record cache shared across a callsign's whole day -- correct for a normal airline flight
+// number (legs are sequential, never concurrent) but wrong for NetJets, whose later legs get
+// filed/amended while an earlier one is still open under the same callsign (see tfdm.js's _legs
+// comment for the confirmed live evidence). Only populated from a message that carries its OWN
+// route string end-to-end (see processOneFltdMessage below) -- never from the same
+// _latest[cs].origin fallback isExpectedOrigin() uses, so a leg key here is never guessed.
+// Deliberately sparser than _flightTimes as a result, but every entry it has is correctly
+// attributed to the leg it's actually about.
+const _legTimes = {};
+const LEG_TIMES_STALE_MS = 48 * 60 * 60 * 1000;
+
 const _airportConfig = {}; // bare 3-letter airport code -> { arrRunwayConf, depRunwayConf, ..., lastMsg }
 
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
@@ -156,6 +174,9 @@ function setRelevantCallsigns(input) {
     for (const cs of Object.keys(_latest)) {
         if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) delete _latest[cs];
     }
+    for (const cs of Object.keys(_legTimes)) {
+        if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) delete _legTimes[cs];
+    }
 }
 
 // Pulls the origin airport out of a TFMS legacy-format route string, e.g. "KJFK./.TEYOU..." or
@@ -166,6 +187,21 @@ function routeOrigin(routeStr) {
     const first = String(routeStr).trim().split(/[.\/\s]+/)[0];
     if (!first) return null;
     return first.toUpperCase().replace(/^K/, '');
+}
+
+// The other end of a legacy-format route string (e.g.
+// "KJFK./.TEYOU..KP75C..TBC..JASSE.Q90.DNERO.ANJLL4.KLAX/0739" -> "LAX"). A local copy of
+// server.js's identical routeDest() -- that one was deliberately kept out of this file when it
+// was added (NetJets-leg-creation-only, avoid touching a feed every pilot depends on); this copy
+// exists only for the new per-leg store below, which needs to key a leg by BOTH ends, not just
+// the origin routeOrigin() already gave this file. Same loose, no-strict-ICAO-validation style.
+function routeDest(routeStr) {
+    if (!routeStr) return null;
+    const tokens = String(routeStr).trim().split(/[.\/\s]+/).filter(Boolean);
+    for (let i = tokens.length - 1; i >= 0; i--) {
+        if (!/^\d+$/.test(tokens[i])) return tokens[i].toUpperCase().replace(/^K/, '');
+    }
+    return null;
 }
 
 // server.js calls this separately from setRelevantCallsigns() (not folded into the same Map
@@ -310,7 +346,8 @@ function processOneFltdMessage(msgObj) {
     const cs = String(acid).trim().toUpperCase();
     if (_relevantCallsigns && !_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) return;
     const candidateMs = candidateMessageTimeMs(msgObj);
-    const candidateOrigin = routeOrigin(messageRouteString(msgObj)) || (_latest[cs] && _latest[cs].origin) || null;
+    const ownOrigin = routeOrigin(messageRouteString(msgObj));
+    const candidateOrigin = ownOrigin || (_latest[cs] && _latest[cs].origin) || null;
     // TEMPORARY research trace (added 2026-10-30, remove once the NetJets same-callsign
     // investigation is done). Logs every raw TFMS message for ANY EJA callsign BEFORE either
     // day/origin check below has a chance to reject anything, specifically to see whether a
@@ -338,6 +375,13 @@ function processOneFltdMessage(msgObj) {
     else if (msgType === 'flightPlanAmendmentInformation') processAmendment(msgObj, cs);
     // trackInformation (position-only) is ignored — SFDPS already covers live position, better.
     processFlightTimes(msgObj, cs);
+
+    // Per-leg record, additive -- only when THIS message's own route string resolves both ends
+    // (ownOrigin/candidateOrigin above already fell back to _latest[cs].origin for the
+    // isExpectedOrigin() check; that fallback is deliberately NOT used here, so a leg key in
+    // _legTimes is never guessed from stale state). See _legTimes's header comment.
+    const ownDest = routeDest(messageRouteString(msgObj));
+    if (ownOrigin && ownDest) processLegTimes(msgObj, cs, ownOrigin, ownDest, candidateMs);
 }
 
 // Estimated and airline-reported times TFMS carries alongside the flight plan. These are estimates
@@ -346,7 +390,9 @@ function processOneFltdMessage(msgObj) {
 // gate/runway/airline OOOI-style times and the original ETA come from the airline data block.
 const FLIGHT_TIME_ATTRS = ['airlineOutTime', 'airlineOffTime', 'airlineOnTime', 'airlineInTime',
     'gateDeparture', 'gateArrival', 'runwayDeparture', 'runwayArrival', 'originalDeparture', 'originalArrival'];
-function processFlightTimes(msgObj, cs) {
+// Shared extraction, used by both the flat per-callsign cache (processFlightTimes) and the new
+// per-leg cache (processLegTimes) below -- same fields, two different places to file them.
+function _extractTimeFields(msgObj) {
     const iso = v => {
         const s = textOf(v);
         if (s == null) return undefined;
@@ -372,9 +418,40 @@ function processFlightTimes(msgObj, cs) {
             if (v) times[attr] = v;
         }
     }
+    return times;
+}
+
+function processFlightTimes(msgObj, cs) {
+    const times = _extractTimeFields(msgObj);
     if (Object.keys(times).length === 0) return;
     _flightTimes[cs] = { ...(_flightTimes[cs] || {}), ...times, timesUpdated: Date.now() };
     scheduleTimesSave();
+}
+
+// Per-leg counterpart -- see _legTimes's header comment. origin/dest here are always THIS
+// message's own route-string ends (never _latest[cs]'s stale fallback), so distinct concurrently
+// -filed legs for one callsign land in separate entries instead of one overwriting the other.
+function processLegTimes(msgObj, cs, origin, dest, candidateMs) {
+    const times = _extractTimeFields(msgObj);
+    const key = `${origin}>${dest}`;
+    const legsMap = _legTimes[cs] || (_legTimes[cs] = new Map());
+    const leg = legsMap.get(key) || { origin, dest };
+    Object.assign(leg, times);
+    if (candidateMs != null) leg.scheduledDepMs = candidateMs;
+    leg.lastMsg = Date.now();
+    legsMap.set(key, leg);
+    scheduleTimesSave();
+}
+
+// All currently-known distinct legs' times for a callsign, sorted by scheduled departure
+// ascending -- the per-leg counterpart to getFlightTimes() below.
+function getAllLegTimes(callsign) {
+    const cs = String(callsign || '').trim().toUpperCase();
+    const legsMap = _legTimes[cs];
+    if (!legsMap) return [];
+    return [...legsMap.entries()]
+        .map(([key, leg]) => ({ key, ...leg }))
+        .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
 }
 
 // Not callsign-scoped at all (an airport's config isn't tied to any one flight), so this is
@@ -612,4 +689,4 @@ function getFlightTimes(callsign) {
         gateDeparture, gateArrival, runwayDeparture, runwayArrival, originalDeparture, originalArrival };
 }
 
-module.exports = { connect, getFlightData, getFlightTimes, getAirportConfig, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };
+module.exports = { connect, getFlightData, getFlightTimes, getAllLegTimes, routeDest, getAirportConfig, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };

@@ -66,6 +66,20 @@ let _relevantDepTimes = new Map();
 // callsign -> { depRunway, arrRunway, flightState, lastMsg, raw }
 const _latest = {};
 
+// callsign -> Map(legKey -> { origin, dest, offBlockTime (ISO), scheduledDepMs, state, depRunway,
+// arrRunway, departureDelayMin, lastMsg }) -- a NetJets-shape callsign can carry several of these
+// alive at once (the whole day's remaining legs filed/amended concurrently under one callsign,
+// confirmed live via the NetJets research log: EJA458 alternated between a KPVU->KLAS 20:36Z
+// record and an F70->KLAS 23:00Z record message-to-message for over an hour). _latest above is a
+// flat single-record cache and gets clobbered by whichever message arrived last -- correct for
+// every other pilot (a real flight number's legs are sequential, never concurrent, per the
+// origin/dest-changed reset in processOneMessage below) but wrong for NetJets, which is exactly
+// what corrupted a real auto-created segment's times (see CLAUDE.md). Purely additive: _latest/
+// getFlightInfo() are untouched, so nothing already depending on them changes behavior.
+const _legs = {};
+const LEG_STALE_MS = 48 * 60 * 60 * 1000; // longer than _latest's 1h -- a future leg's plan is exactly what this exists to keep around
+function legKey(origin, dest) { return (origin && dest) ? `${origin}>${dest}` : null; }
+
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
 
 function findDeep(obj, tagName) {
@@ -134,6 +148,9 @@ function setRelevantCallsigns(input) {
     }
     for (const cs of Object.keys(_latest)) {
         if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) delete _latest[cs];
+    }
+    for (const cs of Object.keys(_legs)) {
+        if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) delete _legs[cs];
     }
 }
 
@@ -255,6 +272,24 @@ function processOneMessage(msgObj) {
     if (flightState) entry.flightState = flightState;
     if (actualDelayMin != null) entry.departureDelayMin = actualDelayMin;
     else if (currentDelayMin != null) entry.departureDelayMin = currentDelayMin;
+
+    // Per-leg record, additive -- see _legs's header comment above. Keyed by origin+dest, which
+    // TFDM gives fully resolved on every message (no route-string guessing needed), so two
+    // concurrently-filed legs for the same callsign land in separate entries instead of one
+    // clobbering the other.
+    const lk = legKey(origin, dest);
+    if (lk) {
+        const legsMap = _legs[cs] || (_legs[cs] = new Map());
+        const leg = legsMap.get(lk) || { origin, dest };
+        leg.lastMsg = Date.now();
+        if (offBlockIso) { leg.offBlockTime = offBlockIso; leg.scheduledDepMs = scheduledDepMs; }
+        if (depRunway) leg.depRunway = depRunway;
+        if (arrRunway) leg.arrRunway = arrRunway;
+        if (flightState) leg.flightState = flightState;
+        if (actualDelayMin != null) leg.departureDelayMin = actualDelayMin;
+        else if (currentDelayMin != null) leg.departureDelayMin = currentDelayMin;
+        legsMap.set(lk, leg);
+    }
 }
 
 function handleMessage(xmlText) {
@@ -294,6 +329,13 @@ function purgeStale() {
     const STALE_MS = 60 * 60 * 1000; // runway assignment changes slowly; keep longer than position data
     for (const cs of Object.keys(_latest)) {
         if (now - (_latest[cs].lastMsg || 0) > STALE_MS) delete _latest[cs];
+    }
+    for (const cs of Object.keys(_legs)) {
+        const legsMap = _legs[cs];
+        for (const [k, leg] of legsMap) {
+            if (now - (leg.lastMsg || 0) > LEG_STALE_MS) legsMap.delete(k);
+        }
+        if (legsMap.size === 0) delete _legs[cs];
     }
 }
 setInterval(purgeStale, 5 * 60 * 1000);
@@ -404,6 +446,19 @@ function getFlightInfo(callsign) {
     return _latest[cs] || null;
 }
 
+// All currently-known distinct legs for a callsign, sorted by scheduled departure ascending --
+// the per-leg counterpart to getFlightInfo() above. See _legs's header comment: this is what
+// proves a NetJets callsign's later-filed legs are retrievable intact, not just whichever one
+// _latest happened to hold most recently.
+function getAllLegs(callsign) {
+    const cs = String(callsign || '').trim().toUpperCase();
+    const legsMap = _legs[cs];
+    if (!legsMap) return [];
+    return [...legsMap.entries()]
+        .map(([key, leg]) => ({ key, ...leg }))
+        .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
+}
+
 // TEMP — same purpose as swim.js's _testSeedFlight: injects a synthetic runway assignment for a
 // test callsign so the pickBody() runway-matching logic in navdata.js can be exercised on demand
 // (e.g. forcing AARCH2's BUELL vs FDRKO leg) without waiting for TFDM to happen to report a real
@@ -417,4 +472,4 @@ function _testSeedRunway(callsign, { depRunway, arrRunway } = {}) {
     return true;
 }
 
-module.exports = { connect, getFlightInfo, setRelevantCallsigns, _testSeedRunway, isEnabled: () => TFDM_ENABLED };
+module.exports = { connect, getFlightInfo, getAllLegs, setRelevantCallsigns, _testSeedRunway, isEnabled: () => TFDM_ENABLED };
