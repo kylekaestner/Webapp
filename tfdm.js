@@ -80,6 +80,35 @@ const _legs = {};
 const LEG_STALE_MS = 48 * 60 * 60 * 1000; // longer than _latest's 1h -- a future leg's plan is exactly what this exists to keep around
 function legKey(origin, dest) { return (origin && dest) ? `${origin}>${dest}` : null; }
 
+// Persisted to disk, same reasoning and pattern as tfms.js's own _flightTimes cache (and this
+// module's/server.js's pre-existing parked/airborne caches): in-memory only would mean a
+// `pm2 restart` (which happens on every server.js/tfdm.js/tfms.js deploy) throws away whatever
+// future legs had already been filed ahead -- exactly the "forward schedule" value this store
+// exists to provide. A Map doesn't JSON-serialize on its own, so the save/load round-trips
+// through plain [key, leg] entry arrays.
+const LEGS_CACHE_PATH = path.join(__dirname, '.tfdm_legs_cache.json');
+try {
+    const saved = JSON.parse(fs.readFileSync(LEGS_CACHE_PATH, 'utf8'));
+    const now = Date.now();
+    for (const [cs, entries] of Object.entries(saved)) {
+        const map = new Map();
+        for (const [key, leg] of entries) {
+            if (now - (leg.lastMsg || 0) <= LEG_STALE_MS) map.set(key, leg);
+        }
+        if (map.size) _legs[cs] = map;
+    }
+} catch (_) {}
+let _legsSaveTimer = null;
+function scheduleLegsSave() {
+    if (_legsSaveTimer) return;
+    _legsSaveTimer = setTimeout(() => {
+        _legsSaveTimer = null;
+        const out = {};
+        for (const [cs, map] of Object.entries(_legs)) out[cs] = [...map.entries()];
+        try { fs.writeFileSync(LEGS_CACHE_PATH, JSON.stringify(out)); } catch (_) {}
+    }, 2000);
+}
+
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
 
 function findDeep(obj, tagName) {
@@ -276,8 +305,11 @@ function processOneMessage(msgObj) {
     // Per-leg record, additive -- see _legs's header comment above. Keyed by origin+dest, which
     // TFDM gives fully resolved on every message (no route-string guessing needed), so two
     // concurrently-filed legs for the same callsign land in separate entries instead of one
-    // clobbering the other.
-    const lk = legKey(origin, dest);
+    // clobbering the other. Scoped to NetJets (EJA) callsigns only via _isResearchRelevant() --
+    // this store (and its disk persistence) exists purely to solve NetJets' same-callsign
+    // concurrent-leg filing problem, so every other pilot's tracked flight (covered by the same
+    // _relevantCallsigns set that gates _latest above) has no reason to pay for it.
+    const lk = _isResearchRelevant(cs) ? legKey(origin, dest) : null;
     if (lk) {
         const legsMap = _legs[cs] || (_legs[cs] = new Map());
         const leg = legsMap.get(lk) || { origin, dest };
@@ -289,6 +321,7 @@ function processOneMessage(msgObj) {
         if (actualDelayMin != null) leg.departureDelayMin = actualDelayMin;
         else if (currentDelayMin != null) leg.departureDelayMin = currentDelayMin;
         legsMap.set(lk, leg);
+        scheduleLegsSave();
     }
 }
 
@@ -330,13 +363,15 @@ function purgeStale() {
     for (const cs of Object.keys(_latest)) {
         if (now - (_latest[cs].lastMsg || 0) > STALE_MS) delete _latest[cs];
     }
+    let legsChanged = false;
     for (const cs of Object.keys(_legs)) {
         const legsMap = _legs[cs];
         for (const [k, leg] of legsMap) {
-            if (now - (leg.lastMsg || 0) > LEG_STALE_MS) legsMap.delete(k);
+            if (now - (leg.lastMsg || 0) > LEG_STALE_MS) { legsMap.delete(k); legsChanged = true; }
         }
         if (legsMap.size === 0) delete _legs[cs];
     }
+    if (legsChanged) scheduleLegsSave();
 }
 setInterval(purgeStale, 5 * 60 * 1000);
 

@@ -90,6 +90,9 @@ function scheduleTimesSave() {
             if (legsMap.size === 0) delete _legTimes[cs];
         }
         try { fs.writeFileSync(TIMES_CACHE_PATH, JSON.stringify(_flightTimes)); } catch (_) {}
+        const legTimesOut = {};
+        for (const [cs, map] of Object.entries(_legTimes)) legTimesOut[cs] = [...map.entries()];
+        try { fs.writeFileSync(LEG_TIMES_CACHE_PATH, JSON.stringify(legTimesOut)); } catch (_) {}
     }, 2000);
 }
 // callsign -> Map(legKey -> {...FLIGHT_TIME_ATTRS, etd, eta, igtd, origin, dest, scheduledDepMs,
@@ -104,6 +107,20 @@ function scheduleTimesSave() {
 // attributed to the leg it's actually about.
 const _legTimes = {};
 const LEG_TIMES_STALE_MS = 48 * 60 * 60 * 1000;
+// Persisted to disk, same reasoning as _flightTimes above and tfdm.js's identical _legs cache --
+// a pm2 restart otherwise throws away whatever future legs had already been filed ahead.
+const LEG_TIMES_CACHE_PATH = path.join(__dirname, '.tfms_legtimes_cache.json');
+try {
+    const saved = JSON.parse(fs.readFileSync(LEG_TIMES_CACHE_PATH, 'utf8'));
+    const now = Date.now();
+    for (const [cs, entries] of Object.entries(saved)) {
+        const map = new Map();
+        for (const [key, leg] of entries) {
+            if (now - (leg.lastMsg || 0) <= LEG_TIMES_STALE_MS) map.set(key, leg);
+        }
+        if (map.size) _legTimes[cs] = map;
+    }
+} catch (_) {}
 
 const _airportConfig = {}; // bare 3-letter airport code -> { arrRunwayConf, depRunwayConf, ..., lastMsg }
 
@@ -379,9 +396,13 @@ function processOneFltdMessage(msgObj) {
     // Per-leg record, additive -- only when THIS message's own route string resolves both ends
     // (ownOrigin/candidateOrigin above already fell back to _latest[cs].origin for the
     // isExpectedOrigin() check; that fallback is deliberately NOT used here, so a leg key in
-    // _legTimes is never guessed from stale state). See _legTimes's header comment.
-    const ownDest = routeDest(messageRouteString(msgObj));
-    if (ownOrigin && ownDest) processLegTimes(msgObj, cs, ownOrigin, ownDest, candidateMs);
+    // _legTimes is never guessed from stale state). Scoped to NetJets (EJA) callsigns only, same
+    // reasoning as tfdm.js's identical scoping on its own per-leg store -- every other pilot's
+    // tracked flight has no reason to pay for this. See _legTimes's header comment.
+    if (_isResearchRelevant(cs)) {
+        const ownDest = routeDest(messageRouteString(msgObj));
+        if (ownOrigin && ownDest) processLegTimes(msgObj, cs, ownOrigin, ownDest, candidateMs);
+    }
 }
 
 // Estimated and airline-reported times TFMS carries alongside the flight plan. These are estimates

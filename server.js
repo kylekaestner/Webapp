@@ -3460,6 +3460,22 @@ function isParked(cs) {
     if (Date.now() - (_parkedAt[cs] || 0) > PARKED_TTL_MS) { _parkedCallsigns.delete(cs); return false; }
     return true;
 }
+// Origin-aware variant, for a caller asking "is the leg AT THIS ORIGIN parked" rather than "is
+// this callsign parked at all." Confirmed live 2026-10-30: _pollNetjetsLegCreation() calling bare
+// isParked(cs) let a stale parked flag from an EARLIER, already-landed leg under the same
+// NetJets callsign incorrectly mark a still-open LATER leg complete the moment a restart cleared
+// the per-leg TFDM/TFMS state that would otherwise have caught the mismatch. _parkedOrigin[cs]
+// already records which leg's origin the parked evidence actually belongs to (see
+// unpark()/unparkIfNewLeg() above) -- this checks it before trusting the flag, same discipline
+// matchesExpectedOrigin() already applies to live position data generally.
+function isParkedForOrigin(cs, expectedOrigin) {
+    if (!isParked(cs)) return false;
+    if (!expectedOrigin) return true; // nothing to compare against -- permissive, same posture as matchesExpectedOrigin()
+    const recordedOrigin = _parkedOrigin[cs];
+    if (!recordedOrigin) return true; // no recorded origin for the parked evidence -- can't disprove it, trust it
+    const norm = a => String(a || '').toUpperCase().replace(/^K/, '');
+    return norm(recordedOrigin) === norm(expectedOrigin);
+}
 // Callsigns whose SWIM/STDDS trail has already had its missing head backfilled from ADS-B
 // history (see the live-position handler below) -- done once per flight instance, not every
 // 8s poll, since it costs a real ADS-B API call. Cleared whenever that callsign is confirmed
@@ -4496,7 +4512,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
         }
 
         const flightState = tfdmInfo?.flightState || '';
-        const landed = /ARRIVAL|TAXI_IN|LUAW/.test(flightState) || isParked(cs);
+        const landed = /ARRIVAL|TAXI_IN|LUAW/.test(flightState) || isParkedForOrigin(cs, expectedOrigin);
 
         if (!current) {
             // No leg recorded for this tour yet -- wait for a real signal (don't create an empty

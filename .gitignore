@@ -16,3 +16,5 @@ scratch/
 .tfms_times_cache.json
 .parked_cache.json
 .airborne_cache.json
+.tfdm_legs_cache.json
+.tfms_legtimes_cache.json
