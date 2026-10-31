@@ -1,16 +1,16 @@
 # CrewSync — Developer Context for Claude
 
+> **Looking for how/why something got built this way, or a past bug's full story?** See `CLAUDE_HISTORY.md` — the dated, narrative "confirmed live / found and fixed / reverted because" development log, organized under the same section headings as this file. This file (CLAUDE.md) only describes **current behavior** — what exists and how it works right now — so it stays cheap to load every turn. When in doubt about which file to check, start here; every section below that has a meaty history points at the matching `CLAUDE_HISTORY.md §` heading.
+
 ## What this app is
 
-CrewSync is a private PWA for a group of 5 corporate/regional pilots (Kyle, Adam, Sam, Logan, Drew) to coordinate schedules. Key views: Calendar, List, Route Map, Crew Planning (Crossings + Off Days). Backend: Node/Express + SQLite. Frontend: single-file `public/app.html` (~11 k lines, all views and logic inline).
+CrewSync is a private PWA for a group of pilots (Kyle, Adam, Sam, Logan, Drew, plus later joiners) to coordinate schedules. Key views: Calendar, List, Route Map, Crew Planning (Crossings + Off Days). Backend: Node/Express + SQLite. Frontend: single-file `public/app.html` (~11k lines, all views and logic inline).
 
 Kyle also runs a Tampermonkey userscript (`public/frat-autofill.user.js`) that autofills PRISM SMS flight risk assessments from his CrewSync schedule — see its own section below.
 
-Prod server: `http://167.71.107.245:3000/` (managed via `pm2`, process name `dispatch`). **Deploy is git-based, not scp**: commit locally, `git push origin server`, then on the droplet `cd /var/www/Webapp && git pull origin server`, then `pm2 restart dispatch` after any `server.js`/`db.js` change (`public/app.html` changes don't need a restart, just a browser refresh). The droplet's `/var/www/Webapp` is itself a git clone of this same repo — `scp`-ing files directly onto it bypasses git entirely and was confirmed live (2026-10-30) to cause real drift between the droplet's git history and its actual running files (a long stretch of past deploys apparently did exactly this). Always commit+push *before* deploying, never after — prod should never run code that isn't also on `origin/server`.
+Prod server: `http://167.71.107.245:3000/` (managed via `pm2`, process name `dispatch`). **Deploy is git-based, not scp**: commit locally, `git push origin server`, then on the droplet `cd /var/www/Webapp && git pull origin server`, then `pm2 restart dispatch` after any `server.js`/`db.js` change (`public/app.html` changes don't need a restart, just a browser refresh). The droplet's `/var/www/Webapp` is itself a git clone of this same repo — `scp`-ing files directly onto it bypasses git and causes real drift between the droplet's git history and its running files. Always commit+push *before* deploying, never after — prod should never run code that isn't also on `origin/server`.
 
-Current version: `1.0.10-beta` (`package.json`/`package-lock.json`) — bumped 2026-10-30 for the NetJets manual-tracking batch, since extended same-day with the seam-transition + CC-schedule-override follow-up (real 28-day line-switch transition data from `qspilot.info`'s own tables, and a pasted-monthly-email parser for CC52/60/72/76 pilots that overrides the Line-based rotation — see "Line-switch seam transition" / "CC schedule override" under "NetJets manual tracking" below); the original 2026-10-30 batch was the new `manual_netjets` pilot type: `EJA`+tail-digits callsign rule, admin-dropdown-only exposure, duty-rotation + per-tour-tail DB/endpoints/self-service UI, Off Days integration — see "NetJets manual tracking" below; the SWIM-based auto-leg-creation piece of that design is also now built and verified live (2026-10-30, same day) — see "Auto-creating legs (built)" under "NetJets manual tracking"); previously bumped 2026-10-14 for the same-day-round-trip-shares-one-callsign batch (the full `_legState`/`_hasNewerLegStarted`/landed-early/poller-instance-isolation saga, Kyle's corporate-flight server-side tracking + real flight-number fix, TFMS OOOI arrival fallback, the two unauth'd-endpoint/token-leak/identity-fallback security fixes, the preflight-route hit-line click-target fix, TAXIING IN vs IN THE AIR, and the APTC departure-config runway fallback — see "Same-day round trip sharing one callsign", the Schedaero/background-poller sections, and "Durable flight-tracking evidence" below); previously bumped 2026-10-08 for the live-tracking reliability/persistence batch (durable parked/airborne evidence across restarts, time-based parked detection, taxi trail/direction fixes, the day map's consolidated `_legState()`, TFDM delay insight, the ADS-B cache-TTL perf fix, the Crossings "stay until next flight"/commuter-home-period rules, and the here-now pin fixes); bump it again for the next meaningfully-sized batch of fixes, not every commit.
-
-**Housekeeping pass (2026-10-01):** `public/airports.json` was pretty-printed (one line per coordinate value) despite `scripts/build-airports.js` always writing compact JSON — regenerated via that same script, 6.3MB → 3.2MB, zero data change (verified byte-for-byte, same 100,179 entries). If this file ever looks huge in a diff again, it's almost certainly been hand-edited or regenerated by something that doesn't call `JSON.stringify` compactly — just re-run the script. Also removed ~5 dead functions and ~17 lines of dead CSS left over from earlier UI redesigns (map-mode buttons, an old plane-dot marker style, unused Wrapped stat-card classes) — if you're grepping for one of these and it's gone, that's why: `getPilotStorageKey`, `metroAirportList`, `toggleAllPilotsMonth`, `parseCSV_skywest` (client-side; the real one server.js uses is untouched), `toggleIntelEntry`.
+Current version: `1.0.10-beta` (`package.json`/`package-lock.json`). Bump it for the next meaningfully-sized batch of fixes, not every commit — see `CLAUDE_HISTORY.md` for the version-bump log if you need to know what shipped when.
 
 ---
 
@@ -34,37 +34,53 @@ Current version: `1.0.10-beta` (`package.json`/`package-lock.json`) — bumped 2
 ## Database schema
 
 ### `pilots`
-`id, pilot_key, name, base, home_airport, role, parser_type, airline_code, token, last_active`
+`id, pilot_key, name, base, home_airport, role, parser_type, airline_code, token, last_active, color, hidden_crew, friends_seeded, parser_warnings`
 
 - `base` = airline domicile (LGA, STL, PHX, SUS) — where they report for work
 - `home_airport` = where they live (TUL, STL, PHX, SUS) — may differ for commuters
 - `token` = 12-char URL-safe login token
+- `color` = brand hex color; DB-driven for every pilot now (see "Pilot roster is fully DB-driven")
+- `hidden_crew` = JSON array of explicitly-hidden pilot keys (crew-visibility storage; see "Friends system")
 
 ### `segments`
-`id, pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, is_manual, block_minutes`
+`id, pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, is_manual, block_minutes, auto_leg_key, auto_leg_edited, auto_leg_complete`
 
 **Segment types:**
 - `'flight'` — airline or corporate legs (also used for personal/commute — see `trip` field)
 - `'ground'` — van/bus transfer between airports (has both airports)
 - `'reserve'` — on-call reserve shift; `departure_airport` = base; `arrival_time` = end of window
 - `'hard'` — Kyle's hardcoded off days from ICS (departure_time only, no airports)
+- `'vacation'` / `'training'` — from parsers that detect these (e.g. Delta MiCrew)
 
 **Critical:** personal and commute flights are `type='flight'` with `trip='PERSONAL'` or `trip='COMMUTE'` and `is_manual=1`. They are **not** a separate type. This means they land in the `flights` array in `buildGroundPeriods`.
+
+`auto_leg_key`/`auto_leg_edited`/`auto_leg_complete` are NetJets-manual-tracking-specific — see that section below.
 
 **Times:** stored as local airport time, no timezone: `2026-05-26T13:30:00`
 - In the **browser**: `new Date('2026-05-26T13:30:00')` → local browser time ✓
 - In **Node.js**: `new Date('2026-05-26T13:30:00')` → UTC (5h offset from CDT) — affects debugging scripts
+- Exception: Kyle's Schedaero segments and NetJets auto-created legs are stored in real UTC (`...Z` suffix) — `pilotUsesUtc(k)` auto-detects this per pilot.
+
+### Other tables (added over time, see `db.js` for authoritative schema)
+`friend_requests`, `intel_votes`, `flight_log`, `pilot_base_history`, `pilot_duty_rotation`, `pilot_duty_rotation_seam`, `pilot_tour_tail`, `pilot_cc_schedule_day`, `pilot_tour_reminder_sent`, `notifications` — each described in context in the relevant section below.
+
+---
+
+## File map continued — large module notes
+
+- `swim.js`/`stdds.js`/`tfms.js`/`tfdm.js`/`vnas.js`/`navdata.js` are all read fresh when debugging live-tracking issues; none of their internals are duplicated here — check the module directly.
+- `server.js` and `public/app.html` are large; use Grep for function names rather than reading sequentially.
 
 ---
 
 ## Key constants in `app.html`
 
 ```js
-PILOT_KEYS / VALID_PILOTS   // same array ref; starts ['kyle','adam','sam','logan','drew']
-                             // logged-in pilot pushed at runtime if not already present
+PILOT_KEYS / VALID_PILOTS   // same array ref; starts EMPTY for a real session, populated
+                             // entirely by _syncPilotRoster() from /api/pilots-directory
+                             // (demo mode still starts with its 4 fake fixture pilots)
 
-PILOT_HOME   // { kyle:'SUS', adam:'TUL', sam:'STL', logan:'PHX', drew:'STL' }
-             // initialized from hardcoded values; updated from DB after cache loads
+PILOT_HOME   // { [key]: homeAirport } — populated from DB by _syncPilotRoster()
              // (data.home_airport || PILOT_HOME[key]) is the safe pattern
 
 pilotsCache  // { [pilotKey]: apiResponse } — populated lazily; persists for session
@@ -72,6 +88,9 @@ pilotsCache  // { [pilotKey]: apiResponse } — populated lazily; persists for s
 
 METRO_GROUPS // airport → metro key (LGA/EWR/JFK/TEB → 'nyc', SUS/STL → 'stl', etc.)
 LAYOVER_MS   // 5 * 3600000 — threshold for a "real" layover vs transiting
+PILOT_HOME_AIRPORTS // kyle: ['SUS','STL'] — Kyle's dual home-metro exception; everyone
+                     // else has exactly one. Deliberately kept hardcoded (schema has no
+                     // second-home-airport column), not the override anti-pattern.
 ```
 
 ---
@@ -84,110 +103,39 @@ myViewer  // key of view-only user, or null
 // Admin: myPilot === null && myViewer === null
 ```
 
-`getCrewVisible()` → array of visible pilot keys: `visiblePilotKeys()` (self + friends, or everyone for admin/viewer) minus whatever's in `_hiddenCrew`. Default is **visible** — see "Crew visibility is server-persisted" under Friends system below.  
-`_buildCrewVisibilityUI()` → builds "Your Crew" toggles; runs for pilot, viewer, AND admin.
+`getCrewVisible()` → array of visible pilot keys: `visiblePilotKeys()` (self + friends, or everyone for admin/viewer) minus whatever's in `_hiddenCrew`. Default is **visible** — see "Friends system" below.
+`_buildCrewVisibilityUI()` → builds "Your Crew" toggles; runs for admin/viewer/demo only now (real pilots get the same toggle inline in the Friends panel — see below).
 
 ---
 
 ## Friends system
 
-Added 2026-10-01, replacing "every pilot sees every other pilot's schedule" (the original design — CLAUDE.md used to state this outright). A real pilot can only see another real pilot's schedule once an **accepted, mutual** friendship exists between them. **Admin alone is exempt** — sees every pilot unconditionally, same as before this system existed. **View-only guests are friend-gated too as of a same-day follow-up** (see "Viewers are friend-gated too" below) — a viewer now needs an accepted friendship with a pilot to see them, same as a real pilot would, just admin-assigned instead of self-service.
+A real pilot can only see another real pilot's schedule once an **accepted, mutual** friendship exists between them (`friend_requests` table). **Admin alone is exempt** — sees every pilot unconditionally. Viewers are friend-gated too, same as real pilots, just admin-assigned instead of self-service (no self-service Friends UI for a viewer). This is a flat social graph, not org/tenant isolation — any pilot can send anyone a friend request; a pair counts as friends once an accepted row exists in either direction.
 
-This is a flat social graph, not org/tenant isolation — deliberately simpler than the multi-tenancy idea floated earlier in planning. Anyone can send anyone a friend request; there's no concept of separate crews that can't see each other at all, just a per-pair accepted/not-accepted relationship.
+**Data model:** `friend_requests(requester_key, recipient_key, status)` — `UNIQUE` on the ordered pair, `status` is `'pending'` or `'accepted'` (no `'declined'` — a decline deletes the row). `pilots.friends_seeded` (one-time migration flag), `pilots.hidden_crew` (per-pilot explicit-hide list).
 
-### Data model (`db.js`)
+**Server-side (`server.js`):**
+- `_resolvePilotToken(token, db, cb)` → `(pilot_key, role)`.
+- `_canViewPilot(db, viewerKey, viewerRole, targetKey, cb)` — `true` if `viewerKey === 'admin'`, self, or an accepted friendship exists in either direction.
+- `GET /api/pilots/:pilotKey` requires `?token=`; denied → `403 { error: 'not_friends', pilotKey, name }`.
+- `GET /api/pilots` (admin user list) is admin-gated; returns `token` column, so admin-only matters.
+- `GET /api/pilots-directory` — non-admin-gated, token-required listing (`pilot_key, name, base, home_airport, role, color`, no token) — used by the friends search UI and `_syncPilotRoster()`.
+- Friend endpoints: `GET /api/friends`, `POST /api/friends/request` (auto-accepts on mutual-simultaneous-request), `POST /api/friends/respond`, `DELETE /api/friends/:key`, `POST /api/friends/seed` (one-time migration).
+- `_unhideFromEachOther(db, keyA, keyB)` — called whenever a friendship newly becomes accepted, so a past unfriend's hide-flag doesn't persist across a later re-friend.
+- `_getFriendsData` tags each entry with `isViewer` so the UI can label/filter viewer friends separately.
+- Admin override endpoints: `GET /api/admin/friends/:pilotKey`, `POST /api/admin/friends`, `DELETE /api/admin/friends` (all admin-token-gated) — directly assign/remove friendships without request/accept.
+- `GET /api/crew-visibility` / `PUT /api/crew-visibility` — token-gated, operate on the caller's own `hidden_crew`.
 
-`friend_requests` table: one row per `(requester_key, recipient_key)` ordered pair, `UNIQUE` on that pair so re-requesting after a decline reuses the same row rather than stacking a second one. `status` is `'pending'` or `'accepted'` — there is no `'declined'` status; a decline just deletes the pending row. **A pair counts as friends when an accepted row exists in *either* direction** — once accepted, "who requested whom" no longer matters, so every friendship check queries both directions.
+**Frontend (`app.html`):**
+- `visiblePilotKeys()` — single source of truth for "which pilots can I actually fetch data for": `[...PILOT_KEYS]` for admin/viewer, or `[myPilot, ...myFriends]` (viewer friends filtered out) for a real pilot. Every bulk-fetch loop (`computeOverlap()`, `computeOffDays()`, grid-view prefetch) uses this, never raw `PILOT_KEYS`.
+- `_pilotFetchUrl(key)` — appends `?token=` when `myToken` is set.
+- `fetchPilotData()` → on `403 not_friends`, returns `{ __notFriends: true, pilotKey, name }`; `loadPilot()` renders `_renderNotFriendsState()` instead of an empty schedule.
+- Friends UI lives in the Profile sheet (`#friends-section`, real-pilot-only): `renderFriendsPanel()` (friends list with inline visibility toggle + Remove, incoming/outgoing requests, viewer friends collapsed under "View Only · N"), `#add-friend-modal` + `renderFriendSearchResults()`.
+- `_buildCrewVisibilityUI()` renders into `#crew-visibility-section`, shown for admin/viewer/demo only (`!!myPilot` hides it for a real pilot, whose equivalent control is inline in the Friends panel).
+- `_hiddenCrew` (Set) loaded via `loadCrewVisibility()` inside `initIdentity()`; `getCrewVisible()` = `visiblePilotKeys().filter(p => p === myPilot || !_hiddenCrew.has(p))`.
+- Friend request / accept / admin-connect all trigger notifications via `_notifyPilot()` + `pushToAll()` (badge: `#friend-badge-mobile`/`#friend-badge-desktop`). Not live-pushed to an already-open tab — only on page load or after your own action.
 
-`pilots.friends_seeded` (INTEGER, default 0) — one-time flag, see Migration below.
-
-### Server-side enforcement (`server.js`)
-
-- `_resolvePilotToken(token, db, cb)` — resolves a token to `(pilot_key, role)`, same pattern as the pre-existing `_resolveIntelAuthor` (used for Crew Intel writes), kept as a separate function since this one also needs `role` to recognize a viewer without a second query.
-- `_canViewPilot(db, viewerKey, viewerRole, targetKey, cb)` — the actual gate: `true` if `viewerKey === 'admin'` or `viewerKey === targetKey` (a pilot/viewer can always see their own row), or an accepted `friend_requests` row exists in either direction. `false` otherwise. **No longer auto-exempts `viewerRole === 'viewer'`** — see "Viewers are friend-gated too" below.
-- **`GET /api/pilots/:pilotKey` now requires `?token=`** and calls `_canViewPilot` before returning segments. Previously this endpoint had **no auth check at all** — any pilot_key string, known or guessed, returned that pilot's full profile and every segment to anyone, logged in or not. A denied request returns `403 { error: 'not_friends', pilotKey, name }` — enough for the frontend to offer "Send Friend Request" without leaking the schedule itself.
-- **`GET /api/pilots` (the admin user-list endpoint) is now admin-gated too** — found as an adjacent problem while auditing this endpoint family: it was `SELECT *`, unauthenticated, and returned every pilot's row **including their login `token` column** to anyone who hit the URL. Now requires `?token=` resolving to `pilot_key === 'admin'`.
-- **New `GET /api/pilots-directory`** — a non-admin-gated, token-required listing (`pilot_key, name, base, home_airport, role`, no `token` column) for two purposes: the friends UI's "search for someone to add" list, and `_syncPilotRoster()` in app.html (which runs for *every* pilot at startup to discover newly-joined crew members and register them in `PILOT_KEYS`/`PILOT_NAMES`/etc — this used to hit the now-admin-gated `GET /api/pilots` and would have silently broken for every non-admin pilot if left pointed there).
-- Friend endpoints: `GET /api/friends` (my friends + pending incoming/outgoing), `POST /api/friends/request` (send; auto-accepts instead of creating a duplicate if the target already has a pending request *to* me — see "mutual simultaneous request" below), `POST /api/friends/respond` (accept/decline an incoming request), `DELETE /api/friends/:key` (unfriend, either side), `POST /api/friends/seed` (one-time migration, below).
-
-**Mutual simultaneous request → instant friends.** If Bob requests Alice (pending) and Alice separately requests Bob before Bob responds, `POST /api/friends/request` recognizes Alice is the *recipient* of an existing pending row and upgrades it straight to `accepted` instead of creating a crossed second pending row that would otherwise need a separate explicit accept. Verified directly: Bob→Alice returned `"status":"pending"`, the immediate Alice→Bob returned `"status":"accepted"`.
-
-### Migration — importing the old "Your Crew" toggle as a starting friend list
-
-The pre-existing crew-visibility toggle (`getCrewVisible()`/`_visKey()`) was **client-side only, stored in `localStorage`, never synced to the server** — so there was no server-side record of "who a pilot currently considers their crew" to seed friendships from directly. `_maybeSeedFriends()` (app.html) runs once per pilot on login: it reads the *raw* stored `crewVisible_<pilot>` array directly from `localStorage` (bypassing `getCrewVisible()` itself, which now filters its result down to `visiblePilotKeys()` — at seed time that's just `[self]`, since there are no friends yet; calling it here would clamp away the exact preference being imported) and POSTs those keys to `POST /api/friends/seed`, which creates **already-accepted** friendships directly (not pending requests — this is a one-time grandfather-in for an access model that didn't used to exist, not something that needs a human to separately approve).
-
-Guarded by `pilots.friends_seeded` so it can only ever run once per pilot — critical, since without that guard, re-opening the app after deliberately unfriending someone would silently re-add them from the stale local toggle state on the next load.
-
-**One real constraint accepted deliberately**: since this reads from the *visiting* pilot's own browser, a relationship only gets seeded once that specific pilot opens the app post-migration. If Pilot A had Pilot B toggled on but Pilot B never had A toggled on, and only A ever opens the app, the seed creates an accepted friendship anyway (seeding is unilateral/immediate, not a request A's side waits on B to approve) — consistent with "automatically added" being the literal ask, not "automatically requested."
-
-### Frontend (`app.html`)
-
-- `visiblePilotKeys()` — `[...PILOT_KEYS]` for admin/viewer (`myPilot === null`), or `[myPilot, ...myFriends]` for a real pilot. **The single source of truth for "which pilots can I actually fetch data for"** — every place that used to loop over all `PILOT_KEYS` to bulk-fetch schedules now loops this instead: `computeOverlap()`, `computeOffDays()`, and `render()`'s grid-view background prefetch. Looping raw `PILOT_KEYS` in any of these now would just collect 403s instead of data.
-- `_pilotFetchUrl(key)` — appends `?token=` to a per-pilot fetch URL when `myToken` is set; used everywhere `GET /api/pilots/:key` is called (`fetchPilotData()`, `renderAllPilotsMap()`, `renderDayMap()`, the three loops above). Demo mode (`myToken` unset) naturally omits the token and hits the separate, unauthenticated `/api/demo/pilots/:key` route via `API_BASE`, unaffected by any of this.
-- `fetchPilotData()` → on a `403 not_friends` response, returns `{ __notFriends: true, pilotKey, name }` instead of `null`. `loadPilot()` checks for this and calls `_renderNotFriendsState(pilotKey, name)` — a "Send Friend Request" prompt in place of the normal grid/list content — instead of trying to render an empty schedule. Map views don't get an equivalent prompt; a pilot that was never fetched (still not-friends) is simply skipped there, since the prompt belongs to that pilot's own calendar/list, not every view that happens to touch them.
-- Friends UI lives in the Profile sheet (`#friends-section`, real-pilot-only — see "Friends panel ↔ crew-visibility UI merged" below): `renderFriendsPanel()` lists accepted friends (each row: name, visibility toggle, Remove — see below) and incoming requests (Accept/Decline); `#add-friend-modal` + `renderFriendSearchResults()` searches `GET /api/pilots-directory` (lazily fetched once into `_friendDirectory`) to send new requests. `_refreshFriendUI()` re-renders both the panel and the search-results list (if that modal happens to be open) after any state change.
-- `_buildCrewVisibilityUI()` now lists `visiblePilotKeys()` instead of all `VALID_PILOTS` — you can't toggle display visibility for someone you aren't friends with. Renders into `#crew-visibility-section`, admin/viewer/demo only now (see below).
-
-### Admin override — directly assign/remove friendships, bypassing request/accept
-
-Added 2026-10-01 so admin can manage the social graph without needing both pilots to act. Three admin-only endpoints (`server.js`), each gated on `_resolvePilotToken` resolving to `pilot_key === 'admin'`:
-- `GET /api/admin/friends/:pilotKey` — any pilot's friends/incoming/outgoing, via a shared `_getFriendsData(db, targetKey, cb)` helper extracted out of the pre-existing `GET /api/friends` handler (same JOIN query, just parameterized by whose rows to pull instead of always the caller's own).
-- `POST /api/admin/friends` (`{ token, pilotA, pilotB }`) — creates an **already-accepted** friendship directly, same posture as the seed migration (no human approval needed). If a pending request already exists in either direction, upgrades it instead of inserting a conflicting second row.
-- `DELETE /api/admin/friends` (same body) — removes any friendship (accepted or still-pending) between the two, either direction.
-
-Frontend: the admin "Edit User" modal (`#edit-user-modal` → new `#edit-user-friends-section`) shows a toggle-switch list of every other non-viewer pilot, styled like `_buildCrewVisibilityUI()`'s pattern, driven by `_loadEditUserFriends()`/`_renderEditUserFriendsList()`/`_toggleAdminFriend()`. Only shown when editing an existing pilot (not the new-user flow, which has no key yet to attach friendships to) and not for viewers/admin themselves. Verified end-to-end against the real endpoints with throwaway test pilots: assign, the pending-upgrade path, read-back, and remove all behave correctly; a non-admin token correctly 403s.
-
-### Crew visibility is server-persisted, and defaults to visible (changed 2026-10-01)
-
-Two problems reported together after the friends system shipped: (1) toggling a friend's visibility on desktop didn't show up on mobile for the same pilot, and (2) "since we're on a friends model now, a new friend should default to visible, not require a second manual toggle."
-
-Both came from the same root design: crew visibility (`getCrewVisible()`/`setCrewVisible()`) used to be a **localStorage-only** preference (`crewVisible_<pilot>`), storing the list of who's *visible*, defaulting to "just yourself" when nothing was stored. That's inherently per-browser — the exact cause of (1) — and meant every new friend started hidden until manually turned on — the cause of (2).
-
-Fixed by flipping both the storage layer and the default:
-- `pilots.hidden_crew` (TEXT, JSON array, `db.js`) stores the set of **explicitly hidden** keys instead of the visible ones. `GET /api/crew-visibility` / `PUT /api/crew-visibility` (`server.js`, token-gated via `_resolvePilotToken`, no `:pilotKey` param — always operates on the caller's own row) read/write it.
-- Frontend: `_hiddenCrew` (a `Set`, `app.html`) is loaded once via `loadCrewVisibility()` inside `initIdentity()` (alongside `loadFriends()`), and written back via `_saveCrewVisibility()` (fire-and-forget PUT) on every `setCrewVisible()` call. `getCrewVisible()` is now `visiblePilotKeys().filter(p => p === myPilot || !_hiddenCrew.has(p))` — self always included, everyone else visible unless explicitly hidden.
-- Net effect: visibility is consistent across every device for a given pilot (same server-backed state), and any friend — new or already-existing — is visible by default the moment the friendship exists, with no separate "turn on crew" step. Same applies to admin/viewer, who were already "everyone visible by default" before this change; they just gained cross-device consistency too.
-- `_visKey()` (the old localStorage key format) is kept, but **only** for `_maybeSeedFriends()`'s one-time read of a pilot's pre-friends-system toggle state when seeding their initial friend list — unrelated to current visibility storage.
-- Removed the now-obsolete "Your crew is hidden" one-time nudge banner (`_maybeShowCrewNudge()`/`_dismissCrewNudge()`/`#crew-nudge-banner`) entirely — it existed to prompt turning crew visibility on when the old default was "everyone off"; with the new default of "everyone on," the zero-visible state it watched for can no longer occur for any pilot with at least one friend, so the banner was pure dead weight.
-- Verified against the real endpoints on a local test server: `GET` before any write returns `{hidden:[]}`; `PUT` with a key persists and reads back correctly; both reject with 401 for a missing/invalid token.
-
-### Verified against the real HTTP endpoints (not just read through), with throwaway test pilots on a local server
-
-Confirmed: a non-friend fetch 403s with `not_friends`; `GET /api/pilots` 401s with no token and 403s for a non-admin token; the directory endpoint works for any authenticated pilot; send → pending → accept → both sides can now see each other; unfriend correctly revokes access both ways; the mutual-simultaneous-request auto-accept; and the seed migration adds exactly the given keys once, then no-ops (and doesn't add anything new) on a second call.
-
-### Startup-ordering bug (fixed 2026-10-01) — friend-based UI built before the roster synced
-
-`initIdentity()` used to call `_applyIdentityUI()` (which calls `_buildCrewVisibilityUI()`) before `_syncPilotRoster()` had run. `_buildCrewVisibilityUI()` indexed `PILOT_NAMES[friendKey]` with no fallback — for any pilot whose friend list includes a non-core/newly-joined pilot (not in the hardcoded `PILOT_KEYS`/`PILOT_NAMES`), this threw `undefined` **before** that pilot was registered, since registration only happened in `_syncPilotRoster()`, which ran later in the `DOMContentLoaded` handler, after `initIdentity()` returned. The thrown error aborted the rest of `initIdentity()` *and* the rest of the `DOMContentLoaded` handler after it (uncaught rejection on an unguarded `await`), so `loadPilot(defaultPilot)` never ran — the pilot's own schedule silently failed to auto-select on load, and every later call to `_applyIdentityUI()` (e.g. `openProfile()`) kept throwing the same way, so clicking the "Signed in as" button / mobile avatar did nothing, permanently, for the rest of that session.
-
-Admin/viewer never hit this — `visiblePilotKeys()` for them is just the hardcoded `PILOT_KEYS`, always already registered.
-
-**Fixed two ways:** (1) root cause — `_syncPilotRoster()` is now called inside `initIdentity()` itself, before `loadFriends()`/`_applyIdentityUI()`, instead of after `initIdentity()` returns; the redundant external call in the `DOMContentLoaded` handler was removed. (2) defense-in-depth — `_buildCrewVisibilityUI()` now falls back to the raw pilot key (`PILOT_NAMES[p] || p`) instead of indexing an unregistered name, so a similar gap in the future degrades instead of crashing the whole startup chain again.
-
-### Viewers are friend-gated too (2026-10-01, same day as the friends system itself)
-
-A view-only guest used to be completely exempt from the friends system — always saw every pilot, unconditionally, no matter what. That meant a guest account had no real access boundary once created, which defeats the point of handing one out to someone who should only see specific pilots. `_canViewPilot` no longer auto-exempts `role === 'viewer'`; a viewer now needs an accepted `friend_requests` row with a pilot just like a real pilot would.
-
-**Deliberately admin-assigned only, no self-service.** A viewer gets no Friends panel, no request/search UI of their own — the only way a viewer's access changes is admin toggling it via the edit-user modal's friend list (same mechanism already used for real pilots, see "Admin override" above), which now also opens when editing a viewer (`_toggleViewerMode()`/`openEditUserModal()` no longer exclude viewers from showing `#edit-user-friends-section`). The candidate list there (`_renderEditUserFriendsList()`) already filtered to non-viewer pilots regardless of who's being edited, so no change was needed there — editing a viewer correctly offers every real pilot as a toggle target, never another viewer.
-
-**Migration for existing viewers** (`db.js`, guarded by `settings.viewerFriendsSeeded`, runs once): since existing viewers (Nick, Jack, Sandy, Antoine) previously saw everyone, flipping the gate on would have instantly cut off their current access with nothing to restore it. Seeds each existing viewer an already-accepted friendship with every real (non-viewer, non-admin) pilot at migration time, preserving current access exactly. A viewer created *after* this migration starts with zero friends, same as any new pilot would — admin has to grant access explicitly going forward.
-
-**Viewers leaked into real pilots' own friends list / map legends (fixed same day).** Friendship is symmetric once accepted — `friend_requests` has no meaningful requester/recipient distinction afterward. So the migration's viewer→pilot edges also showed up on the *pilot's* side: a real pilot's own `GET /api/friends` returned every viewer friended with them as one of "their" friends. Since viewers are deliberately never registered into `PILOT_NAMES`/`PILOT_COLORS` client-side (`/api/pilots-directory` excludes them on purpose), this rendered as a nameless, generic-gray entry anywhere a pilot's friend list feeds UI — map legends, the crew-visibility toggle list, the pilot pill bar, the Crossings/Off Days background prefetch (all of which derive from `visiblePilotKeys()`).
-
-Fixed in two layers rather than just excluding viewers from the data entirely (an earlier pass did that, then had to walk it back — see below):
-- `_getFriendsData` (server.js) now tags each friend entry with `isViewer: r.other_role === 'viewer'` instead of filtering viewers out of the result. Always safe to compute unconditionally: a viewer's own friends are, by construction, always real pilots (both the seed migration and the admin friend-toggle UI only ever create viewer↔real-pilot edges), so `isViewer` is never `true` when you're querying a *viewer's own* friend list.
-- `visiblePilotKeys()` (app.html) filters out `isViewer` friends before building the crew list that feeds the map/legend/prefetch consumers above. `renderFriendsPanel()` itself reads `myFriends` directly, unfiltered, so a friended viewer still shows in the Friends panel — just labeled (see below), not silently dropped. (The first attempt at this fix excluded viewers from `_getFriendsData`'s result outright, which also fixed the legend leak but silently hid real connections from the Friends panel — moving the filter down to `visiblePilotKeys()` specifically was the correction.)
-
-**Re-friending someone kept them hidden from a past unfriend (fixed same day).** `removeFriend()` explicitly hides the unfriended person (`setCrewVisible(targetKey, false)`, adding them to `hidden_crew`) — reasonable on its own, but nothing ever reversed it. Re-friending the same person later left them silently toggled off despite being a brand-new friendship, since the stale `hidden_crew` entry from the earlier unfriend was still there. Fixed with `_unhideFromEachOther(db, keyA, keyB)` (server.js), called for both parties whenever a friendship newly becomes accepted — the mutual-simultaneous-request auto-accept, a normal `POST /api/friends/respond` accept, and admin directly connecting two accounts — regardless of which side is the one taking the action, since the *other* party's own `hidden_crew` needs the same cleanup even though they aren't the caller.
-
-**Friends panel ↔ crew-visibility UI merged for real pilots (2026-10-01).** The Friends panel and the separate "Your Crew" visibility section listed the exact same set of people for a real pilot — friends — in two places in the Profile sheet. Combined into one row per friend in `renderFriendsPanel()`: name, then a visibility toggle (reusing `setCrewVisible()`, same toggle markup `_buildCrewVisibilityUI()` used to render) and Remove button side by side. The toggle is omitted for a friended viewer (`isViewer`), since they have no schedule to show/hide. View-only friends collapse under their own "View Only · N" header below all real-pilot friends (`_toggleViewOnlyFriends()`/`_viewOnlyFriendsExpanded`, collapsed by default) instead of just sorting to the bottom of one flat list.
-
-`#crew-visibility-section` now only shows for admin/viewer/demo (`!!myPilot` hides it) — they have no self-service Friends panel of their own to fold this into (admin has no "friends" concept at all; viewers are admin-assigned, no self-service UI). `#friends-section` only shows for a real pilot. Mutually exclusive across all four identity types, so visibility control is never duplicated or missing. `_buildCrewVisibilityUI()` itself is untouched — it just renders into a now-hidden section for a pilot.
-
-**`setCrewVisible()` toggle only worked once per Profile-sheet open (fixed same day).** It refreshed `_buildCrewVisibilityUI()` after a change, but for a real pilot the actual visible toggle lives inline in `renderFriendsPanel()`'s rows now — that function was never called, so the row's `onclick` kept whatever "next state" value was baked into the HTML at the last real render. Clicking a second time just re-sent the same value instead of flipping it again, so it looked broken until the Profile sheet was closed and reopened (forcing a fresh render). Fixed by adding the missing `renderFriendsPanel()` call inside `setCrewVisible()`.
-
-**Friend request / accept / admin-connect notifications (2026-10-01).** Hooks into the existing notifications table + bell/panel (no new display UI needed — it already shows whatever's in the table) and best-effort pushes via the existing `pushToAll()` (a no-op today without SSL for the service worker to register over HTTP, but starts working automatically once that ships, no code change needed then): sending a request notifies the recipient, accepting notifies the original sender (including the mutual-simultaneous-request auto-accept path), and admin directly connecting two accounts notifies both parties — the last one matters especially for a viewer, since admin-assign is their *only* way to gain access to someone. `_notifyPilot(db, pilotKey, title, body, url)` is the shared helper (server.js). A small badge (`#friend-badge-mobile`/`#friend-badge-desktop`, same `.xbadge` styling as the crossings badge) on the profile avatar shows the pending-incoming-request count (`updateFriendRequestBadge()`, reads `myIncomingRequests.length`, called on load and from `_refreshFriendUI()`).
-
-Note: none of this is live-pushed to an already-open tab — `loadFriends()`/`loadNotifications()` only run on page load or after you yourself take an action, there's no polling. A friend request sent to someone with the app already open won't appear until they reload.
+Full build history, every bug found/fixed along the way, and the security holes this uncovered: `CLAUDE_HISTORY.md § Friends system`.
 
 ---
 
@@ -195,16 +143,16 @@ Note: none of this is live-pushed to an already-open tab — `loadFriends()`/`lo
 
 | Function | Line ~| Role |
 |---|---|---|
-| `initIdentity()` | 2122 | Auth check on load; sets myPilot/myViewer |
+| `initIdentity()` | 2122 | Auth check on load; sets myPilot/myViewer; calls `_syncPilotRoster()` before any pilot-dependent UI builds |
 | `_applyIdentityUI()` | 2267 | Shows/hides UI sections based on who's logged in |
-| `_buildCrewVisibilityUI()` | ~2570 | Crew toggle switches — admin/viewer/demo only now, see Friends section |
+| `_buildCrewVisibilityUI()` | ~2570 | Crew toggle switches — admin/viewer/demo only now |
 | `renderFriendsPanel()` | ~2300 | Friends list + incoming/outgoing requests; for a real pilot also renders the crew-visibility toggle + Remove inline per row |
 | `render()` | ~6485 | Main calendar/list render dispatcher |
 | `renderMap()` | 4857 | Single pilot monthly route map |
 | `renderAllPilotsMap()` | 4715 | All-crew monthly map |
 | `renderDayMap()` | ~5828 | All-crew single-day map |
-| `distanceProportionalArc()` | 4826 | Bezier-bowed great-circle arc for a single route (no de-overlap; `renderMap()` has no cross-route overlap handling at all — see note below) |
-| `offsetArc()` | 5238 | Bezier arc with perpendicular offset — spreads multiple flights sharing an identical city pair (used by `renderDayMap()` only) |
+| `distanceProportionalArc()` | 4826 | Bezier-bowed great-circle arc for a single route (no de-overlap; `renderMap()` has no cross-route overlap handling at all) |
+| `offsetArc()` | 5238 | Bezier arc with perpendicular offset — spreads multiple flights sharing an identical city pair (`renderDayMap()` only) |
 | `inferAwayLayovers()` | 2880 | Generates synthetic 'away' events for overnight non-home stays |
 | `switchView()` | 3200 | Switches between calendar/list/map/overlap views |
 | `switchOverlapTab()` | 3315 | Crossings ↔ Off Days tab switch |
@@ -216,8 +164,8 @@ Note: none of this is live-pushed to an already-open tab — `loadFriends()`/`lo
 | `handleUpload()` | 7160 | File upload handler → `uploadPilotSchedule()` |
 | `submitAddFlight()` | 7722 | Saves manual flight from add-flight modal |
 | `flightAwareLink()` | ~5288 | Wraps a flight ident in a FlightAware tracking link, gated by `flightAwareEligible()` (departed or within 48h) |
-| `startLiveTracking()` | 4946 | ADS-B poll loop for one callsign; 8s interval |
-| `startCalListLivePolling()` | 4848 | Polls ADS-B for `[data-live-callsign]` elements in cal/list |
+| `startLiveTracking()` | 4946 | ADS-B/SWIM poll loop for one callsign; adaptive cadence |
+| `startCalListLivePolling()` | 4848 | Polls `/api/live-position` for `[data-live-callsign]` elements in cal/list every 15s |
 | `setupMobileGestures()` | 1636 | Registers swipe + pull-to-refresh handlers |
 | `renderIntel()` | 8452 | Crew Intel dispatcher → airports / map / detail sub-renders |
 | `renderIntelMap()` | 8524 | Leaflet thumbtack-pin map for intel entries |
@@ -231,6 +179,9 @@ Note: none of this is live-pushed to an already-open tab — `loadFriends()`/`lo
 | `subscribeToPush()` | 7994 | Gets VAPID key, creates push subscription, POSTs to server |
 | `updateCrossingAlert()` | 8132 | Updates badge count + crossing modal from computed overlaps |
 | `loadNotifications()` | 8022 | Fetches `/api/notifications` and updates bell badge |
+| `_legState()` | ~7024 | Day map's unified per-flight status resolver (see "Durable flight-tracking evidence" below) |
+| `_hasNewerLegStarted()` | — | Shared helper: has this pilot's same callsign already started a later-scheduled leg today |
+| `isFlightStillActive()` | — | Shared grid/list/day-detail/map "is this flight still active" check (90min grace past scheduled arrival, see "TFDM delay insight" below) |
 
 ---
 
@@ -239,30 +190,22 @@ Note: none of this is live-pushed to an already-open tab — `loadFriends()`/`lo
 **Step 1 — `buildGroundPeriods(segments, homeBase, homeCity)`**
 
 Emits `{ airport, start, end, ... }` windows. Key parameters:
-- `homeBase` = `data.base` (airline domicile) — arrival here is skipped for commuters (base ≠ home city), who get the separate commute-home branch below instead. For non-commuters (base = home city, e.g. Drew/Kyle), arrival falls through to the homeCity branch so an at-home ground period is generated (`if (home && arr === home && homeC !== home) return`)
-- `homeCity` = `data.home_airport || PILOT_HOME[key]` (where pilot lives) — has special branch
+- `homeBase` = `data.base` (airline domicile) — arrival here is skipped for commuters (base ≠ home city), who get the separate commute-home branch below instead. Non-commuters fall through to the homeCity branch (`if (home && arr === home && homeC !== home) return`).
+- `homeCity` = `data.home_airport || PILOT_HOME[key]` — has special branch.
 
-**Pre-departure period logic (`recentArr` / `useRecentArr`):**
-- Finds the most recent arrival at the departure airport
-- For home base: only valid if within 24h
-- For other airports: only valid if pilot hasn't flown from any other airport since — a departure from elsewhere means they went home and came back; use fresh 2h window instead
-- This prevents month-long pre-departure periods when a pilot returns to ORD for a new trip
+**Pre-departure period logic (`recentArr` / `useRecentArr`):** finds the most recent arrival at the departure airport; for home base only valid within 24h; for other airports only valid if the pilot hasn't flown from elsewhere since (a departure from elsewhere means they went home and came back — use a fresh 2h window instead). Prevents month-long pre-departure periods when a pilot returns to the same airport weeks later.
 
-**Commuter arriving at base (`commuteStart`/`commuteEnd`, added 2026-10-04ish, same pass as the "stay until next flight" rule below):** the actual commute home is never logged as a segment, so the app assumes a commuter (base ≠ home city) is home starting 3 hours after landing at base (`arrT + 3h`), until their next departure from either home or base, capped at 7 days if neither is logged. Explicit, confirmed-live rule: **"we just assume he's gone until a new flight segment, except for commuter returns"** — a pilot's location is "sticky" (stays put until a new segment says otherwise) with this one exception. Two base arrivals close together (e.g. a same-day turn) that would each generate their own commute-home period at the same home city are merged into one period instead of pushed as two overlapping ones — found live as duplicate "Home Turf" overlap cards for the same stay before the merge was added.
+**Commuter arriving at base (`commuteStart`/`commuteEnd`):** a commuter (base ≠ home city) is assumed home starting 3 hours after landing at base, until their next departure from either home or base, capped at 7 days if neither is logged. Two base arrivals close together merge into one period instead of two overlapping ones.
 
 **Arrival period logic (`nextFromArr`, non-commuter / non-home-city arrival):**
-- Uses `allDeps` (all segment types, including personal/commute — `trip==='PERSONAL'` flights count too; an earlier attempt to exclude personal trips from location inference was built, shipped, and then fully reverted — personal travel is real travel and should move the pilot's known location like any other flight) so logged commutes terminate ground periods immediately
-- If `nextFromArr` is >2 days away, checks `wentHome`: if pilot flew from any other airport during the gap, cap ground period at arrival+8h (they had time to go home in between). Otherwise the ground period simply runs to `nextFromArr` — no cap.
-- If there's no later flight logged at all, the pilot is assumed to stay at that last arrival airport until one is (a 7-day sanity bound only, not an 8h/48h cap like earlier versions of this function used). Confirmed live and explicitly requested: a pilot who flies somewhere and doesn't fly again for several days (not a commuter, so no 3h-home-assumption applies) should still show as present there, not silently reset to "home" or disappear from crossings.
-- The home-city arrival branch (`homeC && arr === homeC`) uses this same no-cap-until-next-flight logic (checking both `nextFromArr` and `nextFromBase`, whichever is sooner), not the 8h cap — that 8h cap only ever applies in the generic non-home-city branch's `wentHome` case above.
+- Uses `allDeps` (all segment types, including `trip==='PERSONAL'`) so logged commutes/personal flights terminate ground periods immediately.
+- If `nextFromArr` is >2 days away, checks `wentHome`: if the pilot flew from any other airport during the gap, caps the ground period at arrival+8h. Otherwise it runs uncapped to `nextFromArr`.
+- No later flight logged at all → pilot assumed to stay at that last arrival airport until one is (7-day sanity bound only).
+- The home-city arrival branch uses this same no-cap logic (checking both `nextFromArr` and `nextFromBase`, whichever is sooner), not the 8h cap — that only applies in the generic non-home-city branch's `wentHome` case.
 
-**Reserve windows ARE included** — each `type='reserve'` segment with a real departure/arrival window is injected directly as its own ground period at the reserve airport (not skipped/ignored; an earlier version of this doc described reserve as unhandled — that's no longer true).
+**Reserve windows ARE included** — each `type='reserve'` segment is injected directly as its own ground period at the reserve airport.
 
-**Step 2 — cross pilot pairs**
-
-`airportsNear(a, b)`: checks metro groups first, then haversine ≤50mi.
-
-Skip condition: both pilots at their own homes → skip (line ~4173).
+**Step 2 — cross pilot pairs.** `airportsNear(a, b)`: metro groups first, then haversine ≤50mi. Both pilots at their own homes → skip (line ~4173).
 
 **Step 3 — `classifyOverlap()`**
 
@@ -277,11 +220,9 @@ Skip condition: both pilots at their own homes → skip (line ~4173).
 | `LAYOVER` | Overnight | 1 | Same airport, both have time, spans night or ≥5h |
 | `MEETUP` | Meetup | 1 | Same airport, direct overlap |
 
-Tier 1-2 → primary cards; tier 3 → compact "Also Nearby" rows.
+Tier 1-2 → primary cards; tier 3 → compact "Also Nearby" rows. `adjustedPeriod()` shifts times for UTC-storing pilots (Schedaero/Kyle) to match airport local time before overlap comparisons.
 
-`adjustedPeriod()` shifts times for UTC-storing pilots (Schedaero/Kyle) to match airport local time before overlap comparisons.
-
-**Perf gotcha — `computeOverlap()`/`computeOffDays()` need a real paint yield before the heavy work.** Both functions set a loading spinner then `await Promise.all(...)` to fetch any uncached pilot data. When every pilot is already cached (the common case), that `await` resolves via microtasks with no real fetch — no macrotask boundary, so the browser never gets a chance to paint the spinner before the (fairly heavy) `buildGroundPeriods`/cross-pairing/render work runs synchronously right after. This made opening the Overlap view feel like it hung before the view even appeared. Both functions now do `await new Promise(r => setTimeout(r, 0))` right after setting the spinner HTML, forcing a real paint before the pipeline starts. Don't remove this — it doesn't change *when* the calculation runs, only guarantees the spinner is visible first.
+**Perf note — don't remove the paint-yield.** Both `computeOverlap()`/`computeOffDays()` do `await new Promise(r => setTimeout(r, 0))` right after setting the spinner HTML, forcing a real paint before the heavy pipeline runs. Removing this makes the Overlap view feel like it hangs (history: `CLAUDE_HISTORY.md § Crossings pipeline`).
 
 ---
 
@@ -291,192 +232,110 @@ This section documents non-obvious behaviors already implemented. Check here bef
 
 ### Time handling — two systems coexist
 
-**Kyle** uses UTC times (Schedaero source, strings end in `Z`). All other pilots use local airport time (no timezone suffix).
-
-`pilotUsesUtc(k)` — detects which system a pilot uses by inspecting the first flight's departure_time string.
-
-`flightUTCTime(isoStr, airportCode)` — converts any time string to a real UTC Date, using the airport's IANA timezone for local strings. Use this for comparisons across pilots. Never compare raw `new Date(localString)` across pilots — they'll be off by hours.
-
-`flightLocalDate(isoStr, airportCode)` — extracts the local calendar date (YYYY-MM-DD) at the airport, accounting for UTC→local conversion for Kyle's flights.
-
-`adjustedPeriod(k, p)` — in crossings: shifts a ground period's start/end by the difference between browser TZ and airport TZ, so UTC comparisons between pilots stay consistent.
+**Kyle** uses UTC times (Schedaero source, strings end in `Z`). All other pilots use local airport time (no timezone suffix). `pilotUsesUtc(k)` detects which system a pilot uses by inspecting the first flight's departure_time string. `flightUTCTime(isoStr, airportCode)` converts any time string to a real UTC Date (use for cross-pilot comparisons — never compare raw `new Date(localString)` across pilots). `flightLocalDate(isoStr, airportCode)` extracts the local calendar date (YYYY-MM-DD) at the airport. `adjustedPeriod(k, p)` shifts a ground period's start/end by the browser-TZ/airport-TZ difference so UTC comparisons between pilots stay consistent.
 
 ### "Here Now" / pilot location pins (`renderDayMap`)
 
-For each pilot, the day map resolves their current location in this priority order (numbered comments `// ── N. ──` in the actual code, ~line 7085 onward):
-
+Priority order (numbered comments `// ── N. ──` in the code, ~line 7085 onward):
 1. **Live ADS-B / SWIM / STDDS** — `_legState(...).state === 'active'` for any of the day's flights → in-air, skip everything below.
-2. **Active reserve period** — if in an active reserve window, show at the reserve airport, *unless* a completed flight to a different, non-reserve airport landed after the reserve began (`wentHomeDuringReserve`) — they left during the reserve window, so the reserve base is stale.
-3. **Reserve ended recently (≤36h ago)** — if the next work segment (flight or reserve) from that same airport departs within 30h, stay anchored there (label `Reserve` or `Overnight`); otherwise fall through (they've had time to leave).
+2. **Active reserve period** — shown at the reserve airport, *unless* a completed flight to a different, non-reserve airport landed after the reserve began (`wentHomeDuringReserve`).
+3. **Reserve ended recently (≤36h ago)** — if the next work segment from that airport departs within 30h, stay anchored there; otherwise fall through.
 4. **Active manually-entered `away` segment** — trusted as authoritative (corporate multi-day trips).
-5. **Infer from flight + reserve history** — see below.
+5. **Infer from flight + reserve history** — `lastArrival`/`lastArrUTC` starts from the last completed flight's arrival, but a reserve shift that *ended* more recently overrides it (a reserve shift is always sat at base, so it's just as valid an anchor).
 5b. **Trip not yet started** — no completed flights at all; if a work flight departs within 24h, show at its departure airport.
-6. **Commute prediction** — see below.
+6. **Commute prediction** (`isCommuter = atBase && !atHome`) — once `commuteWindowPassed` (local date rolled over, or ≥3h since arrival), shows `Home`; before that, `Heading home` still at the base airport. A non-commuter with no later flight logged just stays `Overnight` at their last arrival indefinitely (the "stay until next logged flight" rule from Crossings above).
 
-**Step 5, "last known location," folds in BOTH flights and reserve shifts (fixed 2026-10-08) — not just flights.** `lastArrival`/`lastArrUTC` start from the last *completed flight's* arrival, but a reserve shift that **ended** more recently than that flight arrival overrides it (a reserve shift is always sat at base — `departureAirport === base`, no travel implied — so it's just as valid an anchor). Found live: Logan's last logged *flight* arrival was 11 days old at an airport that wasn't even his base anymore (his base had since changed), but he'd worked two reserve shifts at his real current base since then — without this fold-in, he stayed pinned at that stale 11-day-old flight arrival indefinitely, labeled "Overnight," since step 3 above only looks back 36h and step 5's old flight-only inference never looked at reserve at all.
+**Mid-trip "quick turn" at base** is measured from the pilot's last arrival time, not from "now": if the last arrival was at a non-home airport with a future departure from there, and (not at base, OR the total ground time between that arrival and the next departure is under 18h), they're shown still there (`Layover` same local day, else `Overnight`) rather than sent home.
 
-**Mid-trip "quick turn" at base, measured from the ARRIVAL, not from "now" (fixed 2026-10-08).** If the pilot's last arrival was at a non-home airport with a future departure from there, and (not at base, OR the **total ground time between that arrival and the next departure** is under 18h), they're shown still there (`Layover` same local day, else `Overnight`) rather than sent home. This used to measure `nextDepUTC - now` instead of `nextDepUTC - lastArrUTC` — so a commuter who landed at base, had *days* to go home, and simply had their next departure creep inside the 18h window got relabeled "Overnight at base" (as if they'd never left) purely because of how close "now" happened to be to that departure, regardless of how long the actual gap was. Found live: Adam landed at LGA (base), the next scheduled departure wasn't for ~2.5 days, but ~14h before that departure he started showing "Overnight at LGA" instead of "Home" in Tulsa.
+**`completedFlights` guard**: both `renderMap` and `renderDayMap` require `departureTimeUTC <= now` in addition to `arrivalTimeUTC <= now` before counting a flight as completed — without this, a manually-added transpacific flight whose `arrivalTime` was stored one day too early (a known `inferArrDate` limitation for >12h timezone crossings) would appear completed before it even departs.
 
-**Commute prediction (step 6, `isCommuter = atBase && !atHome`)** — pilot whose home ≠ base (e.g. Adam: base=LGA, home=TUL). Once `commuteWindowPassed` (local date has rolled over, or ≥3h since arrival), a commuter is assumed to have gone home and shows `Home`; before that, `Heading home` still at the base airport. A non-commuter with no later flight logged just stays `Overnight` at their last arrival indefinitely (per the explicit rule in the Crossings section above — "stay until the next logged flight").
+**Debug endpoint:** `GET /api/pilots/:key/here-now` returns `{ location, label, step_fired, step_detail, flights }` — a **separate server-side reimplementation** of this same priority chain, not a passthrough of the client's own logic, so the two can drift out of sync — check both when debugging a wrong pin. Uses approximate UTC conversion (raw `isoStr + 'Z'`) for local-time pilots; close enough for debugging, not pixel-perfect.
 
-**Debug endpoint:** `GET /api/pilots/:key/here-now` returns `{ location, label, step_fired, step_detail, flights }` — a **separate server-side reimplementation** of this same priority chain, not a passthrough of the client's own logic, so the two can drift out of sync if one is changed without the other — check both when debugging a wrong pin. Uses approximate UTC conversion (raw `isoStr + 'Z'`) for local-time pilots; close enough for debugging but not pixel-perfect.
-
-**`completedFlights` guard — departure must have passed:** Both `renderMap` and `renderDayMap` require that `departureTimeUTC <= now` in addition to `arrivalTimeUTC <= now` before counting a flight as completed. Without this, a manually-added transpacific flight whose `arrivalTime` was stored one day too early (a known `inferArrDate` limitation for >12h timezone crossings) would appear "completed" before the flight even departs, placing the HERE-NOW pin at the wrong arrival airport.
-
-**Debug endpoint:** `GET /api/pilots/:key/here-now` returns `{ location, label, step_fired, step_detail, flights }` — shows which HERE-NOW logic branch fired and which flight drove the decision. Useful when the pin appears at the wrong airport. Note: uses approximate UTC conversion (raw `isoStr + 'Z'`) for local-time pilots; close enough for debugging but not pixel-perfect.
+Full discovery history for the two dated sub-fixes above (reserve fold-in, quick-turn measurement point): `CLAUDE_HISTORY.md § "Here Now" / pilot location pins`.
 
 ### `inferAwayLayovers()` — synthetic away events
 
-Runs during `loadPilot()`. Walks all `type='flight'` segments (excluding `trip='PERSONAL'`). Between consecutive flights, if the arrival airport is:
-- Not the pilot's airline base
-- Not the pilot's home airport
-- And spans a midnight boundary (arrival day ≠ next departure day)
-
-…then inserts synthetic `{ type: 'away', arrivalAirport }` events for each day of the layover (arrival day through departure day inclusive). These events drive calendar "away" coloring but are NOT stored in the DB.
+Runs during `loadPilot()`. Walks all `type='flight'` segments (excluding `trip='PERSONAL'`). Between consecutive flights, if the arrival airport is not the pilot's airline base, not their home airport, and spans a midnight boundary — inserts synthetic `{ type: 'away', arrivalAirport }` events for each day of the layover. These drive calendar "away" coloring but are **not** stored in the DB.
 
 ### Off Days detection (`computeOffDays` / `renderCommonOffSection` / `renderOffDayCalendar`)
 
-A pilot is "off" on a date if they have **no** `flight`, `reserve`, or `ground` segments on that calendar date. Exception: `type='flight'` with `trip='PERSONAL'` is excluded from the "working" set (personal flights don't count as work days). Kyle's `type='hard'` and `type='vacation'` segments are both treated as confirmed off days.
+A pilot is "off" on a date if they have **no** `flight`, `reserve`, or `ground` segments on that calendar date. `trip='PERSONAL'` flights are excluded from the "working" set. Kyle's `type='hard'` and `type='vacation'` segments are both confirmed off days. Reserve windows mark every day in the window as "working" (local airport date, so UTC Kyle doesn't mismark). A date is "common off" when all selected pilots are simultaneously off.
 
-Reserve windows mark every day in the window as "working" (using local airport date so UTC Kyle doesn't accidentally mark wrong days).
-
-A date is "common off" when all selected pilots are simultaneously off.
-
-**Off Days tab UI:** two views toggled by the calendar icon in the filter bar:
-- **List view** (default) — `renderCommonOffSection()` — chronological rows grouped by date
-- **Calendar view** — `renderOffDayCalendar()` — month grid with colored name pills per off pilot in each cell. Amber cell = all selected off; green cell = majority off. Tapping a cell shows pilot status. On mobile the detail slides up as a bottom sheet; on desktop it renders inline below the calendar. Month navigation (`prevOffMonth` / `nextOffMonth`) is independent of the main calendar month. `_offDayView`, `_offDayYear`, `_offDayMonth`, `_offDaySelected`, `_offDayFilter` are the state variables.
+**Off Days tab UI**: List view (default, `renderCommonOffSection()`, chronological rows grouped by date) and Calendar view (`renderOffDayCalendar()`, month grid with colored name pills per off pilot — amber cell = all selected off, green = majority off; independent month nav via `prevOffMonth`/`nextOffMonth`). State: `_offDayView`, `_offDayYear`, `_offDayMonth`, `_offDaySelected`, `_offDayFilter`.
 
 ### Auto-sync schedule (server.js)
 
-ICS pilots (Drew, Logan, Sam, Adam who has ICS) and Kyle's Schedaero sync automatically at **06:00, 14:00, 22:00 UTC** daily. Implemented as a chained `setTimeout` (not cron). Schedaero keepalive pings every 20 minutes to keep the session alive between syncs.
+ICS pilots (Drew, Logan, Sam, Adam) and Kyle's Schedaero sync automatically at **06:00, 14:00, 22:00 UTC** daily — a chained `setTimeout`, not cron. Schedaero keepalive pings every 20 minutes between syncs.
 
 ### `buildGroundPeriods` — home city branch (`homeC`)
 
-When a pilot arrives at their **home city** (`homeCity`/`homeC`, distinct from their airline base):
-- Looks for the next departure FROM the home city (`nextFromArr`)
-- Looks for the next departure from their airline **base** (`nextFromBase`) — because a commuter flies to base before their next trip, and that base departure ends the "home" window
-- `groundEnd` = whichever of those is earlier, capped at arrival+8h if neither exists
-- This correctly handles: Adam lands TUL → home. His next event is a LGA departure (base), not a TUL departure. `nextFromBase` finds the LGA leg that starts his next trip.
+When a pilot arrives at their home city (distinct from their airline base): looks for the next departure from the home city (`nextFromArr`) AND the next departure from their airline base (`nextFromBase`, since a commuter flies to base before their next trip, ending the "home" window). `groundEnd` = whichever is earlier, capped at arrival+8h if neither exists. Example: Adam lands TUL → home; his next event is an LGA departure (base), found via `nextFromBase`, not a TUL departure.
 
 ### Personal/commute flight behavior
 
-- In `inferAwayLayovers`: **excluded** (`trip !== 'PERSONAL'`) — personal flights don't generate away events
-- In `buildGroundPeriods` `flights` array: **included** (type='flight') — they participate in the loop as normal departures/arrivals
-- In `buildGroundPeriods` `allDeps`: **included** — used to terminate ground periods at layover airports
-- In `computeOffDays` flying-day detection: **excluded** (`trip === 'PERSONAL'`) — personal travel doesn't make a day "working"
-- In `render()` calendar: personal/commute flights are rendered as their own color-coded type in the calendar grid
+- `inferAwayLayovers`: **excluded** (`trip !== 'PERSONAL'`).
+- `buildGroundPeriods` `flights` array: **included** — participates as a normal departure/arrival.
+- `buildGroundPeriods` `allDeps`: **included** — terminates ground periods at layover airports.
+- `computeOffDays` flying-day detection: **excluded** (`trip === 'PERSONAL'`) — doesn't make a day "working."
+- `render()` calendar: rendered as its own color-coded type.
 
-### RosterBuster ICS parser (`parseRosterBusterICS`, server.js) — emoji-prefix convention
+### RosterBuster ICS parser (`parseRosterBusterICS`, server.js) — `parser_type: 'ics_rosterbuster'`
 
-Drew's feed (`ics_rosterbuster`) uses a consistent emoji prefix per event type in `SUMMARY`: `✈️` = flight, `➡️ (DH)` = deadhead, `🛰` = reserve (e.g. `🛰 Long Call Reserve - LCR`). The parser matches on these prefixes and does `if (!match) continue` for anything else — **any future event type using a new prefix will be silently dropped**, not erred on, so if a pilot's schedule ever looks like it's missing days, check the raw ICS feed (`GET /api/pilots/:key/ics-url` → fetch that URL directly) for `SUMMARY` lines that don't match one of the three known prefixes before assuming the data itself is wrong.
-
-Found this exact way: reserve (`🛰`) support didn't exist until 2026-09-21 — Drew had 5 upcoming "Long Call Reserve" blocks that were completely invisible in CrewSync (not on the calendar, not in Off Days, not in Crossings) because they never made it past the flight-only match. Unlike the eCrew parser's `RESR`/`RAP` handling (which needs to parse the actual on-call window out of `DESCRIPTION`, since `DTSTART` there is duty/report time), RosterBuster's `DTSTART`/`DTEND` directly *are* the on-call window — verified against the raw feed before writing the fix, not assumed.
-
-**The trip-numbering pass after parsing only makes sense for flights.** It assigns synthetic sequential trip numbers (not real airline pairing IDs) by walking all events in departure-time order and bumping the counter on a new day's STL departure. Any non-flight event type added to this parser must be excluded from that loop (`trip` stays `null`) — otherwise it consumes a trip-number increment and shifts every subsequent flight's trip number. Reserve is already excluded; keep that pattern if training/vacation/etc. ever get added here too.
+Drew's feed uses a consistent emoji prefix per event type in `SUMMARY`: `✈️` = flight, `➡️ (DH)` = deadhead, `🛰` = reserve (e.g. `🛰 Long Call Reserve - LCR`). RosterBuster's `DTSTART`/`DTEND` directly *are* the on-call window for reserve (unlike eCrew's `RESR`/`RAP`, which needs the window parsed out of `DESCRIPTION`). **Any future event type using a new prefix is silently dropped** (`if (!match) continue`) — if a schedule looks like it's missing days, fetch the raw feed (`GET /api/pilots/:key/ics-url`) and check for unmatched `SUMMARY` lines before assuming the data is wrong. The post-parse trip-numbering pass only applies to flights — any new non-flight event type added here must stay excluded from it (`trip` stays `null`), same as reserve already is. History: `CLAUDE_HISTORY.md § RosterBuster ICS parser`.
 
 ### Delta "MiCrew" ICS parser (`parseDeltaMiCrewICS`, server.js) — `parser_type: 'ics_delta_micrew'`
 
-Added 2026-09-30, built against one real Delta pilot's published iCloud calendar (confirmed genuine via `X-APPLE-CREATOR-IDENTITY:com.delta.micrew.prod`), before he had a CrewSync account. **Structurally different from every other ICS source in this app: each `VEVENT` is an entire multi-day trip/pairing, not one flight leg.** `SUMMARY` is just a compact one-liner (e.g. `5086 LAX, MCO (1020-1539)`); the actual leg-by-leg itinerary lives as free text inside `DESCRIPTION`:
+Each `VEVENT` is an entire multi-day trip/pairing, not one leg — the real itinerary is free text inside `DESCRIPTION`:
 ```
 Rpt- 1020 01JUL
 DL673       ATL-LAX     11:15-12:53   3NE
 LAYOVER   16:37/LAX
-...
-Rpt- 0600 02JUL
-DL482       LAX-JAX     07:01-15:25   3NE
-DL482       JAX-MCO     16:26-17:18   3NE
 ```
-The parser walks each `DESCRIPTION` line-by-line, tracking a current calendar date that advances on each `Rpt-` line (report day) and rolls forward mid-leg if a leg's arrival clock time is numerically earlier than its departure (crossed midnight). Times in the description are already local to each leg's own airport, matching CrewSync's local-time storage convention directly — no timezone conversion needed for the *stored* departure/arrival strings, unlike the eCrew/RosterBuster parsers.
+Parser tracks a current calendar date that advances on each `Rpt-` line and rolls forward mid-leg on a crossed midnight. Times in `DESCRIPTION` are already local to each leg's airport — no conversion needed for storage, but **`blockMinutes` still needs real timezone math** (computed via `_aptTimezone`/`localTZToUTC`, never left `null` — a naive `new Date(arr)-new Date(dep)` on two local-time strings is silently wrong whenever a leg crosses timezones). Any new local-time-based parser must do the same.
 
-**`blockMinutes` still needs real timezone math even though storage doesn't.** The frontend's `calcBlockMins()` only computes a correct duration from stored local-time strings when both ends share a timezone (or the segment is manual, which gets its own airport-aware path) — for a normal synced segment it just does `new Date(arrivalTime) - new Date(departureTime)` on the two local strings directly, which is silently wrong by the UTC offset difference whenever a leg crosses timezones (most of this network). **Found live**: this originally shipped with every leg's `blockMinutes: null`, relying on that fallback, and produced wrong block times on real schedules (e.g. ATL→LAX) before being caught and fixed. The parser now computes real `blockMinutes` itself via `_aptTimezone[dep]`/`_aptTimezone[arr]` (the airport DB's IANA timezone, already loaded for other parsers) and `localTZToUTC()`, so a correct value is always stored and the frontend's naive fallback is never actually exercised. **Any new local-time-based parser must do the same** — don't leave `blockMinutes: null` for real flight legs and assume the frontend will compute it correctly; it won't, for any leg that changes timezone.
+**Leg-line prefix letters** (optional, before the carrier code, mandatory whitespace in the regex so `O` can't consume an unprefixed `OO3921`'s leading letter): `D `/`DD ` = deadhead on a Delta-numbered flight; `O ` = deadhead on another operator's metal (a Delta mainline pilot can never crew a regional partner's aircraft, so any `O`-prefixed leg is necessarily DH); `I ` = parsed as a normal working flight, not DH (likely instructor/IOE marker, unconfirmed — revisit if a report says otherwise); `G 0000` = ground transport (matched by its own `GROUND_RE` before `LEG_RE`, produces `type:'ground'`). Trailing equipment/tail field is optional — `tail` falls back to `''` when absent (some international legs have nothing after the time range).
 
-**That fix alone wasn't enough — `syncPilotICS()` was silently discarding `blockMinutes` on every write, insert or update.** Both its `INSERT INTO segments` and `UPDATE segments` calls hardcoded the `block_minutes` bind parameter to the literal `null` instead of `ev.blockMinutes`, for every pilot on direct ICS sync (not just these three parsers — this bug predates them). A parser could compute a perfectly correct value and it would still end up `null` in the database, because the write path threw it away before it ever reached SQLite. **Found live**: a pilot (Mark, Delta) re-synced after the parser fix shipped and still saw wrong block times — `GET /api/pilots/:key` showed `block_minutes: null` on exactly the affected segments, which is what exposed this. The upload-handler's own `INSERT` (a separate code path, `POST /:key/upload`) already did this correctly (`event.blockMinutes || null`) — only `syncPilotICS()` had the hardcoded-null bug. Fixed by changing both bind arrays to `ev.blockMinutes||null`. Verified against the real HTTP endpoint (not just the parser function) with a throwaway local test pilot: first sync (insert path) and a second sync of the same pilot (update path, matched by the `type|departureTime|departureAirport` key) both now persist the correct value. **Lesson: a parser returning the right data isn't the same as that data reaching the database — check the actual persisted row, not just the parser's return value, before calling a fix complete.**
+**Any unrecognized prefix or line shape silently drops that leg** (and anything depending on it, like the following layover) rather than erroring — check the raw feed and diff every leg-shaped `DESCRIPTION` line against the regex, across the pilot's entire feed history, before considering a gap fixed.
 
-**Leg-line prefix letters (optional, before the carrier code) — found by missing-data reports, not documentation, since none exists for this format:**
-- `D ` / `DD ` — deadhead on a Delta-numbered flight (e.g. `D DL1437`).
-- `O ` — deadhead riding another operator's metal, confirmed via real examples across two different pilots' feeds (`O OO3921`/`O OO4132`/`O OO4156`/`O OO3941`, all SkyWest/Delta Connection legs repositioning). Treated as DH with confidence: a Delta mainline pilot can never crew a regional partner's aircraft, so any `O`-prefixed leg on this feed is necessarily a deadhead regardless of which regional carrier's code follows.
-- `I ` — found on **every leg of an entire real multi-day pairing** (not an isolated repositioning leg), which doesn't fit the deadhead pattern at all. Parsed as a normal working flight (`dh: false`) rather than guessed as deadhead — likely an instructor/IOE-support marker, but unconfirmed. If a future report says an `I`-prefixed trip is actually a deadhead, revisit this.
-- `G 0000` is a different shape entirely, not a prefix in front of a real carrier code — `0000` is a placeholder flight number standing in for "no flight." It means ground transport between two airports in the same pairing (e.g. `G 0000  HPN-JFK  14:20-16:20`, a car/van leg bridging a deadhead-into-HPN with the next real departure from JFK) and is matched by its own `GROUND_RE` before `LEG_RE` ever sees the line, producing a `type: 'ground'` segment.
-- The three real letter-prefixes require mandatory whitespace after the letter in the regex (`(?:(DD|D|O|I)\s+)?`) so e.g. `O` can't accidentally consume the leading letter of an unprefixed `OO3921` operating-carrier code — the exact kind of regex trap that already bit this parser once (see the `DL`/`D` case below).
-- The trailing equipment/tail field is **optional**, not required — a handful of real legs (an international `DL156 JFK-ACC` with no equipment column at all) have nothing after the time range, and requiring `\s+(\S+)` there silently dropped those legs entirely. `tail` falls back to `''` when absent.
+**Non-flying days**: `SUMMARY` codes (`XX`, `PVAC`, `IOE`, `20TR`, etc.) are undocumented and vary — classification goes by keyword match on the *last line* of `DESCRIPTION` instead. Only `VACATION`- and `TRAINING`/`SIMULATOR`/`OPERATING EXPERIENCE`-keyword matches produce a segment (`vacation`/`training`); everything else (including `RESERVE DAY OFF`, `SICK`, `REST` variants, `SCC`, `OK TO RETURN TO FLYING`, `P/DR`, `ADJ`, `FULL`) is deliberately skipped, letting the day default to off.
 
-**Any future unrecognized prefix or line shape on a leg line will silently drop that leg (and anything that depends on it, like the following overnight layover) rather than erroring.** This is how the `O`-prefix, `I`-prefix, missing-equipment, and `G 0000` ground-leg gaps were all originally found: a pilot's schedule was missing specific days, and the fix each time was fetching the raw feed directly (`GET /api/pilots/:key/ics-url` → fetch that URL) and diffing every leg-shaped `DESCRIPTION` line against what the regex actually matches, not just eyeballing the parsed output. Do this same check across a pilot's *entire* feed history (not just the reported missing date) before considering a prefix-related fix complete — most of the gaps above were only found by doing exactly that scan after fixing an earlier one, not from the original bug report.
+**Reserve** (`SUMMARY` exactly `LC` or `SC`) — identified by the clean code, not keyword match; `DTSTART`/`DTEND` directly *are* the on-call window. No airport given — falls back to `pilot.base` (same fallback the VCS parser's bare `RE` blocks use).
 
-**Non-flying days use short, undocumented codes** (`SUMMARY` like `XX`, `PVAC`, `IOE`, `20TR`) whose actual meaning is the *last line* of `DESCRIPTION` (e.g. `RESERVE DAY OFF`, `PRIMARY VACATION DAY`, `INITIAL OPERATING EXPERIENCE`, `320 TRAINING DAY`). Non-reserve, non-flying days are classified by keyword match on that text, not the code — the codes aren't documented anywhere accessible and vary a lot (payroll adjustments, personal drops, sim periods, parental leave, death in family, etc.). Only `VACATION`- and `TRAINING`/`SIMULATOR`/`OPERATING EXPERIENCE`-keyword matches produce a segment (`vacation`/`training` respectively); **everything else is skipped entirely except reserve (below), including `RESERVE DAY OFF` and `RESERVE GOLDEN OFF DAY`** — both are days OFF from reserve, not on-call days, so storing them as `reserve` segments would have been wrong. Also skipped (and confirmed intentionally, not yet-another gap): `SICK`, `REST`/`Pilot ... Rest`/`DESIGNATED REST`/`SUCCEEDING AUTO REST`, `SCC` (Short Call Credit), `OK TO RETURN TO FLYING`, `P/DR` (Personal Drop on a Reserve Day), `ADJ` (Pay Adjustment), `FULL` (Pilot Finished for the Month) — none of these represent working time, so leaving them unsegmented and letting the day default to "off" (no segment present) is correct, matching how `RESERVE DAY OFF` already worked.
-
-**Reserve (on-call) detection, added 2026-09-30 against a second real feed that actually had reserve history** (the first pilot's feed this parser was originally built from had none, going back to 2023 — see git history for that original deferral). Reserve is identified by `SUMMARY` being exactly `LC` (Pilot Long Call) or `SC` (Short Call) — **not** by keyword-matching `DESCRIPTION` like the other non-flying markers, since `LC`/`SC` is a clean, stable code. Unlike the non-flying full-day markers, these events' `DTSTART`/`DTEND` carry a real sub-day window that directly **is** the on-call period — confirmed by cross-referencing the raw feed: every `LC` block is immediately followed, starting the very next minute, by a `Pilot ... Rest` marker once the window lapses, which only makes sense if the preceding window really was "available to be called." No airport is given on these events (no `LOCATION` field exists anywhere in this ICS format); the upload/sync handler's existing fallback (fill `departureAirport`/`arrivalAirport` from `pilot.base` when a `reserve` event has none — the same fallback the VCS parser's bare `RE` blocks already rely on) handles it without any parser-side change needed.
-
-Wired identically to the RosterBuster parser: `parser_type = 'ics_delta_micrew'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`AIRLINE_OPTIONS` in app.html, `icao: 'DAL'`) which shows the generic ICS URL field. One Delta-specific wrinkle: iCloud publishes these as `webcal://` links — `syncPilotICS()` normalizes that to `https://` before fetching, since Node's `fetch` doesn't understand the `webcal` scheme.
+iCloud publishes these as `webcal://` — `syncPilotICS()` normalizes to `https://` before fetching. Dispatches via `AIRLINE_OPTIONS`'s `icao: 'DAL'` entry. History: `CLAUDE_HISTORY.md § Delta "MiCrew" ICS parser`.
 
 ### American Airlines "MobileCCI" ICS parser (`parseAmericanICS`, server.js) — `parser_type: 'ics_american'`
 
-Added 2026-10-01, built against one real pilot's export (`PRODID:-//American Airlines//MobileCCI//EN`). **Much simpler shape than Delta/RosterBuster/eCrew: one `VEVENT` per flight LEG, not a whole pairing.**
+One `VEVENT` per flight leg (simpler than Delta/RosterBuster/eCrew):
 ```
 UID:FLT-1791211500@mobilecci
-DTSTART:20261005T104500
-DTEND:20261005T130500
-SUMMARY:FLT 478
 DESCRIPTION:SEQ#: 10195\nFlight#: 478\nStations: PHL→PHX\nLocal Time: ...\nUTC Time: ...
 ```
-`DTSTART`/`DTEND` have no `Z` or `TZID` but are confirmed **already local** (departure-airport-local for `DTSTART`, arrival-airport-local for `DTEND`), verified by checking they match `DESCRIPTION`'s "Local Time" field exactly rather than its "UTC Time" field for the same leg — no timezone conversion needed, matching CrewSync's storage convention directly like the Delta parser.
+`DTSTART`/`DTEND` have no `Z`/`TZID` but are already local (dep-airport-local / arr-airport-local — confirmed against `DESCRIPTION`'s "Local Time" field). A `Layover-*` VEVENT type is purely informational and skipped (CrewSync computes layovers itself). Real legs identified by `UID` starting `FLT-`. `SEQ#`→`trip`, `Flight#`→flight number (prefixed `AA`, since the feed has no carrier letter), `Stations: DEP→ARR` (unicode `→`, matched loosely). `blockMinutes` computed via `_aptTimezone`/`localTZToUTC`, never `null`.
 
-A second `VEVENT` type, `UID:Layover-*` (`SUMMARY: Layover in XXX`), is purely informational and is skipped — CrewSync already computes layovers itself via `buildGroundPeriods`/`inferAwayLayovers`, so storing these too would be redundant. The parser identifies real legs by `UID` starting with `FLT-`; anything else (currently just `Layover-*`) is skipped.
-
-Fields taken from `DESCRIPTION`: `SEQ#` → `trip` (pairing number), `Flight#` → flight number (prefixed `AA` since the feed itself never includes a carrier letter code), `Stations: DEP→ARR` → departure/arrival airports (unicode `→`, matched loosely in case the separator ever varies).
-
-`blockMinutes` is computed via `_aptTimezone`/`localTZToUTC` (same as Delta's parser — see its "still needs real timezone math" note above), not left `null`. `DTSTART`/`DTEND` are already `YYYYMMDDTHHMMSS` with no reformatting needed before passing to `localTZToUTC`.
-
-**Not seen in the one feed this was built against, so NOT handled — don't guess, get a real example first (same reasoning as the Delta parser's original reserve deferral):** deadhead legs (no example had one, and it's unclear what would mark it — not even an `I`/`D`/`O`-style prefix exists in this format since each VEVENT is already a single leg with no shared prefix line), reserve/on-call days, vacation/training/sick/any other non-flying marker, and equipment/tail number (never present in `DESCRIPTION` here). If a pilot using this parser reports a missing day or an obviously-wrong deadhead flag, the fix is the same pattern used throughout this file: fetch the raw feed directly and read what's actually there rather than assuming it matches another airline's convention.
-
-Wired identically to the Delta parser: `parser_type = 'ics_american'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`icao: 'AAL'`) and the join flow's company selector, both showing a "MobileCCI ICS URL" field.
+**Not seen in the one feed this was built against, so not handled — get a real example before guessing**: deadhead legs, reserve/vacation/training/sick markers, equipment/tail number. Dispatches via `icao: 'AAL'`. History: `CLAUDE_HISTORY.md § American Airlines "MobileCCI" parser`.
 
 ### Southwest Airlines "CrewHub BYO" ICS parser (`parseSouthwestICS`, server.js) — `parser_type: 'ics_southwest'`
 
-Added 2026-10-01, built against one real pilot's export (`X-APPLE-CREATOR-IDENTITY:com.swalife.crewhub`, DESCRIPTION footer "Synced from CrewHub BYO"). **Structurally like the Delta MiCrew parser — each `VEVENT` is a whole multi-day trip, not one leg** — but with two differences:
-1. `LOCATION` gives the trip number directly (`Trip: DA9X`) — no need to pull it from `SUMMARY` like Delta.
-2. **Every leg's departure/arrival time carries its own timezone abbreviation** (`CDT`/`EDT`/`MDT`/...), unlike Delta's bare `HH:MM-HH:MM` with no zone marker:
+Like Delta's MiCrew parser (whole multi-day trip per `VEVENT`), but `LOCATION` gives the trip number directly (`Trip: DA9X`), and **every leg's time carries its own timezone abbreviation** (`CDT`/`EDT`/`MDT`/...):
 ```
-Mon Oct 19
-Report 06:20 CDT
 3617 DAL 07:20 CDT   DCA 11:10 EDT
 1513 DCA 11:50 EDT   MSY 13:40 CDT
-Duty 7:50 Block 5:40 Credit 6.70
-Layover 15hr 25m
-...
-Totals: Duty 21:45 Block 15:30 Credit 20.30
 ```
-Southwest's trips routinely cross multiple zones in a single leg (`CDT`→`EDT` on one hop above), so Delta's naive "did the clock go backwards" rollover check isn't reliable here — a short hop landing numerically "earlier" by wall-clock isn't necessarily an overnight. Instead this parser converts each endpoint to real UTC via a fixed abbreviation→offset table (the abbreviation itself already encodes DST, so no IANA timezone lookup is needed) and compares **in UTC** to decide whether a leg's arrival falls on the next calendar day, then re-localizes to the arrival airport's own date for the next leg's baseline. The stored times are still the given local `HH:MM` values directly — UTC is only an intermediate used to get the *date* right, never written to the segment.
+Because a single leg can cross zones, the parser converts each endpoint to real UTC via a fixed abbreviation→offset table (no IANA lookup needed — the abbreviation already encodes DST) and compares *in UTC* to decide date rollover; stored times remain the given local `HH:MM` values. `DTSTART;VALUE=DATE`/`DTEND;VALUE=DATE` anchor the trip's start/end date directly.
 
-`DTSTART;VALUE=DATE`/`DTEND;VALUE=DATE` give the trip's overall start/end calendar date directly (just `YYYYMMDD`, no time) — used as the real anchor for the first day header, which is more solid than Delta's situation (no year-guessing needed), though month-rollover tracking across a long trip is kept for safety, same pattern as Delta.
+**Two skip cases**: `RPRT ...` (same-airport report marker, filtered by its leading token not being purely numeric — real flight numbers are bare digits) and a blank-time equipment-swap artifact row (skipped automatically since the leg regex requires real `HH:MM` digits; a second, real row for the same flight number follows and parses fine). **Deadhead detection NOT built** — a trailing `D`/`P`/`M`/`A` letter on the duty-day summary line is attached to the whole day, not one leg, so it's ambiguous; don't guess. `GDO` ("Guaranteed Day Off") is its own single-day VEVENT with no legs, skipped entirely. `blockMinutes = Math.round((arrUTC-depUTC)/60000)` using the already-computed UTC instants. Dispatches via `icao: 'SWA'`. History: `CLAUDE_HISTORY.md § Southwest Airlines "CrewHub BYO" parser`.
 
-**Two skip cases found and handled, both from one real trip in the sample feed:**
-- `RPRT TPA 06:30 EDT   TPA 06:30 EDT` — a same-airport, non-flight "report" marker. Skipped because the leading token (`RPRT`) isn't purely numeric — real Southwest flight numbers are bare digits with no carrier letters, so a numeric-only check on the leading token cleanly filters this out without needing a same-airport special case.
-- `4202 MCO  EDT   MCO  EDT` immediately followed by a second `4202 MCO 19:36 EDT   DAL 21:17 CDT` — the first row has **blank times** (likely an equipment-swap artifact) and is skipped automatically since the leg regex requires real `HH:MM` digits at both ends; only the second, real row produces a segment.
+### Parser warnings (American + Southwest only, so far)
 
-**Deadhead detection was NOT built.** The per-duty-day summary line sometimes carries a trailing letter (`D`/`P`/`M`/`A`, e.g. `Credit 7.68  D`), and `D` plausibly means deadhead, but it's attached to the **whole day's duty period**, which can span several legs — marking every leg that day as DH would likely be wrong as often as right. Don't guess here; wait for a real example that disambiguates which specific leg within a "D" day is the deadhead.
+`parseAmericanICS`/`parseSouthwestICS` return `{ events, warnings }` instead of a bare array — `warnings` is a list of plain-English strings for anything skipped because it didn't match a known shape. Every other parser still returns a bare array; this is deliberately scoped to just these two, not a system-wide refactor (extending it to Delta/RosterBuster/eCrew would be reasonable, not done).
 
-**`GDO` ("Guaranteed Day Off") is its own single-day `VEVENT`** (`LOCATION:GDO`, not `Trip:...`), with no flight legs — skipped entirely, same treatment as Delta's `RESERVE DAY OFF`: the day defaults to off via the absence of any segment, nothing needs to be stored.
+`pilots.parser_warnings` (TEXT, JSON array) stores the most recent parse's warnings — **overwritten every parse, never accumulated** — from both the upload handler and `syncPilotICS()`. Upload/sync responses include `warnings` directly. **Admin-only**: `renderAdminUserList()` shows an amber "⚠ N unrecognized items" badge (`showParserWarnings()` → `alert()`); upload/sync success toasts also surface a count, gated behind `myPilot === null && !myViewer` (true admin, not a viewer, since a viewer also has `myPilot===null`).
 
-`blockMinutes` is `Math.round((arrUTC - depUTC) / 60000)`, reusing the real UTC instants already computed above for date-rollover (see Delta's "still needs real timezone math" note) — no extra airport-timezone lookup needed here since the per-leg `TZ_OFFSET` abbreviation already gives real UTC directly.
-
-Wired identically to the Delta/American parsers: `parser_type = 'ics_southwest'` dispatches in both the upload handler and `syncPilotICS()`; selectable via the admin panel's airline dropdown (`icao: 'SWA'`) and the join flow's company selector, both showing a "CrewHub ICS URL" field.
-
-### Parser warnings — flagging unrecognized schedule items (American + Southwest only, so far)
-
-Both of these parsers were built against exactly one real feed each, which inevitably means they don't cover every event type or line shape that airline's export can produce (deadheads, reserve, a new timezone abbreviation, a malformed leg line, etc.). Rather than let an unrecognized item vanish silently and wait for someone to notice a day is missing, `parseAmericanICS`/`parseSouthwestICS` return `{ events, warnings }` instead of a bare array — `warnings` is a list of plain-English strings describing anything skipped because it didn't match a known shape (an unrecognized `UID`/`LOCATION` type, an unrecognized timezone abbreviation, a line that looks like it's trying to be a flight leg but doesn't parse). Every other parser in this file still returns a bare array — this is deliberately scoped to just these two, not a system-wide refactor.
-
-**Where warnings go:**
-- `pilots.parser_warnings` (TEXT column, db.js) stores the most recent parse's warnings as a JSON array — **overwritten every parse, never accumulated**, both from the upload handler and `syncPilotICS()` (so an unattended auto-sync still records findings even with no one watching).
-- The upload (`POST /:pilotKey/upload`) and sync (`POST /:pilotKey/sync-ics`, and `syncPilotICS()`'s return value generally) responses also include `warnings` directly, for immediate feedback right after a manual action.
-- **Admin-only, by design — regular pilots and viewers never see this.** `app.html`'s admin Users list (`renderAdminUserList`) shows an amber "⚠ N unrecognized items" badge on any pilot whose `parser_warnings` is non-empty, tappable (`showParserWarnings()`) to see the full list via `alert()`. The upload/sync success toasts in `handleUpload()`, `handleMobileUpload()`, and `syncGenericICS()` also surface a warning count immediately — gated behind `myPilot === null && !myViewer` (true admin only, not just "no pilot identity" since a viewer also has `myPilot === null`) since a pilot uploading their own schedule has no need to know their deadhead/reserve detection is incomplete; that's an admin/developer concern until a parser fix ships.
-
-**Known, already-understood warning** (not a new gap, don't re-investigate it as one): Southwest's sample feed always flags `Trip "DP36": line looked like a flight leg but didn't match the expected format: "4202 MCO  EDT   MCO  EDT"` — this is the documented blank-time equipment-swap artifact (see the Southwest section above), immediately followed by a second real `4202` row that parses fine. Expected noise for that specific trip, not a sign of broken parsing.
-
-If this pattern proves useful, extending it to the other parsers (Delta, RosterBuster, eCrew) that currently also silently skip unrecognized lines would be a reasonable next step — not done yet, scope this out explicitly before doing it rather than assuming it's wanted everywhere.
+**Known, already-understood warning** (not a bug to re-investigate): Southwest's sample feed flags `Trip "DP36": line looked like a flight leg but didn't match...` for the documented blank-time equipment-swap artifact — expected noise. History: `CLAUDE_HISTORY.md § Parser warnings system`.
 
 ### `pilotsCache` invalidation
 
-`pilotsCache[key]` is set once per page load (or after upload/sync). The "Refresh" button on Crossings calls `computeOverlap()` but does **not** clear the cache — it re-runs `buildGroundPeriods` on cached data. A stale cache can make crossings appear wrong even after a schedule fix. To force-refresh: reload the page.
+`pilotsCache[key]` is set once per page load (or after upload/sync). The Crossings "Refresh" button calls `computeOverlap()` but does **not** clear the cache — it re-runs `buildGroundPeriods` on cached data. A stale cache can make crossings appear wrong even after a schedule fix. To force-refresh: reload the page.
 
 ---
 
@@ -495,11 +354,11 @@ Moving the filter bar inside the scroll container breaks iOS horizontal scroll (
 
 ## Touch gesture system
 
-Two swipe handlers are registered in `setupGestures()` (~line 1640):
+Two swipe handlers registered in `setupGestures()` (~line 1640):
 
-**Calendar / List month swipe** — listens on the main content element. Horizontal swipe (|dx| > 60, more horizontal than vertical by 1.8×) → changes month. Only fires on calendar/list views.
+**Calendar / List month swipe** — main content element. Horizontal swipe (|dx| > 60, more horizontal than vertical by 1.8×) → changes month. Calendar/list views only.
 
-**Overlap tab swipe** — listens on `#view-overlap`. Same thresholds. Swipe left → Off Days tab; swipe right → Crossings tab. **Critical:** ignores touches that originate inside `#offday-filter-bar` (`e.target.closest('#offday-filter-bar')`) — otherwise scrolling the pilot chips left triggers a tab switch.
+**Overlap tab swipe** — `#view-overlap`. Same thresholds. Swipe left → Off Days; swipe right → Crossings. **Critical:** ignores touches originating inside `#offday-filter-bar`:
 
 ```js
 overlapEl.addEventListener('touchstart', e => {
@@ -517,14 +376,7 @@ overlapEl.addEventListener('touchend', e => {
 
 ## Splash screen (`#splash-screen`)
 
-Defined in `app.html` around line 360. Full-screen overlay shown while the app initialises; fades out once identity is resolved.
-
-- Logo: `<img class="splash-plane" src="/icon.svg">` — the CrewSync plane icon (72×72, rounded, floating animation). Was previously a `✈️` emoji — don't revert.
-- Title: "CrewSync" in blue bold italic
-- Subtitle: "Crew Scheduling"
-- Three pulsing blue dots as loading indicator
-- CSS classes: `.splash-plane`, `.splash-title`, `.splash-sub`, `.splash-dots`, `.splash-dot`
-- Dismissed by adding `splash-hide` (fade) then `splash-gone` (display:none)
+`app.html` ~line 360. Full-screen overlay while the app initializes; fades out once identity is resolved. Logo: `<img class="splash-plane" src="/icon.svg">` (72×72, rounded, floating animation — not an emoji, don't revert). Title "CrewSync", subtitle "Crew Scheduling", three pulsing blue dots. Dismissed via `splash-hide` (fade) then `splash-gone` (display:none). Repurposed for identity-resolution failure: `_showIdentityError()` shows red subtitle text + a Retry button instead of proceeding with an unresolved identity.
 
 ---
 
@@ -532,23 +384,18 @@ Defined in `app.html` around line 360. Full-screen overlay shown while the app i
 
 | File | Usage |
 |---|---|
-| `public/icon.svg` | App icon — dark navy bg, white plane pointing NE. Used in: splash screen, crew roster header, browser favicon |
+| `public/icon.svg` | App icon — dark navy bg, white plane pointing NE. Splash screen, crew roster header, favicon |
 | `public/icon-192.png` | PWA manifest icon (192×192) |
 | `public/icon-512.png` | PWA manifest icon (512×512) |
 | `public/apple-touch-icon.png` | iOS home screen icon |
 
-When adding the logo anywhere, use `<img src="/icon.svg">` with `border-radius` to match the rounded-square style. Don't use emoji or generic plane glyphs.
+Use `<img src="/icon.svg">` with `border-radius` to match the rounded-square style for any new logo placement. Don't use emoji or generic plane glyphs.
 
 ---
 
 ## Crew roster page (`/crew-roster`)
 
-Server-side HTML rendered in `server.js` around line 2068. Protected by `rosterAuth` middleware (password from env). Only accessible to admin.
-
-**Per-pilot card shows:**
-- Initials avatar (viewers get 👁 emoji, blue bg)
-- Name, pilot_key, base, home_airport
-- Last active timestamp + colored dot indicator
+Server-side HTML in `server.js` (~line 2068). Protected by `rosterAuth` middleware (password from env), admin only. Per-pilot card: initials avatar (viewers get 👁, blue bg), name/pilot_key/base/home_airport, last-active timestamp + colored dot.
 
 **Last-active color scale:**
 
@@ -561,31 +408,53 @@ Server-side HTML rendered in `server.js` around line 2068. Protected by `rosterA
 | > 1 week | `#ef4444` red | `Jun 15` |
 | Never | `#52525b` gray | `Never` |
 
-`last_active` is updated in the DB whenever a pilot loads the app (set via `PUT /api/pilots/:key` or directly in the auth flow). The `fmtActive()` and `activeColor()` helpers live inside the route handler in server.js.
+`last_active` updates whenever a pilot loads the app. `fmtActive()`/`activeColor()` live inside the route handler.
+
+There's also a NetJets-specific lookup sub-page, `/crew-roster/netjets-lookup` — see "NetJets manual tracking" below.
 
 ---
 
 ## API endpoints (server.js)
 
 ```
-GET  /api/pilots                          all pilots
-GET  /api/pilots/:key                     pilot + all segments (snake_case keys)
-POST /api/pilots/:key/upload              upload schedule file
-DELETE /api/pilots/:key/segments          clear all non-manual segments
-POST /api/pilots/:key/add-segment         add manual segment
-PUT  /api/pilots/:key/segments/:id        edit segment
-DELETE /api/pilots/:key/segments/:id      delete segment
-PUT  /api/pilots/:key                     update pilot profile (base, home_airport, etc.) — token required; admin or self only, self can't touch role
+GET  /api/pilots                          all pilots — admin-gated (token required, pilot_key==='admin')
+GET  /api/pilots/:key                     pilot + all segments — token required, friend-gated
+GET  /api/pilots-directory                non-admin-gated directory listing (no token column)
+POST /api/pilots/:key/upload              upload schedule file — token required, admin-or-self
+DELETE /api/pilots/:key/segments          clear all non-manual segments — token required, admin-or-self
+POST /api/pilots/:key/add-segment         add manual segment — token required, admin-or-self
+PUT  /api/pilots/:key/segments/:id        edit segment — token required, admin-or-self
+DELETE /api/pilots/:key/segments/:id      delete segment — token required, admin-or-self
+PUT  /api/pilots/:key                     update pilot profile — token required; admin or self only, self can't touch role
 DELETE /api/pilots/:key                   delete pilot + segments — token required, admin only
 POST /api/pilots/:key/regenerate-token    reissue login token — token required, admin only
-POST /api/pilots/:key/sync-ics            trigger ICS sync
+POST /api/pilots/:key/sync-ics            trigger ICS sync — token required, admin-or-self
+GET  /api/pilots/:key/ics-url             get stored ICS URL — token required, admin-or-self
 POST /api/pilots/kyle/sync-schedaero      full Schedaero sync (Kyle only)
 POST /api/pilots/kyle/quick-sync-schedaero  quick sync (Kyle only)
-GET  /api/pilots/:key/ics-url             get stored ICS URL
 POST /api/early-landing                   report early landing
-GET  /api/live-position                   ADS-B position for active corporate flights
+GET  /api/live-position                   live position for one callsign (SWIM/STDDS/ADS-B, accepts ?origin=)
+GET  /api/flight-status                   batched live/airborne/parked/times for several callsigns (accepts ?origins=)
+GET  /api/friends                         my friends + pending incoming/outgoing
+POST /api/friends/request                 send friend request (auto-accepts on mutual-simultaneous)
+POST /api/friends/respond                 accept/decline incoming request
+DELETE /api/friends/:key                  unfriend
+POST /api/friends/seed                    one-time crew→friends migration
+GET  /api/crew-visibility / PUT ...       read/write caller's hidden_crew
+GET  /api/admin/friends/:pilotKey         admin: any pilot's friends/incoming/outgoing
+POST /api/admin/friends / DELETE ...      admin: directly assign/remove a friendship
+GET  /api/intel / POST / PUT /:id / DELETE /:id / POST /:id/vote
+GET  /api/notifications / PATCH /read
+GET  /api/push/vapid-key / POST /api/push/subscribe
+PUT  /api/pilots/:key/rotation            NetJets duty rotation (admin-or-self)
+PUT  /api/pilots/:key/tour-tail           NetJets per-tour tail + start airport (admin-or-self)
 GET  /api/health                          health check
 GET  /admin/users                         admin user management page
+GET  /api/pilots/:key/here-now            debug: HERE-NOW priority-chain reimplementation
+GET  /api/debug/tfdm/:callsign            debug: raw TFDM state for a callsign
+GET  /api/debug/tfms-aptc/:code           debug: raw TFMS APTC state for an airport
+GET  /api/debug/origin-state/:callsign    debug: airborne/parked evidence + flight_log rows
+GET  /api/debug/seed-route                debug: inject a test route onto a tracked flight
 ```
 
 ---
@@ -594,13 +463,14 @@ GET  /admin/users                         admin user management page
 
 | Key | Name | Base | Home |
 |---|---|---|---|
-| kyle | Kyle Kaestner | KSUS | SUS (corporate, Part 91/135) |
+| kyle | Kyle Kaestner | KSUS | SUS (corporate, Part 91/135, SpiritJets/Schedaero) |
 | adam | Adam Burke | LGA | TUL (SkyWest regional) |
 | sam | Sam Byrne | LGA | STL (SkyWest regional) |
 | logan | Logan Hine | SFO | PHX (SkyWest regional) |
 | drew | Drew Sinelli | STL | STL (SkyWest regional) |
+| mack | Mack Kraus | DFW | DFW (NetJets, manual tracking — see below) |
 
-Additional pilots can join via `/join`. Every pilot's `home_airport`, `base`, `parser_type`, `airline_code`, `role`, and `color` come from the DB (`pilots` table) and are loaded into `PILOT_KEYS`/etc by `_syncPilotRoster()` uniformly — there's no longer a separate hardcoded list for these 5 vs. everyone else; see "Pilot roster is fully DB-driven" above.
+Additional pilots can join via `/join`. Every pilot's `home_airport`, `base`, `parser_type`, `airline_code`, `role`, and `color` come from the DB (`pilots` table) and are loaded into `PILOT_KEYS`/etc by `_syncPilotRoster()` uniformly — see "Pilot roster is fully DB-driven" below.
 
 ---
 
@@ -619,18 +489,14 @@ process.stdin.on('end',()=>{
 "
 ```
 
-**Simulate buildGroundPeriods in Node (times treated as UTC in Node — offsets cancel in comparisons but absolute values differ from browser):**
-Copy the function from app.html, feed it prod segments, look for periods >48h.
+**Simulate buildGroundPeriods in Node** (times treated as UTC in Node — offsets cancel in comparisons but absolute values differ from browser): copy the function from app.html, feed it prod segments, look for periods >48h.
 
 **Crossings 1153h-style bugs — common causes:**
-1. Old `recentArr` used as groundStart for a new trip (pilot returned to same airport weeks later) — fixed by the `useRecentArr` other-airport check
-2. `nextFromArr` finding next trip from layover airport weeks later when pilot went home without logging commute — fixed by `wentHome` detection
-3. Missing personal/commute in `allDeps` (verify `allDeps` filter includes all types)
+1. Old `recentArr` used as groundStart for a new trip — fixed by the `useRecentArr` other-airport check.
+2. `nextFromArr` finding next trip from layover airport weeks later when pilot went home without logging commute — fixed by `wentHome` detection.
+3. Missing personal/commute in `allDeps` (verify the filter includes all types).
 
-**Map debugging — always identify which render function:**
-- `renderMap()` — single pilot month
-- `renderDayMap()` — all pilots on one day
-- `renderAllPilotsMap()` — all pilots month
+**Map debugging — always identify which render function:** `renderMap()` (single pilot month), `renderDayMap()` (all pilots one day), `renderAllPilotsMap()` (all pilots month).
 
 UTC/local date skew is common: segments stored in local time, `new Date()` in browser uses local time, but comparisons to `new Date()` (now) need care around midnight.
 
@@ -638,73 +504,42 @@ UTC/local date skew is common: segments stored in local time, `new Date()` in br
 
 ## Calendar grid rendering (`render()` → grid branch)
 
-`render()` (~line 5937) rebuilds whichever view is active. It does **not** fetch — call `loadPilot()` to refresh from server first.
+`render()` (~line 5937) rebuilds whichever view is active. It does **not** fetch — call `loadPilot()` first.
 
 **Grid mode logic per calendar cell:**
+1. Walks every day in the month; filters `segments[]` by **local** departure/arrival date (`flightLocalDate()`, not raw JS date). Classifies: Hard Off > Vacation > Flying > Reserve > Away (inferAwayLayovers) > personal-away > Off.
+2. Border/background: `border-red-600 bg-red-700/80` Hard Off; `border-blue-500/30 bg-blue-500/10` Flying; `border-amber-400/30` Reserve; `border-yellow-500/40 bg-yellow-900/20` Away layover.
+3. Flight items sorted chronologically; data attributes `data-dep-time`, `data-arr-time`, `data-tail`, `data-trip`, `data-flight`, `data-live-callsign`.
+4. Active flights (`isFlightStillActive()`, see "TFDM delay insight" below): `active-leg` class + `data-live-callsign` for `startCalListLivePolling()`.
+5. After render: `attachTooltips()` wires hover tooltips; `startCalListLivePolling()` starts polling.
 
-1. Walks every day in the month. For each day (`dateKey = YYYY-MM-DD`):
-   - Filters `segments[]` for events whose **local** departure or arrival date matches (uses `flightLocalDate()`, not raw JS date).
-   - Classifies the day: Hard Off > Vacation > Flying > Reserve > Away (from inferAwayLayovers) > personal-away > Off.
-2. **Border/background** set by classification:
-   - `border-red-600 bg-red-700/80` — Hard Off
-   - `border-blue-500/30 bg-blue-500/10` — Flying
-   - `border-amber-400/30` — Reserve (On Call)
-   - `border-yellow-500/40 bg-yellow-900/20` — Away layover
-3. Within each cell, flight items sorted chronologically. Each flight item stores data attributes (`data-dep-time`, `data-arr-time`, `data-tail`, `data-trip`, `data-flight`, `data-live-callsign`).
-4. **Active flights** (depMs ≤ now ≤ arrMs): get `active-leg` class (green border pulse) and `data-live-callsign` attribute that `startCalListLivePolling()` picks up.
-5. After grid renders: `attachTooltips()` wires hover tooltips. `startCalListLivePolling()` starts ADS-B polling for any cells with `data-live-callsign`.
+**Mobile grid:** compact cells (52–96px), text-only flight pills, status pills hidden.
 
-**Mobile grid:** CSS overrides at line ~76 make cells compact (52–96px tall). Flight pills are shown text-only with route; status pills hidden.
+**Perf rule — never accumulate `innerHTML +=` in the day loop.** Build a local string, assign to `innerHTML` once after the loop (history: `CLAUDE_HISTORY.md § Calendar grid rendering`).
 
-**Perf gotcha — never accumulate `innerHTML +=` in the day loop.** Both the grid and list loops used to build their container's HTML with `gridContainer.innerHTML += html` (and same for `listContainer`) inside the per-day loop. Each `+=` re-serializes and re-parses the *entire* accumulated HTML from scratch, making the loop O(n²) over ~30–42 days — this was the cause of a reported lag when swiping between months on mobile, since every swipe triggers a full `render()`. Fixed by accumulating into a local `gridHtml`/`listHtml` string and assigning to `innerHTML` exactly once after the loop. If you ever touch these loops, keep it that way — reintroducing per-iteration `innerHTML +=` will silently reintroduce the lag.
+**Auto-scroll to a live leg.** Grid branch scrolls any `.flight-item.active-leg` into view (`block: 'nearest'`) after rendering, deferred to `requestAnimationFrame` (must be deferred — see history).
 
-**Auto-scroll to a live leg (2026-10-01).** A day with several legs could load with the active one scrolled out of view, hidden below earlier legs in that cell's own `.overflow-y-auto` scroll (e.g. the third leg of a pilot's day being live but scrolled below the first two). `render()`'s grid branch now scrolls any `.flight-item.active-leg` into view (`block: 'nearest'`, so it scrolls just that cell's internal list, not the page) after rendering — same pattern already used for scrolling list view to today's row (`.day-today`). **Must be deferred to `requestAnimationFrame`**: calling `scrollIntoView` synchronously right after the `innerHTML` assignment measures against a layout the browser hasn't actually committed yet (the cell's scrollable height isn't settled), so it silently does nothing — confirmed live, this exact mistake shipped first and had to be fixed in a follow-up commit.
-
-**Overnight/red-eye indicator across two grid cells (2026-10-01).** A flight whose local departure and arrival dates differ (red-eyes, or any leg simply landing just past midnight) already appeared on both the departure day's cell and the arrival day's cell — the day-cell filter (`dayEvents`, step 1 above) already matches on local arrival date too, not just departure, so this wasn't new. But nothing distinguished the two entries from an unrelated flight. Each side now gets a 🌙 marker next to the route line, with `data-redeye="dep"` / `data-redeye="arr"` on the `.flight-item` telling `attachTooltips()` which explanation to fold into the *existing* custom hover tooltip ("Overnight — arrives the next day" / "departed the previous day"). **Don't use a native `title=` attribute for this or anything else on `.flight-item`** — confirmed live, it visibly collides with the custom tooltip (`attachTooltips()`'s own `onEnter`/`showTooltip()`), stacking a browser tooltip on top of the app's dark popup. Scoped to the monthly grid only — list view and the day-detail sheet aren't split across separate cells the same way, so the ambiguity doesn't apply there.
-
-**Same marker extended to reserve shifts that cross midnight (2026-10-11).** A reserve block starting late and ending after midnight only ever showed on its start day's cell — the `dayEvents` filter's arrival-day branch only matched `type==='flight'`, so an overnight on-call shift never appeared on its end day at all, unlike a red-eye flight which already splits across both cells per the fix above. Widened that filter to also match `type==='reserve'`, and added the same 🌙 marker + `data-redeye` attribute to the reserve-item block and its tooltip (worded for an on-call shift — "started the previous day" / "continues into the next day" — rather than a flight). Same scoping as the flight version: grid view only.
+**Overnight/red-eye indicator (grid only).** A flight whose local dep/arr dates differ gets a 🌙 marker on both day cells, with `data-redeye="dep"`/`"arr"` feeding a custom tooltip explanation. **Never use a native `title=` on `.flight-item`** — it visibly collides with the custom tooltip. Extended to reserve shifts that cross midnight (same marker, worded for an on-call shift). Scoped to the monthly grid only.
 
 ---
 
 ## List view rendering (`render()` → list branch)
 
-`render()` list branch iterates every day in the month. For each day with events:
-- One "day header" block with date label and status badge.
-- Flight rows (`.flight-row`) sorted by departure time. Each row shows: route pair, local dep/arr times with timezone abbreviation, block time, tail/flight#, layover duration between consecutive legs.
-- **Ground legs** (type='ground') appear as subdued smaller rows labeled `VAN ORD→MDW`.
-- **Reserve slots** appear as amber "ON CALL" rows with time window.
-- Past days get `.list-past` (grayscale + dimmed). Today highlighted.
-- **Layover label** logic: gap between consecutive flights → `layoverLabel(gapMins, atHome, sameDay)`. Shows overnight duration if >30 min and not at home. Suppresses label if >30h at home (pilot commuted home).
+Iterates every day in the month. Day header block with status badge. Flight rows (`.flight-row`) sorted by departure time: route pair, local dep/arr times with tz abbreviation, block time, tail/flight#, layover duration between consecutive legs. Ground legs (type='ground') appear as subdued `VAN ORD→MDW` rows. Reserve slots appear as amber "ON CALL" rows. Past days get `.list-past` (grayscale + dimmed); today highlighted. `layoverLabel(gapMins, atHome, sameDay)` shows overnight duration if >30 min and not at home; suppresses label if >30h at home.
 
 ---
 
 ## Day detail sheet (`showDayDetail(dateKey)`)
 
-Opens `#day-detail-sheet` (bottom sheet on mobile, centered modal on desktop) when a calendar cell is tapped.
+Opens `#day-detail-sheet` (bottom sheet mobile, centered modal desktop). Built from the same `segments[]` slice as the grid: header status (HARD OFF / IN THE AIR / FLYING / ON CALL / DAY OFF) + date; flight cards (route, times, block, tail#, trip#, DH badge, layover to next leg); reserve cards; ground leg cards; manual flights get Edit/Delete (only if `canEdit()`); live flights show `▶ LIVE` + `deriveCallsign()`.
 
-Content built from same `segments[]` slice as the grid. Renders:
-1. Header: status label (HARD OFF / IN THE AIR / FLYING / ON CALL / DAY OFF) + full date.
-2. All flights for the day sorted by departure time.
-3. Each flight card: route, dep/arr times (with city/state names from airport lookup), block time, tail#, trip#, DH badge, layover line to next leg.
-4. Reserve cards: type label (RESR/RESA/RESP), time window.
-5. Ground leg cards: subdued, smaller.
-6. Manual flights get Edit/Delete buttons (only if `canEdit()` is true — logged-in user's own flights or admin).
-7. Any live flight shows a `▶ LIVE` badge and calls `deriveCallsign()` for ADS-B tracking.
-
-`canEdit()` returns true if `myPilot === currentPilot` or admin (`myPilot === null`).
+`canEdit()` → true if `myPilot === currentPilot` or admin.
 
 ---
 
 ## Pull-to-refresh (`setupMobileGestures()`)
 
-Registered on `#view-grid` and `#view-list` via touchstart/touchmove/touchend.
-
-**Logic:**
-- `touchstart`: record startX/startY; `ptrActive = el.scrollTop === 0` (only fires at top of scroll).
-- `touchmove`: if dragging down while at scroll top → scale opacity and rotate the `#ptr-indicator` spinner. At 70px pull → `ptrTriggered = true`, indicator spins continuously.
-- `touchend`: if `ptrTriggered` → call `loadPilot(currentPilot)` + show "Schedule refreshed" toast. Else if horizontal swipe → `changeMonth()`.
-
-`#ptr-indicator` is a fixed 36px circle, initially translated off-screen (-52px). Its Y position tracks the pull distance.
+Registered on `#view-grid`/`#view-list`. `touchstart`: `ptrActive = el.scrollTop === 0`. `touchmove`: scales/rotates `#ptr-indicator`; at 70px pull → `ptrTriggered`. `touchend`: triggered → `loadPilot(currentPilot)` + toast; else horizontal swipe → `changeMonth()`. `#ptr-indicator` is a fixed 36px circle tracking pull distance.
 
 ---
 
@@ -713,557 +548,324 @@ Registered on `#view-grid` and `#view-list` via touchstart/touchmove/touchend.
 Two parallel systems:
 
 ### `startLiveTracking()` (map view only, line 5642)
-Polls `/api/live-position?callsign=XX` for an active flight arc on the map — **adaptive cadence, not a fixed interval** (see below).
 
-- Called from `renderMap()` and `renderDayMap()` for any flight whose window spans now.
-- Draws a real-time GPS trail (solid colored polyline) and a remaining-arc (dashed geodesic arc from current position to destination).
-- Plane icon (SVG from ADS-B Exchange shape library, ~line 5238) starts hidden; becomes visible only after ADS-B confirms it airborne (`hasBeenAirborne = true`).
-- `deoverlapLiveLabels()` runs every 300ms to prevent callsign tooltip collisions.
-- If server returns `{ parked: true }` → flight complete, calls `finishTracking()` (below).
-- If `hadTrail && !found` for 3+ misses (and not already known airborne) → plane already landed, `finishTracking()`.
-- `_liveLayersByCallsign` (object, keyed by callsign) is the actual source of truth for "is something already tracking this flight" — see "Duplicate live-tracking arcs" below; `_livePollers[callsign]` (interval IDs) is cleared on every render so it can't reliably answer that question on its own anymore. `_landedEarly` Set tracks early landings.
-- **World copy support**: markers placed at `lon`, `lon+360`, `lon-360` so panning globally shows the plane on every map copy.
-- `finishTracking(savedEarly)` — ends tracking for *that one flight only*: removes its own markers/arc/trail layers, updates its own popup status text (`✓ LANDED EARLY` or `✓ COMPLETED`) directly via `updateHitPopupStatus()`. Replaced five separate inline cleanup blocks that each called the global `renderMap()` — see "One flight's cleanup nuking every other live flight" below.
+Polls `/api/live-position?callsign=XX&origin=DEP` — **adaptive cadence**: `_pollDelayMs` is 3000ms ("fast") when `d.onGround` or `d.altFt < 3000` (taxiing, final approach, or initial climb), else 8000ms ("cruise"). Self-scheduling loop (`setTimeout` → `await update()` → `scheduleNextPoll()`), not a fixed `setInterval`, so a phase change takes effect on the next poll. `finishTracking()` sets a `_pollerStopped` flag checked at the top of `scheduleNextPoll()` to actually stop a self-rescheduling loop.
 
-**Adaptive poll cadence (added 2026-10-02)** — requested directly: taxiing and landing/initial-climb both involve rapid direction/altitude changes that the flat 8s cruise cadence rendered as a choppy, low-resolution trail exactly when it matters most, while cruise flight is slow and nearly linear and gains nothing from polling faster. `_pollDelayMs` (3000ms "fast" vs 8000ms "cruise") is set inside `update()` itself from the most recent poll's own data — `d.onGround` (taxiing) or `d.altFt < 3000` (covers both final approach/landing *and* initial climb-out, without needing to distinguish which) triggers fast; cruise altitude doesn't. The poller itself switched from a fixed `setInterval` to a self-scheduling loop (`scheduleNextPoll()`: `setTimeout` → `await update()` → `scheduleNextPoll()` again) so a phase change takes effect on the very next poll rather than waiting for the next natural `setInterval` tick. `_livePollers[callsign]` still holds a single cancelable timer id either way (`clearInterval`/`clearTimeout` are interchangeable, same underlying id space), so every existing teardown site needed no change — **except** `finishTracking()` now also sets a local `_pollerStopped` flag, checked at the top of `scheduleNextPoll()` before it sets a new timer. Without that flag, `finishTracking()` calling `clearInterval()` mid-`update()` only cancels that one already-fired timer; the self-rescheduling loop would otherwise still call `scheduleNextPoll()` right after `update()` resolves and silently revive a poller that was just supposed to stop — a failure mode a plain `setInterval` never had, since cancelling it is permanent.
+- Called from `renderMap()`/`renderDayMap()` for any active-window flight.
+- Draws a real-time GPS trail (solid polyline) + remaining-arc (dashed geodesic to destination).
+- Plane icon hidden until ADS-B/SWIM confirms airborne (`hasBeenAirborne` — strictly poller-local, set only by a real `found:true` fix from *this* poller; a separate `serverConfirmedAirborne` absorbs the server's historical hint for miss-handling heuristics only, never near the first-confirmation cleanup path).
+- `deoverlapLiveLabels()` runs every 300ms to prevent label collisions; also handles waypoint-tag collisions when Route Detail is on, and biases the plane's own label away from whichever screen axis is perpendicular to its heading, away from the route line.
+- Parked (`{parked:true}`) → `finishTracking()`; sustained misses (threshold scales with proximity to scheduled arrival: ~5min required while >15min from scheduled arrival, ~40s once close) → `finishTracking()`.
+- `_liveLayersByCallsign` (object, keyed by callsign) is the real source of truth for "is something tracking this callsign" — not `_livePollers`, which is cleared on every render.
+- World-copy support: markers placed at `lon`, `lon±360`.
+- `finishTracking(savedEarly)` ends tracking for *that one flight only* — scoped cleanup, never calls the global `renderMap()`.
+- Per-call **instance id** (`_liveTrackingInstanceSeq`) — `update()`/`finishTracking()`/`scheduleNextPoll()` all check `_isCurrent()` before touching shared state, so a same-callsign leg superseded mid-flight (see "Same-day round trip sharing one callsign" below) can't arm a stray timer or mark the wrong thing parked.
 
-### Live-tracking reliability fixes (2026-10-01/02) — several bugs in the same ~150 lines
-
-All found live, each confirmed against a real in-progress flight before and after the fix (Drew's GJS4577/GJS4552, Mark's DAL2011). Worth reading together since several interact with each other.
-
-**Flight marked "LANDED EARLY"/"COMPLETED" while genuinely still airborne.** `hasBeenAirborne` is a poller-local variable meant to gate two different things that turned out to need different lifetimes:
-1. The one-time "first real confirmation" transition (`if (!hasBeenAirborne) { hasBeenAirborne = true; ...; removeArc(); }`) — must only ever be set by *this specific poller instance* actually seeing a `found: true` response.
-2. A miss-handling heuristic ("has this flight ever been airborne, so a few misses in a row probably means it landed, not that it never started") — this one legitimately wants the *server's* historical knowledge (`d.hasBeenAirborne`, from `_flightState[hex]` in server.js, persists independent of any one poller's lifetime), because a poller that just (re)started (e.g. after a map re-render) has no local history yet.
-
-Conflating the two broke #1: a miss response with `d.hasBeenAirborne: true` flipped the local flag before the plane was ever actually found by *this* poller, so by the time a real position arrived, the "first confirmation" block was skipped — `removeArc()` never ran, and the static schedule-based line never got removed (see "static line never removed" below). Fixed by splitting into two separate flags: `hasBeenAirborne` stays strictly poller-local (only ever set by a real `found: true` fix), `serverConfirmedAirborne` absorbs the server's hint, and a local `confirmedAirborne = hasBeenAirborne || serverConfirmedAirborne` is used only in the miss-handling branches that actually need it — never near the real-confirmation cleanup path.
-
-**Static scheduled-route line never removed once the plane actually appeared.** Direct consequence of the bug above — confirmed by the exact predicted signature: a fresh page load where ADS-B responds *immediately* never showed it (the real `found: true` confirmation path, untouched), only when the first fix was *delayed* (misses first, then found — the corrupted path).
-
-**Dashed remaining-arc flickered off and back on during normal flight.** The miss-handling removed the dashed arc on the very first missed poll, no threshold — but every other consequence of a miss in the same function waits for 3-5 consecutive misses specifically to tolerate a single transient blip (the server races two ADS-B sources, either can stall once). Now requires the same `missCount >= 3` (~24s) before tearing the dashed arc down.
-
-**A flight that had a genuine ADS-B signal gap got declared "landed" too eagerly.** The "was airborne, lost signal → probably landed" check used a flat `missCount >= 5` (~40s). Confirmed live: Drew's real ICT→IAH flight (~540mi) went around weather, lost signal for longer than that, and got marked landed while still actually flying. A real multi-minute ADS-B coverage gap mid-flight is ordinary (regional jets especially, over sparser receiver coverage) — now the threshold scales with proximity to scheduled arrival: ~5 min of silence required while still >15 min out from scheduled arrival, dropping back to ~40s once close to or past it (where a short gap is far more plausibly a real landing).
-
-**Stale trail from a previous leg bled into a new flight's live map.** `_posTrail` (the breadcrumb trail, server.js) is keyed by the aircraft's ICAO hex — the physical airframe, not the callsign — because a regional jet flies several legs a day under different flight numbers on the same tail. The server normally clears a hex's trail once it detects "parked" (3 consecutive stationary ground readings), but that detection can be missed (a brief poll gap, a fast turnaround). When missed, the next leg's live map silently inherited the previous, already-completed flight's trail — the dashed remaining-arc was correct (reflects the live position), but the solid flown-trail line traced a path to/from a totally unrelated earlier leg. Fixed with `_hexToCallsign` (server.js): a changed callsign on the same hex is treated as an unambiguous "this is a new leg" signal, forcing a trail reset regardless of whether ground-contact parked-detection caught the gap.
-
-**Duplicate live-tracking arcs from overlapping map renders.** Every `renderMap()`/`renderDayMap()` call starts with `stopLivePollers()`, clearing `_livePollers` entirely — by design, so a render doesn't leak the previous one's intervals. But that meant `startLiveTracking()`'s old `if (_livePollers[callsign]) return;` guard almost never actually caught a duplicate: by the time a second, overlapping render reached that check, the registry had typically already been wiped by *either* render's own cleanup. Surfaces specifically when pilot data isn't already cached (first load, hard refresh): the real network fetch inside `renderDayMap()` opens a wide enough async window for two render passes to interleave, and an older-but-faster one can finish drawing before a newer-but-slower one even starts its own — leaving both on the map. Fixed with `_liveLayersByCallsign`, which tracks the actual marker/arc/hit-line layer *objects* currently on the map per callsign, independent of render timing — `startLiveTracking()` now forcibly tears down and replaces whatever was previously registered for a callsign before adding its own, regardless of what `_livePollers` says.
-
-**One flight's cleanup nuking every other live flight on the map.** All five "give up on this flight" branches (parked, each miss-count threshold) called the *global* `renderMap()` to refresh their own status — but that function does a full `stopLivePollers()` + wipe-everything + redraw-everything pass, tearing down and restarting *every* actively-tracked flight, not just the one that finished. Confirmed live: two unrelated live flights (Drew's and Mark's) disappeared and restarted simultaneously the instant either one's poller gave up, which looked like a shared ADS-B outage but was really one flight's own cleanup taking the whole map down with it. Fixed with `finishTracking()` (above), scoped to just the one flight.
-
-**`isPositionOnRoute()` froze the live display on a real weather/ATC deviation.** Exists to avoid tracking the wrong aircraft on an ADS-B callsign collision, by checking the live position falls within slack of the straight-line distance between scheduled dep/arr. If it fails, `startLiveTracking()` returns *after* `showIcon()` already ran (icon visible) but *before* the icon's position is updated and before the trail/remaining-arc are drawn — a stuck, frozen icon with no lines. The old 25% slack is too tight for short regional hops: a real weather deviation adds a roughly fixed number of extra miles (routing around a storm cell), which is a much bigger fraction of a short route's distance than a long one. Confirmed live: Drew's real ICT-IAH flight went around weather and was correctly identified by ADS-B callsign, but exceeded the ~135mi the old 25% allowed. Fixed with a 300mi floor on top of the percentage — biased generous on purpose, since this app has its own weather radar overlay specifically so a deviation like this can be seen and explained; hiding the live track the moment one happens defeats that.
+**Reliability safeguards currently in place** (full discovery history: `CLAUDE_HISTORY.md § ADS-B live tracking`): dashed arc removal requires `missCount >= 3` (not the first miss); stale-trail protection via `_hexToCallsign` (changed callsign on the same hex forces a trail reset); `isPositionOnRoute()` uses a 300mi floor on top of its 25% slack (so a real weather deviation doesn't freeze the live icon).
 
 ### `startCalListLivePolling()` (~line 4848)
-Polls every **15 seconds** for active-leg cells/rows in the calendar and list views.
 
-- Finds all elements with `[data-live-callsign]` attribute (added during render for `isActiveLeg` cells).
-- Per callsign: polls `/api/live-position`, updates `#live-{callsign}` element with altitude + speed text.
-- Shows: `✈ FL340 · 428 kts` (airborne) or `Taxiing · 15 kts` (ground).
-- Stopped by `stopCalListPollers()` before each re-render.
+Polls every **15 seconds** for `[data-live-callsign]` elements in calendar/list. Per callsign: polls `/api/live-position`, updates `#live-{callsign}` with altitude/speed (`✈ FL340 · 428 kts` or `Taxiing · 15 kts`), appends `· Delayed Nm` when `departureDelayMin >= 10` and not yet en route. `d.parked` populates `_confirmedParked`. Falls back to the `airborne` array + a known past arrival time when the airline's own OOOI field isn't populated (true for non-airline operators like NetJets). Stopped by `stopCalListPollers()` before each re-render.
 
 ### Server-side ADS-B proxy (`/api/live-position`)
-Server proxies to `api.adsb.lol` and `airplanes.live`. Caches trail points per callsign from server start so trail is pre-seeded before polling. Returns `{ found, lat, lon, altFt, speedKts, onGround, heading, trail[], parked, hadTrail }`.
 
-`deriveCallsign()` in the frontend maps tail/flight number combinations to the correct ADS-B callsign (e.g. corporate tails like N431JD, or airline flight numbers like SKW1234).
+Proxies to `api.adsb.lol` and `airplanes.live`. Caches trail points per callsign. Returns `{ found, lat, lon, altFt, speedKts, onGround, heading, trail[], parked, hadTrail, tfdmState, departureDelayMin }`. `deriveCallsign()` maps tail/flight-number combos to the correct ADS-B callsign.
 
-### FlightAware links on flight numbers
+### FlightAware links
 
-Every visible flight number/callsign (calendar grid, list view, day-detail sheet, and both map popup types) is wrapped by `flightAwareLink(ident, displayHtml, eligible)`, linking to `flightaware.com/live/flight/{ident}` in a new tab. Uses the same `deriveCallsign()`-derived ident that already drives ADS-B tracking (fixed a prior bug where the day-detail sheet showed the raw stored flight number like `G74536` instead of the normalized `GJS4536` — it was preferring `f.flightNumber` over the already-correct `_dayFlLabel`).
+Every visible flight number/callsign is wrapped by `flightAwareLink(ident, displayHtml, eligible)` → `flightaware.com/live/flight/{ident}`. Gated by `flightAwareEligible(depMs)` (48h window — a dateless FlightAware URL resolves to whichever instance is nearest *now*, which matters for reused flight numbers and for corporate flight plans that aren't filed until close to departure). Recomputed fresh on every render.
 
-**Gated by `flightAwareEligible(depMs)`** (48h window): a link is only offered for flights already departed or departing within 48h. FlightAware's dateless URL resolves to whichever instance of that ident is nearest to *now* — for airline pilots who reuse the same flight number daily, a farther-out link could resolve to the wrong day; for Kyle's corporate legs, Part 91/135 flight plans typically aren't filed until close to departure, so FlightAware has nothing to show earlier anyway. Eligibility is recomputed fresh on every render, not cached.
+### Route overlap on `renderMap()` — known, unfixed
 
-### Route overlap on `renderMap()` — tried and reverted, don't redo this approach blind
-
-`renderMap()` (single-pilot "My Routes" map) groups a pilot's flights into one arc per unique `dep|arr` pair with **no overlap handling between different pairs** — unlike the all-crew day view (`renderDayMap()`), which spreads multiple pilots on an identical city pair via `offsetArc()`. Two unrelated legs sharing no airport (e.g. `KUGN→KACK` and `KFOK→KSUS`) can cross or run close for a stretch and look like one line. This is a real, known, currently-unfixed cosmetic issue.
-
-**A fix was built and shipped (2026-09-21/22) and then reverted (2026-09-23) after it made the map actively worse** — a `computeRouteDeclutterOffsets()` pass sampled each route's interior, flagged any two non-touching routes within 110mi of each other as conflicting, and unioned conflicts into clusters via BFS connected-components, feeding each cluster member into `offsetArc()` with an index/groupSize pair. It worked correctly against the small hand-built test cases used to validate it (2-3 routes, a real trip's worth of legs) but broke badly against Kyle's actual "My Routes" data: **the BFS treats conflict as transitive** — if A conflicts with B and B conflicts with C, all three get lumped into one cluster and spread across offset indices, even though A and C may not be close to each other at all. Around a busy hub with many routes, this chains into large clusters where some routes (sometimes short ones) get pushed to extreme offset indices relative to their own length, producing wild, unreadable loops (visibly swinging arcs sweeping up into Canada that had no business being there). It was never tested against a real multi-destination hub before shipping, only small synthetic clusters.
-
-**If this gets revisited:** don't reuse the transitive-clustering approach as-is. Options worth considering instead: only ever offset *pairwise* (never chain through a shared conflict into an unrelated third route), cap the maximum offset magnitude in absolute terms regardless of cluster size/index, or scope any offset to be proportional to how much interior overlap actually exists rather than a fixed step size per cluster slot. Test against Kyle's real live route data (a busy month, not a hand-picked 3-leg trip) before shipping again — that's exactly what this revert would have caught.
+`renderMap()` groups flights into one arc per unique `dep|arr` pair with **no overlap handling between different pairs** (unlike `renderDayMap()`, which uses `offsetArc()`). Two unrelated legs can cross or run close and look like one line. A fix was tried and reverted — see `CLAUDE_HISTORY.md § Route overlap on renderMap()` before attempting this again; don't reuse transitive BFS clustering.
 
 ---
 
-## FAA SWIM integration — real filed-route display on the live map (2026-10-02, in progress)
+## FAA SWIM integration — real filed-route display on the live map
 
-Three new backend modules consume FAA SWIM (System Wide Information Management) data feeds directly via Solace PubSub+ (`solclientjs`), separate from the existing ADS-B polling in `startLiveTracking()`/`/api/live-position`. Built from scratch against real production SWIM credentials in `.env` (`SFDPS_*`, `SCDSCONNECTION__*` for STDDS, `TFMS_*`).
+Three backend modules consume FAA SWIM data via Solace PubSub+ (`solclientjs`), separate from ADS-B polling.
 
 | File | Feed | Gives you |
 |---|---|---|
-| `swim.js` | SFDPS (en-route) | Live position/altitude/speed/heading **and** the filed route string (current + original/as-filed), SID/STAR, parsed into typed waypoints |
-| `stdds.js` | STDDS (surface/terminal) | Airport-vicinity position (TAIS + ASDE-X), preferred over SFDPS near the ground; cross-references SFDPS by GUFI to attribute anonymous surface contacts to a known callsign |
-| `tfms.js` | TFMS (flow/route) | A dense, already-computed lat/lon trajectory for a flight when available — no NASR/procedure guessing needed at all for that flight |
+| `swim.js` | SFDPS (en-route) | Live position/altitude/speed/heading **and** filed route string (current + original/as-filed), SID/STAR, parsed waypoints |
+| `stdds.js` | STDDS (surface/terminal) | Airport-vicinity position (TAIS + ASDE-X), preferred over SFDPS near the ground; cross-references SFDPS by GUFI |
+| `tfms.js` | TFMS (flow/route) | A dense, already-computed lat/lon trajectory when available; also real OOOI times (`etd`/`eta`/`airlineOnTime`/`airlineInTime`), airport-configuration (APTC) runway flow, and real per-flight route origin (`routeOrigin()`) |
+| `tfdm.js` | TFDM (per-flight) | Runway assignment, flight phase (`tfdmState`: `FILED`→...→`ARRIVAL`→...→`LUAW`), departure delay, diversion indicator |
 
-All three expose `setRelevantCallsigns(swimRelevant)`, fed by `runActiveFlightPoller` (server.js), and actively prune their in-memory state on every call so a startup-race can't leak irrelevant callsigns in permanently (same pattern across all three).
-
-**Two separate relevance windows, not one (split 2026-10-02).** `runActiveFlightPoller` used to compute a single `polled` set (-30min/+8h around scheduled departure) and hand the exact same set to both the real `fetchAdsbPosition()` calls AND `swim/stdds/tfms/tfdm.setRelevantCallsigns()`. That's wrong for two different reasons pulling in opposite directions: ADS-B lookups cost a real, rate-limited external API call, so that window should stay tight (no point polling before an aircraft could plausibly be airborne/squawking); SWIM is a push stream with no per-check cost, and a flight plan is commonly filed/activated in the NAS well before an aircraft actually departs — a tight window there silently drops real route/SID/STAR data that's already available, for no reason (raised directly: "I'd think the flight plan information could start sending preflight"). Now two separate constants (`ADSB_LOOKAHEAD_MS` = 30min, `SWIM_LOOKAHEAD_MS` = 4h, `POLLER_LOOKBACK_MS` = 8h for both) drive two independently-computed sets per poll cycle: `polled` (unchanged, still drives the real ADS-B calls) and `swimRelevant` (wider, drives only the four SWIM-family `setRelevantCallsigns()` calls). A flight can be SWIM-relevant up to 4h before departure without ever triggering an ADS-B lookup that early.
+All expose `setRelevantCallsigns(swimRelevant)`, fed by `runActiveFlightPoller`, pruning stale callsigns on every call. **Two separate relevance windows**: `ADSB_LOOKAHEAD_MS` (30min, drives real rate-limited ADS-B calls) vs `SWIM_LOOKAHEAD_MS` (4h, drives the free SWIM-family calls) — `POLLER_LOOKBACK_MS` (8h) applies to both. `tfms.setRelevantOrigins()` feeds a parallel `callsign → Set<departure_airport>` map so a same-day callsign reuse by an unrelated flight (see "Same-day round trip" below) gets rejected at ingestion, not just on read.
 
 ### Route resolution pipeline (`resolveRouteWaypoints()` in server.js)
 
-A filed route string (e.g. `KJFK./.TEYOU..KP75C..TBC..JASSE.Q90.DNERO.ANJLL4.KLAX/0739`) is parsed by `swim.js`'s `parseRouteString()` into typed tokens (airport/procedure/fix/airway/radial_fix/latlon), then expanded to real coordinates:
+Filed route string → `swim.js`'s `parseRouteString()` → typed tokens (airport/procedure/fix/airway/radial_fix/latlon) → expanded to coordinates:
+1. **TFMS trajectory preferred when available** (`routeParsed.source = 'tfms'`).
+2. **Otherwise `navdata.js`** (FAA NASR data, `routeParsed.source = 'navdata'`) — resolves fixes/navaids by name (disambiguated by proximity to the previous point), SID/STAR procedures (runway-specific body segments, see runway fallback below), radial/distance fixes (`projectRadialDistance()`), and airways (sub-sequence between two known points — not yet exercised against a real airway-heavy route).
 
-1. **TFMS trajectory preferred when available** — a dense, per-flight-correct lat/lon sequence (correct runway/SID-STAR variant already baked in by the FAA's own flow system). `routeParsed.source = 'tfms'`.
-2. **Otherwise falls back to `navdata.js`** (FAA NASR 28-Day Subscription data, public domain — same license posture as `build-airports.js`'s OurAirports data). `routeParsed.source = 'navdata'`.
+**Runway-body selection** (`pickBody()` in navdata.js), most-to-least authoritative: TFDM's real per-flight runway assignment → TFMS's airport-configuration (APTC) `arrRunwayConf`/`depRunwayConf` for that airport (`splitRunwayConf()`, accepts multiple candidate runways from one config string) → the destination's own current `depRunwayConf` as a wind-direction proxy (when the destination has no arrival config at all) → `bodies[0]` (arbitrary CSV-order default, last resort).
 
-`navdata.js` loads `data/nasr/{fixes,navaids,procedures,airways}.json` (built by `scripts/build-navdata.js` from raw CSVs expected under `scratch/` — gitignored, ~34MB of source data, re-run the build script against a fresh AIRAC cycle rather than hand-editing the committed JSON). Resolves:
-- **Fixes/navaids** by name, disambiguated by proximity to the previous already-resolved point (names aren't globally unique).
-- **SID/STAR procedures** by expanding to their real fix sequence. A procedure can have multiple distinct **runway-specific body segments** (e.g. `ANJLL.BIGBR3`'s `ANJLL-SASSI` body for runway 06L/06R vs. `ANJLL-WNDFL` for 07L/07R). Originally always picked `bodies[0]` (first one in NASR's own CSV row order) with no runway-awareness at all — superseded by real per-flight TFDM runway assignment, then by TFMS's airport-configuration fallback when TFDM has nothing yet. See "TFMS airport-configuration (APTC) runway fallback" below for the current state; `bodies[0]` is now only the last-resort default when neither has anything for this flight/airport.
-- **Radial/distance fixes** (e.g. `STL330052` = 52nm on the 330° radial from STL) via `projectRadialDistance()`.
-- **Airways** as the sub-sequence between two known surrounding points in the airway's published fix list. **Not yet tested against a real route** — every real route exercised so far (JBU923) only hit this path after ATC had already shortcut past the airway-heavy initial portion; the *as-filed* `originalRoute` for that same flight has a real `Q436`/`Q438` airway chain (`COATE.Q436.RAAKK.Q438.RUBYY`) that's never actually been resolved and checked.
-
-**Symbol classification** (`resolveFixOrNavaid()` in navdata.js): every resolved point gets a `symbol` field for the frontend to render distinctly — `vor`/`ndb` from NASR's `NAV_TYPE`, `waypoint`/`fix` from `FIX_USE_CODE` (`WP` vs. everything else, mainly the classic `RP` reporting-point/intersection code), `airport`/`latlon` for the origin/destination and raw lat/lon tokens (no map marker drawn for these two), `null` for TFMS's dense unnamed trajectory samples (no marker — would be visual noise at that density).
+**Symbol classification** (`resolveFixOrNavaid()`): `vor`/`ndb` from `NAV_TYPE`, `waypoint`/`fix` from `FIX_USE_CODE`, `airport`/`latlon` for endpoints (no marker), `null` for TFMS's dense unnamed trajectory samples (no marker).
 
 ### Frontend rendering (`startLiveTracking()` in app.html)
 
-- **Only the route still ahead of the aircraft is shown** — `computeRouteProgress()` projects the live position onto each segment of the resolved route (equirectangular approximation) to get a real along-track mileage, then both the remaining-route line and the symbol markers filter to points beyond that mileage. Deliberately NOT a simple "nearest point" check — that would drop a fix while the aircraft is still approaching it, well before actually passing it.
-- **Symbols match real FAA chart conventions** (`makeWaypointIcon()`/`_WAYPOINT_SHAPES`, confirmed against AIM/Chart User's Guide symbology, not guessed): a hollow hexagon for `vor`, a triangle for `fix` (intersection), and an open four-point star for `waypoint` (RNAV/GPS fix) — all the "non-compulsory" outline style (no solid fill/center dot), not the filled "compulsory reporting point" variant. `ndb` (dashed circle, no real-chart equivalent in scope) is unchanged. Rebuilt only when the resolved point set actually changes (keyed by name+coords+symbol), not every 8s poll.
-- **Name tags are managed Leaflet tooltips, not baked into the marker icon** (`registerWaypointLabel()`) — binding `permanent:true` on a marker created with `interactive:false` does *not* reliably auto-open (confirmed live: symbols rendered fine, tags silently never appeared), so `marker.openTooltip()` is called explicitly right after `bindTooltip()`.
-- **Label collision handling is folded into the existing `deoverlapLiveLabels()`** (previously just the plane's own callsign tooltip). Plane labels place first and always show somewhere; route-point tags are checked against everything already placed (other tags *and* the plane label) and, if truly boxed in (common in a dense STAR fix cluster), are hidden outright rather than forced into an unreadable overlapping stack — the symbol stays visible either way, just without its text.
-- **No gap trimmed around each symbol** — Leaflet's default pane order already draws markerPane above overlayPane, so the line passes underneath each symbol and looks visually broken there for free. An explicit pixel/geographic gap was tried first and reverted (looked wrong across zoom levels, or swallowed an entire short STAR leg between closely-spaced fixes) — see git history on `renderMap()`'s route-overlap section for the same class of lesson on a different feature.
-- **Zoom-dependent progressive disclosure** (`applyRouteDetailZoomTier()`): symbols are **always** visible whenever the ✦ RTE toggle is on, at every zoom level — only the name-tag **labels** vary by zoom (`ZOOM_SHOW_ACTIVE_ONLY`/`ZOOM_SHOW_ALL_FIXES`, currently 4/7): below the first threshold, no labels at all; between the two, only the single active/next fix gets a label; at/above the second, every fix's label shows. **Confirmed live and fixed twice**: an early version also dropped non-active *symbols* at the middle tier (not just their labels) — symbols must never be gated by zoom, only labels. The thresholds themselves were also confirmed live to be too high (6/9 required zooming in far closer than a flight's normal tracking view before any label appeared) and lowered to 4/7.
-- **The plane's own callsign/pilot-name label actively avoids the route line**, not just other tooltips (`deoverlapLiveLabels()`'s `perpendicularDirs()`) — its direction preference (left/right vs top/bottom) is biased toward whichever screen axis is most perpendicular to the aircraft's current heading (stored on the `_liveLabels` entry alongside the existing `d.heading`-driven icon rotation), recomputed every pass rather than only when it collides with another label. Without this, the label — which only checked for overlap against *other labels*, never the line itself — would frequently sit directly ahead of (or behind) the plane, right on top of the remaining route and any fix labels along it.
-- **Remaining-route line construction (`remainDashedLines`/`remainSolidLines`) must slice one CONTINUOUS points array per dashed/solid run, never one sub-array per leg.** Two real, confirmed-live bugs here, both from the same root cause: each leg's great-circle arc dropped its first point when concatenating into the single `remainPath` array (`piece = i === 0 ? seg : seg.slice(1)`), to avoid duplicating the shared junction point.
-  1. Passing one array *per leg* to `L.polyline` makes it a multi-part polyline; every leg past the first then started one point short of the fix it should connect to, rendering as visibly disconnected pieces at **every** fix, not just one. Fixed by grouping legs into exactly three runs (lead dashed / solid middle / trail dashed, merging the two dashed runs into one when there's no middle fix at all) and slicing each run's full, contiguous index range out of the underlying `remainSegs` array.
-  2. Even after that fix, the *solid* run's own recorded start was still one interpolation step past its first fix (same root cause, now just confined to the dashed→solid seam at the active fix) — negligible on a short leg, visible on a long one. Fixed by keeping **both** endpoints of every leg's arc (no more dropping the duplicate at all) when building `remainPath`, so every run boundary lands exactly on its fix. The harmless cost is a duplicate point at each internal junction, which has no visual effect on a polyline.
-- **VCI indicator** (`VCI_ICON_SVG`, a small green glyph shown before a live flight's callsign): modeled on ERAM's real Visual Communications Indicator, pixel-traced from the actual 16×16 FAA scope icon (not hand-drawn), shown when a poll's position came from real SWIM data (`source === 'swim' || 'stdds'`) rather than the ADS-B fallback. **Must be inline `<svg>`, never an `<img src="data:...">`** — confirmed live that an `<img>` races Leaflet's tooltip width measurement against the browser's own async image decode, sizing the pill before the image (and the text next to it) had settled and clipping the pilot name past the right edge. Inline SVG has no separate decode step, so it lays out synchronously like any other inline content.
-- **Route Detail toggle button** (`#btn-route-detail`, labeled "✦ RTE") sits next to the Radar button in its own `flex` row — the parent `.map-controls` container is `flex-col`, so two plain sibling buttons there stack vertically by default; they need an explicit wrapping row to sit side by side.
+- `computeRouteProgress()` projects live position onto the resolved route to filter to only the remaining portion — not a nearest-point check (would drop an approaching-but-not-yet-passed fix).
+- Waypoint symbols follow real FAA chart conventions (`makeWaypointIcon()`): hollow hexagon = `vor`, triangle = `fix`, open four-point star = `waypoint`; all non-compulsory outline style. `ndb` = dashed circle.
+- Name tags are managed Leaflet tooltips (`registerWaypointLabel()`), explicitly `openTooltip()`'d after `bindTooltip()` — `permanent:true` with `interactive:false` doesn't reliably auto-open.
+- Label collisions handled by `deoverlapLiveLabels()`: plane label places first, route-point tags check against everything already placed and hide outright (not forced into an overlapping stack) if boxed in; symbol stays visible regardless.
+- No gap trimmed around symbols — Leaflet's pane order already draws the line under markers for free.
+- Zoom-dependent label disclosure: symbols always visible when the ✦ RTE toggle is on, at every zoom; labels gated by `ZOOM_SHOW_ACTIVE_ONLY`/`ZOOM_SHOW_ALL_FIXES` (4/7) — below 4 no labels, 4-7 only the active/next fix, ≥7 every fix.
+- **Remaining-route line** (`remainDashedLines`/`remainSolidLines`) is built from exactly three contiguous runs (lead dashed / solid middle / trail dashed), each run keeping **both** endpoints of every leg's arc (no dropped duplicate point) so every run boundary lands exactly on its fix.
+- **VCI indicator** (`VCI_ICON_SVG`, inline `<svg>`, never `<img src="data:...">`) shown when a poll's position came from real SWIM data (`source === 'swim'||'stdds'`).
+- `#btn-route-detail` ("✦ RTE") sits in its own row next to the Radar button.
 
-### Preflight route display (added 2026-10-02)
+### Preflight route display
 
-Shows the planned/filed route (symbols + line) up to `PREFLIGHT_ROUTE_MS` (30 minutes, app.html) before scheduled departure — requested directly, deliberately short so a flight hours or days out doesn't show "all the route BS" (verbatim), only one genuinely about to depart, and only when real FP (flight-plan) data actually exists.
+Shows the planned/filed route up to `PREFLIGHT_ROUTE_MS` (30 minutes) before scheduled departure, only when real FP data exists. `getSwimPosition()` returns `{ found: false, hasRoute: true, routeParsed, route, originalRoute, origin, dest, sid, star, source: 'swim' }` when no live position exists yet but a route has arrived. `startLiveTracking()`'s `update()` branches on `!d.found && d.hasRoute && !hasBeenAirborne` *before* the miss-counting branch: draws one uniform dashed line through the full unfiltered `resolvedPath`, plane icon stays hidden. Each map render function (`renderMap()`, the all-crew month view, `renderDayMap()`) has an `else` branch alongside its active-leg check to find and start-track a departing-soon leg this way.
 
-- **`swim.js`'s `getSwimPosition()`** now returns a second response shape when a callsign has no live position yet (`hasPosition` false) but a filed route has already arrived via SFDPS (made more likely by the widened `SWIM_LOOKAHEAD_MS` relevance window above): `{ found: false, hasRoute: true, routeParsed, route, originalRoute, origin, dest, sid, star, source: 'swim' }` instead of `null`. `fetchLivePosition()` (server.js) needed **no change** for this — it already does `if (swimHit) { resolveRouteWaypoints(...); return swimHit; }`, a truthiness check on the object itself, not `.found`, so the new shape flows straight through. The `/api/live-position` route handler also needs no change: `processPositionUpdate()` and the trail-backfill block both already gate on `data.found`, so a `found:false` response with route data passes through untouched to `res.json(data)`.
-- **`startLiveTracking()`'s `update()`** (app.html) has a new branch — `if (!d.found && d.hasRoute && !hasBeenAirborne)` — inserted **before** the existing miss-counting branch (`if (!d.found || d.lat == null)`), since falling through to that would misread every preflight poll as a missed live fix and eventually trigger landed/early-landing cleanup for a flight that hasn't departed. This branch: calls `removeArc()` (replaces the plain scheduled arc rather than stacking the detailed route under it), builds `markerWaypoints`/waypoint symbol markers from the **full, unfiltered** `routeParsed.resolvedPath` (no `computeRouteProgress` filtering — there's no live position to be "ahead of" yet), and draws **one uniform dashed line** (not the dashed/solid split used once airborne, which exists specifically to distinguish detail levels ahead of a live position) from `depCoords` through every resolved point to `arrCoords`. The plane icon stays hidden throughout (never calls `showIcon()`), same as any poll before the first real airborne fix.
-- **Call sites** (`renderMap()`'s single-pilot month view, the "All Crew — Month" overview, and `renderDayMap()`) each gained an `else` branch alongside their existing `if (hasActive)`/`if (isActive)` check: finds the next leg departing within `PREFLIGHT_ROUTE_MS`, places a (hidden, same as always pre-confirmation) plane icon at the departure airport, and calls `startLiveTracking()` exactly as the active-leg branch does. Harmless to call even when there's no FP data yet — the branch above just returns having drawn nothing extra, leaving the plain scheduled arc in place.
-- **Click target bug, fixed 2026-10-14**: the detailed route this branch draws (the real, bowed-out filed route through actual waypoints) was only clickable at one spot, roughly in the middle. Root cause: `removeArc()` only ever removes the *visible* plain straight-line arc — the wide invisible hit-line with the flight-info popup already bound to it (`hitLines`/`newHitLines`, passed in separately from `routeLines`) is a different layer array that `removeArc()` never touches, so it stayed on the map tracing the *old* straight-line path the whole time this branch was drawing the *new* real route on top of it. The one spot that worked was simply wherever the two geometrically happened to cross. Fixed by reshaping `newHitLines` to the same `fullU` path the visible dashed line uses, every time it's rebuilt — confirmed live on Sam's JFK-CVG preflight route.
+### Real ATC frequency (vNAS)
 
-### Real ATC frequency on the live label, via VATSIM's vNAS (added 2026-10-02)
+`vnas.js` fetches the full vNAS payload every 6h, builds a `facilityId → Map(sectorId → {frequency, callsign})` index, discards the raw payload. Two linkage shapes: **enroute** (ARTCC, numeric sectorId) via `eramConfiguration.sectorId`; **terminal** (TRACON/tower, lettered sectorId) via `starsConfiguration.tcps[]`/`tcpId`. `getFrequency()` returns `null` for anything unresolvable (not every small facility is in VATSIM's model). `swim.js` stores the raw handoff as `entry.sector = {unit, sectorId}`; `server.js`'s `withResolvedFrequency()` resolves it once per poll onto a new sector object. Frontend: `buildBaseTooltip()` shows the MHz next to the callsign, gated by `_showSectorOn` (persisted `cs_show_sector`, **default ON**), button `#btn-show-sector` ("📻 FREQ"). `_liveLabelRefreshers` (global `callsign → refresh()` registry) lets the toggle repaint every tracked label instantly from cached data instead of waiting for each flight's own next poll.
 
-Requested directly: show the real ATC frequency controlling a live flight, toggleable like Route Detail. First confirmed SFDPS has no frequency field anywhere in the feed at all (checked against real captured messages) — what it does carry is a sector/unit handoff event (`<enRoute><boundaryCrossings><handoff><receivingUnit unitIdentifier="SDA" sectorIdentifier="1D"/>...`). Found VATSIM's own public vNAS data API, which maintains a real, continuously-updated facility→position→frequency database modeled on actual FAA structure. Confirmed directly against the live API before writing any code: `GET https://data-api.vnas.vatsim.net/api/artccs/` returns every ARTCC's full facility tree, and ZID's sector 21 resolves to position `IND_21_CTR` at 124.625 MHz — matching reality exactly.
+### Temporary test infrastructure (still in use)
 
-- **`vnas.js`** (new file) — fetches the full nationwide vNAS payload (~15MB, all 24 ARTCCs) every 6h (vNAS's own facility/frequency data is near-static), builds a small flat `facilityId → Map(sectorId → {frequency, callsign})` index, and discards the raw payload immediately after — never holds the full nationwide tree in memory, only the derived lookup. Two distinct linkage shapes, both confirmed against real downloaded data, not guessed: **enroute** (ARTCC, numeric sectorId e.g. "21") — `position.eramConfiguration.sectorId` carries the frequency directly; **terminal** (TRACON/tower, lettered sectorId e.g. "B") — the facility's own `starsConfiguration.tcps[]` maps `sectorId → tcp id`, and a position links to it via `position.starsConfiguration.tcpId`. `getFrequency(facilityId, sectorId)` returns `null` for anything unresolvable rather than guessing — confirmed live that a real handoff's receiving unit ("SDA") doesn't exist anywhere in vNAS's data at all (VATSIM doesn't necessarily model every small satellite TRACON), and that's accepted as a real, known gap, same posture as navdata.js's "unresolvable is omitted, not guessed at."
-- **`swim.js`** stores the raw handoff as `entry.sector = { unit, sectorId }` (e.g. `{unit:'ZID', sectorId:'21'}`) — no frequency resolution happens in this module, since vnas.js's data source is completely unrelated to the SFDPS feed.
-- **`server.js`'s `fetchLivePosition()`** resolves it exactly once per poll via a new `withResolvedFrequency()` helper (`vnas.getFrequency(sector.unit, sector.sectorId)`), attaching `{frequency, callsign}` onto a **new** sector object rather than mutating `swim.js`'s own cached one. STDDS's branch already carried `swimHit.sector` forward unconditionally (same pattern as route/SID/STAR) — since that happens after resolution, the carried-forward sector already includes the resolved frequency, no extra wiring needed there.
-- **Frontend**: `buildBaseTooltip()` (app.html, inside `startLiveTracking()`) shows `(sector.frequency / 1e6).toFixed(3)` (Hz → MHz) next to the callsign, gated behind a new `_showSectorOn` toggle (persisted via `cs_show_sector`) and only when `sector.frequency` actually resolved — the bare sector code is deliberately never shown as a fallback, since that's explicitly not what was asked for. New `#btn-show-sector` ("📻 FREQ") sits next to Radar/RTE. **Defaulted off originally, changed to default on 2026-10-14** (requested directly) to match Route Detail's pattern exactly — `localStorage.getItem('cs_show_sector') !== '0'` instead of `=== '1'`, same idiom as `_routeDetailOn`. Still remembers an explicit later choice to turn it off, same as before; only the very-first-time default changed.
-- **Instant toggle repaint (`_liveLabelRefreshers`)** — confirmed live the toggle felt laggy/broken without this: the plane's own label HTML is rebuilt inside each flight's private `update()` closure (unlike waypoint symbols, there's no shared marker set `applyRouteDetailZoomTier()` can sweep externally), so flipping the toggle did nothing until each tracked flight's own next 8s poll happened to fire. Fixed with a global `callsign -> refresh()` registry: each `startLiveTracking()` instance caches its own last-known `{source, sector, suffix}` from its most recent poll and registers a zero-arg closure that rebuilds its label from that cached data (no network round trip). `toggleShowSector()` calls every registered refresher immediately on click. Cleaned up alongside the existing `_liveLabels` lifecycle (same three spots: `stopLivePollers()`, the tear-down-previous-registration block, `finishTracking()`) so a dead flight's stale refresher can't be called.
+`POST /api/debug/seed-route` + `swim._testSeedRoute()` — inject a route string onto an already-tracked flight for testing. Not yet removed; per-session testing still ongoing.
 
-### Temporary test infrastructure — still in use, not yet removed
+### Route/trail persistence across restarts
 
-`POST /api/debug/seed-route` (server.js) + `swim._testSeedRoute()` let a route string be injected onto an already-tracked flight's in-memory SWIM entry, for testing route resolution/rendering against a real live flight without waiting for a specific real-world route to occur naturally. Remove both once this feature is done being actively tested — not yet, per-session testing is ongoing (e.g. BIGBR3/06L was verified this way; the as-filed airway-chain route above still needs the same treatment).
+`.swim_state_cache.json` (disk-backed) persists SWIM's trail, route, sid/star, origin/dest, sector — restored on startup via `loadStateCache()`, gated by a 24h freshness cutoff. A saved `routeParsed` may already carry a resolved `resolvedPath`, so a restart doesn't even need a fresh resolve. `scheduleSave()` (5s-debounced) fires on both position updates and route updates. **TFMS/TFDM state is NOT persisted** — only SWIM's route/trail; both re-populate naturally within a few polls.
 
-**Gotcha confirmed twice, fixed 2026-10-02**: restarting the server used to wipe all in-memory SWIM state (`_latest`, trail caches, etc.) — any route detail captured only via a real live message (like the full `originalRoute` with its airway chain) was lost and wouldn't come back until the real feed re-sent it, which can take a while for a field that doesn't change every message. Confirmed live on a real deploy restart (SWA3492's already-resolved route disappeared mid-flight). **Now persisted** — see "Route/trail persistence across restarts" below. If a route is needed before SFDPS has sent it at all, `swim._testSeedRoute()` (see "Temporary test infrastructure" above) can inject one manually for testing (TFMS/TFDM state isn't persisted, just SWIM's route+trail).
+### TFMS airport-configuration (APTC)
 
-### Route/trail persistence across restarts (added 2026-10-02)
-
-Requested directly after the SWA3492 incident above. `swim.js` already had a disk-backed cache for the flown trail only (`loadTrailCache()`/`scheduleSave()`, a 5s-debounced write) — extended to also cover the last-parsed route and sector, renamed `.swim_trail_cache.json` → **`.swim_state_cache.json`** (`getFlightInfo`-style naming, reflects it's not just trail anymore; add the new name to `.gitignore` if it's ever missing after a merge). `loadStateCache()` (renamed from `loadTrailCache()`) restores both trail and route/sid/star/origin/dest on startup, gated by the same 24h freshness cutoff the trail side already had (a flight number reused the next day shouldn't inherit yesterday's stale route). Saved `routeParsed` may already carry a resolved `resolvedPath` (server.js's `resolveRouteWaypoints()` mutates the same object in place) — restoring it as-is means a restart doesn't even need to wait for a fresh *resolve*, not just a fresh route message. `scheduleSave()` is now also called right after a route update (previously only triggered by a position update arriving in `_watched`), since a route-only message with no position attached would otherwise never get persisted at all. Verified directly: seeded a fake cache file, required the module fresh, confirmed the route (including `resolvedPath`) restored correctly and a deliberately-stale entry did not.
-
-TFMS/TFDM state (trajectory, runway assignment, flight phase/delay) is **not** persisted — only SWIM's route/trail. Both re-populate naturally within a few polls of a real message arriving, and neither was the subject of the actual complaint (a resolved *route* disappearing), so extending persistence to them wasn't done here; revisit if a similar complaint comes up for runway/delay data specifically.
-
-### Local dev server contends with prod for the same SWIM session (confirmed 2026-10-02)
-
-A live flight (SWA133) was observed flapping `source` between `swim` and the ADS-B fallback on alternating ~8s polls. Root cause: a leftover `node server.js` process was still running locally (started earlier the same session for testing and never stopped), sharing the same `.env` SFDPS credentials/queue as prod. The FAA SFDPS queue binding only tolerates one consumer — two sessions with identical credentials fight over it, each kicking the other's connection `UP`/`DOWN` repeatedly, which flips `swim.js`'s `_connected` flag and makes `getSwimPosition()` alternate between real data and `null` (silently falling back to ADS-B) on consecutive polls. Confirmed by killing the stray local process: `source` immediately stabilized to `swim` on every following poll. **Never leave a local dev server running with real SWIM credentials while prod is also live-tracking** — check for a leftover `node server.js`/`node.exe` process (and that it's bound to the real `.env`, not a placeholder) before chasing a live-tracking data-quality bug that looks like a parsing/logic issue.
-
-### TFMS airport-configuration (APTC) runway fallback (added 2026-10-02)
-
-Follow-up to the TFDM runway-assignment fix above: TFDM only reports a runway once one's been assigned to a *specific flight*, which for most flights happens fairly late (confirmed live: checking `/api/debug/tfdm/:callsign` for two real flights showing a guessed transition — SWA3492's "30" into KAYLA3 at STL, GJS4572's "12" into AARCH2, also at STL — found TFDM had nothing cached for either, meaning both were showing the arbitrary `bodies[0]` fallback, not a real assignment). Asked directly: is there a feed that shows the airport's *general* current runway flow, independent of any one flight, as a better fallback than an arbitrary CSV-order guess?
-
-TFMS carries a second, unrelated message family on the same queue: `fiOutput`/`msgType="APTC"` ("airport configuration"). Found via live capture of real production TFMS traffic — a first capture pass caught 20 samples that all turned out to be a different `fiOutput` subtype (`TMI_FLIGHT_LIST`, per-flight flow-constraint timing, not this), so a second pass narrowed the capture to a keyword pattern biased toward the rarer config-related messages, which successfully caught 20 real `APTC` samples spanning 20 distinct airports. Confirmed real, consistent shape across all of them:
+A second, unrelated `fiOutput`/`msgType="APTC"` message family on the TFMS queue, giving an airport's general current runway flow independent of any one flight:
 ```xml
-<ds:tfmDataService><ds:fiOutput>
-  <fi:fiMessage msgType="APTC" ...>
-    <fi:airportConfigMessage>
-      <fcm:airport>SMF</fcm:airport>                   -- bare 3-letter code, not K-prefixed
-      <fcm:facility>NCT</fcm:facility>
-      <fcm:arrRunwayConf>35L/35R</fcm:arrRunwayConf>    -- slash-separated, can list >1 runway
-      <fcm:depRunwayConf>35L/35R</fcm:depRunwayConf>    -- can be blank/whitespace-only
-      <fcm:arrRate>64</fcm:arrRate> <fcm:depRate>70</fcm:depRate>
-      <fcm:weather>VMC</fcm:weather> <fcm:stratAar>64</fcm:stratAar>
-      <fcm:updateTime>...</fcm:updateTime>
-    </fi:airportConfigMessage>
-  </fi:fiMessage>
-</ds:fiOutput></ds:tfmDataService>
+<fcm:airport>SMF</fcm:airport> <fcm:arrRunwayConf>35L/35R</fcm:arrRunwayConf>
+<fcm:depRunwayConf>35L/35R</fcm:depRunwayConf> <fcm:arrRate>64</fcm:arrRate>
+<fcm:depRate>70</fcm:depRate> <fcm:weather>VMC</fcm:weather> <fcm:stratAar>64</fcm:stratAar>
 ```
+`tfms.js` parses this into a flat `_airportConfig` map keyed by bare 3-letter code, unconditionally stored (never gated by relevant-callsigns — only a few hundred towered airports exist). Detected via a cheap substring check on `msgType="APTC"` before the relevant-callsigns gate (APTC messages carry no callsign at all). `getAirportConfig(aptCode)` returns `null` past a 30min staleness window. **Known limit**: airport-wide, not per-flight — a genuinely opposite-direction runway split resolves cleanly, but a finer split within the same flow direction could still land on the wrong body. Temporary `GET /api/debug/tfms-aptc/:code` inspector still in place.
 
-- **`tfms.js`** parses this into a flat `_airportConfig` map keyed by the bare 3-letter airport code (not callsign-scoped at all — an airport's configuration isn't tied to any one flight, so unlike every other filter in this file it's never gated by `_relevantCallsigns`; cheap enough to store unconditionally since there are only a few hundred towered airports FAA flow management tracks). `getAirportConfig(aptCode)` accepts either a bare 3-letter or 4-letter ICAO code and returns `null` past a 1800s (30min) staleness window — longer than a position check needs, since a runway configuration realistically only changes a few times a day. `splitRunwayConf(confStr)` turns `"19R/19L/18"` into `['19R','19L','18']` for matching against NASR's body runway lists, returning `null` for a blank/whitespace-only config.
-- **APTC messages carry no callsign at all**, so `handleMessage()` detects `msgType="APTC"` via a cheap substring check *before* the relevant-callsigns gate (same cheap-filter-before-parse pattern as everywhere else in this file) rather than being silently dropped by it.
-- **`navdata.js`'s `pickBody()`** now accepts an array of candidate runways, not just TFDM's single per-flight string — APTC can report several runways active in the same configuration at once (e.g. `"19R/19L/18"`), and a body matching *any one* of them is accepted, since APTC doesn't say which specific runway any one flight will get, just what the airport's generally running.
-- **`server.js`'s `resolveRouteWaypoints()`** builds `depRunway`/`arrRunway` by preferring TFDM's real per-flight value and falling back, independently per field, to `tfms.splitRunwayConf(tfms.getAirportConfig(airport)?.depRunwayConf / .arrRunwayConf)`. `bodies[0]` remains the final fallback when neither TFDM nor TFMS has anything for that flight/airport.
-- **Verified live**: `GET /api/debug/tfms-aptc/:code` (temporary inspector, same pattern as the existing TFDM one) returned real, fresh data for JFK (`arrRunwayConf: "ILS 04R/04L"`, `depRunwayConf: "04L"`, rates, VMC) shortly after deploy, confirming the parser extracts and stores real messages end-to-end. STL specifically hadn't sent a config message in the short window checked — not a bug, just waiting on that airport's own next broadcast; the mechanism applies per-airport as each one's data arrives.
-- **Known limit, not a bug**: APTC is airport-wide, not per-flight, so it can only disambiguate between bodies when a procedure's split lines up with the granularity of the active configuration. A genuinely opposite-direction split (like AARCH2/KAYLA3 at STL, 11/12x vs 29/30x) resolves cleanly since the two bodies can never both appear in the same active config. A finer split within the *same* flow direction (like BIGBR3's 06L/06R vs 07L/07R legs) could still land on the wrong one if a reported config happens to span both bodies' runways at once — a case TFDM's real per-flight assignment (when available) resolves correctly that this fallback can't.
-- Temporary `GET /api/debug/tfms-aptc/:code` inspector left in place (not yet removed), same posture as the pre-existing `/api/debug/tfdm/:callsign`.
+### Trail backfill from ADS-B
 
-**Third fallback tier — destination's own departure config (added 2026-10-14).** Confirmed live: DAL788 arriving DTW had no arrival-runway signal from *either* TFDM or TFMS's own `arrRunwayConf` (DTW had a populated `depRunwayConf` but a null `arrRunwayConf` — it just hadn't broadcast an arrival config recently), so `arrRunway` fell all the way to the arbitrary `bodies[0]` guess. `resolveRouteWaypoints()`'s `arrRunway` computation now has a third tier: when the destination has no arrival config either, use that *same* airport's own current `depRunwayConf` as a proxy. An airport's active configuration is wind-driven and ties arrivals/departures to the same general flow direction together (e.g. "22 operations" vs "4 operations") even though the specific runway numbers for each aren't identical — so this doesn't claim to know the exact landing runway, but for `pickBody()`'s purpose (which runway-specific STAR body to use, usually split by flow direction) it's a meaningfully better signal than falling straight to `bodies[0]` with zero live data behind it.
+`setRelevantCallsigns()` proactively calls `_watched.add()` for every relevant callsign so SWIM trail recording starts ~30min before a scheduled flight departs, independent of any client opening the live map. `/api/live-position` additionally backfills a SWIM/STDDS trail's missing head from ADS-B **once per flight instance that actually succeeds** (`_swimTrailBackfilled` Set, marked only after `fetchAdsbPosition()` resolves, so a transient rate-limit failure retries on the next poll instead of giving up forever). SWIM stays authoritative for any time range it already covers; ADS-B only fills the gap before it. Cleared on confirmed-parked so the next day's physical flight gets backfilled fresh.
 
-**Open question, being tested empirically, not assumed (logging added 2026-10-14):** is it safe to treat a long APTC silence as "config unchanged, still valid" (real-world runway configs can stay stable for hours or even days), or does FAA periodically re-send an unchanged config as a heartbeat (making silence past the 30min window a genuine sign of a problem)? No logging existed to check either way — `processOneFiMessage()` silently overwrote `_airportConfig[airport]` with no record of what arrived or when. Temporary logging (`[TFMS-APTC] <airport> UNCHANGED|CHANGED|FIRST (+Nmin since last msg) dep=... arr=...`, tfms.js) now records every incoming message per airport, comparing all real config fields (not `lastMsg`/`updateTime`, which naturally differ every message regardless). Needs real wall-clock time to accumulate enough samples across busy airports before it can answer the question — remove the logging once it has, and revisit the 30min staleness window in `getAirportConfig()` with real evidence instead of the original guess.
+### NOTAMs via SWIM — abandoned
 
-### Trail backfill from ADS-B (added 2026-10-02)
-
-SWIM's own trail used to only start accumulating once a client first asked about a callsign (`swim.js`'s `getSwimPosition()` — `_watched.add(cs)` was lazy). **Fixed at the root the same day**: `setRelevantCallsigns()` (refreshed every 15s by `runActiveFlightPoller()` off the real -8h/+30min schedule window) now also calls `_watched.add()` for every relevant callsign, so trail recording starts ~30min before a *normal* scheduled CrewSync flight even departs, independent of whether any client ever opens the live map for it — `getSwimPosition()`'s own `_watched.add()` is kept only as a harmless fallback. This closes the gap for the common case; the backfill below remains a secondary safety net for flights that fall outside that normal path for some reason (added to CrewSync after already airborne, SWIM connection was down during the relevant window, an international leg SFDPS doesn't cover until later, etc.) — ADS-B's own trail is separately seeded from real flight history on first contact (`fetchAdsbPosition()` + `processPositionUpdate()`'s `seedTrailFromOpenSky()`) and can often reach back further.
-
-The `/api/live-position` handler (server.js) now backfills a SWIM/STDDS-sourced trail's missing head from ADS-B **once per flight instance that actually succeeds** (tracked in `_swimTrailBackfilled`, a `Set<callsign>`) — not every 8s poll, since it costs a real ADS-B API call and the trail's head never changes once established. On that one call: `fetchAdsbPosition(callsign)` finds the hex, `processPositionUpdate(adsbHit)` starts hex-keyed trail bookkeeping and kicks off the real OpenSky history seed (same two steps the pre-existing pure-ADS-B first-contact block just above it already does), then whatever `_posTrail[hex]` points are **older than SWIM's own earliest trail point** are prepended — SWIM stays authoritative for any time range it already covers, ADS-B only fills the gap before it. `_swimTrailBackfilled` is cleared for a callsign whenever it's confirmed parked (both the ADS-B ground-detection and STDDS's `spotin` event already call `_parkedCallsigns.add` — this piggybacks on both sites), so the same flight *number*'s next day's physical flight gets backfilled fresh instead of silently skipped forever.
-
-**Fixed same day: `_swimTrailBackfilled` was marked done *before* attempting `fetchAdsbPosition()`, not after success.** ADS-B rate-limiting (429 from adsb.lol, 403 from airplanes.live) is common enough that one transient failure permanently skipped the backfill for that flight's entire remaining duration — confirmed live on a flight added to a pilot's schedule after it was already airborne (SWA3492): the one attempt hit the rate limit and was silently marked complete anyway. The `Set.add()` call now happens only after `fetchAdsbPosition()` actually resolves, so a transient failure retries on the next poll instead of giving up forever.
-
-### NOTAMs via SWIM — built, tested, and deliberately abandoned (2026-10-07)
-
-A fourth SWIM feed (AIM_FNS, the NOTAM Distribution Service) was connected and a full real AIXM 5.1 parser (`notams.js`) was built against 20 live-captured samples, confirmed working end-to-end. **Then fully reverted and deleted** once the real architectural problem surfaced: SWIM only ever pushes live *deltas* (a NOTAM being issued or cancelled right now) — there is no snapshot/backlog of *already-active* NOTAMs to subscribe into. FRAT's actual need is "every NOTAM currently in effect for this route," which a pure delta stream can never build on its own without a separate baseline to start from. Decided directly: **"ok we won't use swim for notams then."** No trace of `notams.js` or its wiring remains in `server.js`/`.env` — if NOTAMs come up again, start from the **FAA NOTAM Search API** (`api.faa.gov`) as the baseline/snapshot source instead; SWIM could still be layered on top of that for live updates, but never as the sole source.
+Not implemented. SWIM only pushes live deltas with no snapshot/backlog of already-active NOTAMs, which FRAT's actual need (every NOTAM currently in effect) can't be built from alone. If revisited: start from the FAA NOTAM Search API (`api.faa.gov`) as the baseline, SWIM only ever as a live-update layer on top. Full story: `CLAUDE_HISTORY.md § FAA SWIM integration`.
 
 ---
 
-## Resource usage (1 vCPU/1GB droplet — audited 2026-10-02)
+## Resource usage (1 vCPU/1GB droplet)
 
-A pass looking specifically for safe, behavior-preserving ways to cut CPU/memory/network load, prompted by this box's history of real CPU incidents (see the FAA SWIM section's deploy history). Found and fixed:
+Indexes exist on `segments.pilot_id`, `segments.departure_time`, `pilots.token`, `notifications.pilot_key`, `friend_requests.requester_key`/`.recipient_key`, `segments.route` (NetJets historical-duration lookup) — all `CREATE INDEX IF NOT EXISTS`, purely additive. `runActiveFlightPoller()`'s 15s loop calls `fetchLivePosition()` (checks STDDS/SWIM first) rather than unconditionally hitting the real rate-limited ADS-B API.
 
-- **No indexes existed anywhere in the schema** (`db.js`) beyond what SQLite creates implicitly for PRIMARY KEY/UNIQUE columns — every lookup by `segments.pilot_id` (`GET /api/pilots/:key`, hit on every page load), `segments.departure_time` (the 15s background poller's range scan across *all* pilots' segments), `pilots.token` (every single authenticated request, via `_resolvePilotToken`), `notifications.pilot_key`, and a friend-request lookup in either direction (`friend_requests` has no canonical requester/recipient ordering, so both columns need their own index) was a full table scan. Added `idx_segments_pilot_id`, `idx_segments_departure_time`, `idx_pilots_token`, `idx_notifications_pilot_key`, `idx_friend_requests_requester`, `idx_friend_requests_recipient` — purely additive (`CREATE INDEX IF NOT EXISTS`), zero behavior change, just faster.
-- **`runActiveFlightPoller()`'s 15s loop called `fetchAdsbPosition()` unconditionally** for every flight in its ADS-B window, even when SWIM or STDDS already had a confirmed live position for it — a real, avoidable rate-limited third-party HTTP call every 15s per active flight, on top of the genuine risk of that write clobbering a fresher SWIM-sourced `_liveCache` entry with a stale ADS-B one for up to `LIVE_TTL` (5s). Now calls `fetchLivePosition(callsign)` instead (checks STDDS/SWIM first, only falls through to the real ADS-B call when neither has anything) — `processPositionUpdate()` was already a no-op for a SWIM/STDDS-sourced result (no `.hex`), so this is a straight swap with no other change needed. Meaningfully cuts outbound ADS-B request volume now that most domestic traffic is SWIM-covered (see the trail/relevance-window fixes above).
-
-**Known, deliberately not changed — too risky for a behavior-preserving pass:** `GET /api/pilots/:key` returns a pilot's **entire** segment history unconditionally (`SELECT * FROM segments WHERE pilot_id = ? ORDER BY departure_time`, no date bound), which grows unbounded over months/years of use. Bounding it would cut real bandwidth/CPU, but the frontend currently assumes the full list is already in `pilotsCache` for things like historical month navigation in "My Routes" — bounding the query without also adding range-fetch logic client-side would silently break that. Worth revisiting as its own scoped feature (add a date-range param, teach the frontend to fetch additional ranges on demand), not a drop-in optimization.
+**Known, deliberately unbounded**: `GET /api/pilots/:key` returns a pilot's entire segment history with no date bound — the frontend assumes the full list is in `pilotsCache` for historical month navigation. Bounding this needs a paired client-side range-fetch change; not done.
 
 ---
 
-## TFDM delay insight + "don't mark completed while still flying" (added 2026-10-02)
+## TFDM delay insight + "don't mark completed while still flying"
 
-Explicit principle stated directly: **the uploaded schedule is, and stays, the source of truth for when a flight is supposed to depart/land — never overwritten with real times, anywhere.** What changed is the *display-layer classification* of whether a flight is still active, which used to trust the scheduled arrival time alone (plus a flat +20min buffer in some places, none at all in others) and nothing else.
+**Explicit, standing product principle**: the uploaded schedule is, and stays, the source of truth for when a flight is supposed to depart/land — it is never overwritten with real/estimated times anywhere. Only the *display-layer classification* of whether a flight is still active may use live evidence.
 
-**The real bug this fixes:** a flight delayed on the ground (the literal example given: a long ORD taxi-out pushing departure ~30min late) stays genuinely airborne well past its *originally scheduled* arrival time. Every "is this flight active" check in the app was pure schedule-time math (`dep <= now <= arr`), so the moment scheduled arrival passed, the UI immediately called it "COMPLETED" — even while ADS-B/SWIM would have shown it still very much in the air if anything had bothered to check.
+Real TFDM fields: `departureDelay.{predictedDelay,currentDelay,actualDelay}` (ISO-8601 durations, `actualDelay` preferred when populated), `tfdmFlightState` (`FILED`, `SCHEDULED`, `AT_STAND`, `RAMP_TAXI_OUT`, `AMA_TAXI_OUT`, `DEPARTED`, `EN_ROUTE`, `ON_FINAL`, `ARRIVAL`, `AMA_TAXI_IN`, `RAMP_TAXI_IN`, `LUAW`). `getFlightInfo()` (tfdm.js) returns the whole per-callsign entry (phase + delay + runway). `withTfdmInfo()` (server.js) attaches it to every live-position response regardless of which source actually answered position.
 
-**Real TFDM fields, confirmed against actual captured messages** (`scratch/tfdm-samples/`, not guessed): `<nas:departureDelay>` carries `predictedDelay`/`currentDelay`/`actualDelay` as ISO-8601 durations (e.g. `PT7M`), and `<nas:flightStatus><nas:tfdmFlightState value="...">` gives TFDM's own authoritative flight phase — real observed values: `FILED`, `SCHEDULED`, `AT_STAND`, `RAMP_TAXI_OUT`, `AMA_TAXI_OUT`, `DEPARTED`, `EN_ROUTE`, `ON_FINAL`, `ARRIVAL`, `AMA_TAXI_IN`, `RAMP_TAXI_IN`, `LUAW`. Both were already being received by `tfdm.js` (the runway-assignment consumer added earlier) but `flightState` was captured and unused, and the delay fields weren't captured at all.
+`isFlightStillActive(depMs, arrMs, nowMs, csig)` (app.html) is the single shared check used by grid, list, day-detail sheet, `renderMap()`'s month view + route popup + here-now pin, `renderAllPilotsMap()`, and `renderDayMap()`'s popup + here-now pin. Extends the active window to **`LATE_ARRIVAL_GRACE_MS` (90 minutes)** past scheduled arrival *unless* a live poll has already confirmed parked (`_confirmedParked` Set — mirror of `_landedEarly`, which tracks landing *before* scheduled arrival). Delay is surfaced (`· Delayed Nm`) when `departureDelayMin >= 10`, only in the pre-cruise phase.
 
-- **`tfdm.js`** — `processOneMessage()` now also extracts `departure.departureDelay.{actualDelay,currentDelay}` via a small `parseIsoDurationMinutes()` helper (ISO-8601 duration → minutes; TFDM only ever uses the `PT#H#M#S` shape), preferring `actualDelay` (confirmed, populated once real departure timing is known) over `currentDelay` (TFDM's live best-estimate before that) — same "prefer the more confirmed value" precedence already used for the three-tier runway fields. Stored as `entry.departureDelayMin`. `getRunwayInfo()` renamed to **`getFlightInfo()`** (one call site in `server.js`) since it now returns flight phase and delay too, not just runway — no change to the function body, it already returned the whole `_latest[cs]` entry object.
-- **`server.js`** — new `withTfdmInfo(data, callsign)` attaches `tfdmState`/`departureDelayMin` to a live-position response regardless of which source (STDDS/SWIM/ADS-B) actually answered position, since TFDM is a wholly separate, independent feed. All three return points in `fetchLivePosition()` route through it.
-- **Frontend — the actual fix**: a new shared `isFlightStillActive(depMs, arrMs, nowMs, csig)` (app.html) replaces **eight** separate ad-hoc `dep<=now<=arr(+20min)` checks that had drifted inconsistent (some with the 20min buffer, some with none, scattered across the grid, list, day-detail sheet, `renderMap()`'s "My Routes" month view and its route-popup per-leg indicator and its here-now pin, `renderAllPilotsMap()`'s month overview, and `renderDayMap()`'s popup and here-now pin). It extends the window to **`LATE_ARRIVAL_GRACE_MS` (90 minutes)** past scheduled arrival — generous enough for a serious ground delay plus enroute time — *unless* a live poll has already confirmed the flight parked (new `_confirmedParked` Set, the mirror case of the existing `_landedEarly` Set which tracks the opposite: landed *before* scheduled arrival). `startCalListLivePolling()`'s existing `d.parked` handler (added earlier the same day to fix the "never notices it landed" bug) now also populates `_confirmedParked` before its re-render, so a flight that really did land on schedule doesn't sit tagged "in the air" for the full 90 minutes — only a genuinely-still-active one does.
-- **Delay surfaced, not just silently tolerated**: `startCalListLivePolling()`'s live altitude/speed text and `startLiveTracking()`'s ground-state tooltip both append `· Delayed Nm` when `departureDelayMin >= 10`, gated to the pre-cruise phase only (`tfdmState` not yet `EN_ROUTE`/`ON_FINAL`/`ARRIVAL`, or simply the ground-state branch on the map) — once a flight is well established en route, "it left late" is stale context next to its actual live progress, not useful information.
-
-**Deliberately not done**: `startLiveTracking()`'s own miss-handling "give up after ~30min past scheduled arrival with sustained misses" threshold was left untouched. That's a different, already-reasonable heuristic — it only fires when the flight genuinely can't be found at all for a sustained stretch, not from schedule time alone — and widening it to 90min would let a flight that silently lost ADS-B/SWIM coverage right around a normal on-time landing sit "tracking" far longer than useful.
+**Deliberately unchanged**: `startLiveTracking()`'s own "give up after sustained misses" threshold is a different, independent heuristic (only fires when the flight genuinely can't be found at all) and was left as-is.
 
 ---
 
-## Durable flight-tracking evidence + the day map's `_legState()` (2026-10-03/04, follow-on to the section above)
+## Durable flight-tracking evidence + the day map's `_legState()`
 
-A long run of live-status bugs (Sam's RPA4410/RPA4525/RPA4581 among others — wrong "in the air"/"departure due"/"delayed"/"completed" at various points) converged on two separate, complementary fixes: making the underlying evidence durable server-side, and consolidating the day map's own status classification into one function instead of several drifted ad-hoc checks.
+**Server-side evidence survives restarts.** `_everAirborneCallsigns`/`_parkedCallsigns` (with `_everAirborneOrigin`/`_parkedOrigin` per-leg origin tracking so a reused flight number's next leg doesn't inherit stale evidence), TTLs 12h/6h respectively. Persisted to SQLite via `logFlightEvent()` into `flight_log` (`callsign, day, origin, dest, airborne_at, parked_at, updated_at`, one row per callsign per UTC day, 7-day retention). `restoreFromFlightLog()` rehydrates both Sets 1.5s after server startup.
 
-**Server-side evidence now survives restarts, not just in-memory.** Two Sets track real observed state per callsign: `_everAirborneCallsigns` (ever confirmed airborne — `AIRBORNE_TTL_MS` 12h) and `_parkedCallsigns` (confirmed parked — `PARKED_TTL_MS` 6h), each also recording the leg's origin airport (`_everAirborneOrigin`/`_parkedOrigin`) so a reused flight number's *next* leg doesn't inherit the previous leg's evidence. Both are persisted to SQLite via `logFlightEvent(cs, field)` into a `flight_log` table (`callsign, day, origin, dest, airborne_at, parked_at, updated_at`, one row per callsign per UTC day, 7-day retention via `pruneFlightLog()` in `db.js`), and `restoreFromFlightLog()` rehydrates both Sets from the DB 1.5s after server startup — found live that a restart was silently erasing this evidence (the GSP flight stuck "delayed" across a restart was the symptom that prompted this), and the explicit instruction was **"do whatever you think will be consistently stable and reliable."**
+**Parked detection is time-based** (`PARK_STILL_MS = 3 min` continuous stationary on the ground, tracked via `_groundStillSince`), not count-based. `isClearlyAirborne()` requires `onGround===false` AND (`altFt>2000` OR `speedKts>100`) — altitude alone misfires at elevated airports (PIT ~1200ft, DEN ~5400ft).
 
-**Parked detection is time-based, not count-based** (`PARK_STILL_MS = 3 * 60 * 1000`, `isClearlyAirborne()`/`applyCallsignGroundState()` in server.js): a flight is only marked parked after **3 continuous minutes** stationary on the ground (tracked per-callsign via `_groundStillSince`), not after some fixed number of poll readings — a count-based threshold could be satisfied within seconds by a fast+slow poller combination during an ordinary taxi hold, falsely parking a flight mid-taxi. `isClearlyAirborne()` requires `onGround === false` AND (`altFt > 2000` OR `speedKts > 100`) — absolute low-altitude thresholds alone misfired at elevated airports (PIT ~1200ft, DEN ~5400ft).
+**ADS-B cache reuse**: `ADSB_CACHE_TTL` (16s, just over the 15s poller cadence) lets a client's own `/api/live-position` poll reuse the poller's own recent ADS-B-sourced result instead of redoing the slow dual-source race.
 
-**ADS-B's own live-position cache now actually gets reused across client polls (2026-10-07/08 fix).** `runActiveFlightPoller()` refreshes `_liveCache` every 15s specifically so a client's own `/api/live-position` poll can reuse it instead of redoing the same work — but the flat `LIVE_TTL` (5s) was shorter than that 15s cadence, so most client polls found the cache "stale" and re-fetched anyway. Harmless for SWIM/STDDS (free in-memory reads), but for a flight that falls back to real ADS-B (`fetchAdsbPosition()` races adsb.lol/airplanes.live, up to 7s each — the one genuinely slow, rate-limited external call in this whole pipeline) this meant redoing that same slow race on nearly every poll instead of reusing the poller's recent result, surfacing as a visible "map takes a few seconds to show live data" delay. Fixed with a separate `ADSB_CACHE_TTL` (16s, just over the poller's own cadence) used only for ADS-B-sourced cache entries — `applyCallsignGroundState()` now stamps `data.source` for the ADS-B path too (swim.js/stdds.js already stamp their own `source` on the objects they return; nothing previously did it for ADS-B, so the new TTL branch had nothing to key off without it). Verified live against a real airborne flight: first successful fetch took ~6s, a poll 5s later (within the new TTL) returned in ~0.15s.
+**Taxi trail**: drawn whenever on the ground with ≥2 points (not gated to "currently moving"), trimmed to the current leg via scheduled departure time, cleaned server-side (`cleanTrail()` — sorts merged SWIM+STDDS points, drops exact duplicates and single-point spikes). Taxi direction prefers TFDM's own phase (`TAXI_IN`/`ARRIVAL` vs `TAXI_OUT`) over the older poller-local fallback.
 
-**Taxi trail — drawn whenever on the ground with ≥2 points** (not gated to "currently moving," since a taxiing aircraft stops and starts), **trimmed to the current leg** via the scheduled departure time (so a trail doesn't carry over from an earlier leg/stop), and **cleaned server-side** (`cleanTrail()`): sorts merged SWIM+STDDS points by timestamp, drops exact duplicates, and drops single-point spikes that jump far from both neighbors then return. Fixes a real "trail fanned out across the map" bug caused by an interleaved stale/out-of-order source.
+**`_legState(cs, dMs, aMs, landedEarlyFlag, pilotKey)` rule order** (day map popup + here-now pin, first match wins):
+1. `landedEarlyFlag` true → `completed`
+2. `_hasNewerLegStarted(pilotKey, cs, dMs)` true → `completed`
+3. confirmed parked, gated on `depHasPassed` and not currently `liveSeen` → `completed`
+4. `liveSeen` → `active`, unconditionally (authoritative even for a genuinely early departure)
+5. airborne evidence exists, gated on `depHasPassed`, not yet past effective (schedule-or-TFMS-estimated) arrival → `active`
+6. TFMS's real OOOI `airlineOnTime` has passed → `completed` (checked only after the two `active` rules above)
+7. seen flying at all and past effective arrival → `completed`
+8. never seen flying at all but 3 hours past effective arrival → `completed`
+9. before scheduled departure → `scheduled`
+10. departure passed, not seen flying, TFMS estimated departure ≥5min later than scheduled → `delayed`
+11. departure passed, not seen flying, no delay estimate → `due`
 
-**Taxi direction (in for arrival vs. out for departure)** now prefers TFDM's own phase (`TAXI_IN`/`ARRIVAL` vs `TAXI_OUT`) over the old poller-local "ever seen airborne" fallback, which had it backwards in some cases.
+Evidence (`etd`/`eta`/`airlineOnTime`/`airlineInTime`, confirmed-parked/airborne/live) is fetched in one batched call per render to `GET /api/flight-status?callsigns=...&origins=...`. TFMS's own estimated-times cache is separately disk-persisted (`.tfms_times_cache.json`, 6h TTL).
 
-**The day map's own per-flight status is `_legState(cs, dMs, aMs, landedEarlyFlag, pilotKey)`** (app.html, ~line 7024) — one function deciding a leg's state for both the day-map popup and the here-now pin's "is this flight airborne" check, replacing several scattered ad-hoc checks that had drifted inconsistent across the map specifically (this is in addition to, not a replacement for, the grid/list/day-detail `isFlightStillActive()`/`LATE_ARRIVAL_GRACE_MS` check above, which is unchanged and still the one those views use). Current rule order (checked top to bottom, first match wins — see "Same-day round trip sharing one callsign" below for why `pilotKey`/`depHasPassed`/`newerLegStarted` exist at all):
-- `landedEarlyFlag` true → `completed`
-- `_hasNewerLegStarted(pilotKey, cs, dMs)` true (a later segment on this same callsign has already departed) → `completed`
-- confirmed parked, gated on `depHasPassed` (this leg's own scheduled departure has passed) and not currently `liveSeen` → `completed`
-- `liveSeen` (a real live position confirmed just now) → `active`, unconditionally — authoritative even for a genuinely early departure, deliberately not gated on `depHasPassed`
-- airborne evidence exists, gated on `depHasPassed`, and not yet past the effective (schedule-or-TFMS-estimated) arrival → `active`
-- TFMS's real OOOI `airlineOnTime` (actual touchdown, not an estimate) has passed → `completed` — fallback for when there's *no* current live data to show at all (see "TFMS's real OOOI arrival time" below), checked only after the two `active` rules above so an actively-tracked taxi-in still shows active, not short-circuited to completed the instant touchdown occurs
-- seen flying at all and past the effective arrival → `completed`
-- never seen flying at all but 3 hours past the effective arrival → `completed` (covers a flight the live feeds never picked up at all — found live with RPA4581, which flew for ~2 hours with zero airborne evidence from any source, and sat stuck "DEPARTURE DUE" until this fallback was added)
-- before scheduled departure → `scheduled`
-- departure time passed, not seen flying, TFMS estimated departure ≥5min later than scheduled → `delayed`
-- departure time passed, not seen flying, no delay estimate → `due`
+**Same standing principle as above applies here too**: only the display-layer classification uses live evidence; the stored schedule is never changed.
 
-Estimated times (`etd`/`eta`/`airlineOnTime`/`airlineInTime`) and server-confirmed-parked/airborne/live state are fetched in one batched call per render to `GET /api/flight-status?callsigns=...` rather than per-flight, feeding `_legState` the same evidence the server itself already tracked durably above — this is also where TFMS's parsed estimated times (`tfms.js`'s `processFlightTimes()`, its own separately-persisted `.tfms_times_cache.json` cache, 6h TTL, independent of the pruned route/trajectory store so it survives relevance-window pruning) surface to the frontend.
-
-**Explicit, standing product principle, stated directly and applying to all of the above:** the uploaded schedule is, and stays, the source of truth for when a flight is supposed to depart/land — it is never overwritten with real/estimated times anywhere. Only the *display-layer classification* of whether a flight is still active may use live evidence; a delayed or early flight never causes the stored schedule itself to change.
+Full discovery narrative for all of the above: `CLAUDE_HISTORY.md § Durable flight-tracking evidence`.
 
 ---
 
-## Same-day round trip sharing one callsign — a recurring bug class (2026-10-09 through 2026-10-14)
+## Same-day round trip sharing one callsign
 
-Confirmed live, twice, independently: a callsign does not uniquely identify one leg. Kyle's corporate flights derive a callsign from the tail number (`SJJ` + first 3 digits), identical for every leg flown on that tail the same day. Separately, Mark's real Delta round trip (ATL→MDW then MDW→ATL, same day, same tail) genuinely files the *same real flight number* both directions — confirmed straight from Delta's own raw feed, not a parsing mistake: `DL2417 ATL-MDW` and `DL2417 MDW-ATL`. Every piece of live-tracking state in this app was originally keyed by bare callsign alone, with nothing checking "does this evidence actually belong to the specific leg I'm asking about." That assumption broke in six separate places, found one at a time against Mark's real DL2417 round trip:
+A callsign does not uniquely identify one leg — Kyle's corporate flights derive a callsign from the tail (identical for every leg on that tail the same day); Delta genuinely files the same real flight number both directions on some real round trips; Republic reuses a flight number the same day for an entirely different, CrewSync-unknown return flight. Current safeguards in place as a result:
 
-1. **The background poller never tracked Kyle's corporate flights at all.** `runActiveFlightPoller()`'s SQL query required a non-null `flight_number` — Kyle's SJJ legs never have one (see "Schedaero flight numbers" below). Fixed with `deriveServerCallsign(row, airlineCode)` (server.js), a server-side mirror of the client's tail-based fallback, and widened the poller's query to also match tail-only rows (filtered back down to just `airlineCode === 'SJJ'` in JS, so no other pilot's manual/personal tail-only segments start getting tracked).
-2. **Stale "parked" state leaked from one leg into the next.** `unparkIfNewLeg(cs, origin)` only clears a stale parked flag when handed a *fresh live-feed-reported* origin that differs from the one recorded at parking time — if SWIM/STDDS hadn't picked up the new leg's flight plan yet (plausible at a quieter field, or on a short turnaround), that fresh origin never arrives, and the first leg's parked flag just sits there blocking the whole next leg. Fixed by preferring CrewSync's **own already-known scheduled `departure_airport`** for the row being considered — always immediately available and correct, independent of live-feed timing — over the live feed's own origin, at both call sites: the background poller (`row.departure_airport`) and `/api/live-position` (now accepts an optional `?origin=` from the client, which `startCalListLivePolling()` sends using the dep-airport already baked into the calendar/list markup).
-3. **`_legState`'s parked→completed and `liveSeen`→active rules trusted evidence before this leg's own departure.** Leg 1 landing and sitting parked at the gate marked the shared callsign "parked" server-side; leg 2 — which hadn't even left the gate yet — inherited "completed" from it. And once leg 2 departed, leg 1 (already completed) started showing "active"/IN THE AIR using leg 2's genuinely-real live position, since the `liveSeen` rule is deliberately unconditional (to support a real early departure) and nothing checked whether a *newer* leg had started before trusting it. Fixed with `depHasPassed` (gates the parked/airborne rules, not `liveSeen`) and `_hasNewerLegStarted()` (see point 5).
-4. **`_landedEarly` was keyed by bare callsign too**, checked directly (bypassing `_legState` entirely) in ~12 places across the grid, list, day-detail sheet, and every map view. Re-keyed by `` `${callsign}|${scheduledArrMs}` `` instead (`_landedEarlyKey()`/`_isLandedEarly()`, app.html; same composite stored server-side in `/api/early-landing`/`_earlyLandings[date]`) so two legs sharing one callsign can't contaminate each other's early-landing flag. A stale bare-callsign entry already sitting in a day's server-side set from before this fix simply stops matching either leg's new composite key — no migration needed.
-5. **The live map poller itself (`startLiveTracking()`) could outlive the leg it was tracking.** `_liveLayersByCallsign`/`_livePollers` are single-slot-per-callsign; when leg 2's own call tears down "whatever's registered for this callsign," a still-in-flight `update()` call from leg 1's poller has no way to know it was superseded — it finishes that tick and calls `scheduleNextPoll()` anyway, arming a timer now unreachable through `_livePollers[callsign]` (leg 2's id lives there instead), which then runs forever, redrawing leg 1's stale `depCoords`/`arrCoords` against real position data that actually belongs to leg 2 — the duplicate/crossed-trail bug seen live on the map. Worse, `finishTracking()` unconditionally called `_confirmedParked.add(callsign)`, so a stale leg-1 poller could mark the shared callsign parked while leg 2 was genuinely still flying. Fixed with a per-call **instance id** (`_liveTrackingInstanceSeq`, stored alongside the registration): `update()`, `finishTracking()`, and `scheduleNextPoll()` all check `_isCurrent()` (is my instance id still the one registered for this callsign) before touching any shared state. A still-in-flight stale tick finishes once (bounded, self-healing) but can never arm another timer or mark anything parked on behalf of a leg it no longer represents.
-6. **A 4h-then-90min time ceiling still wasn't enough for a short turnaround.** Even with instance isolation, a poller that's never explicitly superseded (nothing re-triggers tracking for a leg that no longer qualifies as active/preflight) and never sees "parked" (the shared callsign is legitimately airborne — it's just the *other* leg) has no natural reason to stop. A time ceiling was added (`LATE_ARRIVAL_GRACE_MS`, 90min past this leg's own scheduled arrival — tried 4h first, far too generous, see the fix's own commit for why that comparison was wrong) but Mark's real ~1h MDW layover is *shorter* than that grace period. Added a precise, schedule-based check ahead of the ceiling: **`_hasNewerLegStarted(pilotKey, callsign, ownDepMs)`** (shared helper, app.html) — if this pilot has another flight segment today sharing this exact callsign with a *later* scheduled departure that has already passed, a newer leg has definitively started; stop immediately, no grace period needed. Used by both the poller (to self-terminate) and `_legState` (to force `completed` on the superseded leg, closing the gap point 3 couldn't fully close on its own).
+- Background poller tracks tail-only (non-flight-number) rows too, filtered to just the relevant `airlineCode`s.
+- `unparkIfNewLeg(cs, origin)` prefers CrewSync's **own known scheduled `departure_airport`** over the live feed's own reported origin (which may not have arrived yet) when deciding whether a stale parked flag should clear. `/api/live-position` accepts an optional `?origin=` for this; `startCalListLivePolling()`/`renderDayMap()` always supply it.
+- `_legState`'s parked/airborne rules are gated on `depHasPassed` (this leg's own scheduled departure has passed) — only `liveSeen` (rule 4) is intentionally ungated, to support a genuinely early departure.
+- `_landedEarly` is keyed by `` `${callsign}|${scheduledArrMs}` `` (`_landedEarlyKey()`/`_isLandedEarly()`), not bare callsign, so two legs sharing a callsign can't contaminate each other's early-landing flag.
+- Each `startLiveTracking()` poller carries a per-call instance id (see "ADS-B live tracking" above) so a superseded poller can't arm a stray timer or mark the wrong leg parked.
+- `_hasNewerLegStarted(pilotKey, callsign, ownDepMs)` (shared helper) — if this pilot has another segment today sharing this callsign with a later scheduled departure that's already passed, the earlier leg is definitively `completed` and its own poller self-terminates. Pre-filters on the raw ISO date string within a ±48h window before doing any real per-segment work, for performance.
+- `/api/flight-status`'s `live` list excludes anything in `parked` (mirroring `airborne`, which already did), so `parked:true` and `live:true` can't both be true for the same stale cache entry.
+- TFMS's real OOOI `airlineOnTime`/`airlineInTime` is used as a last-resort "definitely landed" signal when the position-polling pipeline has nothing (checked after the live-tracking `active` rules so an actively-tracked taxi-in still shows active).
+- Day-map popup shows "▶ TAXIING IN" instead of "▶ IN THE AIR" when `onGround` is true for a flight in the `live` list (scoped to the day-map popup only, not grid/list/day-detail).
+- `matchesExpectedOrigin(data, expectedOrigin)` (server.js) — compares a live-feed-reported origin against the caller's own already-known scheduled `departure_airport`, applied at every mutation/read site: `fetchLivePosition()`'s STDDS/SWIM return paths, `/api/live-position`'s cache short-circuit and parked-recovery branch, `runActiveFlightPoller()`'s own parked-recovery branch, `/api/flight-status`'s `live`/`airborne`/`parked` arrays, and `restoreFromFlightLog()`. `isExpectedDay()`/`isExpectedOrigin()` reject a mismatched message's *entire* contents at ingestion in `tfdm.js`/`tfms.js`. `tfms.js` parses the real origin straight out of its own filed-route string (`routeOrigin()`) and caches it on `_latest[cs].origin`.
+- A temporary debug endpoint, `GET /api/debug/origin-state/:callsign`, is still live from this investigation.
 
-**Performance regression, found and fixed the same day**: `_hasNewerLegStarted()` scanned `pilotsCache[pilotKey].segments` in full — a pilot's *entire* synced history (`GET /api/pilots/:key` returns it unbounded, a known standing limitation), on every render *and* every live-poll tick (3–8s) for every tracked flight. Confirmed live as the cause of the map taking noticeably longer to load and the legend filter's re-render leaving the map visibly blank for longer. Fixed with a cheap pre-filter on the raw ISO date string (not a parsed `Date`) discarding anything outside a generous ±48h window before any of the real per-segment work (`flightUTCTime`'s timezone lookup, `deriveCallsign`) runs.
-
-**A seventh, related bug in the same family, found after all of the above**: `/api/flight-status`'s `live` list only checked raw `_liveCache` recency (was *any* position found in the last 3 minutes), with no exclusion for a callsign already confirmed parked — unlike `airborne`, which already excludes parked correctly. Parked flights short-circuit `/api/live-position`'s own handler *before* it ever writes a fresh cache entry, so the stale "found" entry from just before parked-detection fired just sits there until its own recency window lapses naturally — letting `parked:true` and `live:true` both be true simultaneously for that whole window. Confirmed live: DAL788 showed IN THE AIR well after TFMS's own OOOI report confirmed it had landed and reached the gate, because `_legState`'s parked→completed rule deliberately requires `!liveSeen` (so it never overrides a genuinely still-flying aircraft) and that stale `live:true` flag defeated the guard. Fixed by adding the same `isParked(cs)` exclusion to `live` that `airborne` already had.
-
-**TFMS's real OOOI arrival time, surfaced as a last-resort completion signal (added 2026-10-13).** A genuinely different gap, found on the same DAL788: it had actually landed and reached the gate, but `/api/flight-status` showed `parked`/`live`/`airborne` all empty — the event-driven position-polling pipeline apparently never had an active position fix right at touchdown for this specific landing, so it had nothing to go on, and `_legState` fell all the way through to `delayed` with a stale ETD. TFMS already knew regardless, via its own real OOOI report (`airlineOnTime`/`airlineInTime` — actual touchdown/gate-arrival timestamps, not estimates; `tfms.js`'s `getFlightTimes()` already tracked both, just wasn't exposed through `/api/flight-status`). Now surfaced in that endpoint's `times` object and used by `_legState` as a fallback "definitely landed" signal — see the rule order above for exactly where it's checked (after the live-tracking active checks, so an actively-tracked taxi-in still shows active, not short-circuited the instant touchdown occurs).
-
-**TAXIING IN vs. IN THE AIR (added 2026-10-13).** The day map's static popup status line had one bucket for `_legState`'s `active` result and always rendered it as a literal "▶ IN THE AIR", even for a flight that's landed and taxiing to the gate but not yet confirmed parked — genuinely misleading for something on the ground. `/api/flight-status` now also returns an `onGround` map (keyed by whichever callsigns are in the `live` list — the only ones where this matters), and the popup shows "▶ TAXIING IN" instead when set. Scoped to just the day-map popup for now — the calendar grid's day-header badge, list view, and day-detail sheet have the same literal-text limitation and weren't touched.
-
-**An eighth, genuinely different flavor of the same bug class, found 2026-10-20: a same-day callsign reuse by a flight that isn't even in CrewSync's own data at all.** Every prior fix above assumed the "other leg" was one of *this pilot's own* same-day segments (Kyle's two SJJ legs, Mark's real DL2417 round trip). This one isn't: Republic reuses flight number RPA4605 the same day for a real TUL→LGA return under the exact same callsign as Sam's own LGA→TUL leg — a flight neither Sam nor CrewSync has any record of at all. Confirmed live: Sam's leg showed completed on the grid/list but "in the air" with dashed lines on the map, then later a nonsense "DELAYED · ETD 03:37pm" — all three symptoms traced to this one unrelated return flight's real, genuinely-live data bleeding through every piece of state that's keyed by bare callsign: `_liveCache`, `_everAirborneCallsigns`/`_parkedCallsigns` (and their disk/SQLite persistence), and `tfms.js`'s `_flightTimes` cache. Unlike the day-check fix (`isExpectedDay()`, which rejects a *different calendar day's* recurrence), nothing in this app had ever checked whether a same-day message's *origin airport* actually matched the specific leg being asked about.
-
-Fixed with a shared `matchesExpectedOrigin(data, expectedOrigin)` helper (server.js) comparing the live-feed-reported origin against the caller's own already-known scheduled `departure_airport` for that row (never the live feed's own origin — exactly the "trust CrewSync's own schedule over live-feed timing" pattern established by point 2 above), applied at every mutation/read site this bug reached: `fetchLivePosition()`'s own STDDS/SWIM return paths, `/api/live-position`'s route handler (both its `_liveCache` short-circuit and its `isParked` recovery branch), `runActiveFlightPoller()`'s own identical `isParked` recovery branch (a second, previously-unguarded copy of the same call), `/api/flight-status`'s `live`/`airborne`/`parked` arrays (via an inline `origins=` query param parallel to `callsigns=`, same shape `startCalListLivePolling()`/`renderDayMap()` already had the departure airport in scope to supply), and `restoreFromFlightLog()` (origin wasn't being restored from the `flight_log` table across a restart at all — added alongside the existing airborne/parked timestamp restore).
-
-The one field this couldn't reach by borrowing another feed's evidence: TFMS's own `_flightTimes` cache (`etd`/`eta`/`airlineOnTime`/`airlineInTime`) has no origin of its own to check against *in that cache* — `_everAirborneOrigin`/`_parkedOrigin` were tried first as a proxy (good enough most of the time, since they're real evidence about whichever leg is currently live) but are a false correlation: they're independently-updating data about *live position*, not a guarantee about which leg's *times* are cached, and can legitimately disagree. Fixed properly instead: `tfms.js` now parses the real origin airport straight out of its own filed-route string (`routeOrigin()`, first token of the legacy-format route, e.g. `KLGA./.CAMRN...` → `LGA`) and caches it on `_latest[cs].origin` whenever a `flightPlanInformation`/`flightPlanAmendmentInformation` message supplies a route. `server.js` feeds a parallel `callsign -> Set<departure_airport>` map (`swimOrigins`, built the same way as the existing `swimDepTimes` day-check map) into a new `tfms.setRelevantOrigins()` — deliberately a separate call from `setRelevantCallsigns()`/`setRelevantDepTimes`, not folded into the same Map shape, so `tfdm.js` (which shares that function's code but already has its own adequate per-message origin/dest reset logic) needed no change at all. `isExpectedOrigin(cs, candidateOrigin)` rejects a message's *entire* contents — route, times, everything — at ingestion in `processOneFltdMessage()`, mirroring `isExpectedDay()`'s existing posture exactly; the candidate origin prefers the message's own route string when present, falling back to whatever's already cached on `_latest[cs].origin` so a route-less times-only update doesn't slip past unchecked. `/api/flight-status`'s `timesOriginOk` now checks `tfms.getFlightData(cs)?.origin` first (the real, route-derived value) and only falls back to the old `_everAirborneOrigin`/`_parkedOrigin` proxy when tfms.js hasn't cached a route-bearing message for that callsign at all.
-
-Verified against the real endpoint after deploy: `GET /api/flight-status?callsigns=RPA4605&origins=LGA` and the same call with no `origins` param both now return identical, internally-consistent times for Sam's actual landed LGA-TUL leg (round-minute `etd`/`eta`/`airlineOnTime`/`airlineInTime`, `parked:true`) — agreeing with no origin supplied at all confirms the rejection is happening at `tfms.js`'s own ingestion layer, not just the output-side proxy check.
-
-A temporary debug endpoint, `GET /api/debug/origin-state/:callsign` (returns `_everAirborneCallsigns`/`_parkedCallsigns` state plus raw `flight_log` rows for one callsign, same posture as the existing `/api/debug/tfdm/:callsign`), is still live in server.js from this investigation — not yet removed.
+Full bug-by-bug discovery narrative (8 distinct findings across 2026-10-09 through 2026-10-20): `CLAUDE_HISTORY.md § Same-day round trip sharing one callsign`.
 
 ---
 
-## NetJets manual tracking (`parser_type: 'manual_netjets'`, added 2026-10-30, in progress)
+## NetJets manual tracking (`parser_type: 'manual_netjets'`)
 
-NetJets publishes no exportable schedule feed at all (confirmed directly by the pilot checking) — fundamentally different from every other parser in this file, which all start from a real ICS/CSV/feed export. This is a manual-entry pilot type built specifically around how NetJets pilots actually work: home-based, tail-locked for a whole tour, on a 7-on/7-off-style rotation. One real account exists (`mack` / Mack Kraus, base/home both `DFW`).
+NetJets publishes no exportable schedule feed at all — a manual-entry pilot type built around how NetJets pilots actually work: home-based, tail-locked for a whole tour, on a rotation. One real account: `mack` / Mack Kraus (base/home both DFW).
 
-**Confirmed: tail → ATC callsign rule.** `EJA` + the full numeric run of the tail, no truncation (unlike SpiritJets' `SJJ` + first-3-digits rule — see "Kyle's corporate flight number" below). Confirmed against 3 real tails: `N14QS`→`EJA14`, `N163QS`→`EJA163`, `N22QS`→`EJA22` — length varies (2 or 3 digits), never zero-padded. Implemented both sides: `ejaFlightNumber(tail)` (server.js, mirrors `sjjFlightNumber`) and `deriveCallsign()`'s `EJA` branch (app.html) — both just strip non-digits from the tail field, so a tour-tail input of bare `163` and a full `N163QS` produce the identical result.
+**Tail → ATC callsign rule**: `EJA` + the full numeric run of the tail, no truncation (`ejaFlightNumber(tail)` server-side, `deriveCallsign()`'s `EJA` branch client-side — both just strip non-digits).
 
-**Deliberately exposed in the admin dropdown only — never in `join.html`'s public self-signup.** `AIRLINE_OPTIONS` (app.html) has a real `EJA` entry (`parser: 'manual_netjets'`, `needsIcs: false`), with a matching `<option value="EJA">NetJets (Manual — Beta)</option>` in **both** the admin edit-user modal's dropdown and the self-service My Info modal's dropdown (added to both, same reasoning as SJJ's comment in `AIRLINE_OPTIONS` — a pilot or admin saving their profile without noticing shouldn't silently fall through to `parser_type: 'other'`). `public/join.html`'s own, separate, shorter airline list was deliberately left untouched and has no NetJets option — explicit requirement: no one should be able to self-signup claiming NetJets as their company. Selecting `EJA` in the admin dropdown auto-fills Role/Description with `"NetJets · Home-based"` if that field is still blank (`_onAirlineChange()`), never overwriting existing text.
+**Exposed in the admin dropdown only** — never in `join.html`'s public self-signup. `AIRLINE_OPTIONS` has a real `EJA` entry (`parser: 'manual_netjets'`, `needsIcs: false`) in both the admin edit-user modal and the self-service My Info modal.
 
-**Home-based, not base≠home like every other pilot.** NetJets pilots are simply assigned to their nearest major airport — no separate domicile concept. For this pilot type, `pilots.base` and `pilots.home_airport` are the same airport (confirmed in the real `mack` row), so `buildGroundPeriods`'s entire commuter branch (base≠home special-casing, the 3h-home-assumption after a base arrival) never triggers for it.
+**Home-based**: `pilots.base === pilots.home_airport` for this pilot type, so `buildGroundPeriods`'s commuter branch never triggers.
 
-**Duty rotation + per-tour tail (built).** Two new history-preserving tables (`db.js`, same pattern as `pilot_base_history`): `pilot_duty_rotation` (`pilot_id, anchor_date, days_on, days_off, effective_from`) and `pilot_tour_tail` (`pilot_id, tour_start_date, tail`, `UNIQUE(pilot_id, tour_start_date)` — re-saving a tour's tail upserts rather than duplicating). `GET /api/pilots/:key` now also returns `rotation_history`/`tour_tails`. New `PUT /api/pilots/:key/rotation` and `PUT /api/pilots/:key/tour-tail` (server.js), both admin-or-self gated via `_resolvePilotToken`, same posture as the profile PUT.
+**Duty rotation + per-tour tail.** `pilot_duty_rotation(pilot_id, anchor_date, days_on, days_off, effective_from)` and `pilot_tour_tail(pilot_id, tour_start_date, tail, start_airport)` (`UNIQUE(pilot_id, tour_start_date)`, upserted). `GET /api/pilots/:key` returns `rotation_history`/`tour_tails`. `PUT /api/pilots/:key/rotation` / `.../tour-tail` (admin-or-self). Resolution: `_resolveRotationAt()` → most recent rotation row still effective; `_tourStartDateFor()` → modular-arithmetic day-1 of the on-duty tour containing a date, or `null` if off-duty/unconfigured; `_tourTailFor()` looks up the saved tail for that tour start. The pilot just picks any known Day-1 date + Days On/Off — no external line/family mapping needed for the base rotation case.
 
-Resolution lives in app.html near `resolveBaseAt` (same history-walk pattern): `_resolveRotationAt(rotationHistory, dateStr)` → the most recent rotation row still `effective_from <= dateStr`; `_tourStartDateFor(pilotKey, dateStr)` → `null` if off-duty or no rotation configured, else the calendar date of day 1 of the on-duty tour containing `dateStr` (modular arithmetic off the anchor date, `((daysSince % period) + period) % period` so it works for dates before the anchor too, not just after); `_isNetJetsOnDuty()` is a thin boolean wrapper; `_tourTailFor(pilotKey, tourStartDate)` looks up what's saved for that tour.
+**Off Days integration.** `_isOffDutyGeneric(pilotKey, dateStr, pilotFlyingDates)` — off only when there's neither a real logged segment nor the rotation saying on-duty. Wired into `renderCommonOffSection()`, `renderOffDayCalendar()`, `showOffDayDetail()`. Falls back to pure segment-based when no rotation is saved yet.
 
-A deliberate simplification from the original design sketch: the plan had considered asking for a NetJets "Line number (1–14) + family" (the vocabulary on https://qspilot.info/schedule/line-visualizer, a third-party community tool) since that's what pilots actually bid in — not built, because that tool's line→start-day mapping was never extracted/confirmed. What shipped instead: the pilot just picks **any date they know was Day 1 of an on-duty stretch** plus Days On/Days Off — fully self-contained, no external mapping needed. That date also doubles as `effectiveFrom` (`saveMyRotation()` passes the same value for both), so a saved rotation always governs from that date forward.
+**Self-service UI.** `#my-info-netjets-section` (Days On/Off + Anchor Date + Save; numeric tail input + Save, keyed to today's resolved tour start). `_refreshMyInfoNetjetsStatus()` shows current status. Add Flight modal pre-fills Tail#/Flight# from the saved tour tail.
 
-**Off Days integration (built).** A day counts as off for this pilot type only when there's **neither** a real logged segment **nor** the rotation saying they're on-duty that day — `_isOffDutyGeneric(pilotKey, dateStr, pilotFlyingDates)` (app.html). Wired into all three off-day render paths that had near-duplicate "is this pilot off" checks: `renderCommonOffSection()`, `renderOffDayCalendar()`, `showOffDayDetail()`. A NetJets pilot with no rotation saved yet falls straight back to pure segment-based (same as any other pilot) — nothing breaks before rotation setup.
+**Auto-creating legs.** SWIM-first: the derived `EJA` callsign is fed into `setRelevantCallsigns()` proactively every poll cycle via `_getOnDutyNetjetsPilots()`, merged in before the main scheduled-flight relevance computation (NetJets legs have no `departure_time` to drive that query otherwise). `_pollNetjetsLegCreation()` materializes **every known leg** from a per-leg store (`tfdm.getAllLegs()`/`tfms.getAllLegTimes()`, both disk-persisted and scoped to EJA callsigns only) rather than tracking just "the current" leg — real NetJets callsigns routinely carry 2+ concurrently-filed legs, sometimes spanning today and tomorrow. Matching across polls is fuzzy (an estimated time can legitimately drift poll to poll), not an exact key. `isParkedForOrigin()` (NetJets-specific) avoids the generic `isParked()`'s single-slot-per-callsign confusion when two legs on the same tail are both tracked.
 
-**Self-service UI (built).** My Info modal gained `#my-info-netjets-section` (shown only when `EJA` is selected): Days On / Days Off / Anchor Date inputs + Save (`saveMyRotation()`), and a numeric-only, 2-or-3-digit Tail input + Save (`saveMyTourTail()`, keyed to *today's* resolved tour start date). `_refreshMyInfoNetjetsStatus()` shows current on/off-duty state and the active tour's start date. **Add Flight modal** (`openAddFlight()`) pre-fills Tail # and derived Flight # (`EJA`+digits) from whatever's saved for today's tour, for a `manual_netjets` pilot — avoids retyping the same tail/flight# on every leg of a tour, which was explicitly rejected as too much friction for this pilot type.
+**Restart-safe by construction.** `auto_leg_key` (format `<callsign>|<tourStartDate>|<legNumber>`) on the `segments` row is the actual source of truth — `_pollNetjetsLegCreation()` queries fresh every call, no persisted in-memory cache.
 
-**Auto-creating legs (built).** SWIM-first, not raw-ADS-B-first: once a tail is saved, the derived `EJA` callsign is fed into `setRelevantCallsigns()` proactively every 15s poll cycle (`runActiveFlightPoller()` merges in whoever's currently on-duty — see `_getOnDutyNetjetsPilots()` — right before the one call site that sets relevance, since these pilots have no scheduled `departure_time` at all and would otherwise need to flow through the main query's scheduled-flight-shaped per-row loop). `_pollNetjetsLegCreation()` then builds/refines real segments from TFDM's parsed per-flight origin/dest (most authoritative), falling back to TFMS's filed route string (`routeDest()`, a local mirror of `routeOrigin()` for the other end of a legacy-format route — not added to tfms.js itself, which stays untouched), falling back to reverse-geocoding the last known ADS-B/STDDS position (`_findNearestAirportCode()`, linear haversine scan over the existing `_aptCoords` table) only once a leg looks landed with no SWIM destination ever reported. `block_minutes` is a plain UTC diff, no airport-timezone lookup needed — confirmed `tfms.js`'s `processFlightTimes()` already normalizes every time field through `.toISOString()`, so these are always real UTC-with-`Z` strings, which is exactly the format `pilotUsesUtc()` already auto-detects (same convention as Kyle's segments).
+**Resolving timing data for a leg**, in priority order: TFDM's parsed per-flight origin/dest (most authoritative) → TFMS's filed route string (`routeDest()`, local mirror of `routeOrigin()`) → reverse-geocoding the last known ADS-B/STDDS position (`_findNearestAirportCode()`) once a leg looks landed with no SWIM destination ever reported. `block_minutes` is a plain UTC diff (TFMS's `processFlightTimes()` already normalizes every time field to real UTC-with-`Z` strings — `pilotUsesUtc()` auto-detects this, same convention as Kyle's segments). An inconsistent arrival-before-departure value is corrected to `arrival_time = departure_time` (a neutral placeholder), never left `NULL` — several places in app.html assume a `type='flight'` segment always has both times.
 
-**Verified end-to-end against a real live flight (2026-10-30).** Set Mack on-duty (7&7, on tour starting that day) and saved tail `458`; found `N458QS` (a real NetJets Phenom 300) genuinely airborne at the time via ADS-B and used it for the test. Within one poll cycle: TFDM picked up the callsign (`EJA458`) with real origin/dest (`F70`→`LAS`), and `_pollNetjetsLegCreation()` correctly auto-created the segment (`auto_leg_key: "EJA458|2026-10-30|1"`, `block_minutes: 118`, `auto_leg_complete: 0` while still airborne) — confirmed via the real `GET /api/pilots/mack` response, not just the DB row. First real confirmation that the whole on-duty-detection → relevance-feed → TFDM/TFMS leg-building chain works end-to-end against genuinely live data, not just unit-level pieces.
+**ETA placeholder for a leg with no real timing data yet**, priority order: NetJets' own real average duration for that exact city pair from genuinely completed legs → any other tracked pilot's real scheduled `block_minutes` for the same city pair (`idx_segments_route` keeps this off a full table scan) → great-circle distance at an assumed 420kt cruise. `block_minutes` is never written from the estimate itself, only from real evidence.
 
-**Found and fixed the same day: `F70` (French Valley Airport) had no timezone anywhere in the app.** The auto-created leg above displayed with no timezone abbreviation on its departure time. Root cause: `scripts/build-airports.js` parsed each row's `local_code` field (the bare FAA LID, e.g. "F70" — exactly what TFDM reports, and the only code small private airstrips like this are commonly known by) into a variable but never actually added it to the output `coords`/`cities` maps, so any airport known only by local_code had no coordinates anywhere in the app — not just missing a timezone, genuinely absent from the airport database entirely. Fixed by adding a `local_code` pass to the build script.
+**`start_airport` is informational, not a hard gate** — a mismatch between the saved starting airport and the aircraft's real position no longer silently blocks leg creation; it's just a signal, since the old hard-reject's failure mode was indistinguishable from "nothing's happening."
 
-**That first fix attempt caused a real regression, caught before deploy.** Added `local_code` to the *same* per-row pass as `ident`/`icao`/`gps`/`iata` (first-row-wins, same as those three already use) — but local_code isn't guaranteed globally unique the way those three essentially are: Suswa Airstrip in Indonesia (explicitly marked `[UNUSABLE]` in the source data) has `local_code: "SUS"`, identical to Kyle's own home airport (KSUS/Spirit of St Louis, via its `iata_code` field). Suswa's row happens to appear earlier in the raw CSV, so the naive single-pass version let it silently clobber `SUS` → Indonesia instead of St. Louis. Caught by diffing the full regenerated `airports.json` against the git-committed baseline (every one of the 100,179 pre-existing codes must be byte-identical, confirmed via script — only *new* codes are allowed to differ) before ever considering the fix complete. Fixed properly with a strict two-pass structure: every row's primary fields (`ident`/`icao`/`gps`/`iata`) claim their codes across the *entire* dataset first, and `local_code` only fills genuine gaps nothing else claimed — structurally prevents this collision class rather than just patching the one instance. Net result: 10,744 new airport codes added (`public/airports.json`/`data/airports.json`), zero of the 100,179 pre-existing codes changed.
+**A human's manual correction is never silently overwritten.** `segments.auto_leg_edited` is set unconditionally by the existing segment-edit endpoint — once a human touches an auto-created row, `_pollNetjetsLegCreation()` goes permanently hands-off on that row's fields, only reading `arrival_airport` back out as the next leg's informational context.
 
-**Same-callsign concurrent-leg filing, confirmed and partially fixed (2026-10-30).** Mack's real EJA458 leg (above) later showed wrong departure/arrival times. Root cause, confirmed by broadening research logging (`.netjets_research.log`, `NETJETS_RESEARCH_MODE` in tfdm.js/tfms.js) to every real EJA callsign nationwide for ~2 hours: NetJets routinely files/amends a **later** leg's flight plan while an **earlier** leg under the identical callsign is still open — of 322 TFDM-tracked callsigns in that window, 190 (59%) showed 2+ distinct concurrently-active legs, 179 of those alternating message-to-message rather than handing off cleanly, with gaps up to ~27h between the two legs' scheduled departures. tfdm.js's `_latest[cs]`/tfms.js's `_flightTimes[cs]` are flat, single-record caches with no leg index — whichever leg's message arrived last silently won, which is exactly what overwrote Mack's real open leg's times with a later, unrelated leg's estimate.
+**Day-1-only reminder, two layers.** `checkNetjetsTourReminders()` (server.js, every 6h) sends a push/in-app notification the evening before each tour's Day 1 if no tail is saved, deduped via `pilot_tour_reminder_sent`. `_maybeShowNetjetsTailReminder()` (client, called from `loadPilot()`) shows a modal once per day, localStorage-deduped, scoped to the tour's actual first day only.
 
-Fixed with a parallel per-leg store in each feed, purely additive (`getFlightInfo()`/`getFlightTimes()` and everything already depending on them are untouched): `tfdm.getAllLegs(cs)` keys by origin+dest, which TFDM gives fully resolved on every message with zero ambiguity. `tfms.getAllLegTimes(cs)` keys the same way but only from a message carrying its own route string end-to-end (never the stale `_latest[cs].origin` fallback `isExpectedOrigin()` uses), so a leg key here is never guessed. `_pollNetjetsLegCreation()` now picks the TFDM leg matching the open segment's own known origin and pulls times only from the matching TFMS leg-times entry — not a fresh flat `tfms.getFlightTimes(cs)` call, which was the actual line silently overwriting times with a different leg's data. Proof-of-concept verified live post-deploy: `GET /api/debug/netjets-legs/:callsign` (temp, not yet removed) showed EJA777 and EJA858 each holding two cleanly separated legs (distinct origin/dest/offBlockTime, no clobbering), and EJA742 holding a real filed leg (`SGR→DAL`) with accurate `igtd`/`etd`/`eta` ~4 hours before its own scheduled departure — direct confirmation that an accurate forward schedule is buildable from filed flight plans, not just the currently-active leg.
+**Admin gets read-only visibility, not an edit UI.** `#edit-user-netjets-section` (`_loadEditUserNetjetsStatus()`) — no admin-side setter; this is self-service by design for a one-pilot beta.
 
-**`isParked()`'s own same disease, fixed (2026-10-30).** `isParked(cs)`/`_parkedCallsigns` (server.js, part of the general durable flight-tracking evidence system — see "Durable flight-tracking evidence" earlier in this file) is *also* a flat per-callsign Set with no leg awareness, and `_pollNetjetsLegCreation()`'s `landed` check reads it directly. Confirmed live the same day the per-leg fix shipped: Mack's still-open EUG leg got marked `auto_leg_complete=1` immediately after deploy, because `isParked('EJA458')` returned true from a *different* leg's parked evidence. Fixed with `isParkedForOrigin(cs, expectedOrigin)` — checks `_parkedOrigin[cs]` (already recorded at parking time) against the leg actually being asked about before trusting the flag, same discipline `matchesExpectedOrigin()` already applies to live position data generally.
+**Line-switch seam transition.** `scripts/build-seam-tables.js` → `public/seam-tables.json` (14 `7Line*` keys, `8Line2/4/6/9/11/13` only for 8&6 — a property of the seam table's own data coverage, not a restriction on which lines are generally valid elsewhere). When `saveMyRotation()` detects a real family/line switch, `PUT /:pilotKey/rotation` computes a 28-day override window (`_computeSeamWindow()`) stored in `pilot_duty_rotation_seam(window_start_date, from_key, to_key, table_letter)`, returned as `rotation_seams`. `_seamOverrideFor()` looks up the per-day value inside a stored window; falls through to the normal rotation formula otherwise. Family/Line pickers default to a blank placeholder so a save can't silently lock in the wrong line by omission.
 
-**The per-leg stores are now disk-persisted and scoped to NetJets only.** `tfdm._legs`/`tfms._legTimes` were in-memory-only at first — a `pm2 restart` (every `server.js`/`tfdm.js`/`tfms.js` deploy) emptied them until fresh messages repopulated, undercutting the whole "already filed ahead" value. Both now persist to disk (`.tfdm_legs_cache.json`, `.tfms_legtimes_cache.json`), same debounced-write/staleness-cutoff pattern as the pre-existing `_flightTimes` cache — verified live across a real restart. Also found during review: both stores were populating for *any* currently-tracked callsign (every pilot's real flights, via the normal `_relevantCallsigns` set), not just `EJA*` ones — harmless functionally (nothing else reads them) but needless scope/cost. Gated both behind the same `_isResearchRelevant()` (EJA-only) check already used elsewhere in these files; verified live that the persisted cache contains zero non-EJA callsigns.
+**CC schedule override (CC52/60/72/76).** For pilots who bid per-trimester totals with no repeating cadence — their schedule can only come from a real NetJets Yahoo Mail monthly export. `parseCcScheduleText()` parses one line per day (`<DayAbbr>, <MonAbbr> <DD>, <YYYY> <STATUS>`; `X`=duty, `OFF`=day off, `P<n>`=PTO), warning (not erroring) on anything unrecognized. Stored in `pilot_cc_schedule_day` (`UNIQUE(pilot_id, date)`), returned as `cc_schedule_days`. **Intake is the standard Upload button only** — `POST /:pilotKey/upload` special-cases `parser_type==='manual_netjets'` before the normal dispatch, accepting a `.txt` or `.pdf`. Response shape: `{success, ccSchedule:true, daysParsed, warnings}`.
 
-**Rewritten to materialize every known leg, not just the current one (2026-10-30).** The original design walked forward one leg at a time, reactively — correct for "what's happening right now" but short of the actual goal ("build a schedule"), especially once the research log showed 29% of the active fleet already has legs filed across *both* today and tomorrow under one callsign, some fleet tails holding 3-4 concurrent legs at once. `_pollNetjetsLegCreation()` now pulls everything `tfdm.getAllLegs(cs)` currently knows, bounded to legs on/after the tour's own start date, and creates-or-refines a segment for each — including ones that haven't departed yet; TFDM already gives both ends up front for a filed leg, so a future leg no longer has to wait with a blank `arrival_airport` until it actually happens. This also meant dropping the old hard "live origin must match `expectedOrigin` or discard the whole poll" guard: it was protecting against the wrong risk. `EJA`+tail-digits uniquely identifies one physical aircraft (not a recurring, reusable flight number), so every leg TFDM reports under an exact callsign genuinely belongs to that one tail — there's no "different flight, same callsign" ambiguity to guard against the way there is for a normal airline pilot. `start_airport` is now informational only (a `console.warn` if the tour's earliest known leg disagrees with it, not a reject) — the real boundary is just the tour's start date. `FUTURE_LEG_GUARD_MS` and `_createNetjetsLeg()` were both dropped as a result (superseded; the guard's whole purpose was avoiding exactly the premature-future-leg case this rewrite now intentionally embraces).
+**PDF support uses real OCR** (`_ocrPdfBuffer()`): `pdftoppm -png -r 200` (poppler) rasterizes each page, then the **native `tesseract` CLI** (not the `tesseract.js` npm package — see history for why) OCRs each page image. Both are system packages (`apt-get install poppler-utils tesseract-ocr`) — check `which pdftoppm tesseract` first if PDF upload breaks on a fresh droplet. Both calls carry a 60s timeout/SIGKILL backstop. Real-world latency on the live droplet (sharing one vCPU with SWIM/STDDS/ADS-B pollers) is ~53s for a typical schedule PDF — `handleUpload()`/`handleMobileUpload()` show an upfront "this can take up to a minute…" toast for `.pdf` uploads specifically.
 
-**Matching "is this leg already a segment" is fuzzy, not an exact key.** `_findExistingNetjetsLeg()` matches on same origin/dest + a 6-hour time-tolerance window, because a leg's own estimated time genuinely drifts poll to poll as TFMS refines it (confirmed live: EJA742's TFMS `igtd` moved from `01:18Z` to `01:48Z` while TFDM's own `offBlockTime` for that identical leg never changed) — an exact-string key would have minted a duplicate row every time an estimate moved. `auto_leg_key` is still written at creation time (`<callsign>|<tourStart>|<origin>>dest@depTime`) for readability/debugging, but nothing re-derives or matches against it literally after that; a broad `LIKE '<cs>|<tourStart>|%'` pulls every existing row for the tour into memory once per poll, and the fuzzy match runs against all of them. Verified live immediately post-deploy: zero duplicate rows created, `departure_time` self-corrected from a stale pre-rewrite value back to TFDM's real `offBlockTime` within about a minute, with no `console.log` evidence of a second row ever being inserted for the same leg.
+**Surfaced as a third option on the Duty Rotation Family dropdown** (`7 & 7` / `8 & 6` / `CC (52/60/72/76)`), not a separate section — picking `CC` hides the Line picker/Save button and shows a plain note pointing at Upload instead. `openEditMyInfoModal()` defaults to `CC` whenever `cc_schedule_days` has any rows, even if a stale rotation row exists underneath.
 
-**Restart-safe by construction — still re-derives from the segments table every poll, never trusts an in-memory cache.** Unchanged in spirit from the original design (a `pm2 restart` on every deploy must never risk a duplicate segment for a leg already partially recorded), just updated for the new, non-sequential matching above: instead of one `ORDER BY id DESC LIMIT 1` query for "the current leg," it's now `SELECT ... WHERE pilot_id=? AND auto_leg_key LIKE '<cs>|<tourStart>|%'` (no `LIMIT`) feeding the fuzzy matcher, so every known leg for the tour — not just the most recent row — is checked for a match before anything new gets created.
+**Resolution precedence, `_isNetJetsOnDuty()`**: (1) `_ccScheduleOverrideFor()` — explicit CC day record, if one exists; (2) `_seamOverrideFor()` — seam transition window; (3) fallback to the normal rotation formula. A pilot's CC schedule overrides any overlapping tours from a previous 7&7/8&6 schedule, by design.
 
-**`start_airport` is informational, not a hard gate (changed 2026-10-30 — see "Rewritten to materialize every known leg" above for why).** `pilot_tour_tail.start_airport` (new column) — the pilot enters this alongside the tail in My Info, "wherever you're meeting the aircraft on Day 1." Originally a hard reject (discard the whole poll if the live feed's origin disagreed) — confirmed live against a real mismatch (Mack's assumed `SGR` vs. the aircraft's actual position inbound from `MRY`) that this failure mode is silent and indistinguishable from "nothing's happening," with no visibility into why. Now just logged as a `console.warn` if the tour's earliest known leg disagrees with it; the real boundary is the tour's own start date.
+**Known, unaddressed blind spot**: getting to/from the jet on day 1 / the last day of a tour is typically a commercial deadhead, invisible to tail-based tracking. The existing manual "Commute" flight type (`trip='COMMUTE'`) is the intended fallback (2 entries per tour) but isn't yet specifically surfaced/encouraged in the UI for this pilot type.
 
-**A human's manual correction is never silently overwritten.** `segments.auto_leg_edited` (new column) is set unconditionally by the existing segment-edit endpoint (`PUT /api/pilots/:pilotKey/segments/:id`) — harmless no-op for a normal segment, but for an auto-created row it means `_pollNetjetsLegCreation()` goes permanently hands-off on that row's fields the instant a human touches it, only ever reading its `arrival_airport` back out afterward as the next leg's expected origin.
+**Tail display**: a pilot enters just the tail digits ("742"); `displayTail()` shows the full `N742QS` wherever a reader sees it, without changing what's stored.
 
-**Day-1-only reminder, two layers** — added after confirming the real failure mode: entering the tail *after* a leg has already landed and parked loses that leg permanently (SWIM is push-only with no backlog/snapshot to replay — same limitation that sank the earlier NOTAMs-via-SWIM attempt, see that section above). `checkNetjetsTourReminders()` (server.js, `setInterval` every 6h) sends a push/in-app notification the evening before each tour's Day 1 if no tail is saved yet for it, deduped via a new `pilot_tour_reminder_sent` table (`UNIQUE(pilot_id, tour_start_date)`) so it only ever fires once per tour. `_maybeShowNetjetsTailReminder()` (app.html, called from `loadPilot()` when loading your own schedule) is the client-side companion — a modal (`#netjets-tail-reminder-modal`) shown once per day (localStorage-deduped), but only on the tour's actual first day (`todayStr !== tourStart` bails out — explicitly scoped to Day 1 only, not nagged every day a tour stays unresolved), prompting both the tail and the starting airport.
+**`/crew-roster/netjets-lookup`** — a human-readable exploration page over `tfdm.getAllLegs()`/`tfms.getAllLegTimes()`.
 
-**A flight plan filed ahead for a future day doesn't get mistaken for right now.** Asked directly: does the system know a flight plan filed the evening before for tomorrow's first leg is for *tomorrow*? Mostly handled already by the expected-origin cross-check above (a different airport than today's known position disagrees and defers naturally) -- but on a normal overnight layover where tomorrow's first leg departs from the exact same airport tonight's leg lands at, that check legitimately passes, so a second, explicit guard was added: `_createNetjetsLeg()` won't create a leg at all if its resolved departure time (from TFMS) is more than `FUTURE_LEG_GUARD_MS` (10h) in the future -- it just defers and lets a later poll, closer to when the leg is actually about to happen, pick it up.
-
-**Admin gets read-only visibility, not an edit UI.** `#edit-user-netjets-section` in the admin edit-user modal shows rotation/tour/tail status for a `manual_netjets` pilot (`_loadEditUserNetjetsStatus()`) by fetching that pilot's own `GET /api/pilots/:key` — admin has no way to *set* any of this (deliberately: it's self-service, and a one-pilot beta doesn't need speculative admin-editing built for it yet).
-
-**Known, deliberately unaddressed**: (1) a reused tail digit-string across genuinely different N-numbers (no leading-zero collision — `replace(/\D/g,'')` preserves them — but theoretically two different tails *could* produce the same digit string) isn't guarded against; NetJets' own fleet/ATC-callsign convention presumably already prevents this in practice, unconfirmed. (2) Changing a saved rotation while a tour is already in progress could retroactively shift which date resolves as that tour's "day 1," since `_tourStartDateFor`/`_tourStartDateForServer` always resolve against whichever rotation is in effect *today* — not flagged as broken, just not stress-tested against a live mid-tour edit. (3) The client (local time) and server (UTC) independently compute "today"/"tomorrow" for the reminder/modal logic — could disagree by a day right at a midnight boundary for a pilot far from UTC, same general class of issue `demo-data.js`'s three-month window was built to route around elsewhere in this app.
-
-**Line-switch seam transition (built 2026-10-30).** Switching Family/Line isn't a clean cutover — confirmed directly against `qspilot.info`'s own `seam-visualizer.js` source and its real transition data files (`seam-table-a.txt`/`seam-table-b.txt`, 20 valid from/to keys each: all 14 `7Line*` plus only `8Line2/4/6/9/11/13` for 8&6 — that 6-line restriction is a property of the seam **table's own data coverage**, not a restriction on which lines are generally valid; it does **not** appear anywhere in `line-visualizer.js`/`calendar-tools.js`, so the general Family/Line picker in My Info allows all 14 lines for both families unconditionally). `scripts/build-seam-tables.js` parses the two raw tables into `public/seam-tables.json` (served identically by server.js `fs.readFileSync` and app.html `fetch`, same pattern as `airports.json`).
-
-When `saveMyRotation()` detects a real switch (an existing rotation already in effect today, now changing to a different family/line), `PUT /:pilotKey/rotation` computes a 28-day override window via `_computeSeamWindow()`: `seamStart` = the last Friday of the calendar month before the new rotation's effective month; table selection is `(daysBetween(seamStart, 2002-02-01) % 14 === 0) ? 'a' : 'b'`; the override window starts 7 days before `seamStart` and runs 28 days. Stored in a new `pilot_duty_rotation_seam` table (`window_start_date, from_key, to_key, table_letter`), returned by `GET /api/pilots/:key` as `rotation_seams`. `_seamOverrideFor()` (app.html) looks up the per-day work/off value from `seam-tables.json` for any date inside a stored window; falls through to the normal rotation formula outside it or if no seam row applies.
-
-The Family/Line pickers in My Info default to a **blank placeholder** (no pre-selected value) so a save can't silently lock in the wrong line by omission — `saveMyRotation()` requires both to be explicitly chosen. `effectiveFrom` is only forward-dated (today) when changing an *existing* rotation; a pilot's very first save still back-dates to `2000-01-01` so it governs retroactively. Duplicate-row bug fixed the same day: `PUT /rotation` now upserts on `UNIQUE(pilot_id, effective_from)` instead of blind-inserting (repeated saves used to pile up rows sharing the same `effective_from`).
-
-**CC schedule override (CC52/60/72/76), built 2026-10-30.** Confirmed directly from a real NetJets Yahoo Mail monthly schedule export (the only way these pilots can get their days — they bid per-trimester totals, not a repeating cadence, so there's no formula to compute from): one line per day, `<DayAbbr>, <MonAbbr> <DD>, <YYYY> <STATUS>` (e.g. `Sun, Nov 01, 2026 OFF`, `Mon, Nov 02, 2026 X`, `Sat, Nov 14, 2026 P1`). Status codes confirmed from the export's own legend: `X` = regular duty, `OFF` = day off, `P<n>` = PTO charging n days. `parseCcScheduleText()` (server.js) parses this into day records, warning (not erroring) on any unrecognized line/status so a format surprise surfaces instead of silently dropping a day — same posture as the American/Southwest ICS parsers' warning system. Stored per-day in `pilot_cc_schedule_day` (`UNIQUE(pilot_id, date)`, upserted via `_saveCcScheduleDays()`, shared by both intake paths below), returned by `GET /api/pilots/:key` as `cc_schedule_days`.
-
-**Intake is the standard Upload button only — no paste option.** `POST /:pilotKey/upload` (same mechanism every other pilot already uses): `_handlePilotUpload()` special-cases `parser_type === 'manual_netjets'` *before* the normal filename/segment-table dispatch (no flight-leg segments come out of a CC schedule, so it short-circuits entirely) and accepts either a `.txt` file (read directly as UTF-8) or a `.pdf` (see OCR below). Response shape differs from a normal upload's `{success, segmentsAdded, parser, warnings}` — it's `{success, ccSchedule: true, daysParsed, warnings}`; `handleUpload()`/`handleMobileUpload()` (app.html) branch their success toast on `result.ccSchedule`. A paste-into-a-textarea fallback (`saveMyCcSchedule()` → `POST /:pilotKey/cc-schedule`) was built first, then **fully removed** per direct request ("get rid of the paste option for CC") once the upload path was verified working — the HTML, the JS function, and the now-unused server endpoint were all deleted; only `_saveCcScheduleDays()` (the shared upsert helper) remains, since the upload branch still calls it.
-
-**Surfaced as a third option on the Duty Rotation Family dropdown, not a separate section.** Requested directly ("the CC schedules should show up under duty rotation family") — `my-info-rotation-family` now has `7 & 7` / `8 & 6` / `CC (52/60/72/76)`. Picking `CC` (`_onRotationFamilyChange()`) hides the Line picker + Save Rotation button (`#my-info-rotation-line-group`) and shows a plain explanatory note (`#my-info-rotation-cc-note`) pointing at the Upload button instead — there's no line/formula to save for CC, so `saveMyRotation()` bails out immediately if `family === 'CC'` (defensive; the button is hidden anyway). `openEditMyInfoModal()` defaults the dropdown to `CC` whenever `cc_schedule_days` has any rows, even if a stale `7&7`/`8&6` rotation row also still exists underneath from before the pilot switched — matches `_isNetJetsOnDuty()`'s real precedence (CC data always wins when present), so the dropdown shows what's actually governing, not just whatever was saved most recently. The admin edit-user modal's read-only NetJets status (`_loadEditUserNetjetsStatus()`) got the same precedence: reports the CC day count + today's status instead of a possibly-stale/absent rotation line whenever `cc_schedule_days` exists.
-
-**PDF support requires real OCR — confirmed live, not assumed.** The only export NetJets pilots can actually get is "Print/Save as PDF" of the Yahoo Mail message. Tested directly against a real sample (`11-2026.pdf`, `Producer: "Microsoft: Print To PDF"`): **this driver's output has no extractable Unicode text layer** — two different `pdf-parse` versions (v1 and v2) both returned effectively empty text against the real file, despite the page visually showing crisp, apparently-selectable text. OCR is the only way to get the content back out.
-
-- **Pipeline (`_ocrPdfBuffer()`, server.js)**: rasterize each page with poppler's `pdftoppm -png -r 200` into a per-request temp dir (`os.tmpdir()/cc-pdf-<random>`), then OCR each page image with the **native `tesseract` CLI** (`tesseract <page>.png <outprefix>` → reads `<outprefix>.txt`). Both are system packages (`apt-get install poppler-utils tesseract-ocr`), **not npm dependencies** — if PDF upload ever breaks after a fresh droplet provision, check these are actually installed (`which pdftoppm tesseract`) before assuming the code is wrong. Both `execFile` calls carry a `timeout`/`killSignal: 'SIGKILL'` backstop (`_OCR_EXEC_TIMEOUT_MS`, 60s) against a malformed/huge input hanging either tool. Temp dir is always cleaned up in a `finally` block.
-- **Deliberately NOT the `tesseract.js` npm package — tried first and reverted after a live resource leak.** `tesseract.js`'s Node worker is backed by `worker_threads`; calling `await worker.terminate()` resolved cleanly, the script printed its final output and returned — but the actual OS process kept running afterward, confirmed live sitting at ~70% CPU and 188MB RSS for minutes with no sign of stopping on its own, on a box with only ~425MB available. Had to be killed manually (`kill -9`, requires the user's own confirmation — `kill` is a hard-blocked category Claude Code's auto-mode classifier won't clear even with in-conversation approval). The native CLI tools are plain one-shot child processes, same pattern as `pdftoppm` itself already was — confirmed exit code 0 and zero lingering processes after a real run, both in isolation and through the actual live `/upload` endpoint.
-- **Real-world latency is meaningfully higher than isolated testing.** A standalone test (nothing else running) completed in ~7.4s. The same PDF through the real live `dispatch` process — which is also running its SWIM/STDDS/ADS-B background pollers concurrently on the same single vCPU — took **~53s**. OCR is genuinely CPU-bound and has to time-share the one core with everything else the server does continuously; this isn't a bug, just the real cost on this droplet's hardware. `handleUpload()`/`handleMobileUpload()` show an upfront toast (`"Reading PDF schedule — this can take up to a minute…"`) specifically for `.pdf` uploads so the button doesn't look dead during the wait — there's no spinner/progress UI elsewhere in the upload flow (`isLoading`, app.html, is set but not actually wired to anything visible) to reuse, so this toast is the only feedback given.
-
-**Resolution precedence, `_isNetJetsOnDuty()` (app.html):** (1) `_ccScheduleOverrideFor()` — an explicit CC day record for that date, if one exists; (2) `_seamOverrideFor()` — a seam transition window covering that date; (3) fallback to the normal rotation formula (`_tourStartDateFor()`). Explicit, direct instruction: a pilot's CC schedule "would override any overlapping tours from their previous 7&7 OR 8&6 schedules" — this precedence order is why. Verified live against Mack's real November 2026 CC72 export, through the actual `/upload` endpoint with the real PDF file (not just the parser function): all 30 days parsed and persisted correctly, matching the document exactly, with only two harmless warnings (the email header's "Date: ... 2026 ..." line and the disclaimer's "2015 CBA" both contain a bare 4-digit number and trip the same "looked date-shaped but didn't match" heuristic the American/Southwest parsers already use — expected noise, not a bug, same posture as the Southwest parser's documented equipment-swap warning).
-
-**Known, unaddressed blind spot**: getting to/from the jet on day 1 / the last day of a tour is typically a commercial deadhead (the pilot as a passenger, not flying the tail) — invisible to any tail-based tracking. The existing manual "Commute" flight type (`trip='COMMUTE'`) is the intended fallback for this (just 2 entries per tour, not per-leg) but isn't yet specifically surfaced/encouraged in the UI for this pilot type.
+Full build narrative — the F70-timezone bug and its own regression, the same-callsign-concurrent-leg discovery (59% of tracked EJA callsigns showing 2+ concurrent legs fleet-wide), the leg-creation rewrite, the arrival-before-departure fix, the grid-poller "completed" fallback fix, the TFDM-scheduled-state-window research, and the GUFI/etdType/diversionIndicator extraction pass: `CLAUDE_HISTORY.md § NetJets manual tracking`.
 
 ---
 
 ## Upload flow
 
-`handleUpload(input)` (~line 6523):
-1. Reads selected file and upload-for pilot from `#upload-pilot-select` dropdown.
-2. Calls `uploadPilotSchedule(pilotKey, file)` → `POST /api/pilots/:key/upload` with `multipart/form-data`.
-3. On success: shows toast with segment count, reloads that pilot if currently viewed, then `computeOverlap()` to update crossings.
-4. After overlap computed: calls `updateCrossingAlert(overlaps)` (badge) and `broadcastCrossingNotifications(overlaps)` (push) if `PUSH_ENABLED`.
+`handleUpload(input)` (~line 6523): reads the selected file + upload-for pilot (`#upload-pilot-select`), calls `uploadPilotSchedule(pilotKey, file)` → `POST /api/pilots/:key/upload` (multipart). On success: toast with segment count, reload if currently viewed, `computeOverlap()` to refresh crossings, then `updateCrossingAlert()`/`broadcastCrossingNotifications()`.
 
-**Mobile upload**: `#mobile-upload-sheet` bottom sheet has separate `#mobile-upload-pilot-select` and `#mobile-file-input`; handled by `handleMobileUpload()` which mirrors `handleUpload`.
+**Mobile upload**: `#mobile-upload-sheet` with its own pilot-select/file-input, handled by `handleMobileUpload()` (mirrors `handleUpload`).
 
-**Upload reminder**: `showUploadReminder()` (~line 7454) fires after `loadPilot()` if the pilot has no flights for the current month (and hasn't seen the reminder for that month/pilot key). Shows `#upload-reminder` banner with "Upload Now" button.
+**Upload reminder**: `showUploadReminder()` (~line 7454) fires after `loadPilot()` if the pilot has no flights for the current month and hasn't seen the reminder for that month/pilot.
 
 ---
 
 ## Add flight modal (`submitAddFlight()`, ~line 7024)
 
-Opened by "+" button (desktop header or mobile). Supports 4 flight types:
-- **Work** — `trip` = pairing #, no special flag
-- **DH** — `is_dh = true`  
-- **Commute** — `trip = 'COMMUTE'`, `is_manual = 1`
-- **Personal** — `trip = 'PERSONAL'`, `is_manual = 1`
-
-**Fields:** Pilot selector (hidden if not admin), date, DEP/ARR airports (auto-uppercased), dep/arr times, block time (auto-calculated from times if not manually edited), flight #, tail #.
-
-**Block time auto-calc** (`autoComputeBlockTime()`): when dep/arr airports + times are all filled and user hasn't manually edited block time → looks up airport timezones, converts to UTC, computes diff. Shows "(auto-calculated)" label; if user edits manually it changes to "(manual)".
-
-`submitAddFlight()` POSTs to `/api/pilots/:key/add-segment`, then calls `loadPilot(currentPilot)` to refresh. In edit mode (editing an existing manual segment), it calls `PUT /api/pilots/:key/segments/:id` instead.
-
-**Edit ground transport**: separate `#edit-ground-modal` (simpler, no type picker). Opened from day detail sheet for `type=ground` segments.
+4 flight types: **Work** (`trip` = pairing #), **DH** (`is_dh=true`), **Commute** (`trip='COMMUTE'`, `is_manual=1`), **Personal** (`trip='PERSONAL'`, `is_manual=1`). Fields: pilot selector (admin only), date, DEP/ARR airports (auto-uppercased), dep/arr times, block time (auto-calculated via `autoComputeBlockTime()` unless manually edited), flight #, tail #. POSTs to `/api/pilots/:key/add-segment`; edit mode PUTs to `/segments/:id`. Separate `#edit-ground-modal` for ground legs.
 
 ---
 
 ## Notifications system
 
 ### Push notifications
-- Service worker `/sw.js` registered by `initServiceWorker()` at app start.
-- `initPushNotifications()` runs after identity resolves. If permission already granted → `subscribeToPush()`. If not asked yet → shows `#notif-prompt-sidebar` (desktop sidebar banner) prompting user to enable.
-- `subscribeToPush()`: fetches VAPID public key from `/api/push/vapid-key`, creates Web Push subscription, POSTs `{ token, subscription }` to `/api/push/subscribe`.
-- Server sends push when crossings are computed after an upload/sync via `broadcastCrossingNotifications()`.
-- SW message `{ type: 'OPEN_OVERLAP' }` → `switchView('overlap')` (tapping a push notification opens the crossings tab).
-- `PUSH_ENABLED` const controls whether push features are active. `myToken` (URL token) is sent with subscriptions so server knows which pilot.
+Service worker `/sw.js` registered by `initServiceWorker()`. `initPushNotifications()` → `subscribeToPush()` if already granted, else shows `#notif-prompt-sidebar`. Server sends push on crossings via `broadcastCrossingNotifications()`. SW message `{type:'OPEN_OVERLAP'}` → `switchView('overlap')`. `PUSH_ENABLED` gates the feature; `myToken` ties a subscription to a pilot.
 
-### In-app crossing alerts (badge + modal)
-`updateCrossingAlert(overlaps)` (~line 8132):
-- Filters overlaps to only those involving `myPilot`, within next **48h** (`XALERT_BADGE_WINDOW`).
-- Cross-references against `localStorage['cs_xacked']` (acked crossing keys) to show unread badge count only.
-- Updates `#crossing-badge-mobile` and `#crossing-badge-desktop` (orange badge on Overlap nav icon).
-- Crossings within **24h** (`XALERT_MODAL_WINDOW`) AND not yet shown this session → shows `#crossing-alert-modal` once per session (`sessionStorage['cs_modal_shown']`).
-- `ackMyCrossings()` called when user opens crossings view — marks all as seen, clears badge.
+### In-app crossing alerts
+`updateCrossingAlert(overlaps)` (~8132): filters to overlaps involving `myPilot` within `XALERT_BADGE_WINDOW` (48h), cross-referenced against `localStorage['cs_xacked']` for unread badge count. Within `XALERT_MODAL_WINDOW` (24h) and not yet shown this session → `#crossing-alert-modal` once per session. `ackMyCrossings()` on opening crossings clears the badge.
 
 ### Notification panel (`#notif-panel`)
-Bell icon (desktop header + mobile) opens slide-down panel. `loadNotifications()` fetches `/api/notifications?token=…` on load. Panel shows title, body, relative timestamp, unread dot. Clicking any notification → `switchView('overlap')` + marks all read via `PATCH /api/notifications/read`.
-
-App badge (`navigator.setAppBadge()`) set to unread count where supported (iOS 16.4+).
+Bell icon → `loadNotifications()` (`/api/notifications?token=…`). Clicking a notification → `switchView('overlap')` + `PATCH /api/notifications/read`. `navigator.setAppBadge()` where supported (iOS 16.4+).
 
 ---
 
 ## Crew Intel view (`#view-intel`)
 
-**State variables:**
-- `_intelAll` — flat array of all intel entries (from `/api/intel`)
-- `_intelView` — `'airports'` | `'map'` | `'detail'`
-- `_intelDetailAirport` — IATA code when in detail view
-- `_intelFilter.category` — `'all'` | `'hotel'` | `'food'` | `'activity'` | `'tip'`
-- `_intelSearch` — search string for airports list
-- `_intelMap` — Leaflet instance for map view (separate from main `map`)
+**State**: `_intelAll`, `_intelView` (`'airports'|'map'|'detail'`), `_intelDetailAirport`, `_intelFilter.category`, `_intelSearch`, `_intelMap`.
 
-**Views:**
-1. **Airports list** (`renderIntelAirports()`): One card per airport with intel, sorted alphabetically by city name. Color-accented left border (dominant category color). Click → detail view.
-2. **Intel map** (`renderIntelMap()`): Leaflet map with SVG thumbtack pins. Pin color: single-category = that category's color, mixed = red. Pin count badge shows total tips at that airport. Clicking a pin opens popup with category breakdown + "VIEW N TIPS →" button.
-3. **Detail view** (`renderIntelDetail()`): Shows all tips for one airport, filterable by category pill. Each card shows: category badge, title, body (collapsible if >180 chars), author (pilot first name + color dot), date. Own entries show Edit/Delete buttons.
+**Views**: airports list (`renderIntelAirports()`, alphabetical cards, color-accented border), intel map (`renderIntelMap()`, Leaflet thumbtack pins, red = mixed category), detail view (`renderIntelDetail()`, per-airport tip cards with category filter pills).
 
-**Data flow:**
-- `loadIntelCounts()` fetches `_intelFetchUrl()` (`/api/intel`, with `?token=` appended when `myToken` is set) → `_intelAll`. Called on `switchView('intel')`.
-- `saveIntelTip()` POSTs to `/api/intel` or PUTs to `/api/intel/:id` for edits.
-- `deleteIntelTip(id)` sends `DELETE /api/intel/:id` after `showConfirm()`.
-- `voteIntel(id, vote)` POSTs to `/api/intel/:id/vote` — see "Voting" below.
+**Data flow**: `loadIntelCounts()` → `_intelAll`; `saveIntelTip()` POST/PUT `/api/intel`; `deleteIntelTip()`; `voteIntel(id, vote)`.
 
-**Category colors:** hotel=#60a5fa (blue), food=#fbbf24 (amber), activity=#4ade80 (green), tip=#c4b5fd (purple). Mixed pins are #ef4444 (red).
+**Category colors**: hotel=`#60a5fa`, food=`#fbbf24`, activity=`#4ade80`, tip=`#c4b5fd`; mixed pin=`#ef4444`.
 
-**Intel map persistence:** When toggling back to map view, `_savedCenter` and `_savedZoom` preserve the previous pan/zoom position.
+**Clutter filters (both default ON)**, read through `_intelVisible()` everywhere entries are rendered or counted: `_intelHideGeneric` (regex-matches national park/monument/historic-site/seashore/memorial naming), `_intelHideEmptyActivity` (any `activity` entry with a blank body — ~70% of all activity entries have no body). Each persists its own `localStorage` toggle, `'0'` = off.
 
-**Clutter filters — two independent toggles, both default ON (`_intelVisible()`):** Added after auditing the full intel dataset (434 entries, 426 from one pilot — Drew) for low-value, easily-googled content. Neither filter deletes anything — both just hide from display. `_intelVisible()` is the single function every render path reads through instead of `_intelAll` directly — `renderIntelAirports()`, `renderIntelMap()`, `renderIntelDetail()`, `_rebuildIntelCounts()` (which also feeds the Crossings-card intel badge, `_intelCnt` in app.html), and the header's totals. Edit/delete lookups (`openEditIntel`, `deleteIntelTip`) still search the raw `_intelAll`, unaffected by either toggle. Each persists its own `localStorage` key (`'0'` is the only way to turn a filter off; any other/missing value means ON), with its own pill button in the airports/map header showing a live hidden-count.
-
-1. **`_intelHideGeneric` / `toggleIntelHideGeneric()`** — hides any entry whose `title` or `body` matches `INTEL_GENERIC_RE`: national/state park, national monument, national historic(al) site/park, national seashore, national military park, or memorial (plurals like "National Parks" are handled by a trailing `s?`, not a second pattern — extend this one regex if more NPS-style designations need covering, don't add a parallel one). Catches ~82 entries.
-2. **`_intelHideEmptyActivity` / `toggleIntelHideEmptyActivity()`** — hides any `category === 'activity'` entry with a blank `body`: just a bare landmark name ("Louvre Museum," "Hollywood Sign," "NASCAR Hall of Fame") with zero added insight. This is the bigger signal — **70% of all activity entries (193 of 275) have no body at all** — and isn't reliably catchable by keyword matching since it covers every kind of landmark, not just park/monument-style wording. Deliberately a separate toggle from #1 rather than folded in, since it's a broader, content-blind rule (would also hide a genuinely terse-but-useful activity tip) and someone might want one on without the other.
-
-With both ON (the default), roughly half of all intel entries (212 of 434 at last audit) are hidden by default, leaving the other half actually visible without extra taps.
-
-**Voting (`intel_votes` table, db.js; `/api/intel/:id/vote`, server.js; `voteIntel()`, app.html):** Added 2026-10-01 as a crowd-sourced complement to the keyword/blank-body filters above — the crew curates quality directly instead of relying only on heuristics. One row per `(intel_id, pilot_key)` in `intel_votes` (`UNIQUE` constraint — upserted via `ON CONFLICT ... DO UPDATE`, so changing your vote replaces it rather than stacking a second row; a cleared vote (`vote: 0`) deletes the row instead of storing a zero). `GET /api/intel` LEFT JOINs a `SUM(vote)` subquery to attach `score` to every entry, and — only when a `token` query param is given — a second query merges in that pilot's own `my_vote` per entry so the UI knows which arrow (if any) to highlight, without a separate round trip. Any pilot or viewer with a valid token can vote, including on their own entries — consistent with the existing posture that `POST /api/intel` itself doesn't restrict viewers from contributing.
-
-- **Sort order changed**: `renderIntelDetail()` used to group entries by category (`catOrder`); it now sorts by `score` descending (ties broken by newest first) regardless of category — the category pills still let someone filter down to one category if they want that view instead.
-- **Vote widget**: a compact ▲ score ▼ control in each card's header, next to the category badge (`canVote = !isDemo && !!myToken` gates it — demo and no-token views see a plain `+N`/`-N` score instead of interactive buttons). `voteIntel()` applies an optimistic local update to `_intelAll` and re-renders immediately, then reconciles with the server's authoritative `score`/`my_vote` on response, or reverts and toasts an error on failure.
-- **Redaction, not deletion**: any entry at or below `INTEL_REDACT_THRESHOLD` (`-3`) collapses in the detail view to a one-line "Downvoted by the crew (N) — tap to view anyway" placeholder instead of showing the full card. Tapping it adds the id to `_intelExpandedRedacted` (a plain in-memory `Set`, **not persisted** — resets on reload, same as closing a collapsed Reddit comment only for that session) and re-renders with the full card. This only affects the detail view's rendering, not `_intelVisible()` — a heavily-downvoted entry still counts toward airport totals, map pin counts, and the Crossings-card badge; it's just collapsed where individual entries are actually read.
+**Voting** (`intel_votes`, `UNIQUE(intel_id, pilot_key)`, upserted; a cleared vote deletes the row). `GET /api/intel` attaches `score` (SUM) and, with a token, `my_vote`. Sort order is by `score` descending (ties → newest first), not grouped by category — category pills still filter. **Redaction**: entries at or below `INTEL_REDACT_THRESHOLD` (`-3`) collapse to a one-line "Downvoted by the crew (N) — tap to view anyway" placeholder in the detail view only (`_intelExpandedRedacted`, in-memory, not persisted) — doesn't affect `_intelVisible()`, airport totals, or map pin counts.
 
 ---
 
 ## Admin panel (`openAdminPanel()`, ~line 8255)
 
-Accessible from Profile Sheet → "★ Admin Panel" (admin only). Redesigned 2026-10-01 from a small centered modal into a full-page takeover (`#admin-panel`, `position:fixed;inset:0`) with a header (back arrow, "Admin" title, prominent "+ Add User") and a big Users/Dashboard tab switcher (`switchAdminTab()`) so both tabs live in one view instead of two separate profile-sheet buttons each opening their own modal.
+Full-page takeover (`#admin-panel`), header with back arrow/title/"+ Add User", Users/Dashboard tab switcher (`switchAdminTab()`).
 
-**Users tab:** `loadAdminUsers()` fetches `/api/pilots`, rendered by `renderAdminUserList()` as a responsive card grid (`#admin-user-grid`, 1/2/3 columns by screen size) instead of a cramped list — bigger avatars, full-width icon-labeled Edit/Delete buttons (previously tiny `Edit`/`Del` text links), a Copy/Regenerate icon pair for the login link, and a persistent search box (`#admin-user-search` → `filterAdminUsers()`) filtering by name or key, kept outside the regenerated grid markup so it never loses focus on keystroke.
+**Users tab**: `loadAdminUsers()` → `/api/pilots` → `renderAdminUserList()` as a responsive card grid, search box (`#admin-user-search` → `filterAdminUsers()`).
 
-**Dashboard tab:** App stats — total segments, pilots, segments per pilot, last sync times.
+**Dashboard tab**: app stats — total segments, pilots, segments per pilot, last sync times.
 
-**Edit/Add User modal (`#edit-user-modal`):**
-- View-only toggle (👁 mode): hides pilot-specific fields (base, home_airport, airline, role), marks user as `role='viewer'`.
-- Airline selector determines `parser_type`: GoJet→`ics_rosterbuster`, SkyWest→`vcs_skywest`, Republic→`csv`, Sun Country→`ics_scx`, Atlas Air→`ics_ecrew`, Delta Air Lines (MiCrew)→`ics_delta_micrew`, American Airlines (MobileCCI)→`ics_american`, Southwest Airlines (CrewHub)→`ics_southwest`, Other→`other`. (GoJet used to be split into a separate "GoJet Services" (`csv`) and "RosterBuster (subscription)" option — consolidated into the single RosterBuster-ICS option above; this line previously still listed the pre-consolidation `csv` value.)
-- When RosterBuster selected, shows ICS URL field.
-- Friends toggle list (`#edit-user-friends-section`) — see "Admin override" under Friends system above.
-- `saveUser()` → POST `/api/pilots` (new) or PUT `/api/pilots/:key` (edit). Auto-generates pilot_key from first name (lowercase, deduped).
-- After save: alerts user of generated `?u=TOKEN` personal link to share.
+**Edit/Add User modal (`#edit-user-modal`)**: view-only toggle (role='viewer', hides pilot-specific fields); airline selector determines `parser_type` (GoJet→`ics_rosterbuster`, SkyWest→`vcs_skywest`, Republic→`csv`, Sun Country→`ics_scx`, Atlas Air→`ics_ecrew`, Delta→`ics_delta_micrew`, American→`ics_american`, Southwest→`ics_southwest`, SpiritJets(corporate)→`schedaero`, NetJets(admin-only)→`manual_netjets`, Other→`other`); friends toggle list (`#edit-user-friends-section`); `saveUser()` → POST/PUT `/api/pilots`; after save alerts the generated `?u=TOKEN` personal link.
 
-**Airline/parser display bug (fixed 2026-10-01, then eliminated entirely the same day).** The admin panel briefly showed the wrong airline for the 5 original pilots because `server.js` had a hardcoded `pilotParsers`/`pilotAirlineCodes` map for `kyle`/`adam`/`sam`/`logan`/`drew` that silently overrode whatever was in the `pilots.parser_type`/`airline_code` DB columns — those columns had gone stale/defaulted since the hardcoded map made them irrelevant for real parsing. A first pass made `GET /api/pilots` resolve through the same override before responding (band-aid); a second pass that same day removed the hardcoded maps entirely — see "Pilot roster is fully DB-driven" below for the full story and why.
+**`role` field** is optional, cosmetic metadata (Profile sheet subtitle + a small label on Crossings cards) — nothing in parsing/sync/access-control/friends reads it.
 
-**`role` (admin panel's "Role / Description" field) is optional, cosmetic metadata, not load-bearing.** It only ever surfaces in two places, both gracefully blank-safe: the Profile sheet's subtitle under the signed-in pilot's name, and a small gray label next to a pilot's name on a Crossings detail card (`role ? ... : ''`). Nothing in parsing, sync, access control, or the friends system reads it. Filling it in (e.g. "Republic · LGA") is optional polish, not a fix for anything broken.
+Full airline/parser-display-bug narrative: `CLAUDE_HISTORY.md § Admin panel`.
 
 ---
 
-## Pilot roster is fully DB-driven — no hardcoded pilot config anywhere (2026-10-01)
+## Pilot roster is fully DB-driven — no hardcoded pilot config anywhere
 
-The admin-panel airline bug above turned out to be one symptom of a much bigger pattern: pilot identity/config was duplicated in **three separate places** — `server.js` (`pilotParsers`/`pilotAirlineCodes`), `app.html`'s initial `PILOT_KEYS`/`PILOT_NAMES`/`PILOT_HOME`/`PILOT_ROLES`/`PILOT_COLORS` object literals, and literal static `<button>`/`<option>` HTML for the 5 original pilots. Whichever of these three a given piece of code happened to read determined whether an admin's edit actually took effect — which is exactly why editing Drew's airline through the admin panel silently did nothing before today. All of it has been removed in favor of the `pilots` table being the only source of truth, for every pilot, including the original 5 (kyle/adam/sam/logan/drew).
+The `pilots` table (including `color`) is the **only** source of truth for every pilot's config, including the original 5. `server.js` has no hardcoded parser/airline-code maps (`getParserForPilot()` is just `pilotRow?.parser_type || 'csv'`). `app.html`'s `PILOT_KEYS`/`PILOT_COLORS`/`PILOT_NAMES`/`PILOT_ROLES`/`PILOT_HOME` all start **empty** for a real session and are populated entirely by `_syncPilotRoster()` from `/api/pilots-directory`, called inside `initIdentity()` before any pilot-dependent UI builds. Pill bar/sidebar order is alphabetical by name (`ORDER BY name`) with the signed-in pilot's own pill always pinned first via `_reorderPilotPills()` — no insertion-order or hardcoded ordering anywhere. The 5 static sidebar/pill `<button>` elements and the `PILOT_HOMES`/`PILOT_CARRIER` client-side fallback objects were removed outright — every pilot (including the original 5) is rendered/resolved dynamically now. `AIRLINE_OPTIONS` has a real SpiritJets/Schedaero entry for Kyle so his profile has a stable, selectable match (not "Other"). `PILOT_HOME_AIRPORTS` (Kyle's dual SUS/STL) remains a deliberate, scoped hardcoded exception (see "Key constants" above) — the schema has no second-home-airport column.
 
-### What changed
+**Self-service profile editing** (base / home airport / airline): `#my-info-section` (real pilots only) → `#edit-my-info-modal` → `openEditMyInfoModal()`/`_onMyInfoAirlineChange()`/`saveMyInfo()`, PUTs `/api/pilots/:pilotKey` (admin-or-self; a self-edit's SQL `UPDATE` omits the `role` column entirely, so a pilot can't grant themselves a role change through this path), then re-syncs ICS if a new URL was given and refreshes the view.
 
-**`db.js`** — added `pilots.color` (TEXT, nullable; the brand hex color previously hardcoded per pilot_key). A **one-time** migration, guarded by `settings.coreRosterMigrated` (checked via `db.get`, set via `INSERT OR REPLACE INTO settings`), copies the original hardcoded values into the DB exactly once:
-- `parser_type`/`airline_code` for kyle/adam/sam/logan/drew (unconditional overwrite — these were always meant to hold these exact values, the DB had just never been told).
-- `color` for all 9 pilots that had a hardcoded color (the 5 + brett/hunter/nick/jack), **only if currently blank** — never re-stomps a later admin-set value.
-- `role` (the "Corporate · SUS" / "Regional · TUL" style text) for the 5 original pilots, **only if currently blank** — same reasoning; this also means it correctly skipped Nick/Jack, whose `role` already legitimately held `'viewer'`.
+**Every schedule-mutation endpoint requires auth** (see API list above) — admin, or the pilot acting on their own data, enforced via `_resolvePilotToken`.
 
-This migration must only ever run once. After it runs (on prod, the first boot after this code deploys), these columns are exactly like any other pilot's — admin-editable forever, never overwritten again by code.
+**A failed identity lookup never silently becomes admin.** `initIdentity()` retries a failed token lookup up to 3x (network error/5xx only, not a 4xx), and on total failure stops startup and shows `_showIdentityError()` instead of proceeding with `myPilot`/`myToken` left `null` (the same state the app treats as admin everywhere).
 
-**`server.js`** — deleted `pilotParsers`/`pilotAirlineCodes` entirely. `getParserForPilot(pilotKey, pilotRow)` is now just `pilotRow?.parser_type || 'csv'` (kept as a named function so every call site still reads it the same way, even though it's a one-liner now). Every `pilotAirlineCodes[key] || pilot.airline_code` call site (5 of them) is now just `pilot.airline_code || ''`. `GET /api/pilots-directory` now also selects `color`.
+**Known, deliberately out-of-scope remainders**: Hunter's `parser_type` is still wrong (`ics_scx`, should be `ics_ecrew` — his `airline_code` is already correct, so this never affected his real parsed schedule, only display); `PILOT_HOME_AIRPORTS` remains hardcoded by design; `join.html`'s own airline list is separate/shorter and untouched (new-pilot signup, not existing-pilot editing).
 
-**Pill bar / sidebar order (changed 2026-10-01, twice the same day).** `_syncPilotRoster()` builds the pill bar/sidebar by iterating `/api/pilots-directory`'s response in whatever order it comes back, so that query's `ORDER BY` directly controls on-screen pilot order. First pass used `ORDER BY id` (insertion order) specifically to preserve the 5 original pilots' exact pre-refactor position. Explicitly rejected in favor of `ORDER BY name` (plain alphabetical) — insertion order is itself a kind of hardcoding-by-another-name (a brand-new pilot's position depends on row-creation history, not anything meaningful to look at), and alphabetical needs no such justification. Combined with `_reorderPilotPills()` (unchanged — already unconditionally moves the signed-in pilot's own pill to the front, for a real pilot only; no-ops for admin/viewer), the net ordering is: **you first (if you're a pilot), then the rest of your visible crew/friends A-Z** — no hardcoded or historical ordering anywhere. `_rebuildPilotDropdowns()`'s add-flight/upload `<select>` options inherit the same alphabetical order from `PILOT_KEYS`, with no self-pinning (not applicable to a dropdown).
-
-**`app.html`** — `PILOT_KEYS`/`PILOT_COLORS`/`PILOT_NAMES`/`PILOT_ROLES`/`PILOT_HOME` all start **empty** for a real session (demo mode is unaffected — it still starts with its 4 fake fixture pilots, since there's no real roster to load for `/demo`). `_syncPilotRoster()` — previously "add anyone not already in the hardcoded list" — is now the **only** registration path for every pilot, called inside `initIdentity()` before any pilot-dependent UI builds (same ordering already established by the earlier startup-crash fix). It now also reads `p.color` from the directory response (`PILOT_COLORS[key] = p.color || _assignColor(key)`), so a pilot with a DB color keeps it exactly, and anyone without one still gets the auto-assigned rotating palette, same as before. The old "dynamically register pilot if not in the hardcoded list" block inside `initIdentity()`'s token-resolution section (≈30 lines, used only for a newly-joined pilot logging in before `_syncPilotRoster()` got a chance to register them) was deleted outright — now that there's no hardcoded list to be "not in," `_syncPilotRoster()` alone handles every pilot, including whoever's currently logging in.
-
-The 5 static sidebar (`#pilot-kyle` etc.) and mobile-pill (`#mpilot-kyle` etc.) `<button>` elements were removed from the raw HTML — they're now created dynamically by `_syncPilotRoster()` exactly like any other pilot's. This wasn't just tidiness: those static buttons never updated if a pilot's name/color later changed in the DB (unlike dynamically-created ones, which are rebuilt fresh from the directory on every page load), so renaming one of the original 5 through the admin panel would have silently not reflected on their own sidebar button. The three `<select>` dropdowns that also listed the 5 pilots as static `<option>` tags (`upload-pilot-select`, `add-pilot`, `mobile-upload-pilot-select`) were left alone — `_rebuildPilotDropdowns()` already fully overwrites their `innerHTML` from `PILOT_KEYS` on every load, so the static options are only ever a harmless pre-JS placeholder, never actually rendered once the app initializes.
-
-Also found and fixed in the same pass: a **second, independent copy** of the same hardcoded-override anti-pattern lived entirely client-side — `PILOT_HOMES`/`PILOT_CARRIER` (note the inconsistent naming from `PILOT_HOME`/`PILOT_ROLES`), two more hardcoded 5-pilot objects used as fallbacks in `isHomeAirport()`, the map's "current position" pin (`renderMap()`), `deriveCallsign()`, and the day-map pilot loop. `PILOT_HOMES` was pure dead code — every call site already checked the DB-driven `PILOT_HOME` first, which (now that the roster is always fully synced) is never falsy for a known pilot, so `PILOT_HOMES` could never actually be reached. `PILOT_CARRIER` was live and dangerous: `deriveCallsign()` checked it **before** the DB-sourced `pilotsCache[pilotKey]?.airline_code`, meaning if any of the 5 original pilots' real airline code ever changed in the DB, this hardcoded fallback would have kept using the stale original value for live ADS-B callsign lookups specifically — the exact bug class this whole refactor exists to eliminate, just not yet discovered because nobody had changed one of their airline codes yet. Both objects were deleted; every call site now reads purely from `PILOT_HOME`/`pilotsCache[...].airline_code`. One narrow piece of real hardcoded data was deliberately *kept*: `PILOT_HOME_AIRPORTS` (`kyle: ['SUS','STL']` — Kyle has two home-metro airports; everyone else has one), since the `pilots` table's single `home_airport` column has no way to represent a second one. This isn't the override anti-pattern — there's no DB value it's silently discarding — it's just extra domain knowledge the schema doesn't yet model, left as a known, scoped limitation rather than rushed into a schema change nobody asked for.
-
-**Kyle's Schedaero needed one explicit addition, not just a deletion.** Removing the hardcoded override means `parser_type`/`airline_code` are now *real, admin-editable* fields for every pilot, including Kyle — which is exactly the problem: Schedaero (`parser_type: 'schedaero'`, `airline_code: 'SJJ'`, SpiritJets) was never in `AIRLINE_OPTIONS` at all, since it's Kyle's private corporate operator, not a public airline. Before this refactor that was harmless, because the hardcoded server-side override meant the DB value never actually mattered. After removing that override, it stopped being harmless: `_airlineSelectValue()` would resolve Kyle to "Other" (no matching dropdown entry), and if anyone ever saved his profile through the admin panel without noticing, that save would write `parser_type: 'other'` to his DB row for real — silently breaking every piece of UI gated on `parser_type === 'schedaero'` (the Schedaero sync buttons, `isSyncPilot` in `updateUploadSyncButtons()`, etc.). Fixed by adding a real `{ icao: 'SJJ', dbCode: 'SJJ', parser: 'schedaero', needsIcs: false }` entry to `AIRLINE_OPTIONS` plus a matching `<option value="SJJ">SpiritJets (Corporate — Schedaero)</option>`, so his profile now has a real, stable, selectable match — `needsIcs: false` because Schedaero sync happens through its own dedicated modal/quick-sync buttons (already gated purely on `parser_type === 'schedaero'` elsewhere), not a generic pasted ICS URL. Verified against the real endpoint: saving Kyle's profile with this selection round-trips `schedaero`/`SJJ` unchanged.
-
-### Self-service profile editing (base / home airport / airline)
-
-Added the same day, for the same reason: a pilot who moves, changes crew base, or switches carriers had no way to update that themselves — only admin could, through the admin panel. New "My Info" section in the Profile sheet (`#my-info-section`, visible for real pilots only — admin edits anyone through the admin panel, viewers/demo have no schedule-source profile to maintain) opens `#edit-my-info-modal`, a scoped-down version of the admin edit-user modal: Crew Base, Home Airport, Airline/Operator dropdown (same `AIRLINE_OPTIONS` list, including the new SpiritJets entry) with the matching conditional ICS URL field. No name or role field — role is a permission level (viewer vs. pilot), not personal info, and stays admin-only.
-
-`openEditMyInfoModal()` / `_onMyInfoAirlineChange()` / `saveMyInfo()` mirror the admin equivalents closely but operate only on the signed-in pilot (`myPilot`, never a parameter). `saveMyInfo()` PUTs to the same `PUT /api/pilots/:pilotKey` endpoint the admin modal uses, then (if a new ICS URL was given) immediately triggers `/api/pilots/:key/sync-ics`, then calls `loadPilot(myPilot)` and `updateUploadSyncButtons(myPilot)` so a carrier change is reflected immediately (new sync button, etc.) without needing a page reload.
-
-**This required fixing a real, pre-existing security hole first.** `PUT /api/pilots/:pilotKey`, `DELETE /api/pilots/:pilotKey`, and `POST /api/pilots/:pilotKey/regenerate-token` had **no authentication at all** — anyone who knew or guessed a pilot_key could rewrite, delete, or reissue the login token for any pilot's account with a bare unauthenticated request. This had been sitting there since before the friends-system security pass (which hardened the GET-side endpoints but missed these three PUT/DELETE/POST ones). All three now go through `_resolvePilotToken` first. The two destructive ones (delete, regenerate-token) require `callerKey === 'admin'`. The profile PUT allows either admin editing anyone, **or** a pilot editing their own record (`callerKey === pilotKey`) — which is what makes self-service editing safe to expose at all; a self-edit's SQL `UPDATE` deliberately omits the `role` column entirely (two different query/param branches by `isAdmin`), so there's no way for a pilot to grant themselves viewer status or otherwise touch their own permission level through this path. Verified against the real endpoints: a pilot editing their own base succeeds; the same pilot targeting someone else's pilot_key gets 403; attempting to smuggle a `role` change into a self-edit succeeds but the role column is left untouched; all three endpoints 401 with no token.
-
-### Second security pass — the schedule-mutation endpoints and a token-leak route (2026-10-08, same day)
-
-Found while auditing further after the profile-edit hole above: `POST /:pilotKey/upload`, `DELETE /:pilotKey/segments` (bulk wipe), `POST /:pilotKey/add-segment`, `PUT`/`DELETE /:pilotKey/segments/:id`, `POST /:pilotKey/sync-ics`, and `GET /:pilotKey/ics-url` had **no authentication at all** — any `pilot_key` (just a lowercase first name, trivially guessable) let a bare unauthenticated request read, overwrite, or wipe that pilot's entire real schedule, or point their auto-sync at an attacker-controlled URL. All six gated the same way as `PUT /api/pilots/:pilotKey`: admin, or the pilot acting on their own data. A seventh, worse than the rest: `GET /:pilotKey/token` was labeled admin-only in its own comment but had zero enforcement — handed back any pilot's actual real login token (not just access to their data, the literal credential) to a bare unauthenticated request. No client code calls it, but it was live regardless; now gated too. All seven verified live against a throwaway local DB copy: no token → 401, wrong pilot's token → 403, own token or admin → succeeds. `app.html` gained a `token` field/param at every client call site for the six schedule endpoints so real usage (including admin acting on another pilot's behalf) kept working under the new gate.
-
-**A related, separate bug found the same pass: a failed identity lookup silently became indistinguishable from admin.** `initIdentity()`'s network-error handler used to leave `myPilot`/`myToken` at their initial `null` values on a failed token lookup — exactly the state this app treats as ADMIN everywhere else (`visiblePilotKeys()`, the admin-panel visibility check, etc. all branch on plain `myPilot === null`). Confirmed live: a lagged connection on a real pilot's own login showed admin-style UI (sees-everyone pill bar, Admin Panel button) instead of their own identity, with no actual admin token ever presented. Fixed by retrying the token lookup up to 3x on a network error or 5xx (not a 4xx/invalid token, which retrying can't fix), and on total failure, stopping startup entirely (`initIdentity()` returns `false`, which the `DOMContentLoaded` handler now checks before proceeding) and showing an explicit error (`_showIdentityError()` — repurposes the splash screen: red subtitle text, a Retry button) rather than ever proceeding with an unresolved identity.
-
-### Known, deliberately out-of-scope remainders
-
-- **Hunter's `parser_type` is still wrong** (`ics_scx`, should be `ics_ecrew` — he flies for Atlas, not Sun Country; his `airline_code` is already correctly `GTI`, so this never actually affected his real parsed schedule, only the admin panel's/his own airline dropdown display). Not part of this migration since Hunter was never one of the 5 hardcoded pilots — this is a plain, pre-existing data-entry mistake, fixable with one dropdown change via the admin panel or his own new self-service "My Info" editor.
-- **`PILOT_HOME_AIRPORTS`** (Kyle's dual SUS/STL home metro) remains hardcoded — see above; the schema has no column for a second home airport, and extending it wasn't asked for.
-- **`join.html`** (the public new-pilot signup form) has its own, separate, shorter hardcoded airline list (3 options, missing Sun Country/Atlas/Delta/American/Southwest) — a pre-existing inconsistency with the main app's 9-option `AIRLINE_OPTIONS`, not touched in this pass since it's a different file/flow (new-pilot signup, not existing-pilot editing) and wasn't part of what was reported.
+Full three-places-duplicated-config story and the two security-hole discoveries: `CLAUDE_HISTORY.md § Pilot roster is fully DB-driven`.
 
 ---
 
 ## PWA / service worker
 
-**Service worker `/sw.js`:**
-- Registered on every app load. Handles background push notifications.
-- On push receive: parses payload, shows system notification with title + body.
-- On notification click: sends `{ type: 'OPEN_OVERLAP' }` to client → app switches to Crossings tab.
+**Service worker `/sw.js`**: registered on every load; handles background push (parses payload, shows system notification); on click sends `{type:'OPEN_OVERLAP'}` → Crossings tab.
 
-**PWA install prompt (`#pwa-prompt`):**
-- Shows on mobile when app is not yet installed (not in `standalone` display mode).
-- iOS: shows manually crafted "Add to Home Screen" instruction (no native install API on iOS).
-- Android: listens for `beforeinstallprompt` event → `pwaInstall()` triggers native prompt.
-- Dismissed state saved to `localStorage['pwa_dismissed']`. Not shown again for 7 days.
+**PWA install prompt (`#pwa-prompt`)**: shown on mobile when not in `standalone` mode. iOS: manual "Add to Home Screen" instructions (no native API). Android: `beforeinstallprompt` → `pwaInstall()`. Dismissed state in `localStorage['pwa_dismissed']`, not shown again for 7 days.
 
-**Auto-refresh on resume:**
+**Auto-refresh on resume** (in `<head>`, runs before any scripts):
 ```js
-// In <head>, runs immediately before any scripts
 if (document.visibilityState === 'hidden') hiddenAt = Date.now();
 else if (hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000) window.location.reload();
 ```
-This refreshes the app after 5 minutes of backgrounding (e.g., reopening from iOS home screen), ensuring schedules are current.
+Refreshes after 5 minutes backgrounded.
 
-**Manifest:** `manifest.json` served with `?u=TOKEN` from the `<link rel="manifest">` tag injected in `<head>` so each pilot's installed PWA has their token baked into the manifest's `start_url`.
+**Manifest**: served with `?u=TOKEN` from the `<link rel="manifest">` tag injected in `<head>`.
 
 ---
 
@@ -1271,28 +873,28 @@ This refreshes the app after 5 minutes of backgrounding (e.g., reopening from iO
 
 | Element | Opens via | Purpose |
 |---|---|---|
-| `#day-detail-sheet` | `showDayDetail(dateKey)` | Day events bottom sheet; bottom on mobile, centered on desktop |
-| `#add-flight-modal` | `openAddFlight()` | Add/edit manual flight (all types) |
-| `#edit-ground-modal` | Edit button on ground leg card | Edit ground transfer airports/times |
-| `#schedaero-modal` | "Sync Schedaero" button | Kyle's Schedaero sync: URL, API token, cookie, month range |
-| `#drew-ics-modal` | "Sync Schedule (Drew)" button | Drew's RosterBuster ICS URL input |
-| `#ics-sync-modal` | "Sync Schedule" button (generic ICS pilots) | ICS URL for any ICS-type pilot |
-| `#mobile-upload-sheet` | Mobile nav Upload button | Mobile bottom sheet for upload/sync |
-| `#profile-sheet` | Avatar button (mobile) or sidebar identity row | Identity, personal link, crew visibility, notifications toggle |
-| `#admin-panel` | Profile → "Manage Users" (admin) | User list + dashboard tabs |
+| `#day-detail-sheet` | `showDayDetail(dateKey)` | Day events bottom sheet |
+| `#add-flight-modal` | `openAddFlight()` | Add/edit manual flight |
+| `#edit-ground-modal` | Edit button on ground leg card | Edit ground transfer |
+| `#schedaero-modal` | "Sync Schedaero" button | Kyle's Schedaero sync |
+| `#drew-ics-modal` | "Sync Schedule (Drew)" button | Drew's RosterBuster ICS URL |
+| `#ics-sync-modal` | "Sync Schedule" button | Generic ICS URL |
+| `#mobile-upload-sheet` | Mobile nav Upload button | Mobile upload/sync |
+| `#profile-sheet` | Avatar button / sidebar identity row | Identity, link, crew visibility, notifications |
+| `#admin-panel` | Profile → "Manage Users" | User list + dashboard |
 | `#edit-user-modal` | "+" or Edit in admin panel | Add/edit pilot or viewer |
-| `#overlap-detail-modal` | Tap "Also Nearby" crossing row | Expanded crossing detail |
-| `#crossing-alert-modal` | Auto, once per session if crossing within 24h | Crossing alert popup |
+| `#overlap-detail-modal` | "Also Nearby" row tap | Expanded crossing detail |
+| `#crossing-alert-modal` | Auto, once per session if crossing within 24h | Crossing alert |
 | `#intel-modal` | "+ Add" in Crew Intel | Add/edit intel tip |
-| `#notif-panel` | Bell icon | Notification history panel |
-| `#confirm-modal` | `showConfirm(title, body)` | Generic destructive action confirmation |
-| `#overlap-help-modal` | "?" button in Crossings view | Crossings type explanation |
+| `#notif-panel` | Bell icon | Notification history |
+| `#confirm-modal` | `showConfirm(title, body)` | Destructive action confirmation |
+| `#overlap-help-modal` | "?" in Crossings | Crossings type explanation |
 | `#intel-help-modal` | "?" in Crew Intel | Crew Intel explanation |
-| `#grid-help-modal` | "?" in Calendar view | Calendar color coding help |
-| `#list-help-modal` | "?" in List view | List view explanation |
-| `#map-help-modal` | "?" in Map view | Map modes explanation |
+| `#grid-help-modal` | "?" in Calendar | Color coding help |
+| `#list-help-modal` | "?" in List | List view explanation |
+| `#map-help-modal` | "?" in Map | Map modes explanation |
 
-**Bottom sheet swipe-to-dismiss:** `setupSheetSwipe(panelEl, dismissFn)` registers touchstart/touchmove/touchend on any bottom sheet panel. Dragging down >80px triggers dismiss with a 220ms slide-out animation.
+**Bottom sheet swipe-to-dismiss**: `setupSheetSwipe(panelEl, dismissFn)` — dragging down >80px dismisses with a 220ms slide-out.
 
 ---
 
@@ -1317,13 +919,13 @@ body (flex row, 100dvh)
 
 Only one `.view-section` has `.view-active` (display:block/flex) at a time. `switchView()` swaps the class. View fade-in is a 0.14s CSS animation on `.view-active`.
 
-**Desktop sidebar:** Collapsible via hamburger `toggleSidebar()`. `#sidebar.sidebar-hidden` sets width:0, overflow:hidden, opacity:0 with CSS transition.
+**Desktop sidebar**: collapsible via hamburger `toggleSidebar()`. `#sidebar.sidebar-hidden` sets width:0, overflow:hidden, opacity:0 with CSS transition.
 
 ---
 
 ## Color constants (pilot colors)
 
-Used in Crew Intel (`PILOT_COLORS`), map legend, sidebar avatar circles, mobile pill active state, and flight card accents:
+Used in Crew Intel, map legend, sidebar avatar circles, mobile pill active state, flight card accents:
 ```js
 PILOT_COLORS = {
   kyle: '#3b82f6',   // blue-500
@@ -1333,122 +935,97 @@ PILOT_COLORS = {
   drew: '#fb7185',   // rose-400
 }
 ```
-Additional non-core pilots (brett, hunter, nick, jack) have colors defined inline; further pilots get `_dynamicColorPool` rotating palette.
-
-**Source of truth**: always read from `PILOT_COLORS` constant in app.html (~line 2109). Hardcoded HTML uses these values as rgba; e.g. `#3b82f6` → `rgba(59,130,246,0.15)` for avatar circle background.
+These live in the `pilots.color` DB column now (see "Pilot roster is fully DB-driven") — the object above is just the current values. Additional non-core pilots have colors defined inline; further pilots get `_dynamicColorPool` rotating palette. Hardcoded HTML uses these as rgba, e.g. `#3b82f6` → `rgba(59,130,246,0.15)` for avatar circle background.
 
 ---
 
 ## UI theme (server branch — aviation boarding pass style)
 
 ### Flight cards (day detail sheet + list view)
-- **`.bp-card`** — boarding pass container: `overflow:hidden`, `border-radius:16px`
-- **`.bp-apt-code`** — 38px monospace airport code (30px on mobile)
-- **`.bp-top-bar`** — 3px accent gradient bar at card top
-- **`.bp-tear-line`** / **`.bp-stub`** — dashed separator + stub section with flight meta + barcode decoration
-- **`accentColor` hierarchy** (day detail & list): `isActiveLeg → #22c55e` > `isPersonal → #a78bfa` > `isCommute → #f59e0b` > `PILOT_COLORS[currentPilot]`
+- `.bp-card` — boarding pass container, `overflow:hidden`, `border-radius:16px`
+- `.bp-apt-code` — 38px monospace airport code (30px mobile)
+- `.bp-top-bar` — 3px accent gradient bar at card top
+- `.bp-tear-line` / `.bp-stub` — dashed separator + stub section with flight meta + barcode decoration
+- `accentColor` hierarchy (day detail & list): `isActiveLeg → #22c55e` > `isPersonal → #a78bfa` > `isCommute → #f59e0b` > `PILOT_COLORS[currentPilot]`
 
 ### Sidebar pilot buttons (`#sidebar-pilot-list`)
-- **`.pilot-avatar-btn`** — full-width button with colored initials circle (`w-7 h-7 rounded-full`) + pilot name
-- Circle background/border/text use `PILOT_COLORS[pilot]` rgba values (hardcoded in HTML, must match JS constant)
+- `.pilot-avatar-btn` — full-width button with colored initials circle (`w-7 h-7 rounded-full`) + name
+- Circle uses `PILOT_COLORS[pilot]` rgba (hardcoded in HTML, must match JS constant)
 - Active state set by `loadPilot()`: `btn.style.background = pc + '1a'`, `btn.style.borderColor = pc + '55'`
 
 ### Mobile top header (`header.md:hidden`)
-- Contains: identity avatar (`#identity-avatar`), month info (`#mobile-header-month-info`), prev/next month buttons (`#mobile-prev-btn`, `#mobile-next-btn`), notifications bell (`#notif-bell-btn-mobile`), help button, add flight button (`#btn-add-flight-mobile`)
-- **Calendar-specific controls** (`#mobile-header-month-info`, `#mobile-prev-btn`, `#mobile-next-btn`, `#btn-add-flight-mobile`) are hidden via `style.display='none'` on `overlap` and `intel` views — only the avatar, bell, and help `?` remain visible
-- This toggle happens in `switchView()` — `calView = view === 'grid' || view === 'list' || view === 'map'`
-- Header is `items-end` (bottom-aligned content), currently `height: calc(env(safe-area-inset-top) + 56px); padding-top: calc(env(safe-area-inset-top) + 6px)`. Fully opaque `bg-black` — no `backdrop-blur-md` (removed; it was compounding with iOS's own translucent-status-bar vibrancy right at the seam, showing up as extra blur near the top edge).
-- **This exact padding went through several iterations and reverts (2026-10-02/03), and the current values are where it landed, not a final spec-derived answer.** Explicitly requested: get the header as close to the Dynamic Island as possible. Tried, in order: a `max(68px, env(safe-area-inset-top))` floor (worked around an empirical clipping issue on one device, see below) → moving the header fully under the status bar to the physical top of the screen → a translucent (`black-translucent`) status bar instead of solid. **The translucent attempt was reverted back to solid `black`** (`apple-mobile-web-app-status-bar-style`, currently `content="black"`) after a reported haze/blur around the Dynamic Island persisted either way and solid black was the more predictable of the two. The `68px`-floor empirical issue that originally motivated the floor (an iOS device reporting `env(safe-area-inset-top)` as `59px` while content at that exact boundary still showed half-clipped, likely by Dynamic Island/Live Activity capsule rendering the static safe-area-inset doesn't account for) was diagnosed via a temporary on-screen readout (`getBoundingClientRect()` + a hidden probe for the resolved safe-area-inset value) — worth reusing that technique for any future "something looks visually wrong on a specific iOS version" report rather than guessing at CSS values blind.
-- **A light-background/light-status-bar toggle was built (profile sheet button, `toggleLightMode()`/`setStatusBarStyle()`/`applyLightMode()`, matching CSS) and then fully removed** per explicit request ("remove the light toggle") — there is currently no light mode anywhere in the app; don't be surprised if you find a stray reference in old discussion that no longer matches the code.
-- **Body fills the full screen height on iOS**: `<body style="height: 100dvh" data-fullheight>` with `@supports (height: 100lvh) { body[data-fullheight] { height: 100lvh !important; } }` so the PWA (and its bottom nav) reaches the true bottom edge instead of stopping short.
-- **Bottom nav sits at the physical bottom edge**, not padded up by `env(safe-area-inset-bottom)` — `.mobile-nav` uses a flat `12px` bottom padding instead, with matching content-reservation padding below it (grid/list `70px`, the map's mode bar `68px`) so page content doesn't sit underneath the nav. A full map-overlay/floating-controls redesign and a deferred tab-switch-render perf change were both tried in the same pass and **fully reverted** — explicitly rejected ("revert what you did to mess up the map controls", "not the page pops in idk if I like that") — current state is the plain, always-in-normal-flow map controls and a single synchronous `switchView()`.
-- **`#current-month-display-mobile` must never wrap.** It's `whitespace-nowrap overflow-hidden text-ellipsis` at `text-sm` with `min-w-0` on its flex parent (`#mobile-header-month-info`). Without this, a long month name ("September 2026") that doesn't fit next to the avatar + nav-icon cluster wraps onto two lines; because the header bottom-aligns its content, the wrapped block's extra height pushes its *top* line above the safe-area boundary, landing it under the status bar — this looked like a rendering blur/glitch but was actually just wrapped text pushed out of bounds. Diagnosed via a temporary on-screen readout (`getBoundingClientRect()` + a hidden probe element for the resolved `env(safe-area-inset-top)` value) — that technique is worth reusing for any future "something looks visually wrong on a specific iOS version" report, since guessing at CSS values blind wasted several iterations first.
+- Contains identity avatar (`#identity-avatar`), month info (`#mobile-header-month-info`), prev/next month (`#mobile-prev-btn`/`#mobile-next-btn`), bell (`#notif-bell-btn-mobile`), help, add-flight (`#btn-add-flight-mobile`).
+- Calendar-specific controls hidden via `style.display='none'` on `overlap`/`intel` views (`switchView()`'s `calView` check) — only avatar/bell/help remain.
+- Height: `calc(env(safe-area-inset-top) + 56px)`, `padding-top: calc(env(safe-area-inset-top) + 6px)`. Fully opaque `bg-black`, no `backdrop-blur-md`. Status bar style is solid `black` (`apple-mobile-web-app-status-bar-style`), not translucent. These values are empirically settled, not spec-derived — full iteration history (and the on-screen-readout diagnostic technique worth reusing for future iOS rendering reports) is in `CLAUDE_HISTORY.md § Mobile header padding`.
+- No light mode exists anywhere in the app (was built and fully removed).
+- `<body style="height: 100dvh" data-fullheight>` with a `100lvh` override under `@supports`, so the PWA reaches the true bottom edge.
+- Bottom nav uses a flat `12px` bottom padding (not `env(safe-area-inset-bottom)`), with matching content-reservation padding below it (grid/list `70px`, map mode bar `68px`).
+- `#current-month-display-mobile` must stay `whitespace-nowrap overflow-hidden text-ellipsis` with `min-w-0` on its flex parent — a wrapped long month name pushes its block above the safe-area boundary (looks like a rendering glitch, isn't).
 
 ### Mobile nav bar (`.mobile-nav`)
-- Each button is `56px` tall with `.mbtn-icon-wrap` (38×28px, `border-radius:10px`) wrapping the SVG
-- Active: `.mbtn-active .mbtn-icon-wrap` gets `background: rgba(59,130,246,0.13)` + icon/label color `#3b82f6`
-- Top indicator line (`.mbtn::before`): 2px, `#3b82f6`, animates width from 0→28px on active
+- Each button `56px` tall, `.mbtn-icon-wrap` (38×28px, `border-radius:10px`) wraps the SVG.
+- Active: `.mbtn-active .mbtn-icon-wrap` → `background: rgba(59,130,246,0.13)`, icon/label `#3b82f6`.
+- Top indicator line (`.mbtn::before`): 2px `#3b82f6`, animates width 0→28px on active.
 
 ### Mobile pilot pills (`#mobile-pilot-bar`)
-- Active pill uses `PILOT_COLORS[pilot]` (border + color + background) via `loadPilot()` JS
-- Inactive: `border-zinc-700 text-zinc-400`
+- Active pill uses `PILOT_COLORS[pilot]` (border + color + background) via `loadPilot()` JS.
+- Inactive: `border-zinc-700 text-zinc-400`.
 
 ---
 
 ## Schedaero sync (Kyle)
 
-**Full sync** (`openSchedaeroSync()` → `syncSchedaero()` → `POST /api/pilots/kyle/sync-schedaero`):
-- Requires: GetMonth URL, API token (x-avinode-apitoken header), full session cookie.
-- Syncs configurable month range (back 0–6, ahead 1–6 months).
-- Credentials saved server-side in `settings` table after successful sync.
+**Full sync** (`openSchedaeroSync()` → `syncSchedaero()` → `POST /api/pilots/kyle/sync-schedaero`): requires GetMonth URL, API token (x-avinode-apitoken header), full session cookie. Syncs a configurable month range (back 0–6, ahead 1–6 months). Credentials saved server-side in `settings` after success.
 
-**Quick sync** (`quickSyncSchedaero()` → `POST /api/pilots/kyle/quick-sync-schedaero`):
-- Uses saved credentials (URL + token + cookie from settings table).
-- If session expired (302 redirect or auth error) → opens `#schedaero-modal` in cookie-only mode (URL/token fields hidden, "session expired" banner shown, "Edit URL & API token" toggle available).
-- Quick sync button shown on mobile upload sheet.
-- Auto-sync runs quick sync at 06:00, 14:00, 22:00 UTC daily (server-side `setTimeout` chain, not cron).
+**Quick sync** (`quickSyncSchedaero()` → `POST /api/pilots/kyle/quick-sync-schedaero`): uses saved credentials. Expired session (302/auth error) → opens `#schedaero-modal` in cookie-only mode. Auto-sync runs quick sync at 06:00/14:00/22:00 UTC daily (chained `setTimeout`, not cron); a keepalive ping every 20 minutes keeps the session alive between syncs.
 
-### Kyle's corporate flight number — real value, not a tail-digit guess (fixed 2026-10-09)
+**Kyle's corporate flight number**: real value is `SJJ` + the **first three digits** of the tail (`sjjFlightNumber(tail)`, server.js) — not every digit. Computed by the parser, actually written by `importSchedaeroEvents()`'s INSERT (both manual/quick sync and the 06/14/22 UTC auto-sync share this one import function), and matched by both tail-based callsign fallbacks (`deriveCallsign()` client-side, `deriveServerCallsign()` server-side). Full three-compounding-bugs discovery story: `CLAUDE_HISTORY.md § Schedaero sync`.
 
-Confirmed directly: SpiritJets' real flight numbers are `SJJ` + the **first three digits** of the tail (`N176US` → `SJJ176`), not every digit in it. Three compounding bugs found together, all in the same area, root-caused from a real live confusion on Kyle's AMA-SUS leg (showed "completed" while still genuinely airborne, after a long ground delay at AMA pushed actual departure past the originally scheduled SUS arrival):
-
-1. **`parseSchedaeroData()` hardcoded `flightNumber: null`** for every segment — it never computed a real flight number at all, for any Schedaero sync, ever. Fixed with a new `sjjFlightNumber(tail)` helper (server.js) that takes just the first three tail digits.
-2. **`importSchedaeroEvents()`'s own `INSERT` hardcoded the `flight_number` bind parameter to the literal `null`** regardless of what the parser now returns — the same bug class CLAUDE.md already documents for `syncPilotICS()`'s `block_minutes` (see the Delta MiCrew parser section), just a separate instance of it in Schedaero's own import path. A parser returning the right value is never the same as it reaching the database. Both manual/quick Schedaero sync and the automatic 06/14/22 UTC auto-sync share this one import function, so one fix covers all three paths.
-3. **Both tail-based callsign fallbacks — `deriveCallsign()` (app.html) and the new `deriveServerCallsign()` (server.js, see below) — took ALL digits from the tail**, not just the first three. Harmless for `N176US` specifically (exactly three digits already) but would derive the wrong callsign for any tail with more than three digits, silently breaking live tracking for that aircraft. Both now match `sjjFlightNumber()`'s rule exactly. These fallbacks still matter for segments synced before this fix and for anything else lacking a `flight_number`, but going forward the real value comes from the parser directly, like every other parser in this codebase.
-
-### Background poller never tracked Kyle's corporate flights at all (fixed 2026-10-09, same investigation)
-
-Root cause of the AMA-SUS confusion above, upstream of the flight-number bug: `runActiveFlightPoller()`'s SQL query required a non-null `flight_number` to even consider a segment. Before the fix above, every Schedaero segment had `flight_number: null` — so every one of Kyle's flights was silently skipped by server-side tracking, full stop: no trail, no parked/airborne evidence, nothing, unless a client happened to be actively polling `/api/live-position` itself at that exact moment. Fixed with **`deriveServerCallsign(row, airlineCode)`** (server.js) — a server-side mirror of the client's `deriveCallsign()` fallback logic (flight number if present, else `sjjFlightNumber(tail)` for `airlineCode === 'SJJ'`) — and the poller's query widened to also match tail-only rows (filtered back down to just `SJJ` in JS afterward, so no other pilot's manual/personal tail-only segments start getting tracked). Verified against a copy of prod's real database: the widened query matched both of Kyle's real segments that day, where it previously matched zero.
-
-**A second, independent bug in the same investigation: a reused same-day callsign kept a stale "parked" flag from blocking the next leg.** Kyle's two legs that day (SUS-AMA, then AMA-SUS) derive the *identical* callsign (`SJJ176`, same tail) — unlike an airline pilot whose flight number changes every leg. `unparkIfNewLeg()` only clears a stale parked flag when handed a fresh live-feed-reported origin that differs from the one recorded at parking time — if SWIM/STDDS hadn't picked up the new leg's flight plan yet (plausible at a smaller/quieter field), that fresh origin never arrives, and leg 1's parked-at-AMA flag just sits there blocking leg 2's entire flight. Fixed by preferring CrewSync's **own already-known scheduled `departure_airport`** for the row being considered — always immediately available and correct, independent of live-feed timing — over the live feed's own origin, at both call sites: the background poller (`row.departure_airport`, already in scope) and `/api/live-position` (now accepts an optional `?origin=` from the client, which `startCalListLivePolling()` sends using the dep-airport already baked into the calendar/list markup via `data-dep-apt`). This exact same-callsign-reuse problem turned out to be much bigger than just Kyle's corporate flights — see "Same-day round trip sharing one callsign" under the Durable flight-tracking evidence section above, which this fix was the first instance of.
+**Background poller tracks Kyle's corporate flights** via `deriveServerCallsign(row, airlineCode)` — the poller's query matches tail-only rows too, filtered down to `airlineCode === 'SJJ'` in JS. This was the first instance of the same-day-callsign-reuse problem — see "Same-day round trip sharing one callsign" above.
 
 ---
 
 ## FRAT Autofill userscript (`public/frat-autofill.user.js`)
 
-Tampermonkey userscript (Kyle only) that autofills PRISM SMS (`prismsms.argus.aero`) flight risk assessment reports from his CrewSync schedule: Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA, and ~24 risk questions computed from schedule + `aviationweather.gov` + FAA NOTAM data. Served from `/frat-autofill.user.js` with `@updateURL`/`@downloadURL` pointing at prod, so Tampermonkey can auto-update it (though a manual "Check for updates" is faster than waiting on its poll interval).
+Tampermonkey userscript (Kyle only) that autofills PRISM SMS (`prismsms.argus.aero`) flight risk assessment reports from his CrewSync schedule: Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA, and ~24 risk questions computed from schedule + `aviationweather.gov` + FAA NOTAM data. Served from `/frat-autofill.user.js` with `@updateURL`/`@downloadURL` pointing at prod for Tampermonkey auto-update.
 
-**`@match` covers the whole `prismsms.argus.aero` origin, not just the report URL.** This was a hard-won fix: PRISM is an Angular SPA, and clicking "Create Risk Assessment" from the landing/list page routes to a new report via `history.pushState` — no real page load. Tampermonkey only auto-injects on an actual navigation, so if the script were scoped to just the report URL, it would never be *running* on the landing page to see that pushState happen, and would only ever catch up on a hard refresh. The script now loads app-wide, sits idle via `isFratReportRoute()`/`isFratLandingRoute()` route checks, and patches `history.pushState`/`replaceState` + listens for `popstate` to react the moment the SPA routes somewhere relevant.
+**`@match` covers the whole `prismsms.argus.aero` origin**, not just the report URL — needed because PRISM is an Angular SPA using `history.pushState` navigation (full story: `CLAUDE_HISTORY.md § FRAT Autofill userscript`). The script patches `history.pushState`/`replaceState` + listens for `popstate`, idling via `isFratReportRoute()`/`isFratLandingRoute()` route checks.
 
-**Full automated pipeline (landing page → filled, saved report):**
-1. On `/tools/frat-landing`, shows the same leg-select panel as the report page (`mode: 'landing'`).
-2. Picking a leg sets `_pendingFlight`, then `triggerCreateReport()` clicks "Create Risk Assessment" and the template option ("SpiritJets Flight Risk Analysis...") in the dropdown it opens.
-3. That creates a report at a fresh, randomly-ID'd URL and routes there via pushState. The SPA-navigation watcher picks up the route change and re-runs `main('report')`, which finds `_pendingFlight` and fills the form immediately instead of showing the leg picker again.
-4. After filling, `saveReport()` clicks "Save as Pending" then "Yes" on the confirmation dialog, which routes back to the landing page — closing the loop for the next report.
-5. If any automated click fails to find its target, the pending flight is preserved and a status message asks for a manual click — since the flight is still remembered, finishing manually still triggers the auto-fill once the report opens.
+**Full automated pipeline** (landing page → filled, saved report):
+1. On `/tools/frat-landing`, shows the leg-select panel (`mode:'landing'`).
+2. Picking a leg sets `_pendingFlight`; `triggerCreateReport()` clicks "Create Risk Assessment" + the template option in the dropdown.
+3. The new report routes via pushState; the SPA-navigation watcher re-runs `main('report')`, finds `_pendingFlight`, fills immediately.
+4. `saveReport()` clicks "Save as Pending" → "Yes", routing back to landing.
+5. Any failed automated click preserves the pending flight and prompts a manual click — finishing manually still triggers auto-fill once the report opens.
 
-**Hard-won lesson on clicking PRISM's UI elements — verify the actual DOM before guessing event types.** The template-dropdown click failed for several iterations, each time diagnosed as a different wrong theory (event type needing a full pointer/mouse sequence, dropdown container scope, search-box filtering side effects) before a live DOM dump (`document.querySelectorAll('body *')` filtered to visible elements matching the target text, printed via `outerHTML`) revealed the real bug: the "smallest textContent" heuristic used to pick the click target was tying against purely-decorative empty wrapper divs (same textContent length as the actual `<button>`, since the wrappers contribute zero extra text) and picking an inert ancestor instead of the real `mat-menu-item` button. **The lesson generalizes: when a click on a found DOM element doesn't do what a real click would, get the actual `outerHTML` of the target before changing the event-dispatch mechanism — the element being wrong is at least as likely as the event type being wrong.** `triggerCreateReport()` now prefers the known static `#btn-frat-add` id over any generic text search.
+`triggerCreateReport()` prefers the known static `#btn-frat-add` id over generic text search (see history for why). The leg-select panel's "dbg" button calls `debugDump()` — check console output there before assuming a selector is broken.
 
-**Debugging tools already built into the panel:** the "dbg" button in the leg-select panel calls `debugDump()`, which logs all `mat-select` elements, `findAnySelect()` resolution results for known field labels, all visible inputs, and a risk-question-row finder test — check console output there before assuming a selector is broken.
+**Sends Kyle's real CrewSync login token** (hardcoded `const TOKEN`) since `GET /api/pilots/:key` requires `?token=`. **Known, accepted exposure**: the file is both committed to the public GitHub remote and served unauthenticated, so the token is effectively public — anyone who finds it can act as Kyle through the API, though not as admin or any other pilot. Regenerating the token via the admin panel both revokes this and requires updating this constant to match. Don't paste the literal token value anywhere else committed to the repo — reference it by name/location instead.
 
-**Sends Kyle's real CrewSync login token on its schedule fetch (fixed 2026-10-07, `@version 3.10`+).** `GET /api/pilots/:key` started requiring `?token=` once the friends-system auth pass shipped (see "Friends system" above) — the userscript never sent one, so it silently stopped finding any upcoming flights. Fixed with a hardcoded `const TOKEN` (Kyle's own real login token, looked up directly from the prod DB) appended to the fetch URL. **Known, accepted exposure, not an accident**: this file is both committed to this repo's public GitHub remote and served unauthenticated at `/frat-autofill.user.js` (Tampermonkey needs to fetch it directly), so that token is effectively public — anyone who finds it can act as Kyle through the API (view/edit his own profile, vote, friend actions, etc.), though not as admin and not as any other pilot. If this token is ever regenerated via the admin panel, this constant goes stale and needs updating to match — and regenerating it is also the only way to revoke the current exposure. Don't paste the literal token value into this file or anywhere else committed to the repo — reference it by name/location (`public/frat-autofill.user.js`'s `TOKEN` constant) instead, the same way this paragraph now does.
-
-**A non-200 schedule-fetch response used to fail silently** (`fetchScheduleInfo()`), resolving to `{ captain: null, paxActual: null }` with no way to tell a real failure apart from "legitimately no PIC found." Fixed (`@version 3.11`) to log the actual HTTP status and a response snippet first. Confirmed live on a real subsequent run that PIC auto-fill works correctly once the underlying Schedaero data is actually available — the earlier failures this was added to diagnose were transient data-availability issues, not a script bug.
+A non-200 schedule-fetch response logs the actual HTTP status + a response snippet (`@version 3.11`+) rather than failing silently.
 
 ---
 
 ## Demo mode (`/demo` route)
 
-`demo-data.js` generates fake pilots (`alex`, `morgan`, `casey`, `jordan`) for the read-only `/demo` preview. `GET /api/demo/pilots/:key` calls `buildDemoSegments()` fresh on every request (not cached at module load), so the server never serves stale demo data no matter how long it's been running.
+`demo-data.js` generates fake pilots (`alex`, `morgan`, `casey`, `jordan`). `GET /api/demo/pilots/:key` calls `buildDemoSegments()` fresh on every request (never cached at module load).
 
-**Three-month window, not one.** `buildDemoSegments()` generates data for the previous, current, and next month (relative to the server's own clock) and concatenates them per pilot — it does not generate just "the current month." A single-month window was tried first and found insufficient: the server computes "now" using its own clock (UTC on the prod droplet), which can disagree with a visitor's local calendar near a month boundary — e.g. the server has already rolled into the next month (past midnight UTC) while a US-timezone visitor's local evening is still the previous day. Their browser would default to viewing "their" current month while the demo data was anchored to the server's, leaving the view blank. The three-month window makes this mismatch irrelevant since both interpretations of "today" always fall inside the generated range. `anchorForMonthOffset(n)` returns the 15th of the month `n` months from now; `buildForAnchor(ANCHOR, idStart)` builds one month's segments for all four pilots (the `idStart` param keeps segment ids unique across the three calls — 1000/2000/3000).
+**Three-month window** (previous/current/next month relative to the server's own UTC clock, concatenated) — avoids a server/visitor month-boundary mismatch near midnight UTC. `anchorForMonthOffset(n)` returns the 15th of month `n`; `buildForAnchor(ANCHOR, idStart)` builds one month's segments for all four pilots (`idStart` keeps ids unique across the three calls: 1000/2000/3000).
 
-**Identity display:** `/demo` has no login token, so `myPilot`/`myViewer` are both falsy — the same state as a real admin session. `_applyIdentityUI()` checks `isDemo` before falling back to the admin label, showing "Demo" instead of "Admin" in the sidebar/profile identity display. If adding new identity-driven UI text elsewhere, check `isDemo` the same way rather than assuming `!myPilot && !myViewer` always means admin.
+**Identity display**: no login token, so `myPilot`/`myViewer` are both falsy — same state as admin. `_applyIdentityUI()` checks `isDemo` before falling back to the admin label, showing "Demo" instead. Check `isDemo` the same way for any new identity-driven UI text.
 
 ---
 
 ## Offline / connectivity
 
-`#offline-banner` (red bar at top) appears when browser goes offline (`window.addEventListener('offline')`). Slides down from top. Disappears on `'online'` event.
-
-The service worker does not cache API responses — it's push-only. There is no offline data mode; all schedule data requires network.
+`#offline-banner` (red bar, top) appears on `window.addEventListener('offline')`, disappears on `'online'`. The service worker does not cache API responses — push-only, no offline data mode; all schedule data requires network.
 
 ---
 
 ## `flightLocalDate` / `flightUTCTime` — when to use each
 
-`flightLocalDate(isoStr, airportCode)` → `'YYYY-MM-DD'` string at the airport's local timezone. Use when checking which calendar day an event falls on.
+`flightLocalDate(isoStr, airportCode)` → `'YYYY-MM-DD'` at the airport's local timezone. Use when checking which calendar day an event falls on.
 
-`flightUTCTime(isoStr, airportCode)` → `Date` object in true UTC. Use when comparing times across pilots or checking if a flight is currently active (`depMs <= now <= arrMs`).
+`flightUTCTime(isoStr, airportCode)` → `Date` in true UTC. Use when comparing times across pilots or checking if a flight is currently active (`depMs <= now <= arrMs`).
 
 Never use `new Date(localString) < now` directly for crossings or "currently airborne" checks — local browser time may differ from airport timezone by hours.
