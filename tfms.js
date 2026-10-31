@@ -393,17 +393,44 @@ function processOneFltdMessage(msgObj) {
     // trackInformation (position-only) is ignored — SFDPS already covers live position, better.
     processFlightTimes(msgObj, cs);
 
-    // Per-leg record, additive -- only when THIS message's own route string resolves both ends
-    // (ownOrigin/candidateOrigin above already fell back to _latest[cs].origin for the
-    // isExpectedOrigin() check; that fallback is deliberately NOT used here, so a leg key in
-    // _legTimes is never guessed from stale state). Scoped to NetJets (EJA) callsigns only, same
-    // reasoning as tfdm.js's identical scoping on its own per-leg store -- every other pilot's
-    // tracked flight has no reason to pay for this. See _legTimes's header comment.
+    // Per-leg record, additive. Scoped to NetJets (EJA) callsigns only, same reasoning as
+    // tfdm.js's identical scoping on its own per-leg store -- every other pilot's tracked flight
+    // has no reason to pay for this. See _legTimes's header comment.
     if (_isResearchRelevant(cs)) {
         const ownDest = routeDest(messageRouteString(msgObj));
-        if (ownOrigin && ownDest) processLegTimes(msgObj, cs, ownOrigin, ownDest, candidateMs);
+        if (ownOrigin && ownDest) {
+            // THIS message's own route resolves both ends -- never guessed.
+            processLegTimes(msgObj, cs, ownOrigin, ownDest, candidateMs);
+        } else if (candidateMs != null) {
+            // Routeless times-only update (confirmed the common case live: most ongoing ETD/ETA
+            // refinements for an already-established leg arrive this way -- only the first,
+            // route-bearing message per leg ever sets the key). Without this branch, these never
+            // reach _legTimes at all, so the per-leg store goes stale the moment a leg's route
+            // stops being re-sent, even while the flat _flightTimes cache keeps getting fresher
+            // data -- confirmed live 2026-10-31: EJA742's SGR->DAL leg had a real, fresh ETA in
+            // the flat cache that never made it into the per-leg store, so
+            // _pollNetjetsLegCreation() (server.js) never refilled the segment's cleared
+            // arrival_time with it. Attribute to whichever ALREADY-KNOWN leg's own
+            // scheduledDepMs is closest to this message's candidateMs, within a tight tolerance
+            // -- never creates a new leg key from a routeless message, only refines one a real
+            // route-bearing message already established.
+            const existing = _legTimes[cs];
+            if (existing) {
+                let bestKey = null, bestDiff = Infinity;
+                for (const [key, leg] of existing) {
+                    if (leg.scheduledDepMs == null) continue;
+                    const diff = Math.abs(leg.scheduledDepMs - candidateMs);
+                    if (diff <= ROUTELESS_TIMES_MATCH_TOLERANCE_MS && diff < bestDiff) { bestKey = key; bestDiff = diff; }
+                }
+                if (bestKey) {
+                    const leg = existing.get(bestKey);
+                    processLegTimes(msgObj, cs, leg.origin, leg.dest, candidateMs);
+                }
+            }
+        }
     }
 }
+const ROUTELESS_TIMES_MATCH_TOLERANCE_MS = 2 * 60 * 60 * 1000;
 
 // Estimated and airline-reported times TFMS carries alongside the flight plan. These are estimates
 // only: the uploaded schedule is never changed from them, they're just exposed for display.

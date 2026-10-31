@@ -4195,10 +4195,17 @@ app.get('/api/flight-status', (req, res) => {
         if (realOrigin) return originOk(cs, realOrigin);
         return originOk(cs, _everAirborneOrigin[cs]) && originOk(cs, _parkedOrigin[cs]);
     };
+    const normApt2 = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
     const times = {};
     for (const cs of list) {
         if (!originCheckOk(cs) || !notStale(cs)) continue;
-        const t = tfms.getFlightTimes(cs);
+        // Leg-matched entry preferred over the flat tfms.getFlightTimes(cs) -- same reasoning as
+        // withTfdmInfo()'s own leg-aware delay/phase fix: a callsign with several concurrently
+        // filed legs (NetJets) can have the flat cache reflecting a DIFFERENT leg's times than
+        // the one this specific expectedOrigin is actually asking about.
+        const exp = expectedOrigin[cs];
+        const legMatch = exp ? tfms.getAllLegTimes(cs).find(l => normApt2(l.origin) === normApt2(exp)) : null;
+        const t = legMatch || tfms.getFlightTimes(cs);
         // airlineOnTime/airlineInTime are the airline's own real OOOI report (actual touchdown /
         // actual gate arrival) -- confirmed live as a real, authoritative "this flight is
         // definitively done" signal that our own position-polling pipeline can miss entirely if
@@ -4585,11 +4592,24 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                     // Confirmed live 2026-10-30: a leg-blind pre-rewrite write left a stale
                     // arrival_time sitting on a row; once departure_time self-corrected to a
                     // real, later value on the next poll, nothing cleared the now-inconsistent
-                    // arrival_time since there was no fresh replacement for it yet, leaving an
-                    // "arrives before it departs" segment visible until this ran. Clear both
-                    // rather than show that -- correct values will repopulate once a real,
-                    // consistent estimate arrives.
-                    updates.push('arrival_time=NULL', 'block_minutes=NULL');
+                    // arrival_time since there was no fresh replacement for it yet.
+                    //
+                    // Originally cleared both fields to NULL here -- confirmed live 2026-10-31
+                    // that this broke MORE than it fixed: app.html has several places (the day
+                    // map's here-now pin builder's own pilotFlights filter among them) that
+                    // assume a type='flight' segment always has BOTH departure_time AND
+                    // arrival_time, and silently drop/ignore any segment where that's not true --
+                    // every other pilot type's real schedule always has both ends known upfront,
+                    // so nothing ever exercised that assumption being false until NetJets. A null
+                    // arrival_time made Mack's genuinely-airborne leg invisible to that whole
+                    // pipeline, which fell through every rule to the final "show at home"
+                    // fallback -- a worse, more confusing bug than the one being fixed. Setting
+                    // arrival_time to departure_time instead (same instant -- a neutral "unknown
+                    // yet" placeholder, not a fabricated duration) keeps every "has both times"
+                    // assumption satisfied while block_minutes stays unset (0 isn't block>0, so
+                    // it's never written) until a real, later estimate arrives and overwrites
+                    // this placeholder via the normal refine path above.
+                    updates.push('arrival_time=?', 'block_minutes=NULL'); params.push(finalDepTime);
                 }
             }
             if (landed && !row.auto_leg_complete) updates.push('auto_leg_complete=1');
