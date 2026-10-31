@@ -278,6 +278,11 @@ function initDB() {
         // safe to run on every startup.
         db.run(`CREATE INDEX IF NOT EXISTS idx_segments_pilot_id ON segments(pilot_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_segments_departure_time ON segments(departure_time)`);
+        // Supports the NetJets ETA-estimate fallback's cross-operator lookup (any tracked
+        // pilot's real block_minutes for the same city pair) -- without this, that query is a
+        // full table scan. Rare query (cached per route, only consulted when NetJets' own
+        // history has nothing), but cheap to index anyway.
+        db.run(`CREATE INDEX IF NOT EXISTS idx_segments_route ON segments(departure_airport, arrival_airport)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_pilots_token ON pilots(token)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_notifications_pilot_key ON notifications(pilot_key)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_friend_requests_requester ON friend_requests(requester_key)`);

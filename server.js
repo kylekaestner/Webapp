@@ -4419,6 +4419,86 @@ const ADSB_LOOKAHEAD_MS = 30 * 60 * 1000;
 const SWIM_LOOKAHEAD_MS = 4 * 60 * 60 * 1000;
 const POLLER_LOOKBACK_MS = 8 * 60 * 60 * 1000; // both feeds: how long after departure to keep caring
 
+// Real observed flight durations per route, NetJets-WIDE (not per-tail -- different tails fly
+// the same city pairs, and the point is to borrow from the whole fleet's real history, not just
+// one tail's). Built only from CONFIRMED completed legs (never from an estimate -- that would
+// compound guesses on guesses), so a later leg on the same city pair gets a genuine duration
+// instead of the same-instant placeholder sitting there indefinitely. Persisted to disk, same
+// debounced-write pattern as the other caches in this file.
+const ROUTE_DURATIONS_PATH = path.join(__dirname, '.netjets_route_durations.json');
+const _routeDurations = {}; // "origin>dest" -> { count, totalMinutes }
+try {
+    Object.assign(_routeDurations, JSON.parse(fs.readFileSync(ROUTE_DURATIONS_PATH, 'utf8')));
+} catch (_) {}
+let _routeDurationsSaveTimer = null;
+function _recordRouteDuration(origin, dest, minutes) {
+    if (!origin || !dest || !isFinite(minutes) || minutes <= 0 || minutes > 12 * 60) return; // sanity bound -- no real NetJets leg runs 12+ hours
+    const key = `${origin}>${dest}`;
+    const rec = _routeDurations[key] || (_routeDurations[key] = { count: 0, totalMinutes: 0 });
+    rec.count++;
+    rec.totalMinutes += minutes;
+    if (!_routeDurationsSaveTimer) {
+        _routeDurationsSaveTimer = setTimeout(() => {
+            _routeDurationsSaveTimer = null;
+            try { fs.writeFileSync(ROUTE_DURATIONS_PATH, JSON.stringify(_routeDurations)); } catch (_) {}
+        }, 2000);
+    }
+}
+// Cross-operator fallback -- raised directly: "we could also use other airline flight's block
+// time as historical information between airport pairs." ANY tracked pilot's real
+// segments.block_minutes for this exact city pair is already computed at parse time from a real
+// published schedule (better-grounded than anything derived from live tracking), so it's a much
+// closer stand-in than a generic distance/cruise-speed guess when NetJets itself has never flown
+// a route yet. Pure read against existing data -- no new table, no write path, scoped narrowly to
+// this one NetJets estimate fallback, not exposed or used anywhere else. Cached per route for an
+// hour since this is a rare path (only consulted once NetJets' own history has nothing), not a
+// hot one.
+const _crossOpRouteCache = {}; // "origin>dest" -> { minutes, ts }
+const CROSS_OP_CACHE_TTL_MS = 60 * 60 * 1000;
+function _crossOperatorRouteDurationMin(db, origin, dest) {
+    return new Promise(resolve => {
+        const key = `${origin}>${dest}`;
+        const cached = _crossOpRouteCache[key];
+        if (cached && Date.now() - cached.ts < CROSS_OP_CACHE_TTL_MS) return resolve(cached.minutes);
+        db.all(
+            `SELECT block_minutes FROM segments WHERE departure_airport=? AND arrival_airport=? AND type='flight' AND block_minutes IS NOT NULL AND block_minutes > 0 LIMIT 50`,
+            [origin, dest],
+            (err, rows) => {
+                const minutes = (!err && rows && rows.length) ? rows.reduce((s, r) => s + r.block_minutes, 0) / rows.length : null;
+                _crossOpRouteCache[key] = { minutes, ts: Date.now() };
+                resolve(minutes);
+            }
+        );
+    });
+}
+// Raised directly: "I think we need some sort of ETA though" -- for a leg with no TFMS/TFDM
+// estimate at all (confirmed live on EJA815: no flight plan filed yet, so genuinely nothing to
+// extract), this is what fills the gap instead of leaving arrival_time at the same-instant
+// placeholder. Priority: (1) the real average duration this exact city pair has actually taken
+// under NetJets itself (accumulated via _recordRouteDuration above); (2) any other tracked
+// pilot's real scheduled block time for the same city pair (_crossOperatorRouteDurationMin
+// above); (3) great-circle distance over an assumed cruise speed (420kts, a generic light/
+// midsize business-jet figure -- the same kind of physics-based estimate a tool like FlightAware
+// leans on for a flight with no active plan either) plus a fixed climb/descent/taxi pad, only
+// once neither real source has anything. Always an estimate, never claims to be a filed time.
+const NETJETS_CRUISE_KTS = 420;
+const NETJETS_ROUTE_PAD_MIN = 20;
+async function _estimatedRouteDurationMin(db, origin, dest) {
+    const rec = _routeDurations[`${origin}>${dest}`];
+    if (rec && rec.count > 0) return rec.totalMinutes / rec.count;
+    const crossOp = await _crossOperatorRouteDurationMin(db, origin, dest);
+    if (crossOp) return crossOp;
+    const a = _aptCoords[origin] || _aptCoords['K' + origin];
+    const b = _aptCoords[dest] || _aptCoords['K' + dest];
+    if (!a || !b) return null;
+    const toRad = d => d * Math.PI / 180;
+    const R_NM = 3440.065; // Earth radius in nautical miles
+    const dLat = toRad(b[0] - a[0]), dLon = toRad(b[1] - a[1]);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
+    const distNm = 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(h)));
+    return (distNm / NETJETS_CRUISE_KTS) * 60 + NETJETS_ROUTE_PAD_MIN;
+}
+
 // NetJets manual-tracking: resolves every parser_type='manual_netjets' pilot currently on-duty
 // (per their saved rotation) with a tail saved for THIS tour, deriving the EJA+digits callsign
 // for each. Returns [] immediately (no query cost beyond the one pilots lookup) for a pilot with
@@ -4543,6 +4623,18 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             // real arrival estimate for a leg well before TFMS has any filed flight plan for it
             // at all, which is exactly the gap this closes.
             const arrTime = legTimes.airlineInTime || legTimes.airlineOnTime || legTimes.eta || leg.estArrivalTime || null;
+            // Last resort when NEITHER feed has anything at all -- confirmed live this is common,
+            // not rare: TFDM only ever shows up within ~18h of departure (590-leg fleet-wide
+            // check, 2026-10-31, zero exceptions beyond that), and its own estArrivalTime is
+            // inconsistent even then (EJA815's own two legs disagreed with each other). Raised
+            // directly: "we need a placeholder ETA until the real data comes in." Real average
+            // duration for this exact city pair (NetJets-wide, built only from genuinely
+            // completed legs -- see _recordRouteDuration() below) when we have one; otherwise
+            // great-circle distance over an assumed cruise speed. Deliberately kept SEPARATE from
+            // arrTime itself -- never recorded into the duration history, never confused with
+            // real evidence -- so a guess can never compound into a worse guess later.
+            const estimatedMin = arrTime ? null : await _estimatedRouteDurationMin(db, origin, dest);
+            const estimatedArrTime = estimatedMin ? new Date(new Date(depTime).getTime() + estimatedMin * 60000).toISOString() : null;
 
             const flightState = leg.flightState || '';
             const landed = /ARRIVAL|TAXI_IN|LUAW/.test(flightState) || isParkedForOrigin(cs, origin);
@@ -4564,16 +4656,16 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                 //
                 // arrTime is routinely null here -- TFDM can show a leg (SCHEDULED, a real
                 // offBlockTime) well before TFMS has an actual filed flight plan for it, which is
-                // the only place an ETA can come from at all (confirmed live on EJA815: three
-                // real TFDM legs for tomorrow, zero TFMS data for any of them yet). Raised
-                // directly: a pilot's forward-looking schedule should never show a blank arrival
-                // time for a leg it already knows is coming. Same placeholder discipline as the
-                // refine path below -- arrival_time defaults to departure_time (a neutral
-                // "unknown yet," not a fabricated duration) rather than NULL, so the segment
-                // satisfies every "has both times" assumption elsewhere in the app from the
-                // moment it's created; block_minutes stays unset until a real ETA arrives and
-                // overwrites the placeholder via the normal refine path.
-                const finalArrTime = arrTime || depTime;
+                // the only place a REAL ETA can come from at all (confirmed live on EJA815: three
+                // real TFDM legs for tomorrow, zero TFMS data for any of them yet). estimatedArrTime
+                // (above) fills that gap with a real average duration for this route if we have
+                // one, else a distance/cruise-speed estimate -- falling back to the same-instant
+                // placeholder only if even that has nothing to work with (unresolvable airport
+                // code). block_minutes is only ever written from REAL evidence (arrTime), never
+                // the estimate -- an estimated duration showing up as a precise-looking block time
+                // would overstate how certain it is; block_minutes stays unset until a real ETA
+                // arrives and overwrites this via the normal refine path.
+                const finalArrTime = arrTime || estimatedArrTime || depTime;
                 const block = (depTime && arrTime) ? Math.round((new Date(arrTime) - new Date(depTime)) / 60000) : null;
                 const autoLegKey = `${cs}|${nj.tourStart}|${origin}>${finalDest || '?'}@${depTime}`;
                 try {
@@ -4597,15 +4689,28 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             if (finalDest && finalDest !== row.arrival_airport) { updates.push('arrival_airport=?'); params.push(finalDest); }
             if (depTime && depTime !== row.departure_time) { updates.push('departure_time=?'); params.push(depTime); }
             if (arrTime && arrTime !== row.arrival_time) { updates.push('arrival_time=?'); params.push(arrTime); }
+            // No real evidence yet, but the row is still sitting on its original same-instant
+            // placeholder (never refined with anything) -- fill it with the estimate instead of
+            // leaving it looking like a zero-length flight. Only when the row is STILL the
+            // placeholder, never overwriting a real value that happened to get set earlier --
+            // this estimate must never regress something real back into a guess.
+            else if (!arrTime && estimatedArrTime && row.arrival_time === row.departure_time) {
+                updates.push('arrival_time=?'); params.push(estimatedArrTime);
+            }
             // Both times are always real UTC ISO strings (tfms.js's processFlightTimes() runs
             // every field through .toISOString()), so block time is a plain diff -- no airport-
             // timezone lookup needed the way other parsers require for local-time-stored segments.
             const finalDepTime = depTime || row.departure_time;
-            const finalArrTime = arrTime || row.arrival_time;
+            const finalArrTime = arrTime || (!arrTime && row.arrival_time === row.departure_time ? estimatedArrTime : null) || row.arrival_time;
             if (finalDepTime && finalArrTime) {
                 const block = Math.round((new Date(finalArrTime) - new Date(finalDepTime)) / 60000);
                 if (isFinite(block) && block > 0) {
                     updates.push('block_minutes=?'); params.push(block);
+                    // Recorded into the NetJets-wide duration history ONLY from REAL evidence
+                    // (arrTime) on a genuinely completed leg -- never from the estimate itself,
+                    // so a guess can never compound into a worse guess for a later leg on this
+                    // same city pair.
+                    if (landed && arrTime) _recordRouteDuration(origin, dest, block);
                 } else if (row.arrival_time || row.block_minutes != null) {
                     // finalArrTime is at or before finalDepTime -- physically impossible.
                     // Confirmed live 2026-10-30: a leg-blind pre-rewrite write left a stale
