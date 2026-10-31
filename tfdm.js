@@ -284,6 +284,13 @@ function processOneMessage(msgObj) {
     const depRunway = extractRunway(departure);
     const arrRunway = extractRunway(arrival);
     const flightState = findAttr(flight.flightStatus?.tfdmFlightState, 'value');
+    // Confirmed real in scratch/tfdm-samples/ (2026-10-31 audit) -- a flight-level field (not
+    // nested under departure/arrival, hence findDeep over the whole flight object rather than a
+    // specific block), corroborated by a second field on the same real flight
+    // (departure.smpExemptionReason = "DIVERSION_RECOVERY" on SKW487W, which had diverted into
+    // KDEN and was recovering). Genuinely new, app-wide-useful context -- a flight flagged this
+    // way is in a very different situation than an ordinary delay.
+    const isDiversion = textOf(findDeep(flight, 'diversionRecoveryIndicator')) === 'DIVERSION_RECOVERY';
     // Real departure-delay insight, straight from the FAA's own surface-management system --
     // requested directly: the uploaded schedule stays the source of truth for when a flight is
     // SUPPOSED to depart/land (never overwritten with real times), but TFDM already knows when a
@@ -315,7 +322,7 @@ function processOneMessage(msgObj) {
     // merging indefinitely across legs like a single multi-message flight would need.
     if ((origin && entry.origin && origin !== entry.origin) || (dest && entry.dest && dest !== entry.dest)) {
         entry.depRunway = null; entry.arrRunway = null; entry.flightState = null; entry.departureDelayMin = null;
-        entry.estArrivalTime = null; entry.estDepartureTime = null;
+        entry.estArrivalTime = null; entry.estDepartureTime = null; entry.isDiversion = false;
     }
     // Merge, don't clobber -- a FlightUpdate is a partial/delta message (confirmed live: most
     // updates carry neither runway field at all), so a later message missing a value must not
@@ -329,6 +336,7 @@ function processOneMessage(msgObj) {
     else if (currentDelayMin != null) entry.departureDelayMin = currentDelayMin;
     if (estArrivalTime) entry.estArrivalTime = estArrivalTime;
     if (estDepartureTime) entry.estDepartureTime = estDepartureTime;
+    if (isDiversion) entry.isDiversion = true;
 
     // Per-leg record, additive -- see _legs's header comment above. Keyed by origin+dest, which
     // TFDM gives fully resolved on every message (no route-string guessing needed), so two
@@ -350,6 +358,7 @@ function processOneMessage(msgObj) {
         else if (currentDelayMin != null) leg.departureDelayMin = currentDelayMin;
         if (estArrivalTime) leg.estArrivalTime = estArrivalTime;
         if (estDepartureTime) leg.estDepartureTime = estDepartureTime;
+        if (isDiversion) leg.isDiversion = true;
         legsMap.set(lk, leg);
         scheduleLegsSave();
     }
