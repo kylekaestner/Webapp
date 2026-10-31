@@ -3951,19 +3951,31 @@ app.get('/api/early-landings', (req, res) => {
     res.json({ callsigns: set ? [...set] : [] });
 });
 
+// All /api/debug/* endpoints below are admin-gated (2026-10-31) -- found open with no auth at
+// all while reviewing them for exactly this: anyone who found/guessed a URL could read live
+// nationwide aircraft tracking data, and the two POST endpoints let anyone inject fake
+// position/route data into a real pilot's live map. Same `_resolvePilotToken` + `callerKey!=='admin'`
+// pattern already used throughout this file (e.g. `GET /api/pilots`) -- see that endpoint's own
+// comment for the original unauthenticated-endpoint incident this mirrors.
+
 // TEMP — read-only inspector for the ever-airborne/parked origin-tracking state, used to debug
 // the same-day reused-callsign origin cross-check in /api/flight-status without guessing.
 app.get('/api/debug/origin-state/:callsign', (req, res) => {
-    const cs = req.params.callsign.toUpperCase().trim();
-    getDB().all(`SELECT * FROM flight_log WHERE callsign = ? ORDER BY day DESC`, [cs], (err, rows) => {
-        res.json({
-            everAirborne: _everAirborneCallsigns.has(cs),
-            everAirborneAt: _everAirborneAt[cs] || null,
-            everAirborneOrigin: _everAirborneOrigin[cs] || null,
-            parked: _parkedCallsigns.has(cs),
-            parkedAt: _parkedAt[cs] || null,
-            parkedOrigin: _parkedOrigin[cs] || null,
-            flightLogRows: err ? `ERROR: ${err.message}` : rows
+    const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        const cs = req.params.callsign.toUpperCase().trim();
+        db.all(`SELECT * FROM flight_log WHERE callsign = ? ORDER BY day DESC`, [cs], (err, rows) => {
+            res.json({
+                everAirborne: _everAirborneCallsigns.has(cs),
+                everAirborneAt: _everAirborneAt[cs] || null,
+                everAirborneOrigin: _everAirborneOrigin[cs] || null,
+                parked: _parkedCallsigns.has(cs),
+                parkedAt: _parkedAt[cs] || null,
+                parkedOrigin: _parkedOrigin[cs] || null,
+                flightLogRows: err ? `ERROR: ${err.message}` : rows
+            });
         });
     });
 });
@@ -3972,7 +3984,11 @@ app.get('/api/debug/origin-state/:callsign', (req, res) => {
 // assignment, flight phase, delay), independent of the position pipeline. Used to verify why a
 // specific STAR transition/runway body got picked (see navdata.js's pickBody()) without guessing.
 app.get('/api/debug/tfdm/:callsign', (req, res) => {
-    res.json(tfdm.getFlightInfo(req.params.callsign) || { found: false });
+    _resolvePilotToken(req.query.token, getDB(), (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        res.json(tfdm.getFlightInfo(req.params.callsign) || { found: false });
+    });
 });
 
 // TEMP — proof-of-concept inspector for the multi-leg-per-callsign fix (2026-10-30): every
@@ -3984,15 +4000,19 @@ app.get('/api/debug/tfdm/:callsign', (req, res) => {
 // each with its own real scheduled time, not one record clobbered by whichever leg's message
 // arrived last.
 app.get('/api/debug/netjets-legs/:callsign', (req, res) => {
-    const cs = req.params.callsign.toUpperCase().trim();
-    const norm = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
-    const legs = tfdm.getAllLegs(cs);
-    const legTimes = tfms.getAllLegTimes(cs);
-    const merged = legs.map(l => ({
-        ...l,
-        times: legTimes.find(lt => norm(lt.origin) === norm(l.origin) && norm(lt.dest) === norm(l.dest)) || null,
-    }));
-    res.json({ callsign: cs, legCount: merged.length, legs: merged, legTimesOnlyCount: legTimes.length, legTimes });
+    _resolvePilotToken(req.query.token, getDB(), (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        const cs = req.params.callsign.toUpperCase().trim();
+        const norm = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
+        const legs = tfdm.getAllLegs(cs);
+        const legTimes = tfms.getAllLegTimes(cs);
+        const merged = legs.map(l => ({
+            ...l,
+            times: legTimes.find(lt => norm(lt.origin) === norm(l.origin) && norm(lt.dest) === norm(l.dest)) || null,
+        }));
+        res.json({ callsign: cs, legCount: merged.length, legs: merged, legTimesOnlyCount: legTimes.length, legTimes });
+    });
 });
 
 // TEMP — read-only inspector for NetJets auto-leg-creation: on-duty/tour-tail resolution, the
@@ -4002,24 +4022,28 @@ app.get('/api/debug/netjets-legs/:callsign', (req, res) => {
 // endpoints above -- for verifying this against a real tour without guessing, not yet removed.
 app.get('/api/debug/netjets/:pilotKey', (req, res) => {
     const db = getDB();
-    const todayStr = new Date().toISOString().slice(0, 10);
-    _getOnDutyNetjetsPilots(db, todayStr, (onDuty) => {
-        const nj = onDuty.find(p => p.pilotKey === req.params.pilotKey);
-        if (!nj) return res.json({ onDuty: false });
-        db.all(
-            `SELECT id, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_key
-             FROM segments WHERE pilot_id=? AND auto_leg_key LIKE ? ORDER BY departure_time ASC`,
-            [nj.pilotId, `${nj.callsign}|${nj.tourStart}|%`],
-            (err, legs) => {
-                res.json({
-                    onDuty: true, tourStart: nj.tourStart, tail: nj.tail, callsign: nj.callsign, startAirport: nj.startAirport,
-                    legs: err ? [] : (legs || []),
-                    tfdmLegs: tfdm.getAllLegs(nj.callsign),
-                    tfmsLegTimes: tfms.getAllLegTimes(nj.callsign),
-                    liveCache: _liveCache[nj.callsign]?.data || null,
-                });
-            }
-        );
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        const todayStr = new Date().toISOString().slice(0, 10);
+        _getOnDutyNetjetsPilots(db, todayStr, (onDuty) => {
+            const nj = onDuty.find(p => p.pilotKey === req.params.pilotKey);
+            if (!nj) return res.json({ onDuty: false });
+            db.all(
+                `SELECT id, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_key
+                 FROM segments WHERE pilot_id=? AND auto_leg_key LIKE ? ORDER BY departure_time ASC`,
+                [nj.pilotId, `${nj.callsign}|${nj.tourStart}|%`],
+                (err, legs) => {
+                    res.json({
+                        onDuty: true, tourStart: nj.tourStart, tail: nj.tail, callsign: nj.callsign, startAirport: nj.startAirport,
+                        legs: err ? [] : (legs || []),
+                        tfdmLegs: tfdm.getAllLegs(nj.callsign),
+                        tfmsLegTimes: tfms.getAllLegTimes(nj.callsign),
+                        liveCache: _liveCache[nj.callsign]?.data || null,
+                    });
+                }
+            );
+        });
     });
 });
 
@@ -4027,16 +4051,24 @@ app.get('/api/debug/netjets/:pilotKey', (req, res) => {
 // 4-letter ICAO code (getAirportConfig() normalizes either). Used to verify real APTC data is
 // actually flowing/fresh for a given airport before trusting it as a pickBody() fallback.
 app.get('/api/debug/tfms-aptc/:code', (req, res) => {
-    res.json(tfms.getAirportConfig(req.params.code) || { found: false });
+    _resolvePilotToken(req.query.token, getDB(), (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        res.json(tfms.getAirportConfig(req.params.code) || { found: false });
+    });
 });
 
 // TEMP — manually seed route data for a live-tracked callsign, for map-rendering tests without
 // waiting on the live feed to happen to send a route-bearing message for that specific flight.
 app.post('/api/debug/seed-route', express.json(), (req, res) => {
-    const { callsign, route, origin, dest } = req.body || {};
-    if (!callsign || !route) return res.status(400).json({ error: 'callsign and route required' });
-    const ok = swim._testSeedRoute(callsign, route, origin, dest);
-    res.json({ ok });
+    _resolvePilotToken(req.body.token, getDB(), (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        const { callsign, route, origin, dest } = req.body || {};
+        if (!callsign || !route) return res.status(400).json({ error: 'callsign and route required' });
+        const ok = swim._testSeedRoute(callsign, route, origin, dest);
+        res.json({ ok });
+    });
 });
 
 // TEMP — fully synthetic test flight: creates position + route from scratch (no real live-tracked
@@ -4045,15 +4077,19 @@ app.post('/api/debug/seed-route', express.json(), (req, res) => {
 // ground/taxi position instead (speedKts/altFt/status) -- needed for a believable taxiing/just-
 // departed test flight, since SWIM-sourced positions always report onGround:false (see swim.js).
 app.post('/api/debug/seed-flight', express.json(), (req, res) => {
-    const { callsign, lat, lon, route, origin, dest, depRunway, arrRunway, source, speedKts, altFt, heading, status, airport } = req.body || {};
-    if (!callsign || lat == null || lon == null) return res.status(400).json({ error: 'callsign, lat, lon required' });
-    if (source === 'stdds') {
-        stdds._testSeedFlight(callsign, { lat, lon, speedKts, altFt, heading, status, airport });
-    } else {
-        swim._testSeedFlight(callsign, { lat, lon, route, origin, dest });
-    }
-    if (depRunway || arrRunway) tfdm._testSeedRunway(callsign, { depRunway, arrRunway });
-    res.json({ ok: true });
+    _resolvePilotToken(req.body.token, getDB(), (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        const { callsign, lat, lon, route, origin, dest, depRunway, arrRunway, source, speedKts, altFt, heading, status: pstatus, airport } = req.body || {};
+        if (!callsign || lat == null || lon == null) return res.status(400).json({ error: 'callsign, lat, lon required' });
+        if (source === 'stdds') {
+            stdds._testSeedFlight(callsign, { lat, lon, speedKts, altFt, heading, status: pstatus, airport });
+        } else {
+            swim._testSeedFlight(callsign, { lat, lon, route, origin, dest });
+        }
+        if (depRunway || arrRunway) tfdm._testSeedRunway(callsign, { depRunway, arrRunway });
+        res.json({ ok: true });
+    });
 });
 
 // Lets the day map confirm which flights already parked server-side, so a page load mid-grace-window
@@ -4528,7 +4564,19 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             const finalArrTime = arrTime || row.arrival_time;
             if (finalDepTime && finalArrTime) {
                 const block = Math.round((new Date(finalArrTime) - new Date(finalDepTime)) / 60000);
-                if (isFinite(block) && block > 0) { updates.push('block_minutes=?'); params.push(block); }
+                if (isFinite(block) && block > 0) {
+                    updates.push('block_minutes=?'); params.push(block);
+                } else if (row.arrival_time || row.block_minutes != null) {
+                    // finalArrTime is at or before finalDepTime -- physically impossible.
+                    // Confirmed live 2026-10-30: a leg-blind pre-rewrite write left a stale
+                    // arrival_time sitting on a row; once departure_time self-corrected to a
+                    // real, later value on the next poll, nothing cleared the now-inconsistent
+                    // arrival_time since there was no fresh replacement for it yet, leaving an
+                    // "arrives before it departs" segment visible until this ran. Clear both
+                    // rather than show that -- correct values will repopulate once a real,
+                    // consistent estimate arrives.
+                    updates.push('arrival_time=NULL', 'block_minutes=NULL');
+                }
             }
             if (landed && !row.auto_leg_complete) updates.push('auto_leg_complete=1');
             if (updates.length) {
