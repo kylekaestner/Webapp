@@ -2778,14 +2778,44 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
         db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
             if (err) return res.status(500).json({ error: err.message });
             if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
-            // COALESCE(excluded.start_airport, start_airport) -- a re-save that only touches the
-            // tail field (e.g. a mid-tour swap) shouldn't blank out an already-saved start airport.
-            db.run(`INSERT INTO pilot_tour_tail (pilot_id, tour_start_date, tail, start_airport) VALUES (?, ?, ?, ?)
-                    ON CONFLICT(pilot_id, tour_start_date) DO UPDATE SET tail=excluded.tail, start_airport=COALESCE(excluded.start_airport, start_airport)`,
-                [pilotRow.id, tourStartDate, cleanTail, cleanStartAirport], function(err2) {
-                    if (err2) return res.status(500).json({ error: err2.message });
-                    res.json({ success: true });
+            db.get('SELECT tail FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?', [pilotRow.id, tourStartDate], (err1a, priorRow) => {
+                if (err1a) return res.status(500).json({ error: err1a.message });
+                // Mid-tour tail swap (raised directly: "there also should be able to tail swap it
+                // too") -- a real, known gap before this fix: switching the saved tail mid-tour
+                // changes which callsign _getOnDutyNetjetsPilots() derives going forward, but
+                // whatever was still OPEN under the OLD callsign was simply abandoned -- never
+                // marked complete, never touched again, sitting there forever (confirmed live
+                // twice this session with Mack's own test tail changes, each requiring a manual
+                // SQL cleanup). Finalize it here instead, the moment a genuine tail CHANGE is
+                // detected (not a same-tail re-save, which just refreshes start_airport).
+                const oldTail = (priorRow?.tail || '').toUpperCase().trim();
+                const isSwap = oldTail && oldTail !== cleanTail;
+                const finalizeOldLeg = (cb) => {
+                    if (!isSwap) return cb();
+                    const oldCallsign = ejaFlightNumber(oldTail);
+                    if (!oldCallsign) return cb();
+                    db.run(
+                        `UPDATE segments SET auto_leg_complete=1 WHERE pilot_id=? AND auto_leg_key LIKE ? AND auto_leg_complete=0`,
+                        [pilotRow.id, `${oldCallsign}|${tourStartDate}|%`],
+                        () => cb()
+                    );
+                };
+                finalizeOldLeg(() => {
+                    // COALESCE(excluded.start_airport, start_airport) normally keeps a re-save that
+                    // only touches the tail field from blanking an already-saved start airport --
+                    // but a genuine swap needs the OPPOSITE: the new tail's start_airport means
+                    // "wherever this NEW aircraft is being met," not Day 1's original airport, so a
+                    // swap always takes whatever start_airport the client supplies (even if blank,
+                    // clearing the stale Day-1 value rather than silently keeping it).
+                    const startAirportSql = isSwap ? 'start_airport=excluded.start_airport' : 'start_airport=COALESCE(excluded.start_airport, start_airport)';
+                    db.run(`INSERT INTO pilot_tour_tail (pilot_id, tour_start_date, tail, start_airport) VALUES (?, ?, ?, ?)
+                            ON CONFLICT(pilot_id, tour_start_date) DO UPDATE SET tail=excluded.tail, ${startAirportSql}`,
+                        [pilotRow.id, tourStartDate, cleanTail, cleanStartAirport], function(err2) {
+                            if (err2) return res.status(500).json({ error: err2.message });
+                            res.json({ success: true, swapped: isSwap });
+                        });
                 });
+            });
         });
     });
 });
@@ -4770,7 +4800,7 @@ function checkNetjetsTourReminders() {
                     db.run(`INSERT OR IGNORE INTO pilot_tour_reminder_sent (pilot_id, tour_start_date) VALUES (?, ?)`, [p.id, tourStart], function(err4) {
                         if (err4 || this.changes === 0) return; // already sent for this tour
                         _notifyPilot(db, p.pilot_key, 'Tour starts tomorrow',
-                            "Add your tail # and starting airport in My Info before you depart — a leg flown before it's saved can't be recovered. Also log any deadhead/commute to get to the aircraft.",
+                            "Add your tail # and starting airport before you depart — a leg flown before it's saved can't be recovered. Also log any deadhead/commute to get to the aircraft.",
                             '/app');
                     });
                 });

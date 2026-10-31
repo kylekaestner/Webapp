@@ -1785,12 +1785,41 @@
     <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
     <div class="relative w-full max-w-xs bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
         <div class="px-6 pt-6 pb-5 space-y-2">
-            <p class="text-sm font-black uppercase tracking-wide text-white">Tour Starts Today</p>
+            <p id="netjets-tail-reminder-title" class="text-sm font-black uppercase tracking-wide text-white">Tour Starts Soon</p>
             <p class="text-xs text-zinc-400 leading-relaxed">Add your tail # and starting airport before you depart — a leg flown before it's saved can't be recovered after the fact. Also worth logging any deadhead/commute to get to the aircraft.</p>
         </div>
         <div class="flex border-t border-zinc-800">
             <button onclick="dismissNetjetsTailReminder()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Not Now</button>
             <button onclick="_openMyInfoFromNetjetsReminder()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30 transition-colors">Add Tail #</button>
+        </div>
+    </div>
+</div>
+
+<!-- NetJets Tour Tail Modal -- dedicated, scoped to ONE tour (not routed through My Info) --
+     opened from the day-detail sheet's "Edit Tour" button on any on-duty day, or from the
+     reminder popup below. -->
+<div id="netjets-tour-modal" class="hidden fixed inset-0 z-[1010] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)dismissNetjetsTourModal()">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-xs bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+        <div class="px-6 pt-6 pb-5 space-y-3">
+            <div>
+                <p class="text-sm font-black uppercase tracking-wide text-white">Tour Tail</p>
+                <p id="netjets-tour-modal-range" class="text-xs text-zinc-500 mt-0.5"></p>
+            </div>
+            <p class="text-xs text-zinc-400 leading-relaxed">Tail # and starting airport for this tour — "wherever you're meeting the aircraft on Day 1." A leg flown before this is saved can't be recovered after the fact.</p>
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Tail # (e.g. 742)</label>
+                <input id="netjets-tour-modal-tail" type="text" inputmode="numeric" maxlength="3" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white" placeholder="742">
+            </div>
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Starting Airport</label>
+                <input id="netjets-tour-modal-start-airport" type="text" maxlength="4" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white uppercase" placeholder="SGR">
+            </div>
+            <p id="netjets-tour-modal-status" class="text-xs text-zinc-500 h-4"></p>
+        </div>
+        <div class="flex border-t border-zinc-800">
+            <button onclick="dismissNetjetsTourModal()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Close</button>
+            <button onclick="saveNetjetsTourTail()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30 transition-colors">Save</button>
         </div>
     </div>
 </div>
@@ -3334,25 +3363,42 @@
         // a leg flown before the tail is saved can't be recovered after the fact, SWIM has no
         // backlog to replay), this is the client-side companion for whenever they actually open
         // the app that day.
+        // Fires the evening before Day 1 too, not just Day 1 itself -- confirmed directly as the
+        // preferred timing (matches the server's own night-before push notification exactly,
+        // rather than spreading the nudge across several days before a tour the pilot may not be
+        // thinking about yet). Still also fires ON Day 1 as a second chance if the evening-before
+        // nudge was dismissed or missed. Routes straight to the dedicated tour modal now, not My
+        // Info (raised directly: "going into the my info each tour isn't the best way to do it").
         function _maybeShowNetjetsTailReminder(pilotKey, data) {
             if (data?.parser_type !== 'manual_netjets') return;
             const todayStr = _todayLocalDateStr();
-            const tourStart = _tourStartDateFor(pilotKey, todayStr);
+            const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,'0')}-${String(tomorrow.getDate()).padStart(2,'0')}`;
+            const tourStartToday = _tourStartDateFor(pilotKey, todayStr);
+            const tourStartTomorrow = _tourStartDateFor(pilotKey, tomorrowStr);
+            // Prefer the evening-before case (tomorrow IS a tour's day 1) over today-is-day-1,
+            // since that's the one actually relevant to "tonight" if both somehow matched.
+            const tourStart = (tourStartTomorrow === tomorrowStr) ? tourStartTomorrow
+                : (tourStartToday === todayStr) ? tourStartToday : null;
             if (!tourStart) return;
-            if (todayStr !== tourStart) return; // Day 1 only -- matches the server's night-before push, which also only ever fires once per tour
             if (_tourTailFor(pilotKey, tourStart)) return;
             const dedupKey = `cs_netjets_tail_nudge_${pilotKey}_${tourStart}_${todayStr}`;
             try { if (localStorage.getItem(dedupKey)) return; } catch (_) {}
+            _netjetsReminderTourStart = tourStart;
+            const titleEl = document.getElementById('netjets-tail-reminder-title');
+            if (titleEl) titleEl.textContent = (tourStart === todayStr) ? 'Tour Starts Today' : 'Tour Starts Tomorrow';
             const modal = document.getElementById('netjets-tail-reminder-modal');
             if (modal) modal.classList.remove('hidden');
             try { localStorage.setItem(dedupKey, '1'); } catch (_) {}
         }
+        let _netjetsReminderTourStart = null;
         function dismissNetjetsTailReminder() {
             document.getElementById('netjets-tail-reminder-modal')?.classList.add('hidden');
         }
         function _openMyInfoFromNetjetsReminder() {
             dismissNetjetsTailReminder();
-            openEditMyInfoModal();
+            if (_netjetsReminderTourStart) openNetjetsTourModal(_netjetsReminderTourStart);
+            else openEditMyInfoModal(); // fallback, shouldn't normally happen
         }
 
         // NetJets-style manual tracking (parser_type 'manual_netjets', no feed exists). History-
@@ -9173,10 +9219,20 @@
             else if (awayApt) { label = `AWAY - ${awayApt}`; labelColor = 'text-yellow-400'; }
             else if (reserves.length > 0) { label = 'ON CALL'; labelColor = 'text-amber-400'; }
 
+            // "Edit Tour" entry point -- raised directly: "going into the my info each tour isn't
+            // the best way to do it," wanting to click into the tour itself instead. Self-service
+            // only (own schedule), and only on an actual NetJets tour day, not Kyle's reserve
+            // "ON CALL" system which shares the same _pilotOnDutyDefault() plumbing.
+            const _tourEditBtn = (currentPilot === myPilot && _pilotOnDutyDefault(currentPilot, dateKey) && _onDutyDefaultLabel(currentPilot) === 'ON TOUR')
+                ? (() => {
+                    const ts = _tourStartDateFor(currentPilot, dateKey);
+                    return ts ? `<button onclick="openNetjetsTourModal('${ts}')" class="text-[9px] font-black uppercase tracking-widest text-indigo-400 border border-indigo-900 rounded-full px-2.5 py-1 mt-1.5 hover:bg-indigo-950/40 transition-colors">✈️ Edit Tour</button>` : '';
+                })() : '';
             let html = `<div class="flex items-start justify-between mb-4">
                 <div>
                     <div class="text-[10px] font-black uppercase tracking-widest ${labelColor}">${label}</div>
                     <div class="text-lg font-black text-white mt-0.5">${dateLabel}</div>
+                    ${_tourEditBtn}
                 </div>
                 <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden')" class="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 text-sm shrink-0">✕</button>
             </div>`;
@@ -11042,6 +11098,61 @@ async function openAdminPanel(tab = 'users') {
                 pilotsCache[myPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || prior?.start_airport || null }];
                 tailStatus.textContent = 'Saved.';
             } catch { tailStatus.textContent = 'Save failed — try again.'; }
+        }
+
+        // Dedicated per-tour modal -- NOT routed through My Info (raised directly: "going into the
+        // my info each tour isn't the best way to do it"). Opened from the day-detail sheet's
+        // "Edit Tour" button on any on-duty NetJets day, or from the reminder popup. Also supports
+        // a genuine mid-tour tail SWAP (raised directly: "there also should be able to tail swap it
+        // too") -- re-opening this for an already-tailed tour and saving a DIFFERENT tail is exactly
+        // that; the server detects the change and finalizes whatever was still open under the old
+        // callsign (see PUT /tour-tail's own comment) instead of silently abandoning it, a real gap
+        // confirmed live twice this session before this existed.
+        let _netjetsTourModalDate = null;
+        function openNetjetsTourModal(tourStartDate) {
+            if (!tourStartDate || !myPilot) return;
+            _netjetsTourModalDate = tourStartDate;
+            const rotation = _resolveRotationAt(pilotsCache[myPilot]?.rotation_history, tourStartDate);
+            let rangeTxt = `Day 1: ${tourStartDate}`;
+            if (rotation?.days_on) {
+                const start = new Date(tourStartDate + 'T12:00:00');
+                const end = new Date(start.getTime() + (rotation.days_on - 1) * 86400000);
+                const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                rangeTxt = `${fmt(start)} – ${fmt(end)} (${rotation.days_on} day${rotation.days_on === 1 ? '' : 's'})`;
+            }
+            document.getElementById('netjets-tour-modal-range').textContent = rangeTxt;
+            document.getElementById('netjets-tour-modal-tail').value = _tourTailFor(myPilot, tourStartDate) || '';
+            document.getElementById('netjets-tour-modal-start-airport').value = _tourStartAirportFor(myPilot, tourStartDate) || '';
+            document.getElementById('netjets-tour-modal-status').textContent = '';
+            document.getElementById('netjets-tour-modal').classList.remove('hidden');
+        }
+        function dismissNetjetsTourModal() {
+            document.getElementById('netjets-tour-modal')?.classList.add('hidden');
+            _netjetsTourModalDate = null;
+        }
+        async function saveNetjetsTourTail() {
+            const tourStart = _netjetsTourModalDate;
+            const statusEl = document.getElementById('netjets-tour-modal-status');
+            const tail = document.getElementById('netjets-tour-modal-tail').value.trim();
+            const startAirport = document.getElementById('netjets-tour-modal-start-airport').value.trim();
+            if (!tourStart) { statusEl.textContent = 'No tour selected.'; return; }
+            if (!tail) { statusEl.textContent = 'Enter the number off your tail first.'; return; }
+            const priorTail = _tourTailFor(myPilot, tourStart);
+            const isSwap = priorTail && priorTail.toUpperCase() !== tail.toUpperCase();
+            statusEl.textContent = 'Saving…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}/tour-tail`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, tourStartDate: tourStart, tail, startAirport })
+                });
+                if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
+                if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
+                const existing = (pilotsCache[myPilot].tour_tails || []).filter(t => t.tour_start_date !== tourStart);
+                pilotsCache[myPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || null }];
+                statusEl.textContent = isSwap ? 'Tail swapped — tracking switches to the new tail now.' : 'Saved.';
+                _refreshMyInfoNetjetsStatus();
+            } catch { statusEl.textContent = 'Save failed — try again.'; }
         }
 
         let _myInfoOriginalBase = '';
