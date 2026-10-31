@@ -462,7 +462,26 @@ function processLegTimes(msgObj, cs, origin, dest, candidateMs) {
     leg.lastMsg = Date.now();
     legsMap.set(key, leg);
     scheduleTimesSave();
+
+    // TEMPORARY research-only (added 2026-10-31, remove once the NetJets ETD-drift question is
+    // answered): tracks the FIRST estimated departure ever seen for this leg, purely so a later
+    // analysis can measure how far an estimate moves over a leg's lifetime. Raised directly:
+    // "delays may not happen with EJA flights as their departure time may just keep pushing
+    // further" -- confirmed partially true on EJA742's own SGR->DAL leg, whose TFDM
+    // departureDelayMin was never populated at all despite its own estimate visibly sliding
+    // ~30 minutes. This measures drift independently of whether TFDM ever flags a delay. Never
+    // read by any production code path -- logging only, in-memory, not persisted across a
+    // restart (an acceptable gap for a research-only measurement).
+    const bestEstimate = times.etd || times.igtd || null;
+    if (bestEstimate) {
+        const dkey = `${cs}|${key}`;
+        const bestMs = new Date(bestEstimate).getTime();
+        if (!_driftFirstSeen[dkey]) _driftFirstSeen[dkey] = { value: bestEstimate, ms: bestMs };
+        const driftMin = Math.round((bestMs - _driftFirstSeen[dkey].ms) / 60000);
+        _netjetsResearchLog('TFMS-drift', cs, `${key} firstSeen=${_driftFirstSeen[dkey].value} current=${bestEstimate} driftMin=${driftMin}`);
+    }
 }
+const _driftFirstSeen = {}; // "cs|origin>dest" -> { value: ISO string, ms: number } -- see processLegTimes() above
 
 // All currently-known distinct legs' times for a callsign, sorted by scheduled departure
 // ascending -- the per-leg counterpart to getFlightTimes() below.
