@@ -6107,6 +6107,23 @@
             return null;
         }
 
+        // A NetJets pilot enters just the tail digits ("742") for convenience when saving a
+        // tour's tail (same reasoning as the bare EJA callsign derivation above) -- but every
+        // real NetJets tail is N + those digits + QS (confirmed: N14QS, N163QS, N22QS, N458QS),
+        // so the full, correct tail is always deterministically reconstructible from the digits
+        // alone. Display-only: never changes what's stored (segments.tail/pilot_tour_tail.tail
+        // stay bare digits, which is also what deriveCallsign()'s EJA branch above needs), just
+        // formats it everywhere a tail number is actually shown to a reader.
+        function displayTail(tail, pilotKey) {
+            if (!tail) return '';
+            const carrier = pilotsCache[pilotKey]?.airline_code || '';
+            if (carrier === 'EJA') {
+                const digits = String(tail).replace(/\D/g, '');
+                return digits ? `N${digits}QS` : tail;
+            }
+            return tail;
+        }
+
         // A same-day round trip can reuse one real callsign both directions (confirmed live:
         // Delta's DL2417, ATL-MDW then MDW-ATL, same tail). If this pilot has another flight
         // segment today sharing this exact callsign with a LATER scheduled departure that has
@@ -7719,7 +7736,7 @@
                     : '';
                 const dayPopup = `
                     <div style="font-weight:900;font-size:13px;color:#f8fafc;line-height:1.2;white-space:nowrap">${f.departureAirport} → ${f.arrivalAirport}<span style="font-size:10px;font-weight:700;margin-left:6px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</span></div>
-                    <div style="font-size:10px;color:#94a3b8;margin-top:2px">${formatTimeISO(f.departureTime, f.departureAirport)} <span style="opacity:.5">${tzAbbr(f.departureAirport, f.departureTime)}</span> – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${f.tail}</span>` : ''}</div>
+                    <div style="font-size:10px;color:#94a3b8;margin-top:2px">${formatTimeISO(f.departureTime, f.departureAirport)} <span style="opacity:.5">${tzAbbr(f.departureAirport, f.departureTime)}</span> – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${displayTail(f.tail, f.pilotKey)}</span>` : ''}</div>
                     ${_statusLine}
                 `;
                 dayHits.forEach(h => { h.bindPopup(dayPopup, { className: 'dark-popup day-popup', maxWidth: 230 }); h.addTo(map); });
@@ -8469,7 +8486,7 @@
                         }
                         const depAttr = f.departureTime || '';
                         const arrAttr = f.arrivalTime || '';
-                        const tailAttr = f.tail || '';
+                        const tailAttr = displayTail(f.tail, currentPilot) || '';
                         const tripAttr = f.trip || '';
                         const flightNumAttr = f.flightNumber || '';
                         const depApt = f.departureAirport || '';
@@ -8773,7 +8790,7 @@
                                 const f = leg;
                                 const depAttr = f.departureTime || '';
                                 const arrAttr = f.arrivalTime || '';
-                                const tailAttr = f.tail || '';
+                                const tailAttr = displayTail(f.tail, currentPilot) || '';
                                 const tripAttr = f.trip || '';
                                 const depApt = f.departureAirport || '';
                                 const arrApt = f.arrivalAirport || '';
@@ -9283,7 +9300,7 @@
                     </div>
                     ${hasStub ? `<div class="bp-stub">
                         ${_dayFlLabel || f.flightNumber ? `<div class="bp-stub-field"><div class="bp-stub-label">Flight</div><div class="bp-stub-value">${_dayFlLabel ? flightAwareLink(_dayFlLabel, _dayFlLabel, flightAwareEligible(dMs)) : f.flightNumber}</div></div>` : ''}
-                        ${f.tail ? `<div class="bp-stub-field"><div class="bp-stub-label">Tail</div><div class="bp-stub-value">${f.tail}</div></div>` : ''}
+                        ${f.tail ? `<div class="bp-stub-field"><div class="bp-stub-label">Tail</div><div class="bp-stub-value">${displayTail(f.tail, currentPilot)}</div></div>` : ''}
                         ${groundBadgeTxt ? `<div class="bp-stub-field"><div class="bp-stub-label">Layover</div><div class="bp-stub-value" style="color:#fbbf24">${groundBadgeTxt}</div></div>` : ''}
                         ${isCompletedLeg ? `<span class="text-[13px] font-black text-emerald-400 ml-auto" title="Completed">✓</span>` : ''}
                     </div>` : ''}
