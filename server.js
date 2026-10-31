@@ -4573,11 +4573,19 @@ const _NETJETS_RESEARCH_CALLSIGNS = ['EJA303'];
 // enough that two genuinely different legs on the same origin/dest (a same-day round trip) can't
 // collide.
 const NETJETS_LEG_MATCH_TOLERANCE_MS = 6 * 60 * 60 * 1000;
-function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs) {
+function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs, isDiversion) {
     let best = null, bestDiff = Infinity;
     for (const row of existingRows) {
         if (row.departure_airport !== origin) continue;
-        if (dest && row.arrival_airport && row.arrival_airport !== dest) continue; // both sides know dest and disagree -- not the same leg
+        // The dest-conflict check below exists to avoid merging two genuinely unrelated legs that
+        // happen to share an origin -- but that's the wrong call once TFDM itself has flagged THIS
+        // leg as a diversion (tfdm.js's isDiversion, diversionRecoveryIndicator): it's still the
+        // same physical departure, just re-routed mid-flight, so a changed destination shouldn't
+        // spin off a duplicate segment. Only relax the check against a row that isn't already
+        // finalized -- a completed, non-diverted leg from the past shouldn't get reopened by an
+        // unrelated new departure that happens to share an origin.
+        if (isDiversion && row.auto_leg_complete) continue;
+        if (!isDiversion && dest && row.arrival_airport && row.arrival_airport !== dest) continue; // both sides know dest and disagree -- not the same leg
         const rowMs = row.departure_time ? new Date(row.departure_time).getTime() : null;
         if (rowMs == null) continue;
         const diff = Math.abs(rowMs - depTimeMs);
@@ -4677,7 +4685,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                 if (lastPos && lastPos.lat != null && lastPos.lon != null) finalDest = _findNearestAirportCode(lastPos.lat, lastPos.lon);
             }
 
-            const row = _findExistingNetjetsLeg(existingRows, origin, dest, new Date(depTime).getTime());
+            const row = _findExistingNetjetsLeg(existingRows, origin, dest, new Date(depTime).getTime(), !!leg.isDiversion);
 
             if (!row) {
                 // New leg -- created outright, future or not. Unlike the old reactive design,
