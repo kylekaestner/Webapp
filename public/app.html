@@ -6387,6 +6387,31 @@
                                     render();
                                     return;
                                 }
+                                // Second-tier fallback, same rule _legState() already uses on the map
+                                // ("flown && nowMs >= effA -> completed") -- airlineOnTime above is
+                                // real but airline-specific OOOI reporting, which a non-airline
+                                // operator (NetJets) essentially never populates at all, so that check
+                                // alone left this poller with no way to ever resolve to "completed"
+                                // for a NetJets leg once parked-detection also missed it (confirmed
+                                // live: Mack's EJA742 showed the map correctly as "✓ COMPLETED" via
+                                // this exact rule, while the grid stayed stuck on "DEPARTURE DUE"
+                                // because this poller only ever checked airlineOnTime). statusData's
+                                // own `airborne` array is the server's everAirborne evidence (same
+                                // fact _legState's "flown" variable reads) -- once a leg was genuinely
+                                // seen airborne and we're now past its own known/estimated arrival
+                                // with nothing newer confirming it's still going, it must have landed.
+                                const everAirborne = statusData?.airborne?.includes(cs);
+                                const estEtaMs = statusData?.times?.[cs]?.eta ? new Date(statusData.times[cs].eta).getTime() : 0;
+                                const effArrMs = Math.max(arrMs || 0, estEtaMs);
+                                if (everAirborne && effArrMs && Date.now() >= effArrMs && !_confirmedParked.has(cs)) {
+                                    _confirmedParked.add(cs);
+                                    _confirmedDelayed.delete(delayedKey);
+                                    _confirmedDue.delete(delayedKey);
+                                    clearInterval(_calListPollers[cs]);
+                                    delete _calListPollers[cs];
+                                    render();
+                                    return;
+                                }
                                 const etdIso = statusData?.times?.[cs]?.etd;
                                 if (etdIso && (new Date(etdIso).getTime() - depMs) / 60000 >= 10) notFoundDelayEtd = etdIso;
                             } catch (_) {}
