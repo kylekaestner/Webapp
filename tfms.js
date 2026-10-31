@@ -487,6 +487,49 @@ function _extractTimeFields(msgObj) {
             if (v) times[attr] = v;
         }
     }
+
+    // Everything below is NEW (added 2026-10-31, confirmed against real captured
+    // scratch/tfms-fltd-samples/) and deliberately additive-only -- these keys are never added to
+    // getFlightTimes()'s explicit return allowlist, so every pilot already relying on the flat
+    // cache (the general SWIM-based pipeline that already works correctly) sees zero behavior
+    // change. They DO flow through getAllLegTimes() (no allowlist there), which is read only by
+    // NetJets-specific code -- exactly where these are actually useful (schedule creation, not
+    // live tracking display).
+    //
+    // etd/eta each carry a type attribute ("ACTUAL" vs "ESTIMATED") this app previously
+    // discarded -- knowing which it is matters for NetJets specifically, where "the departure
+    // time" is often just the latest estimate, not a real commitment.
+    const etdNode = findDeep(msgObj, 'etd');
+    const etaNode = findDeep(msgObj, 'eta');
+    const etdType = etdNode ? findAttr(etdNode, 'etdType') : undefined;
+    const etaType = etaNode ? findAttr(etaNode, 'etaType') : undefined;
+    if (etdType) times.etdType = etdType;
+    if (etaType) times.etaType = etaType;
+    // TFMS's own diversion flag (nxcm:diversionIndicator, confirmed real value "NO_DIVERSION" --
+    // implying a non-"NO_DIVERSION" value exists for an actual diversion), independent of
+    // tfdm.js's diversionRecoveryIndicator -- a second, cross-checkable source.
+    const diversionIndicator = textOf(findDeep(msgObj, 'diversionIndicator'));
+    if (diversionIndicator) times.diversionIndicator = diversionIndicator;
+    // arrivalInformation messages carry a dedicated time-of-arrival field with an explicit
+    // estimated="true|false" flag -- distinct from the generic eta above, and tells you directly
+    // whether this specific value is confirmed or still a guess.
+    const toaNode = findDeep(msgObj, 'timeOfArrival');
+    if (toaNode) {
+        const toa = iso(toaNode);
+        if (toa) {
+            times.timeOfArrival = toa;
+            times.timeOfArrivalEstimated = findAttr(toaNode, 'estimated') === 'true';
+        }
+    }
+    // GUFI (Globally Unique Flight Identifier) -- a real FIXM-standard identifier for one
+    // specific physical flight instance, not a recurring callsign/flight number. Confirmed
+    // stable across 6 repeated messages for the same real flight (ASH4013) in one capture batch.
+    // Stored here, not yet used to change any matching logic -- a real candidate for eventually
+    // replacing the fuzzy origin/dest/time-tolerance leg-matching this app currently relies on
+    // for NetJets, but that's a deliberate follow-on decision, not bundled into this parsing pass.
+    const gufi = qid ? textOf(findDeep(qid, 'gufi')) : undefined;
+    if (gufi) times.gufi = gufi;
+
     return times;
 }
 

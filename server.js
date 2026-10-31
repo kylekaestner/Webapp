@@ -4994,13 +4994,17 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
                 const isPast = dep && dep.getTime() < nowMs;
                 const stateColor = /EN_ROUTE|DEPARTED|ON_FINAL|TAXI/.test(l.flightState || '') ? '#4ade80'
                     : isPast ? '#71717a' : '#60a5fa';
+                // Confidence tags, confirmed real in scratch/tfms-fltd-samples/ (2026-10-31 audit)
+                // -- etdType/etaType ("ACTUAL" vs "ESTIMATED") were previously discarded entirely.
+                const confTag = (type) => type === 'ACTUAL' ? ' <span style="color:#4ade80;font-size:10px">(actual)</span>' : type ? ` <span style="color:#71717a;font-size:10px">(${type.toLowerCase()})</span>` : '';
+                const tfmsDiversion = l.times?.diversionIndicator && l.times.diversionIndicator !== 'NO_DIVERSION';
                 return `<tr style="border-bottom:1px solid #27272a">
-                    <td style="padding:10px 12px;font-weight:700">${l.origin || '?'} → ${l.dest || '?'}</td>
+                    <td style="padding:10px 12px;font-weight:700">${l.origin || '?'} → ${l.dest || '?'}${l.times?.gufi ? `<div style="font-size:9px;color:#3f3f46;font-weight:400">${l.times.gufi}</div>` : ''}</td>
                     <td style="padding:10px 12px;color:#a1a1aa">${dep ? dep.toISOString().slice(0,16).replace('T',' ') + 'Z' : '—'}</td>
-                    <td style="padding:10px 12px;color:${stateColor};font-weight:700">${l.flightState || '—'}${l.isDiversion ? ' <span style="color:#f87171">⚠ DIVERSION</span>' : ''}</td>
+                    <td style="padding:10px 12px;color:${stateColor};font-weight:700">${l.flightState || '—'}${(l.isDiversion || tfmsDiversion) ? ' <span style="color:#f87171">⚠ DIVERSION</span>' : ''}</td>
                     <td style="padding:10px 12px;color:#a1a1aa">${l.departureDelayMin != null ? l.departureDelayMin + 'm' : '—'}</td>
-                    <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' : '—'}</td>
-                    <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' : etaFallback ? `${new Date(etaFallback).toISOString().slice(11,16)}Z <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
+                    <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etdType) : '—'}</td>
+                    <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etaType) : etaFallback ? `${new Date(etaFallback).toISOString().slice(11,16)}Z <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
                     <td style="padding:10px 12px;color:#52525b;font-size:11px">${isPast ? 'past' : 'upcoming'}</td>
                 </tr>`;
             }).join('');
