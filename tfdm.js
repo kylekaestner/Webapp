@@ -43,7 +43,6 @@ const TFDM_ENABLED = !!(TFDM_HOST && TFDM_VPN && TFDM_USER && TFDM_PASS && TFDM_
 const DUMP_DIR = path.join(__dirname, 'scratch', 'tfdm-samples');
 let _dumpCount = 0;
 const DUMP_CAP = 25;
-let _debugSingleCaptured = false; // see handleMessage()'s one-off EJA815 capture
 function dumpSample(xmlText) {
     if (_dumpCount >= DUMP_CAP) return;
     try {
@@ -378,12 +377,6 @@ function handleMessage(xmlText) {
     }
 
     dumpSample(xmlText);
-    // TEMPORARY -- one-off capture for a specific callsign on request, since the general
-    // dumpSample() cap (25) was reached long before EJA815 was ever relevant. Remove once no
-    // longer needed.
-    if (xmlText.includes('EJA815') && !_debugSingleCaptured) {
-        try { fs.writeFileSync(path.join(__dirname, '.eja815_debug.xml'), xmlText); _debugSingleCaptured = true; } catch (_) {}
-    }
 
     let parsed;
     try {
