@@ -1815,6 +1815,7 @@
                 <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Starting Airport</label>
                 <input id="netjets-tour-modal-start-airport" type="text" maxlength="4" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white uppercase" placeholder="SGR">
             </div>
+            <button onclick="_openCommuteForTour()" class="w-full text-left text-[11px] font-bold text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1.5">📋 Log the commute/deadhead to get there</button>
             <p id="netjets-tour-modal-status" class="text-xs text-zinc-500 h-4"></p>
         </div>
         <div class="flex border-t border-zinc-800">
@@ -11153,6 +11154,20 @@ async function openAdminPanel(tab = 'users') {
                 statusEl.textContent = isSwap ? 'Tail swapped — tracking switches to the new tail now.' : 'Saved.';
                 _refreshMyInfoNetjetsStatus();
             } catch { statusEl.textContent = 'Save failed — try again.'; }
+        }
+
+        // Raised directly: "they could technically DH to a new airport to get to the new
+        // aircraft" -- a tail swap (or Day 1 itself) commonly means a commercial deadhead the
+        // tail-based tracking can never see on its own (known, documented gap). Shortcut straight
+        // from the tour modal into the existing Add Flight / Commute type, pre-filling the
+        // arrival airport with whatever's currently in the Starting Airport field -- the pilot
+        // only has to supply where they're commuting FROM.
+        function _openCommuteForTour() {
+            const startAirport = document.getElementById('netjets-tour-modal-start-airport').value.trim().toUpperCase();
+            dismissNetjetsTourModal();
+            openAddFlight();
+            setAddFlightType('commute');
+            if (startAirport) document.getElementById('add-arr').value = startAirport;
         }
 
         let _myInfoOriginalBase = '';
