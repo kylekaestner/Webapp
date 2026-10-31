@@ -2116,10 +2116,20 @@
         // on later days. Reset it when the local date changes; the server re-confirms what's still parked.
         let _confirmedParkedDay = null;
         function isFlightStillActive(depMs, arrMs, nowMs, csig) {
-            if (!depMs || !arrMs) return false;
+            if (!depMs) return false;
             const _today = _localToday();
             if (_today !== _confirmedParkedDay) { _confirmedParked.clear(); _confirmedParkedDay = _today; }
             if (csig && _confirmedParked.has(csig)) return false;
+            // No known arrival estimate yet -- confirmed live 2026-10-31 on a real NetJets
+            // auto-created leg: the server deliberately clears a stale/inconsistent arrival_time
+            // to null rather than show "lands before it takes off" (see server.js's
+            // _pollNetjetsLegCreation() refine step), but that meant a flight genuinely airborne
+            // right now -- found:true on /api/live-position, real position data flowing -- never
+            // got treated as active at all, since the old `!arrMs` check rejected it outright
+            // before any live evidence was even consulted. Not knowing when it lands isn't the
+            // same fact as it being over; only a confirmed-parked flag (checked above) or a real
+            // arrival estimate (once one exists) should ever end the active window.
+            if (!arrMs) return depMs <= nowMs;
             return depMs <= nowMs && nowMs <= arrMs + LATE_ARRIVAL_GRACE_MS;
         }
         // callsign -> the specific marker/arc/hit-line layer objects currently on the map for it.
