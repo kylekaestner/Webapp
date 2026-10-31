@@ -242,6 +242,21 @@ function routeDest(routeStr) {
     return null;
 }
 
+// Fallback source of dep/arr airports for every TFMS message type messageRouteString() can't
+// resolve a route from at all. Confirmed real (2026-10-31 audit): depArpt/arrArpt are plain
+// attributes on the <fdm:fltdMessage> wrapper of essentially every message type -- FlightModify,
+// FlightRoute, FlightTimes, FlightSectors, FlightCreate, trackInformation, etc -- not just the
+// two route-bearing types (flightPlanInformation/flightPlanAmendmentInformation)
+// messageRouteString() checks. That's ~90% of real NetJets-relevant TFMS traffic that previously
+// never produced a leg at all, even though the airports were sitting right there on the message.
+// Scoped to the per-leg store only (both callers below are already inside _isResearchRelevant(cs)
+// blocks) -- never touches candidateOrigin/isExpectedOrigin, which gate every other pilot's real
+// tracked flight, so this can't affect the general pipeline.
+function attrAirport(msgObj, attrName) {
+    const v = findAttr(msgObj, attrName);
+    return v ? String(v).trim().toUpperCase().replace(/^K/, '') : null;
+}
+
 // server.js calls this separately from setRelevantCallsigns() (not folded into the same Map
 // shape) so tfdm.js -- which shares that function's code but has its own, already-adequate
 // per-message origin/dest reset logic -- doesn't need to change at all. map: callsign ->
@@ -418,10 +433,16 @@ function processOneFltdMessage(msgObj) {
     // tfdm.js's identical scoping on its own per-leg store -- every other pilot's tracked flight
     // has no reason to pay for this. See _legTimes's header comment.
     if (_isResearchRelevant(cs)) {
-        const ownDest = routeDest(messageRouteString(msgObj));
-        if (ownOrigin && ownDest) {
-            // THIS message's own route resolves both ends -- never guessed.
-            processLegTimes(msgObj, cs, ownOrigin, ownDest, candidateMs);
+        // Prefer the real route string's own ends; fall back to the message's depArpt/arrArpt
+        // attributes when messageRouteString() came back empty (see attrAirport()'s comment --
+        // this is what recovers a leg from a FlightSectors/FlightTimes/trackInformation/etc
+        // message that never carries a parseable route string at all).
+        const legOrigin = ownOrigin || attrAirport(msgObj, 'depArpt');
+        const legDest = routeDest(messageRouteString(msgObj)) || attrAirport(msgObj, 'arrArpt');
+        if (legOrigin && legDest) {
+            // THIS message's own route (or its depArpt/arrArpt attributes) resolves both ends --
+            // never guessed.
+            processLegTimes(msgObj, cs, legOrigin, legDest, candidateMs);
         } else if (candidateMs != null) {
             // Routeless times-only update (confirmed the common case live: most ongoing ETD/ETA
             // refinements for an already-established leg arrive this way -- only the first,
