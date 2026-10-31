@@ -4937,6 +4937,76 @@ app.get('/admin/download-db', (req, res) => {
     res.download(path.join(__dirname, 'dispatch.db'), 'dispatch.db');
 });
 
+// Exploration tool for the NetJets research data -- type a tail (bare digits, e.g. "742") and
+// see every leg currently captured for it: real TFDM per-leg data (origin/dest/offBlockTime/
+// phase/delay, fully disambiguated per message) merged with the matching TFMS leg-times entry
+// (ETD/ETA), sorted chronologically, current and future together. Nested under /crew-roster so
+// it inherits that page's existing cookie-based auth without any change to the login/cookie code
+// (rosterAuth's cookie is scoped to Path=/crew-roster). Read-only -- same posture as the
+// /api/debug/* endpoints this reuses, just a human-readable page instead of raw JSON.
+app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
+    const rawTail = (req.query.tail || '').trim();
+    const digits = rawTail.replace(/\D/g, '');
+    const cs = digits ? ejaFlightNumber(digits) : null;
+    const norm = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
+    const nowMs = Date.now();
+
+    let rowsHtml = '';
+    if (cs) {
+        const legs = tfdm.getAllLegs(cs);
+        const legTimes = tfms.getAllLegTimes(cs);
+        const merged = legs.map(l => ({
+            ...l,
+            times: legTimes.find(lt => norm(lt.origin) === norm(l.origin) && norm(lt.dest) === norm(l.dest)) || null,
+        })).sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
+
+        if (!merged.length) {
+            rowsHtml = `<tr><td colspan="7" style="padding:24px;text-align:center;color:#71717a">No legs captured yet for ${cs} (N${digits}QS) — either it's not currently active, or nothing's been seen for it in the last 48 hours.</td></tr>`;
+        } else {
+            rowsHtml = merged.map(l => {
+                const dep = l.offBlockTime ? new Date(l.offBlockTime) : null;
+                const etd = l.times?.etd || l.times?.igtd || null;
+                const eta = l.times?.eta || null;
+                const isPast = dep && dep.getTime() < nowMs;
+                const stateColor = /EN_ROUTE|DEPARTED|ON_FINAL|TAXI/.test(l.flightState || '') ? '#4ade80'
+                    : isPast ? '#71717a' : '#60a5fa';
+                return `<tr style="border-bottom:1px solid #27272a">
+                    <td style="padding:10px 12px;font-weight:700">${l.origin || '?'} → ${l.dest || '?'}</td>
+                    <td style="padding:10px 12px;color:#a1a1aa">${dep ? dep.toISOString().slice(0,16).replace('T',' ') + 'Z' : '—'}</td>
+                    <td style="padding:10px 12px;color:${stateColor};font-weight:700">${l.flightState || '—'}</td>
+                    <td style="padding:10px 12px;color:#a1a1aa">${l.departureDelayMin != null ? l.departureDelayMin + 'm' : '—'}</td>
+                    <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' : '—'}</td>
+                    <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' : '—'}</td>
+                    <td style="padding:10px 12px;color:#52525b;font-size:11px">${isPast ? 'past' : 'upcoming'}</td>
+                </tr>`;
+            }).join('');
+        }
+    }
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>NetJets Lookup</title>
+    <style>
+        body{background:#0a0a0b;color:#e4e4e7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:760px;margin:0 auto;padding:24px 16px}
+        h1{font-size:18px;margin-bottom:4px}
+        .sub{color:#71717a;font-size:13px;margin-bottom:20px}
+        form{display:flex;gap:8px;margin-bottom:24px}
+        input{background:#18181b;border:1px solid #3f3f46;color:#e4e4e7;padding:10px 12px;border-radius:8px;font-size:15px;flex:1}
+        button{background:#3b82f6;color:#fff;border:none;padding:10px 18px;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer}
+        table{width:100%;border-collapse:collapse;font-size:13px}
+        th{text-align:left;padding:8px 12px;color:#71717a;font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #3f3f46}
+    </style></head><body>
+    <h1>NetJets Tail Lookup</h1>
+    <div class="sub">Search a tail's digits to see every leg currently captured from live FAA data — current and future, sorted chronologically.</div>
+    <form method="GET">
+        <input type="text" name="tail" value="${rawTail.replace(/"/g,'')}" placeholder="e.g. 742" autofocus>
+        <button type="submit">Search</button>
+    </form>
+    ${cs ? `<div style="color:#71717a;font-size:13px;margin-bottom:12px">Callsign <b style="color:#e4e4e7">${cs}</b> · Tail <b style="color:#e4e4e7">N${digits}QS</b></div>
+    <table><thead><tr><th>Route</th><th>Scheduled (TFDM)</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th><th></th></tr></thead>
+    <tbody>${rowsHtml}</tbody></table>` : ''}
+    </body></html>`);
+});
+
 // Admin user list — password-protected HTML page
 app.get('/crew-roster', rosterAuth, (req, res) => {
     const db = getDB();
