@@ -48,6 +48,27 @@ const TFMS_QUEUE = process.env.TFMS_QUEUE;
 
 const TFMS_ENABLED = !!(TFMS_HOST && TFMS_VPN && TFMS_USER && TFMS_PASS && TFMS_QUEUE);
 
+// TEMPORARY (added 2026-10-31): raw per-flight message dump, same pattern as tfdm.js's own
+// dumpSample() -- scratch/tfms-samples/ turned out to only ever hold the OLD APTC-only capture
+// (2026-10-02), never a real per-flight fltdMessage, so there's been no way to audit the full
+// real shape of what this module actually receives for a flight -- only what processOneFltdMessage()
+// already knew to look for. Separate directory so the existing APTC samples aren't touched.
+// Stops itself once it's collected enough; remove this block once that audit is done.
+const FLTD_DUMP_DIR = path.join(__dirname, 'scratch', 'tfms-fltd-samples');
+let _fltdDumpCount = 0;
+const FLTD_DUMP_CAP = 25;
+function dumpFltdSample(xmlText) {
+    if (_fltdDumpCount >= FLTD_DUMP_CAP) return;
+    try {
+        fs.mkdirSync(FLTD_DUMP_DIR, { recursive: true });
+        fs.writeFileSync(path.join(FLTD_DUMP_DIR, `sample-${Date.now()}-${_fltdDumpCount}.xml`), xmlText);
+        _fltdDumpCount++;
+        if (_fltdDumpCount === FLTD_DUMP_CAP) console.log(`[TFMS] collected ${FLTD_DUMP_CAP} raw per-flight samples in ${FLTD_DUMP_DIR}`);
+    } catch (e) {
+        console.warn('[TFMS] fltd sample dump failed:', e.message);
+    }
+}
+
 let _connected = false;
 let _relevantCallsigns = null; // same pattern as swim.js/stdds.js
 // callsign -> Set<scheduledDepUTCms> -- see setRelevantCallsigns()/isExpectedDay() below. Unlike
@@ -608,6 +629,7 @@ function handleMessage(xmlText) {
 
     const fltdOutput = findDeep(service, 'fltdOutput');
     if (!fltdOutput) return; // fiOutput (TMI lists, or APTC already handled above) — not flight-route data, ignored
+    dumpFltdSample(xmlText);
     const raw = fltdOutput.fltdMessage;
     const messages = Array.isArray(raw) ? raw : (raw ? [raw] : []);
     for (const m of messages) processOneFltdMessage(m);
