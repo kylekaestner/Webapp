@@ -364,7 +364,22 @@ function processOneMessage(msgObj) {
     }
 }
 
+// TEMPORARY one-off raw capture (added 2026-10-31, remove once the EJA829 missing-leg
+// investigation is done) -- user explicitly wants the UNPARSED XML, not our own
+// messageRouteString()/candidateOrigin fields, since those already have a confirmed blind spot.
+// Appends every distinct raw message mentioning EJA829 (capped) so the real wire format can be
+// read directly instead of trusting our extraction code.
+let _eja829CaptureCount = 0;
+const _EJA829_CAP = 15;
+const _EJA829_DEBUG_PATH = path.join(__dirname, '.eja829_debug_tfdm.xml');
+function _captureEja829(xmlText) {
+    if (_eja829CaptureCount >= _EJA829_CAP || !xmlText.includes('EJA829')) return;
+    _eja829CaptureCount++;
+    try { fs.appendFileSync(_EJA829_DEBUG_PATH, `\n\n==== CAPTURE ${_eja829CaptureCount} @ ${new Date().toISOString()} ====\n${xmlText}`); } catch (e) {}
+}
+
 function handleMessage(xmlText) {
+    _captureEja829(xmlText);
     // Same cheap pre-filter as swim.js/stdds.js/tfms.js -- see swim.js's handleMessage comment
     // for the production incident this exists to prevent. Skipped only once _relevantCallsigns is
     // actually set; null means the startup grace window, same as every other feed here.
