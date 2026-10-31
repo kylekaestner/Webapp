@@ -4536,7 +4536,12 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             const legTimes = tfmsLegTimes.find(l => norm3(l.origin) === origin && norm3(l.dest) === dest) || {};
             const depTime = legTimes.airlineOutTime || legTimes.etd || legTimes.igtd || leg.offBlockTime || null;
             if (!depTime) continue; // nothing usable to anchor/match this leg by yet
-            const arrTime = legTimes.airlineInTime || legTimes.airlineOnTime || legTimes.eta || null;
+            // TFMS's leg-matched times preferred (it's the airline/flow-filed estimate), falling
+            // back to TFDM's OWN estimated runway arrival time (tfdm.js's extractRunwayTime(),
+            // added 2026-10-31) before giving up -- confirmed live on EJA815: TFDM can carry a
+            // real arrival estimate for a leg well before TFMS has any filed flight plan for it
+            // at all, which is exactly the gap this closes.
+            const arrTime = legTimes.airlineInTime || legTimes.airlineOnTime || legTimes.eta || leg.estArrivalTime || null;
 
             const flightState = leg.flightState || '';
             const landed = /ARRIVAL|TAXI_IN|LUAW/.test(flightState) || isParkedForOrigin(cs, origin);
@@ -4555,17 +4560,30 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                 // New leg -- created outright, future or not. Unlike the old reactive design,
                 // TFDM already gives both ends up front for a filed-but-not-yet-departed leg, so
                 // a future leg doesn't have to wait with a blank arrival_airport until it happens.
+                //
+                // arrTime is routinely null here -- TFDM can show a leg (SCHEDULED, a real
+                // offBlockTime) well before TFMS has an actual filed flight plan for it, which is
+                // the only place an ETA can come from at all (confirmed live on EJA815: three
+                // real TFDM legs for tomorrow, zero TFMS data for any of them yet). Raised
+                // directly: a pilot's forward-looking schedule should never show a blank arrival
+                // time for a leg it already knows is coming. Same placeholder discipline as the
+                // refine path below -- arrival_time defaults to departure_time (a neutral
+                // "unknown yet," not a fabricated duration) rather than NULL, so the segment
+                // satisfies every "has both times" assumption elsewhere in the app from the
+                // moment it's created; block_minutes stays unset until a real ETA arrives and
+                // overwrites the placeholder via the normal refine path.
+                const finalArrTime = arrTime || depTime;
                 const block = (depTime && arrTime) ? Math.round((new Date(arrTime) - new Date(depTime)) / 60000) : null;
                 const autoLegKey = `${cs}|${nj.tourStart}|${origin}>${finalDest || '?'}@${depTime}`;
                 try {
                     const newId = await new Promise((resolve, reject) => {
                         db.run(
                             `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, flight_number, block_minutes, is_manual, auto_leg_key, auto_leg_complete) VALUES (?, 'flight', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-                            [nj.pilotId, depTime, arrTime, origin, finalDest || '', nj.tail, cs, (block && block > 0) ? block : null, autoLegKey, landed ? 1 : 0],
+                            [nj.pilotId, depTime, finalArrTime, origin, finalDest || '', nj.tail, cs, (block && block > 0) ? block : null, autoLegKey, landed ? 1 : 0],
                             function (err) { err ? reject(err) : resolve(this.lastID); }
                         );
                     });
-                    existingRows.push({ id: newId, auto_leg_key: autoLegKey, departure_airport: origin, arrival_airport: finalDest || '', departure_time: depTime, arrival_time: arrTime, auto_leg_complete: landed ? 1 : 0, auto_leg_edited: 0 });
+                    existingRows.push({ id: newId, auto_leg_key: autoLegKey, departure_airport: origin, arrival_airport: finalDest || '', departure_time: depTime, arrival_time: finalArrTime, auto_leg_complete: landed ? 1 : 0, auto_leg_edited: 0 });
                     console.log(`[NetJets] ${nj.pilotKey}: new leg ${autoLegKey} ${origin}->${finalDest || '?'}`);
                 } catch (e) { console.error('[NetJets] insert failed:', e.message); }
                 continue;
@@ -4966,7 +4984,12 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
             rowsHtml = merged.map(l => {
                 const dep = l.offBlockTime ? new Date(l.offBlockTime) : null;
                 const etd = l.times?.etd || l.times?.igtd || null;
+                // TFMS's filed-flight-plan eta preferred; TFDM's own estimated runway arrival
+                // time (extractRunwayTime(), added 2026-10-31) shown as a fallback, with a
+                // "(TFDM)" tag so it's clear which source it came from -- confirmed live that
+                // TFDM can have this well before TFMS has any filed plan at all (EJA815).
                 const eta = l.times?.eta || null;
+                const etaFallback = !eta && l.estArrivalTime ? l.estArrivalTime : null;
                 const isPast = dep && dep.getTime() < nowMs;
                 const stateColor = /EN_ROUTE|DEPARTED|ON_FINAL|TAXI/.test(l.flightState || '') ? '#4ade80'
                     : isPast ? '#71717a' : '#60a5fa';
@@ -4976,7 +4999,7 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
                     <td style="padding:10px 12px;color:${stateColor};font-weight:700">${l.flightState || '—'}</td>
                     <td style="padding:10px 12px;color:#a1a1aa">${l.departureDelayMin != null ? l.departureDelayMin + 'm' : '—'}</td>
                     <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' : '—'}</td>
-                    <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' : '—'}</td>
+                    <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' : etaFallback ? `${new Date(etaFallback).toISOString().slice(11,16)}Z <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
                     <td style="padding:10px 12px;color:#52525b;font-size:11px">${isPast ? 'past' : 'upcoming'}</td>
                 </tr>`;
             }).join('');

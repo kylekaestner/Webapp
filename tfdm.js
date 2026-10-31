@@ -219,6 +219,27 @@ function extractRunway(block) {
         || null;
 }
 
+// Confirmed in scratch/tfdm-samples/ (2026-10-31, re-checked while chasing why EJA815 -- a real
+// NetJets leg TFDM already shows SCHEDULED with a real offBlockTime -- had no arrival estimate
+// anywhere: TFMS simply hadn't filed a flight plan for it yet, the only place this app's eta
+// field came from before this). TFDM's own arrival block carries
+// <nas:runwayArrivalTime><nas:estimated source="TFDM"|"TFMS"><nas:time>...</nas:time></nas:estimated></nas:runwayArrivalTime>
+// -- a real estimated runway-arrival time, sometimes computed by TFDM itself (source="TFDM"),
+// sometimes just relayed from TFMS (source="TFMS"). The departure side carries the identical
+// shape under runwayDepartureTime. No separate <actual> sibling was ever found in any sample --
+// once the real event happens, the "estimated" value itself converges to match (confirmed: a
+// landed flight's runwayArrivalTime.estimated.time lines up with its own runwayActual
+// timestamp), so there's no actual/estimated tier to pick between here the way the runway
+// designator fields above have.
+function extractRunwayTime(block, fieldName) {
+    const node = block?.[fieldName]?.estimated;
+    if (!node) return null;
+    const iso = textOf(node.time);
+    if (!iso) return null;
+    const d = new Date(iso);
+    return isNaN(d) ? null : d.toISOString();
+}
+
 // ISO 8601 duration, the only shape TFDM actually uses for these fields (confirmed against real
 // messages: always "PT" + optional H/M/S, e.g. "PT7M", "PT0S", never a larger unit). Returns
 // minutes (fractional for a seconds-only duration like "PT0S" -> 0), or null if unparseable.
@@ -276,6 +297,10 @@ function processOneMessage(msgObj) {
     const delayBlock = departure?.departureDelay;
     const actualDelayMin = delayBlock ? parseIsoDurationMinutes(textOf(delayBlock.actualDelay)) : null;
     const currentDelayMin = delayBlock ? parseIsoDurationMinutes(textOf(delayBlock.currentDelay)) : null;
+    // See extractRunwayTime()'s own comment -- TFDM's own estimated runway arrival/departure
+    // time, independent of whether TFMS has a filed flight plan yet.
+    const estArrivalTime = extractRunwayTime(arrival, 'runwayArrivalTime');
+    const estDepartureTime = extractRunwayTime(departure, 'runwayDepartureTime');
 
     const entry = _latest[cs] || (_latest[cs] = {});
     entry.lastMsg = Date.now();
@@ -290,6 +315,7 @@ function processOneMessage(msgObj) {
     // merging indefinitely across legs like a single multi-message flight would need.
     if ((origin && entry.origin && origin !== entry.origin) || (dest && entry.dest && dest !== entry.dest)) {
         entry.depRunway = null; entry.arrRunway = null; entry.flightState = null; entry.departureDelayMin = null;
+        entry.estArrivalTime = null; entry.estDepartureTime = null;
     }
     // Merge, don't clobber -- a FlightUpdate is a partial/delta message (confirmed live: most
     // updates carry neither runway field at all), so a later message missing a value must not
@@ -301,6 +327,8 @@ function processOneMessage(msgObj) {
     if (flightState) entry.flightState = flightState;
     if (actualDelayMin != null) entry.departureDelayMin = actualDelayMin;
     else if (currentDelayMin != null) entry.departureDelayMin = currentDelayMin;
+    if (estArrivalTime) entry.estArrivalTime = estArrivalTime;
+    if (estDepartureTime) entry.estDepartureTime = estDepartureTime;
 
     // Per-leg record, additive -- see _legs's header comment above. Keyed by origin+dest, which
     // TFDM gives fully resolved on every message (no route-string guessing needed), so two
@@ -320,6 +348,8 @@ function processOneMessage(msgObj) {
         if (flightState) leg.flightState = flightState;
         if (actualDelayMin != null) leg.departureDelayMin = actualDelayMin;
         else if (currentDelayMin != null) leg.departureDelayMin = currentDelayMin;
+        if (estArrivalTime) leg.estArrivalTime = estArrivalTime;
+        if (estDepartureTime) leg.estDepartureTime = estDepartureTime;
         legsMap.set(lk, leg);
         scheduleLegsSave();
     }
