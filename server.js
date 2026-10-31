@@ -3775,9 +3775,23 @@ function cleanTrail(trail) {
     return out;
 }
 
-function withTfdmInfo(data, callsign) {
+function withTfdmInfo(data, callsign, expectedOrigin) {
     if (data && Array.isArray(data.trail)) data.trail = cleanTrail(data.trail);
-    const info = callsign ? tfdm.getFlightInfo(callsign) : null;
+    let info = callsign ? tfdm.getFlightInfo(callsign) : null;
+    if (callsign && expectedOrigin) {
+        // Same leg-matching discipline as _pollNetjetsLegCreation() (see CLAUDE.md's NetJets
+        // section) -- a callsign that's concurrently filing multiple legs (confirmed common for
+        // NetJets: 29% of the active fleet has legs filed across today AND tomorrow at once)
+        // means the flat tfdm.getFlightInfo() above can reflect a DIFFERENT leg than the one
+        // actually being displayed here, misattributing its delay/phase -- e.g. showing a
+        // corporate flight's genuine late-passenger delay against the wrong leg entirely. Prefer
+        // the per-leg entry matching THIS leg's known origin when one exists; fall back to the
+        // flat cache otherwise (a normal pilot's legs are sequential, never concurrent, so the
+        // flat cache was never wrong for them to begin with).
+        const norm = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
+        const matched = tfdm.getAllLegs(callsign).find(l => norm(l.origin) === norm(expectedOrigin));
+        if (matched) info = matched;
+    }
     if (info?.flightState) data.tfdmState = info.flightState;
     if (info?.departureDelayMin != null) data.departureDelayMin = Math.round(info.departureDelayMin);
     // Estimated/airline times from TFMS (ETD/ETA, gate, runway, OOOI). Display-only: the uploaded
@@ -3919,16 +3933,16 @@ async function fetchLivePosition(callsign, expectedOrigin) {
             clearAirborne(cs);
         }
         if (!matchesExpectedOrigin(stddsHit, expectedOrigin)) return { found: false };
-        return withTfdmInfo(withEverAirborne(applyCallsignGroundState(stddsHit, callsign, 'stdds'), callsign), callsign);
+        return withTfdmInfo(withEverAirborne(applyCallsignGroundState(stddsHit, callsign, 'stdds'), callsign), callsign, expectedOrigin);
     }
     if (swimHit) {
         resolveRouteWaypoints(swimHit.routeParsed, callsign);
         if (!matchesExpectedOrigin(swimHit, expectedOrigin)) return { found: false };
-        return withTfdmInfo(withEverAirborne(applyCallsignGroundState(swimHit, callsign, 'swim'), callsign), callsign);
+        return withTfdmInfo(withEverAirborne(applyCallsignGroundState(swimHit, callsign, 'swim'), callsign), callsign, expectedOrigin);
     }
     const adsbHit = await fetchAdsbPosition(callsign);
     if (!adsbHit?.found) noteNoPosition(callsign);
-    return withTfdmInfo(withEverAirborne(applyCallsignGroundState(adsbHit, callsign, 'adsb'), callsign), callsign);
+    return withTfdmInfo(withEverAirborne(applyCallsignGroundState(adsbHit, callsign, 'adsb'), callsign), callsign, expectedOrigin);
 }
 
 // Stored key is "callsign|scheduledArrMs", not bare callsign -- see app.html's
