@@ -1770,7 +1770,45 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
         if (dup) { dup.supersededDest = dup.dest; dup.dest = r.dest; dup.arrTime = r.arrTime; continue; }
         merged.push(r);
     }
-    return merged.sort((a, b) => new Date(a.depTime || 0) - new Date(b.depTime || 0));
+    merged.sort((a, b) => new Date(a.depTime || 0) - new Date(b.depTime || 0));
+
+    // Raised directly: "if they did TEB-APF then any flight after that which doesn't include
+    // APF [as its origin] doesn't make sense." The dest-side filter above only catches a
+    // candidate ARRIVING somewhere the tail already left; this is the missing other direction --
+    // a candidate DEPARTING from somewhere the tail was never confirmed to be at all (RSW->APF,
+    // the exact stale alternate plan from the original report: RSW never appears anywhere in
+    // this tail's real confirmed chain at all).
+    //
+    // First, propagate confirmation backward through the chain -- a leg with no direct TFDM
+    // evidence of its own (still just FILED/SCHEDULED) is nonetheless real once the very next
+    // leg in sequence is confirmed and chains onto it (its dest matches that next leg's origin):
+    // the aircraft had to fly this one to reach the next leg's confirmed position. Confirmed
+    // real on EJA492: APF->BKV never shows its own TFDM movement, but BKV->RDU does (EN_ROUTE).
+    const realLegs = merged.filter(r => r.status === 'real');
+    for (let i = realLegs.length - 2; i >= 0; i--) {
+        const cur = realLegs[i], next = realLegs[i + 1];
+        if (next.confirmed && !cur.confirmed && cur.dest && cur.dest === next.origin) cur.confirmed = true;
+    }
+
+    // Now that confirmation is as complete as the evidence allows, filter any remaining
+    // non-confirmed candidate whose own origin was never one of the tail's confirmed airports,
+    // as long as a confirmed leg exists at or before its own scheduled departure with a
+    // DIFFERENT destination -- the aircraft can't depart from a place it was never confirmed to
+    // have reached by then.
+    const confirmedAirports = new Set();
+    for (const r of realLegs) if (r.confirmed) { if (r.origin) confirmedAirports.add(r.origin); if (r.dest) confirmedAirports.add(r.dest); }
+    for (const r of realLegs) {
+        if (r.confirmed || !r.origin || confirmedAirports.has(r.origin)) continue;
+        const priorConfirmed = realLegs
+            .filter(c => c.confirmed && c.depTime && r.depTime && new Date(c.depTime).getTime() <= new Date(r.depTime).getTime())
+            .sort((a, b) => new Date(b.depTime) - new Date(a.depTime))[0];
+        if (priorConfirmed && priorConfirmed.dest !== r.origin) {
+            r.status = 'filtered';
+            r.reason = `origin ${r.origin} never confirmed -- tail was last confirmed at ${priorConfirmed.dest} by then`;
+        }
+    }
+
+    return merged;
 }
 
 // Operating code aliases for eCrew airlines, keyed by main ICAO code.
