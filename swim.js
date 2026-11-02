@@ -445,7 +445,19 @@ function processOneMessage(msgObj) {
     }
 }
 
+// TEMPORARY one-off raw capture (added 2026-11-02, remove once the N22QS tail-number-callsign
+// investigation is done) -- see tfdm.js's identical capture for the full reasoning.
+let _n22qsCaptureCount = 0;
+const _N22QS_CAP = 15;
+const _N22QS_DEBUG_PATH = path.join(__dirname, '.n22qs_debug_swim.xml');
+function _captureN22qs(xmlText) {
+    if (_n22qsCaptureCount >= _N22QS_CAP || !xmlText.includes('N22QS')) return;
+    _n22qsCaptureCount++;
+    try { fs.appendFileSync(_N22QS_DEBUG_PATH, `\n\n==== CAPTURE ${_n22qsCaptureCount} @ ${new Date().toISOString()} ====\n${xmlText}`); } catch (e) {}
+}
+
 function handleMessage(xmlText) {
+    _captureN22qs(xmlText);
     // SFDPS is NATIONWIDE en-route traffic -- every IFR flight over the US, not just the handful
     // CrewSync actually cares about. The real per-flight filter below (_relevantCallsigns) only
     // runs AFTER a message is already fully parsed into a JS object tree, so every single batch

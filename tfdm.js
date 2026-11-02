@@ -378,8 +378,22 @@ function _captureEja829(xmlText) {
     try { fs.appendFileSync(_EJA829_DEBUG_PATH, `\n\n==== CAPTURE ${_eja829CaptureCount} @ ${new Date().toISOString()} ====\n${xmlText}`); } catch (e) {}
 }
 
+// TEMPORARY one-off raw capture (added 2026-11-02, remove once the N22QS tail-number-callsign
+// investigation is done) -- confirming whether NetJets really files/flies under the bare tail
+// number (N22QS) instead of EJA22 once a leg goes outside the lower 48 + Canada, and whether any
+// such data is on the wire at all before building watch-list infrastructure for it.
+let _n22qsCaptureCount = 0;
+const _N22QS_CAP = 15;
+const _N22QS_DEBUG_PATH = path.join(__dirname, '.n22qs_debug_tfdm.xml');
+function _captureN22qs(xmlText) {
+    if (_n22qsCaptureCount >= _N22QS_CAP || !xmlText.includes('N22QS')) return;
+    _n22qsCaptureCount++;
+    try { fs.appendFileSync(_N22QS_DEBUG_PATH, `\n\n==== CAPTURE ${_n22qsCaptureCount} @ ${new Date().toISOString()} ====\n${xmlText}`); } catch (e) {}
+}
+
 function handleMessage(xmlText) {
     _captureEja829(xmlText);
+    _captureN22qs(xmlText);
     // Same cheap pre-filter as swim.js/stdds.js/tfms.js -- see swim.js's handleMessage comment
     // for the production incident this exists to prevent. Skipped only once _relevantCallsigns is
     // actually set; null means the startup grace window, same as every other feed here.
