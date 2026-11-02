@@ -4721,7 +4721,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
         const tfmsLegTimes = tfms.getAllLegTimes(cs);
         const existingRows = await new Promise(resolve => {
             db.all(
-                `SELECT id, auto_leg_key, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited
+                `SELECT id, auto_leg_key, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_cancelled
                  FROM segments WHERE pilot_id=? AND auto_leg_key LIKE ?`,
                 [nj.pilotId, `${cs}|${nj.tourStart}|%`],
                 (err, rows) => resolve(err ? [] : (rows || []))
@@ -4768,6 +4768,11 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
 
             const row = _findExistingNetjetsLeg(existingRows, origin, dest, new Date(depTime).getTime(), !!leg.isDiversion);
 
+            // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides they
+            // aren't doing that flight -- need support for that." A cancelled leg that was never
+            // created isn't worth creating at all.
+            if (!row && legTimes.cancelled) continue;
+
             if (!row) {
                 // New leg -- created outright, future or not. Unlike the old reactive design,
                 // TFDM already gives both ends up front for a filed-but-not-yet-departed leg, so
@@ -4795,13 +4800,23 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                             function (err) { err ? reject(err) : resolve(this.lastID); }
                         );
                     });
-                    existingRows.push({ id: newId, auto_leg_key: autoLegKey, departure_airport: origin, arrival_airport: finalDest || '', departure_time: depTime, arrival_time: finalArrTime, auto_leg_complete: landed ? 1 : 0, auto_leg_edited: 0 });
+                    existingRows.push({ id: newId, auto_leg_key: autoLegKey, departure_airport: origin, arrival_airport: finalDest || '', departure_time: depTime, arrival_time: finalArrTime, auto_leg_complete: landed ? 1 : 0, auto_leg_edited: 0, auto_leg_cancelled: 0 });
                     console.log(`[NetJets] ${nj.pilotKey}: new leg ${autoLegKey} ${origin}->${finalDest || '?'}`);
                 } catch (e) { console.error('[NetJets] insert failed:', e.message); }
                 continue;
             }
 
             if (row.auto_leg_edited) continue; // hands-off -- a human already corrected this row
+
+            // Surfaced as a visible "cancelled" state rather than silently deleting the row, so
+            // the pilot sees why a flight disappeared from their real plan. Marked once, then left
+            // alone -- no further refine makes sense for a leg NetJets says isn't happening.
+            if (legTimes.cancelled && !row.auto_leg_cancelled) {
+                db.run('UPDATE segments SET auto_leg_cancelled=1 WHERE id=?', [row.id], () => {});
+                console.log(`[NetJets] ${nj.pilotKey}: leg ${row.auto_leg_key} cancelled (${origin}->${dest || '?'})`);
+                continue;
+            }
+            if (row.auto_leg_cancelled) continue;
 
             // Refine whatever's newly known about an already-created leg.
             const updates = [], params = [];

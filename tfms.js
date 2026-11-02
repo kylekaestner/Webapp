@@ -443,6 +443,14 @@ function processOneFltdMessage(msgObj) {
             // THIS message's own route (or its depArpt/arrArpt attributes) resolves both ends --
             // never guessed.
             processLegTimes(msgObj, cs, legOrigin, legDest, candidateMs);
+            // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides they
+            // aren't doing that flight -- need support for that." flightPlanCancellation carries
+            // depArpt/arrArpt the same as every other message type (confirmed real, 3/3 sampled),
+            // so the fallback above already resolved which leg this cancels.
+            if (msgType === 'flightPlanCancellation') {
+                const leg = _legTimes[cs]?.get(`${legOrigin}>${legDest}`);
+                if (leg) leg.cancelled = true;
+            }
         } else if (candidateMs != null) {
             // Routeless times-only update (confirmed the common case live: most ongoing ETD/ETA
             // refinements for an already-established leg arrive this way -- only the first,

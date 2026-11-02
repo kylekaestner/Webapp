@@ -308,6 +308,12 @@ function initDB() {
         // only reads its arrival_airport back out as the next leg's expected origin. Protects a
         // pilot's manual correction from being silently overwritten by the next poll.
         db.run(`ALTER TABLE segments ADD COLUMN auto_leg_edited INTEGER DEFAULT 0`, () => {});
+        // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides they
+        // aren't doing that flight -- need support for that." Set when TFMS reports
+        // flightPlanCancellation for this exact leg -- surfaced as a visible "cancelled" state
+        // instead of silently deleting the row, so the pilot sees why it disappeared from their
+        // real plan rather than it just vanishing. Never set on a human-edited row.
+        db.run(`ALTER TABLE segments ADD COLUMN auto_leg_cancelled INTEGER DEFAULT 0`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN role TEXT DEFAULT ''`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN parser_type TEXT DEFAULT 'other'`, () => {});
         db.run(`ALTER TABLE pilots ADD COLUMN airline_code TEXT DEFAULT ''`, () => {});
