@@ -4736,14 +4736,49 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             );
         });
 
+        // Notes.md: "If there are a bunch of extra flight plans added for NJs that's fine ... but
+        // once the aircraft departs their first flight we should be able to put the dots together
+        // and filter out ones that make NO SENSE" -- e.g. once the plane really departs APF for
+        // BKV, a separately-filed RSW->APF plan can't also be real (the aircraft isn't at RSW to
+        // leave from). "Really departed" means taxi-out or later -- FILED/SCHEDULED/AT_STAND alone
+        // could still just be an abandoned plan nobody's flying. Earliest confirmed real departure
+        // per origin airport, so a legitimate later round-trip back through the same airport (a
+        // real second departure, itself showing real movement) is never the one being compared
+        // against here -- only candidates still sitting at FILED/SCHEDULED get filtered.
+        const REALLY_DEPARTED_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
+        const confirmedDepartureByOrigin = new Map(); // norm3 origin -> earliest confirmed real departure ms
+        for (const l of allLegs) {
+            const o = norm3(l.origin);
+            if (!o || !REALLY_DEPARTED_RE.test(l.flightState || '') || l.scheduledDepMs == null) continue;
+            const existing = confirmedDepartureByOrigin.get(o);
+            if (existing == null || l.scheduledDepMs < existing) confirmedDepartureByOrigin.set(o, l.scheduledDepMs);
+        }
+
         for (const leg of allLegs) {
             const origin = norm3(leg.origin);
             if (!origin) continue; // can't key a leg without at least knowing where it starts
             const dest = norm3(leg.dest);
+            const flightState = leg.flightState || '';
 
             const legTimes = tfmsLegTimes.find(l => norm3(l.origin) === origin && norm3(l.dest) === dest) || {};
             const depTime = legTimes.airlineOutTime || legTimes.etd || legTimes.igtd || leg.offBlockTime || null;
             if (!depTime) continue; // nothing usable to anchor/match this leg by yet
+
+            // This candidate's own destination is an airport the tail is confirmed to have
+            // already really left, at or before this candidate even departs its own origin, and
+            // this candidate itself shows no real movement of its own -- it can't be a real leg.
+            if (dest) {
+                const destDepartedMs = confirmedDepartureByOrigin.get(dest);
+                if (destDepartedMs != null && new Date(depTime).getTime() >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState)) {
+                    const staleRow = _findExistingNetjetsLeg(existingRows, origin, dest, new Date(depTime).getTime());
+                    if (staleRow && !staleRow.auto_leg_edited && !staleRow.auto_leg_cancelled && !staleRow.auto_leg_complete) {
+                        db.run('UPDATE segments SET auto_leg_cancelled=1 WHERE id=?', [staleRow.id], () => {});
+                        console.log(`[NetJets] ${nj.pilotKey}: leg ${staleRow.auto_leg_key} filtered out -- ${origin}->${dest} makes no sense once this tail really left ${dest}`);
+                    }
+                    continue;
+                }
+            }
+
             // TFMS's leg-matched times preferred (it's the airline/flow-filed estimate), falling
             // back to TFDM's OWN estimated runway arrival time (tfdm.js's extractRunwayTime(),
             // added 2026-10-31) before giving up -- confirmed live on EJA815: TFDM can carry a
@@ -4763,7 +4798,6 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             const estimatedMin = arrTime ? null : await _estimatedRouteDurationMin(db, origin, dest);
             const estimatedArrTime = estimatedMin ? new Date(new Date(depTime).getTime() + estimatedMin * 60000).toISOString() : null;
 
-            const flightState = leg.flightState || '';
             const landed = /ARRIVAL|TAXI_IN|LUAW/.test(flightState) || isParkedForOrigin(cs, origin);
             let finalDest = dest;
             if (landed && !finalDest) {
