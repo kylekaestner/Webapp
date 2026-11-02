@@ -614,6 +614,16 @@ function getAllLegTimes(callsign) {
         .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
 }
 
+// Research/validation tool counterpart to tfdm.js's identical helper -- a tail can have real
+// TFMS flight-plan data before TFDM ever confirms the leg, so this is deliberately a separate
+// list, not filtered down to whatever TFDM already knows about.
+function getCallsignsWithLegTimes() {
+    return Object.keys(_legTimes).map(cs => {
+        const legs = [..._legTimes[cs].values()];
+        return { callsign: cs, legCount: legs.length, lastMs: Math.max(...legs.map(l => l.lastMsg || 0)) };
+    }).sort((a, b) => b.lastMs - a.lastMs);
+}
+
 // Not callsign-scoped at all (an airport's config isn't tied to any one flight), so this is
 // never gated by _relevantCallsigns the way processOneFltdMessage is — every airport the
 // nationwide feed mentions gets stored. That's cheap: there are only a few hundred towered
@@ -865,4 +875,4 @@ function getFlightTimes(callsign) {
         gateDeparture, gateArrival, runwayDeparture, runwayArrival, originalDeparture, originalArrival };
 }
 
-module.exports = { connect, getFlightData, getFlightTimes, getAllLegTimes, routeDest, getAirportConfig, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };
+module.exports = { connect, getFlightData, getFlightTimes, getAllLegTimes, getCallsignsWithLegTimes, routeDest, getAirportConfig, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };

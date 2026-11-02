@@ -1698,6 +1698,62 @@ function norm3Airport(a) {
     return up.length === 3 ? up : (icaoToIataAirport(up.length === 4 ? up : 'K' + up) || up);
 }
 
+// Research/validation tool for /crew-roster/netjets-lookup: a read-only simulation of
+// _pollNetjetsLegCreation()'s own chain-consistency filter (same REALLY_DEPARTED_RE /
+// confirmedDepartureByOrigin logic, same same-origin/same-departure-instant dest-conflict
+// collapse as _findExistingNetjetsLeg), so "what would actually become a real segment" can be
+// tested against the whole research-mode fleet, not just the one or two real tours this app
+// currently has on duty. Never touches the database -- a pure display-time computation.
+const NETJETS_DISPLAY_SAME_DEPARTURE_TOLERANCE_MS = 15 * 60 * 1000;
+function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
+    const norm = norm3Airport;
+    const REALLY_DEPARTED_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
+    const confirmedDepartureByOrigin = new Map();
+    for (const l of allLegs) {
+        const o = norm(l.origin);
+        if (!o || !REALLY_DEPARTED_RE.test(l.flightState || '') || l.scheduledDepMs == null) continue;
+        const existing = confirmedDepartureByOrigin.get(o);
+        if (existing == null || l.scheduledDepMs < existing) confirmedDepartureByOrigin.set(o, l.scheduledDepMs);
+    }
+
+    const out = [];
+    for (const leg of allLegs) {
+        const origin = norm(leg.origin);
+        if (!origin) continue;
+        const dest = norm(leg.dest);
+        const flightState = leg.flightState || '';
+        const legTimes = tfmsLegTimes.find(l => norm(l.origin) === origin && norm(l.dest) === dest) || {};
+        const depTime = legTimes.etd || legTimes.airlineOutTime || legTimes.igtd || leg.offBlockTime || null;
+        if (!depTime) { out.push({ origin, dest, depTime: null, flightState, status: 'no-time', reason: 'nothing usable to anchor this leg by yet' }); continue; }
+        const depMs = new Date(depTime).getTime();
+
+        if (dest) {
+            const destDepartedMs = confirmedDepartureByOrigin.get(dest);
+            if (destDepartedMs != null && depMs >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState)) {
+                out.push({ origin, dest, depTime, flightState, status: 'filtered', reason: `tail already really left ${dest} before this` });
+                continue;
+            }
+        }
+        if (legTimes.cancelled) { out.push({ origin, dest, depTime, flightState, status: 'cancelled', reason: 'NetJets flightPlanCancellation' }); continue; }
+
+        out.push({
+            origin, dest, depTime, flightState, status: 'real', reason: null,
+            arrTime: legTimes.eta || legTimes.airlineInTime || legTimes.airlineOnTime || leg.estArrivalTime || null,
+        });
+    }
+
+    // Collapse same-origin/same-departure-instant dest conflicts down to the latest telling --
+    // same reasoning as _findExistingNetjetsLeg's diversion/inserted-stop handling.
+    const merged = [];
+    for (const r of out) {
+        if (r.status !== 'real') { merged.push(r); continue; }
+        const dup = merged.find(m => m.status === 'real' && m.origin === r.origin && m.depTime && r.depTime && Math.abs(new Date(m.depTime) - new Date(r.depTime)) <= NETJETS_DISPLAY_SAME_DEPARTURE_TOLERANCE_MS);
+        if (dup) { dup.supersededDest = dup.dest; dup.dest = r.dest; dup.arrTime = r.arrTime; continue; }
+        merged.push(r);
+    }
+    return merged.sort((a, b) => new Date(a.depTime || 0) - new Date(b.depTime || 0));
+}
+
 // Operating code aliases for eCrew airlines, keyed by main ICAO code.
 // Each alias maps a prefix found in the schedule → the ICAO prefix to store.
 // Numeric-only codes always get the main ICAO prefix.
@@ -5277,71 +5333,130 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
     const rawTail = (req.query.tail || '').trim();
     const digits = rawTail.replace(/\D/g, '');
     const cs = digits ? ejaFlightNumber(digits) : null;
-    const norm = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
+    const norm = norm3Airport;
     const nowMs = Date.now();
+    const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    // Default window: 3 days back through 2 days ahead -- wide enough to see a whole tour's worth
+    // of filed/flown comparison without the page defaulting to showing nothing.
+    const defaultFrom = fmtDate(new Date(nowMs - 3 * 86400000));
+    const defaultTo = fmtDate(new Date(nowMs + 2 * 86400000));
+    const fromStr = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : defaultFrom;
+    const toStr = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : defaultTo;
+    const fromMs = new Date(fromStr + 'T00:00:00Z').getTime();
+    const toMs = new Date(toStr + 'T23:59:59Z').getTime();
+    const qs = `from=${fromStr}&to=${toStr}`;
 
-    let rowsHtml = '';
-    if (cs) {
-        const legs = tfdm.getAllLegs(cs);
-        const legTimes = tfms.getAllLegTimes(cs);
-        const merged = legs.map(l => ({
+    let bodyHtml = '';
+    if (!cs) {
+        // No tail picked yet -- list every tail with ANY captured data (research fleet, not just
+        // real on-duty pilots) so this can validate leg-creation logic at scale, not just against
+        // the one or two real tours this app currently has. Requested directly: "I don't have
+        // many NJ users on tour to try."
+        const tfdmTails = tfdm.getCallsignsWithLegs();
+        const tfmsTails = tfms.getCallsignsWithLegTimes();
+        const byCallsign = new Map();
+        for (const t of tfdmTails) byCallsign.set(t.callsign, { callsign: t.callsign, tfdmLegs: t.legCount, tfmsLegs: 0, lastMs: t.lastMs });
+        for (const t of tfmsTails) {
+            const existing = byCallsign.get(t.callsign);
+            if (existing) { existing.tfmsLegs = t.legCount; existing.lastMs = Math.max(existing.lastMs, t.lastMs); }
+            else byCallsign.set(t.callsign, { callsign: t.callsign, tfdmLegs: 0, tfmsLegs: t.legCount, lastMs: t.lastMs });
+        }
+        const tails = [...byCallsign.values()].sort((a, b) => b.lastMs - a.lastMs);
+        const tailRows = tails.length ? tails.map(t => {
+            const tDigits = t.callsign.replace(/^EJA/, '');
+            const ageMin = Math.round((nowMs - t.lastMs) / 60000);
+            return `<tr style="border-bottom:1px solid #27272a">
+                <td style="padding:8px 12px"><a href="?tail=${tDigits}&${qs}" style="color:#60a5fa;font-weight:700;text-decoration:none">${t.callsign}</a></td>
+                <td style="padding:8px 12px;color:#a1a1aa">${t.tfdmLegs}</td>
+                <td style="padding:8px 12px;color:#a1a1aa">${t.tfmsLegs}</td>
+                <td style="padding:8px 12px;color:#52525b;font-size:11px">${ageMin < 60 ? ageMin + 'm ago' : Math.round(ageMin/60) + 'h ago'}</td>
+            </tr>`;
+        }).join('') : `<tr><td colspan="4" style="padding:24px;text-align:center;color:#71717a">No tails captured yet.</td></tr>`;
+        bodyHtml = `<div style="color:#71717a;font-size:13px;margin-bottom:12px">${tails.length} tail${tails.length===1?'':'s'} with captured data — pick one, or search a tail's digits above.</div>
+        <table><thead><tr><th>Callsign</th><th>TFDM legs</th><th>TFMS legs</th><th>Last seen</th></tr></thead>
+        <tbody>${tailRows}</tbody></table>`;
+    } else {
+        const allLegsRaw = tfdm.getAllLegs(cs);
+        const legTimesRaw = tfms.getAllLegTimes(cs);
+        const inRange = ms => ms != null && ms >= fromMs && ms <= toMs;
+        const allLegs = allLegsRaw.filter(l => inRange(l.scheduledDepMs));
+        const legTimes = legTimesRaw.filter(l => inRange(l.scheduledDepMs));
+        const faLink = `https://flightaware.com/live/flight/${cs}`;
+
+        // "Filed" -- every raw candidate SWIM gave us in this window, unfiltered.
+        const merged = allLegs.map(l => ({
             ...l,
             times: legTimes.find(lt => norm(lt.origin) === norm(l.origin) && norm(lt.dest) === norm(l.dest)) || null,
         })).sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
 
-        if (!merged.length) {
-            rowsHtml = `<tr><td colspan="7" style="padding:24px;text-align:center;color:#71717a">No legs captured yet for ${cs} (N${digits}QS) — either it's not currently active, or nothing's been seen for it in the last 48 hours.</td></tr>`;
-        } else {
-            rowsHtml = merged.map(l => {
-                const dep = l.offBlockTime ? new Date(l.offBlockTime) : null;
-                const etd = l.times?.etd || l.times?.igtd || null;
-                // TFMS's filed-flight-plan eta preferred; TFDM's own estimated runway arrival
-                // time (extractRunwayTime(), added 2026-10-31) shown as a fallback, with a
-                // "(TFDM)" tag so it's clear which source it came from -- confirmed live that
-                // TFDM can have this well before TFMS has any filed plan at all (EJA815).
-                const eta = l.times?.eta || null;
-                const etaFallback = !eta && l.estArrivalTime ? l.estArrivalTime : null;
-                const isPast = dep && dep.getTime() < nowMs;
-                const stateColor = /EN_ROUTE|DEPARTED|ON_FINAL|TAXI/.test(l.flightState || '') ? '#4ade80'
-                    : isPast ? '#71717a' : '#60a5fa';
-                // Confidence tags, confirmed real in scratch/tfms-fltd-samples/ (2026-10-31 audit)
-                // -- etdType/etaType ("ACTUAL" vs "ESTIMATED") were previously discarded entirely.
-                const confTag = (type) => type === 'ACTUAL' ? ' <span style="color:#4ade80;font-size:10px">(actual)</span>' : type ? ` <span style="color:#71717a;font-size:10px">(${type.toLowerCase()})</span>` : '';
-                const tfmsDiversion = l.times?.diversionIndicator && l.times.diversionIndicator !== 'NO_DIVERSION';
-                return `<tr style="border-bottom:1px solid #27272a">
-                    <td style="padding:10px 12px;font-weight:700">${l.origin || '?'} → ${l.dest || '?'}${l.times?.gufi ? `<div style="font-size:9px;color:#3f3f46;font-weight:400">${l.times.gufi}</div>` : ''}</td>
-                    <td style="padding:10px 12px;color:#a1a1aa">${dep ? dep.toISOString().slice(0,16).replace('T',' ') + 'Z' : '—'}</td>
-                    <td style="padding:10px 12px;color:${stateColor};font-weight:700">${l.flightState || '—'}${(l.isDiversion || tfmsDiversion) ? ' <span style="color:#f87171">⚠ DIVERSION</span>' : ''}</td>
-                    <td style="padding:10px 12px;color:#a1a1aa">${l.departureDelayMin != null ? l.departureDelayMin + 'm' : '—'}</td>
-                    <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etdType) : '—'}</td>
-                    <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etaType) : etaFallback ? `${new Date(etaFallback).toISOString().slice(11,16)}Z <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
-                    <td style="padding:10px 12px;color:#52525b;font-size:11px">${isPast ? 'past' : 'upcoming'}</td>
-                </tr>`;
-            }).join('');
-        }
+        const filedRows = merged.length ? merged.map(l => {
+            const dep = l.offBlockTime ? new Date(l.offBlockTime) : null;
+            const etd = l.times?.etd || l.times?.igtd || null;
+            const eta = l.times?.eta || null;
+            const etaFallback = !eta && l.estArrivalTime ? l.estArrivalTime : null;
+            const isPast = dep && dep.getTime() < nowMs;
+            const stateColor = /EN_ROUTE|DEPARTED|ON_FINAL|TAXI/.test(l.flightState || '') ? '#4ade80' : isPast ? '#71717a' : '#60a5fa';
+            const confTag = (type) => type === 'ACTUAL' ? ' <span style="color:#4ade80;font-size:10px">(actual)</span>' : type ? ` <span style="color:#71717a;font-size:10px">(${type.toLowerCase()})</span>` : '';
+            const tfmsDiversion = l.times?.diversionIndicator && l.times.diversionIndicator !== 'NO_DIVERSION';
+            return `<tr style="border-bottom:1px solid #27272a">
+                <td style="padding:10px 12px;font-weight:700">${l.origin || '?'} → ${l.dest || '?'}${l.times?.gufi ? `<div style="font-size:9px;color:#3f3f46;font-weight:400">${l.times.gufi}</div>` : ''}</td>
+                <td style="padding:10px 12px;color:#a1a1aa">${dep ? dep.toISOString().slice(0,16).replace('T',' ') + 'Z' : '—'}</td>
+                <td style="padding:10px 12px;color:${stateColor};font-weight:700">${l.flightState || '—'}${(l.isDiversion || tfmsDiversion) ? ' <span style="color:#f87171">⚠ DIVERSION</span>' : ''}</td>
+                <td style="padding:10px 12px;color:#a1a1aa">${l.departureDelayMin != null ? l.departureDelayMin + 'm' : '—'}</td>
+                <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etdType) : '—'}</td>
+                <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etaType) : etaFallback ? `${new Date(etaFallback).toISOString().slice(11,16)}Z <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
+            </tr>`;
+        }).join('') : `<tr><td colspan="6" style="padding:20px;text-align:center;color:#71717a">No candidates filed in this window.</td></tr>`;
+
+        // "Resolved" -- the same chain-consistency filter _pollNetjetsLegCreation() actually
+        // applies, run read-only against this window so leg-creation logic can be validated at
+        // fleet scale without a real on-duty pilot tracking this tail.
+        const resolved = resolveNetjetsLegsForDisplay(allLegs, legTimes);
+        const statusColor = { real: '#4ade80', filtered: '#f87171', cancelled: '#71717a', 'no-time': '#52525b' };
+        const statusLabel = { real: 'REAL', filtered: 'FILTERED OUT', cancelled: 'CANCELLED', 'no-time': 'NO TIME YET' };
+        const resolvedRows = resolved.length ? resolved.map(r => `<tr style="border-bottom:1px solid #27272a">
+                <td style="padding:10px 12px;font-weight:700">${r.origin || '?'} → ${r.dest || '?'}${r.supersededDest ? `<div style="font-size:9px;color:#71717a">superseded: ${r.origin}→${r.supersededDest}</div>` : ''}</td>
+                <td style="padding:10px 12px;color:#a1a1aa">${r.depTime ? new Date(r.depTime).toISOString().slice(0,16).replace('T',' ') + 'Z' : '—'}</td>
+                <td style="padding:10px 12px;color:#93c5fd">${r.arrTime ? new Date(r.arrTime).toISOString().slice(11,16) + 'Z' : '—'}</td>
+                <td style="padding:10px 12px;color:${statusColor[r.status]};font-weight:700">${statusLabel[r.status]}</td>
+                <td style="padding:10px 12px;color:#52525b;font-size:11px">${r.reason || ''}</td>
+            </tr>`).join('') : `<tr><td colspan="5" style="padding:20px;text-align:center;color:#71717a">Nothing resolved in this window.</td></tr>`;
+
+        bodyHtml = `<div style="color:#71717a;font-size:13px;margin-bottom:4px">Callsign <b style="color:#e4e4e7">${cs}</b> · Tail <b style="color:#e4e4e7">N${digits}QS</b>
+            · <a href="${faLink}" target="_blank" rel="noopener" style="color:#60a5fa">FlightAware ↗</a>
+            · <a href="?${qs}" style="color:#60a5fa">← all tails</a></div>
+        <h2 style="font-size:14px;margin:20px 0 8px;color:#e4e4e7">Filed — every candidate SWIM gave us</h2>
+        <table><thead><tr><th>Route</th><th>Scheduled (TFDM)</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th></tr></thead>
+        <tbody>${filedRows}</tbody></table>
+        <h2 style="font-size:14px;margin:24px 0 8px;color:#e4e4e7">Resolved — what leg-creation would actually keep</h2>
+        <table><thead><tr><th>Route</th><th>Dep</th><th>Arr</th><th>Status</th><th>Why</th></tr></thead>
+        <tbody>${resolvedRows}</tbody></table>`;
     }
 
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>NetJets Lookup</title>
     <style>
-        body{background:#0a0a0b;color:#e4e4e7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:760px;margin:0 auto;padding:24px 16px}
+        body{background:#0a0a0b;color:#e4e4e7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:900px;margin:0 auto;padding:24px 16px}
         h1{font-size:18px;margin-bottom:4px}
         .sub{color:#71717a;font-size:13px;margin-bottom:20px}
-        form{display:flex;gap:8px;margin-bottom:24px}
-        input{background:#18181b;border:1px solid #3f3f46;color:#e4e4e7;padding:10px 12px;border-radius:8px;font-size:15px;flex:1}
+        form{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;align-items:center}
+        input{background:#18181b;border:1px solid #3f3f46;color:#e4e4e7;padding:10px 12px;border-radius:8px;font-size:14px}
+        input[type=text]{flex:1;min-width:120px}
+        label{color:#71717a;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
         button{background:#3b82f6;color:#fff;border:none;padding:10px 18px;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer}
         table{width:100%;border-collapse:collapse;font-size:13px}
         th{text-align:left;padding:8px 12px;color:#71717a;font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #3f3f46}
+        a{text-decoration:none}
     </style></head><body>
     <h1>NetJets Tail Lookup</h1>
-    <div class="sub">Search a tail's digits to see every leg currently captured from live FAA data — current and future, sorted chronologically.</div>
+    <div class="sub">Compare what SWIM filed against what leg-creation would actually keep, over any date range — research/validation tool, fleet-wide.</div>
     <form method="GET">
-        <input type="text" name="tail" value="${rawTail.replace(/"/g,'')}" placeholder="e.g. 742" autofocus>
+        <input type="text" name="tail" value="${rawTail.replace(/"/g,'')}" placeholder="e.g. 742">
+        <label>From</label><input type="date" name="from" value="${fromStr}">
+        <label>To</label><input type="date" name="to" value="${toStr}">
         <button type="submit">Search</button>
     </form>
-    ${cs ? `<div style="color:#71717a;font-size:13px;margin-bottom:12px">Callsign <b style="color:#e4e4e7">${cs}</b> · Tail <b style="color:#e4e4e7">N${digits}QS</b></div>
-    <table><thead><tr><th>Route</th><th>Scheduled (TFDM)</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th><th></th></tr></thead>
-    <tbody>${rowsHtml}</tbody></table>` : ''}
+    ${bodyHtml}
     </body></html>`);
 });
 

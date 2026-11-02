@@ -548,6 +548,16 @@ function getAllLegs(callsign) {
         .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
 }
 
+// Research/validation tool (netjets-lookup page): every EJA callsign with at least one captured
+// leg, not just the one tail a caller already knows to ask for. Lets the tool test leg-creation
+// logic at fleet scale instead of only against the handful of real tours this app currently has.
+function getCallsignsWithLegs() {
+    return Object.keys(_legs).map(cs => {
+        const legs = [..._legs[cs].values()];
+        return { callsign: cs, legCount: legs.length, lastMs: Math.max(...legs.map(l => l.lastMsg || 0)) };
+    }).sort((a, b) => b.lastMs - a.lastMs);
+}
+
 // TEMP — same purpose as swim.js's _testSeedFlight: injects a synthetic runway assignment for a
 // test callsign so the pickBody() runway-matching logic in navdata.js can be exercised on demand
 // (e.g. forcing AARCH2's BUELL vs FDRKO leg) without waiting for TFDM to happen to report a real
@@ -561,4 +571,4 @@ function _testSeedRunway(callsign, { depRunway, arrRunway } = {}) {
     return true;
 }
 
-module.exports = { connect, getFlightInfo, getAllLegs, setRelevantCallsigns, _testSeedRunway, isEnabled: () => TFDM_ENABLED };
+module.exports = { connect, getFlightInfo, getAllLegs, getCallsignsWithLegs, setRelevantCallsigns, _testSeedRunway, isEnabled: () => TFDM_ENABLED };
