@@ -1720,9 +1720,22 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
     for (const leg of allLegs) {
         const origin = norm(leg.origin);
         if (!origin) continue;
-        const dest = norm(leg.dest);
         const flightState = leg.flightState || '';
-        const legTimes = tfmsLegTimes.find(l => norm(l.origin) === origin && norm(l.dest) === dest) || {};
+        // Confirmed real on EJA492: TFDM's own dest can be stale -- it never updated TEB>RSW to
+        // TEB>APF even though TFMS's own later, more-confirmed amendment (etaType ACTUAL, a
+        // non-estimated timeOfArrival, same GUFI) clearly shows the real destination became APF.
+        // Matching tfmsLegTimes by an EXACT dest string to TFDM's possibly-stale dest only ever
+        // finds the superseded entry. Instead, gather every TFMS entry for this same origin within
+        // the same departure-instant tolerance used for a dest conflict elsewhere, and trust
+        // whichever was updated most recently -- that one's own dest is the real current answer,
+        // not TFDM's.
+        const candidateLegTimes = tfmsLegTimes.filter(l => norm(l.origin) === origin
+            && l.scheduledDepMs != null && leg.scheduledDepMs != null
+            && Math.abs(l.scheduledDepMs - leg.scheduledDepMs) <= NETJETS_DISPLAY_SAME_DEPARTURE_TOLERANCE_MS);
+        const legTimes = candidateLegTimes.length
+            ? candidateLegTimes.reduce((best, l) => (l.lastMsg || 0) > (best.lastMsg || 0) ? l : best)
+            : (tfmsLegTimes.find(l => norm(l.origin) === origin && norm(l.dest) === norm(leg.dest)) || {});
+        const dest = norm(legTimes.dest) || norm(leg.dest);
         const depTime = legTimes.etd || legTimes.airlineOutTime || legTimes.igtd || leg.offBlockTime || null;
         if (!depTime) { out.push({ origin, dest, depTime: null, flightState, status: 'no-time', reason: 'nothing usable to anchor this leg by yet' }); continue; }
         const depMs = new Date(depTime).getTime();
