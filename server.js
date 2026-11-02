@@ -4780,7 +4780,14 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             const flightState = leg.flightState || '';
 
             const legTimes = tfmsLegTimes.find(l => norm3(l.origin) === origin && norm3(l.dest) === dest) || {};
-            const depTime = legTimes.airlineOutTime || legTimes.etd || legTimes.igtd || leg.offBlockTime || null;
+            // etd/eta preferred over airlineOutTime/airlineInTime -- confirmed real and backwards
+            // before this fix: James's RDU->27K leg pushed ~2h (etd went ACTUAL 20:00Z -> 22:03Z),
+            // but airlineOutTime stayed frozen at the original 20:00Z the whole time (NetJets
+            // doesn't feed real OOOI the way a scheduled airline does, so that field just mirrors
+            // the original plan and never updates). Being checked first, the stale value always
+            // won, so the segment never refreshed even though the real pushed time was sitting
+            // right there in etd the whole time.
+            const depTime = legTimes.etd || legTimes.airlineOutTime || legTimes.igtd || leg.offBlockTime || null;
             if (!depTime) continue; // nothing usable to anchor/match this leg by yet
 
             // This candidate's own destination is an airport the tail is confirmed to have
@@ -4803,7 +4810,10 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             // added 2026-10-31) before giving up -- confirmed live on EJA815: TFDM can carry a
             // real arrival estimate for a leg well before TFMS has any filed flight plan for it
             // at all, which is exactly the gap this closes.
-            const arrTime = legTimes.airlineInTime || legTimes.airlineOnTime || legTimes.eta || leg.estArrivalTime || null;
+            // Same fix as depTime above, same leg confirmed it: eta tracked the real ~2h push
+            // (23:14:35Z estimated) while airlineInTime/airlineOnTime stayed frozen near the
+            // original 22:12Z/22:06Z.
+            const arrTime = legTimes.eta || legTimes.airlineInTime || legTimes.airlineOnTime || leg.estArrivalTime || null;
             // Last resort when NEITHER feed has anything at all -- confirmed live this is common,
             // not rare: TFDM only ever shows up within ~18h of departure (590-leg fleet-wide
             // check, 2026-10-31, zero exceptions beyond that), and its own estArrivalTime is
