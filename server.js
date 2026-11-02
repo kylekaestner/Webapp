@@ -4141,13 +4141,39 @@ async function fetchLivePosition(callsign, expectedOrigin) {
         if (!matchesExpectedOrigin(stddsHit, expectedOrigin)) return { found: false };
         return withTfdmInfo(withEverAirborne(applyCallsignGroundState(stddsHit, callsign, 'stdds'), callsign), callsign, expectedOrigin);
     }
-    if (swimHit) {
+    if (swimHit?.found) {
         resolveRouteWaypoints(swimHit.routeParsed, callsign);
         if (!matchesExpectedOrigin(swimHit, expectedOrigin)) return { found: false };
         return withTfdmInfo(withEverAirborne(applyCallsignGroundState(swimHit, callsign, 'swim'), callsign), callsign, expectedOrigin);
     }
+    // SWIM has no LIVE position right now (either genuinely preflight, or SFDPS's radar-based
+    // tracking has gone stale -- confirmed real-world relevance: NetJets' FAA flight plan still
+    // gets filed whenever either endpoint is in the US, even for an otherwise-international leg,
+    // but SFDPS itself has nothing once the aircraft is out over open water, well short of the
+    // destination). Previously this was gated on a bare `if (swimHit)` truthiness check, which
+    // meant ANY cached route -- even with zero live position -- returned right here and never
+    // even attempted ADS-B, for the rest of that flight. ADS-B (satellite-covered in many such
+    // regions) can still have a real position SWIM doesn't.
     const adsbHit = await fetchAdsbPosition(callsign);
-    if (!adsbHit?.found) noteNoPosition(callsign);
+    // Carry the filed route forward regardless of which source answers position -- the flight
+    // plan doesn't change just because live tracking source did. Same pattern STDDS's own branch
+    // above already uses when carrying SWIM's route forward.
+    if (swimHit?.route) {
+        const target = adsbHit?.found ? adsbHit : swimHit;
+        target.route = swimHit.route; target.originalRoute = swimHit.originalRoute;
+        target.routeParsed = swimHit.routeParsed; target.sid = swimHit.sid; target.star = swimHit.star;
+        target.origin = swimHit.origin || target.origin; target.dest = swimHit.dest || target.dest;
+        target.hasRoute = true;
+        resolveRouteWaypoints(target.routeParsed, callsign);
+    }
+    if (adsbHit?.found) {
+        if (!matchesExpectedOrigin(adsbHit, expectedOrigin)) return { found: false };
+        return withTfdmInfo(withEverAirborne(applyCallsignGroundState(adsbHit, callsign, 'adsb'), callsign), callsign, expectedOrigin);
+    }
+    // No live position anywhere (ADS-B included) -- same preflight/no-position response SWIM
+    // alone would have given, just reached via a real ADS-B attempt first instead of skipping it.
+    if (swimHit?.hasRoute) return swimHit;
+    noteNoPosition(callsign);
     return withTfdmInfo(withEverAirborne(applyCallsignGroundState(adsbHit, callsign, 'adsb'), callsign), callsign, expectedOrigin);
 }
 
