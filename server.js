@@ -4083,6 +4083,25 @@ function matchesExpectedOrigin(data, expectedOrigin) {
 
 async function fetchLivePosition(callsign, expectedOrigin) {
     const swimHit = swim.getSwimPosition(callsign);
+    // NetJets concurrent-leg route-clobber fix -- see swim.js's _legRoutes header comment.
+    // Confirmed live on EJA492: a later-received 27K->LBE route amendment clobbered the flat
+    // per-callsign cache while the aircraft was still actually flying RDU->27K, so the map drew
+    // the wrong leg's route (and the real position then failed isPositionOnRoute() against it,
+    // falling back to a plain straight line). expectedOrigin is already threaded through from
+    // the segment's own departure_airport at every call site -- when it tells us which leg this
+    // actually is, prefer that leg's own stored route over whichever one most recently clobbered
+    // the flat cache. Scoped to EJA callsigns only; every other pilot's flow is untouched.
+    if (swimHit && expectedOrigin && /^EJA\d+$/.test(String(callsign).toUpperCase())) {
+        const legRoute = swim.getRouteForOrigin(callsign, expectedOrigin);
+        if (legRoute && legRoute.route !== swimHit.route) {
+            swimHit.route = legRoute.route;
+            swimHit.routeParsed = legRoute.routeParsed;
+            swimHit.sid = legRoute.sid;
+            swimHit.star = legRoute.star;
+            swimHit.origin = legRoute.origin || swimHit.origin;
+            swimHit.dest = legRoute.dest || swimHit.dest;
+        }
+    }
     if (swimHit?.sector) swimHit.sector = withResolvedFrequency(swimHit.sector);
     const stddsHit = stdds.getGroundPosition(callsign);
     // STDDS (airport-vicinity surveillance — TAIS terminal tracks + ASDE-X surface contacts)

@@ -53,6 +53,33 @@ const LATEST_PURGE_MS = 2 * 60 * 60 * 1000; // cheap latest-position-only entrie
 const _latest  = {};  // callsign -> { lat, lon, altFt, heading, onGround, lastMsg, gufi, origin, dest }
 const _watched = new Set();
 
+// NetJets files multiple legs concurrently under one callsign (confirmed extensively in
+// tfdm.js/tfms.js's own per-leg stores) -- but _latest[cs]'s route/origin/dest fields are a flat,
+// single-slot-per-callsign cache with no leg awareness at all, unconditionally overwritten by
+// whichever message arrives last. Confirmed live on EJA492: a later-received 27K->LBE route
+// amendment clobbered _latest['EJA492'].route/.routeParsed while the aircraft was still actually
+// flying RDU->27K -- origin/dest self-correct on every subsequent position-only message (which
+// carries its own departurePoint/arrivalPoint), but route/routeParsed only change when another
+// route-bearing message happens to arrive, so a wrong leg's route can sit there clobbered for the
+// rest of that flight. This additive per-leg store (never replaces the flat one above, so every
+// other pilot's tracking is unaffected) lets server.js's fetchLivePosition() pick the right leg's
+// route by the origin it already knows from the caller's own expectedOrigin. Keyed by normalized
+// origin rather than GUFI -- simpler, and sufficient for the reported bug (two different-origin
+// concurrent legs); two concurrent legs sharing the SAME origin (a same-day quick-turn) is a
+// rarer case this doesn't disambiguate, not yet seen live.
+const NETJETS_RESEARCH_MODE = true;
+function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && /^EJA\d+$/.test(cs); }
+const _legRoutes = {}; // callsign -> Map(normOrigin -> {origin, dest, route, routeParsed, sid, star, gufi, lastMsg})
+function _normApt(a) { return a ? String(a).toUpperCase().replace(/^K/, '') : null; }
+function getRouteForOrigin(callsign, originHint) {
+    const cs = String(callsign || '').trim().toUpperCase();
+    const legMap = _legRoutes[cs];
+    if (!legMap) return null;
+    const o = _normApt(originHint);
+    if (!o) return null;
+    return legMap.get(o) || null;
+}
+
 // SFDPS can't be filtered server-side — the queue delivers every en-route flight in the
 // country regardless of what CrewSync actually wants. This is the client-side equivalent:
 // server.js refreshes this with the set of callsigns actually scheduled on CrewSync (same
@@ -112,14 +139,25 @@ function scheduleSave() {
                 } : {}),
             };
         }
+        // Additive per-leg overlay, same TTL/shape reasoning as the flat cache above --
+        // see _legRoutes's header comment.
+        const legRoutesOut = {};
+        for (const cs of Object.keys(_legRoutes)) legRoutesOut[cs] = [..._legRoutes[cs].entries()];
+        if (Object.keys(legRoutesOut).length) data.__legRoutes = { ts: Date.now(), legRoutesOut };
         try { fs.writeFileSync(STATE_CACHE_FILE, JSON.stringify(data)); } catch (_) {}
     }, 5000); // batch writes, same pattern as the ADS-B trail cache
 }
 function loadStateCache() {
     try {
         const data = JSON.parse(fs.readFileSync(STATE_CACHE_FILE, 'utf8'));
+        if (data.__legRoutes && Date.now() - data.__legRoutes.ts <= 24 * 60 * 60 * 1000) {
+            for (const [cs, entries] of Object.entries(data.__legRoutes.legRoutesOut || {})) {
+                _legRoutes[cs] = new Map(entries);
+            }
+        }
         const cutoff = Date.now() - 24 * 60 * 60 * 1000; // same reuse-the-next-day concern trail already had
         for (const [cs, entry] of Object.entries(data)) {
+            if (cs === '__legRoutes') continue;
             if (entry.ts <= cutoff) continue;
             _latest[cs] = _latest[cs] || {};
             if (Array.isArray(entry.trail) && entry.trail.length) {
@@ -377,6 +415,18 @@ function processOneMessage(msgObj) {
         entry.route = route;
         entry.routeParsed = parseRouteString(route, origin || entry.origin, dest || entry.dest);
         scheduleSave(); // a route-only message (no position yet) must still persist -- see below
+
+        // Additive per-leg overlay -- see _legRoutes's header comment. Never replaces the flat
+        // entry above (every other pilot's tracking stays exactly as it was).
+        const legOrigin = _normApt(origin || entry.origin);
+        if (_isResearchRelevant(cs) && legOrigin) {
+            const legMap = _legRoutes[cs] || (_legRoutes[cs] = new Map());
+            legMap.set(legOrigin, {
+                origin: origin || entry.origin, dest: dest || entry.dest, route,
+                routeParsed: parseRouteString(route, origin || entry.origin, dest || entry.dest),
+                sid, star, gufi: gufi || null, lastMsg: Date.now(),
+            });
+        }
     }
     if (sid) entry.sid = sid;
     if (star) entry.star = star;
@@ -664,4 +714,4 @@ function _testSeedFlight(callsign, { lat, lon, altFt, speedKts, heading, route, 
     return true;
 }
 
-module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, _testSeedRoute, _testSeedFlight, isEnabled: () => SWIM_ENABLED };
+module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, getRouteForOrigin, _testSeedRoute, _testSeedFlight, isEnabled: () => SWIM_ENABLED };
