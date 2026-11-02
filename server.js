@@ -2763,6 +2763,32 @@ app.put('/api/pilots/:pilotKey/rotation', (req, res) => {
     });
 });
 
+// Notes.md: "no way currently to get them off of a rotation. For testing purposes while NJ is
+// in beta." Wipes the rotation formula entirely (plus any seam row and cc_variant) so
+// _isNetJetsOnDuty() falls back to pure segment-based off-day detection for this pilot, same as
+// before any rotation was ever configured.
+app.delete('/api/pilots/:pilotKey/rotation', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { token } = req.body;
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
+            db.run('DELETE FROM pilot_duty_rotation WHERE pilot_id=?', [pilotRow.id], () => {
+                db.run('DELETE FROM pilot_duty_rotation_seam WHERE pilot_id=?', [pilotRow.id], () => {
+                    db.run('UPDATE pilots SET cc_variant=NULL WHERE id=?', [pilotRow.id], function (err2) {
+                        if (err2) return res.status(500).json({ error: err2.message });
+                        res.json({ success: true });
+                    });
+                });
+            });
+        });
+    });
+});
+
 // One tail per tour instance, keyed by that tour's own on-duty start date -- upserted via ON
 // CONFLICT since a correction or a recorded mid-tour swap should replace the row, not stack one.
 app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
@@ -2820,6 +2846,39 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
     });
 });
 
+// Clear a tour's saved tail/start_airport entirely (Notes.md: "should be able to remove tail
+// for a tour/starting airport"). Same reasoning as the swap path above -- whatever's still OPEN
+// under the cleared tail's callsign gets finalized so it doesn't sit abandoned forever.
+app.delete('/api/pilots/:pilotKey/tour-tail', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { token, tourStartDate } = req.body;
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+        if (!tourStartDate) return res.status(400).json({ error: 'tourStartDate required' });
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
+            db.get('SELECT tail FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?', [pilotRow.id, tourStartDate], (err1, row) => {
+                if (err1) return res.status(500).json({ error: err1.message });
+                const finalizeOpenLeg = (cb) => {
+                    const cs = row?.tail ? ejaFlightNumber(String(row.tail).toUpperCase().trim()) : null;
+                    if (!cs) return cb();
+                    db.run(`UPDATE segments SET auto_leg_complete=1 WHERE pilot_id=? AND auto_leg_key LIKE ? AND auto_leg_complete=0`,
+                        [pilotRow.id, `${cs}|${tourStartDate}|%`], () => cb());
+                };
+                finalizeOpenLeg(() => {
+                    db.run('DELETE FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?', [pilotRow.id, tourStartDate], function (err2) {
+                        if (err2) return res.status(500).json({ error: err2.message });
+                        res.json({ success: true });
+                    });
+                });
+            });
+        });
+    });
+});
+
 // Used by _handlePilotUpload()'s manual_netjets branch -- upserts one row per day (ON CONFLICT
 // so re-uploading the same month, or a corrected re-send, updates in place rather than
 // duplicating).
@@ -2829,6 +2888,28 @@ function _saveCcScheduleDays(db, pilotId, days, cb) {
     for (const d of days) stmt.run(pilotId, d.date, d.status);
     stmt.finalize(cb);
 }
+
+// Notes.md: "Once a month is uploaded for CC schedule no way to revert that." Clears every
+// pilot_cc_schedule_day row for the given YYYY-MM so a bad upload (wrong file, wrong month) can
+// be wiped and re-uploaded clean instead of being stuck upserted over indefinitely.
+app.delete('/api/pilots/:pilotKey/cc-schedule', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { token, month } = req.body;
+    if (!/^\d{4}-\d{2}$/.test(month || '')) return res.status(400).json({ error: 'month must be YYYY-MM' });
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
+            db.run(`DELETE FROM pilot_cc_schedule_day WHERE pilot_id=? AND date LIKE ?`, [pilotRow.id, `${month}-%`], function (err2) {
+                if (err2) return res.status(500).json({ error: err2.message });
+                res.json({ success: true, deleted: this.changes });
+            });
+        });
+    });
+});
 
 // Delete pilot and their segments (admin-only -- was previously callable by anyone with no
 // token at all, same gap the PUT endpoint above had).

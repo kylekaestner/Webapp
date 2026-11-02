@@ -1761,8 +1761,15 @@
                     </select>
                 </div>
                 <p id="my-info-rotation-note" class="text-[10px] text-zinc-500">Pick your schedule family and bid line.</p>
-                <button type="button" onclick="saveMyRotation()" class="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save</button>
+                <div class="flex gap-2 mt-2">
+                    <button type="button" onclick="saveMyRotation()" class="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save</button>
+                    <button type="button" onclick="clearMyRotation()" class="px-3 py-2.5 rounded-xl bg-red-950/40 hover:bg-red-950/70 border border-red-900 text-[10px] font-black uppercase tracking-wide text-red-400 transition-colors">Clear</button>
+                </div>
                 <p id="my-info-rotation-status" class="text-[10px] text-zinc-500 mt-1"></p>
+                <div id="my-info-cc-clear-row" class="hidden flex gap-2 mt-2">
+                    <input id="my-info-cc-clear-month" type="month" class="flex-1 px-3 py-2 rounded-xl border border-zinc-700 bg-zinc-900 text-xs text-zinc-100 focus:border-red-500 outline-none">
+                    <button type="button" onclick="clearMyCcScheduleMonth()" class="px-3 py-2 rounded-xl bg-red-950/40 hover:bg-red-950/70 border border-red-900 text-[10px] font-black uppercase tracking-wide text-red-400 transition-colors">Clear Month</button>
+                </div>
             </div>
             <div>
                 <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Current Tour Tail</label>
@@ -1820,6 +1827,7 @@
         </div>
         <div class="flex border-t border-zinc-800">
             <button onclick="dismissNetjetsTourModal()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Close</button>
+            <button id="netjets-tour-modal-reset-btn" onclick="resetNetjetsTour()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-red-400 hover:text-red-300 hover:bg-red-950/30 transition-colors border-r border-zinc-800">Reset</button>
             <button onclick="saveNetjetsTourTail()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30 transition-colors">Save</button>
         </div>
     </div>
@@ -11010,6 +11018,59 @@ async function openAdminPanel(tab = 'users') {
             document.getElementById('my-info-rotation-note').textContent = isCC
                 ? 'Pick which CC program you bid. The real on/off-duty schedule always comes from your uploaded monthly export (Upload Schedule button) — this is just for reference.'
                 : 'Pick your schedule family and bid line.';
+            document.getElementById('my-info-cc-clear-row').classList.toggle('hidden', !isCC);
+        }
+
+        // Notes.md: "no way currently to get them off of a rotation. For testing purposes while
+        // NJ is in beta." Full reset -- rotation, seams, and cc_variant.
+        async function clearMyRotation() {
+            const statusEl = document.getElementById('my-info-rotation-status');
+            const ok = await showConfirm('Clear rotation?', 'Removes your saved duty rotation entirely (formula, line-switch seams, and CC program). On/off days fall back to whatever flights are actually logged until you set a new one.', { label: 'Clear' });
+            if (!ok) return;
+            statusEl.textContent = 'Clearing…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}/rotation`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken })
+                });
+                if (!r.ok) { statusEl.textContent = 'Clear failed — try again.'; return; }
+                if (pilotsCache[myPilot]) {
+                    pilotsCache[myPilot].rotation_history = [];
+                    pilotsCache[myPilot].rotation_seams = [];
+                    pilotsCache[myPilot].cc_variant = null;
+                }
+                document.getElementById('my-info-rotation-family').value = '';
+                document.getElementById('my-info-rotation-line').innerHTML = '<option value="">— Line —</option>'
+                    + _ROTATION_LINE_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+                document.getElementById('my-info-cc-clear-row').classList.add('hidden');
+                document.getElementById('my-info-rotation-note').textContent = 'Pick your schedule family and bid line.';
+                statusEl.textContent = 'Rotation cleared.';
+                _refreshMyInfoNetjetsStatus();
+            } catch { statusEl.textContent = 'Clear failed — try again.'; }
+        }
+
+        // Notes.md: "Once a month is uploaded for CC schedule no way to revert that."
+        async function clearMyCcScheduleMonth() {
+            const monthVal = document.getElementById('my-info-cc-clear-month').value; // YYYY-MM
+            const statusEl = document.getElementById('my-info-rotation-status');
+            if (!monthVal) { statusEl.textContent = 'Pick a month to clear first.'; return; }
+            const ok = await showConfirm('Clear this month?', `Deletes every uploaded CC schedule day for ${monthVal}. You can re-upload it afterward.`, { label: 'Clear' });
+            if (!ok) return;
+            statusEl.textContent = 'Clearing…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}/cc-schedule`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, month: monthVal })
+                });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok) { statusEl.textContent = j.error || 'Clear failed — try again.'; return; }
+                if (pilotsCache[myPilot]?.cc_schedule_days) {
+                    pilotsCache[myPilot].cc_schedule_days = pilotsCache[myPilot].cc_schedule_days.filter(d => !d.date.startsWith(monthVal));
+                }
+                statusEl.textContent = `Cleared ${j.deleted || 0} day(s) for ${monthVal}.`;
+            } catch { statusEl.textContent = 'Clear failed — try again.'; }
         }
 
         async function saveMyRotation() {
@@ -11125,6 +11186,8 @@ async function openAdminPanel(tab = 'users') {
             document.getElementById('netjets-tour-modal-tail').value = _tourTailFor(myPilot, tourStartDate) || '';
             document.getElementById('netjets-tour-modal-start-airport').value = _tourStartAirportFor(myPilot, tourStartDate) || '';
             document.getElementById('netjets-tour-modal-status').textContent = '';
+            // Nothing saved for this tour yet -- no point offering to reset a blank.
+            document.getElementById('netjets-tour-modal-reset-btn').classList.toggle('hidden', !_tourTailFor(myPilot, tourStartDate));
             document.getElementById('netjets-tour-modal').classList.remove('hidden');
         }
         function dismissNetjetsTourModal() {
@@ -11154,6 +11217,32 @@ async function openAdminPanel(tab = 'users') {
                 statusEl.textContent = isSwap ? 'Tail swapped — tracking switches to the new tail now.' : 'Saved.';
                 _refreshMyInfoNetjetsStatus();
             } catch { statusEl.textContent = 'Save failed — try again.'; }
+        }
+
+        // Notes.md: "should be able to remove tail for a tour/starting airport. (Reset)"
+        async function resetNetjetsTour() {
+            const tourStart = _netjetsTourModalDate;
+            const statusEl = document.getElementById('netjets-tour-modal-status');
+            if (!tourStart) return;
+            const ok = await showConfirm('Reset this tour?', 'This clears the saved tail and starting airport for this tour. Any leg already tracked stays on your schedule, just marked complete.', { label: 'Reset' });
+            if (!ok) return;
+            statusEl.textContent = 'Resetting…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}/tour-tail`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, tourStartDate: tourStart })
+                });
+                if (!r.ok) { statusEl.textContent = 'Reset failed — try again.'; return; }
+                if (pilotsCache[myPilot]?.tour_tails) {
+                    pilotsCache[myPilot].tour_tails = pilotsCache[myPilot].tour_tails.filter(t => t.tour_start_date !== tourStart);
+                }
+                document.getElementById('netjets-tour-modal-tail').value = '';
+                document.getElementById('netjets-tour-modal-start-airport').value = '';
+                document.getElementById('netjets-tour-modal-reset-btn').classList.add('hidden');
+                statusEl.textContent = 'Reset.';
+                _refreshMyInfoNetjetsStatus();
+            } catch { statusEl.textContent = 'Reset failed — try again.'; }
         }
 
         // Raised directly: "they could technically DH to a new airport to get to the new
