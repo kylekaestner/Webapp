@@ -4654,23 +4654,31 @@ const _NETJETS_RESEARCH_CALLSIGNS = ['EJA303'];
 // enough that two genuinely different legs on the same origin/dest (a same-day round trip) can't
 // collide.
 const NETJETS_LEG_MATCH_TOLERANCE_MS = 6 * 60 * 60 * 1000;
-function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs, isDiversion) {
+// Notes.md (James: "scheduled APF-RDU-27K today, then they added APF-BKV-RDU in the middle --
+// need a way to recognize this") -- a dest conflict against an already-open row no longer means
+// "different leg" by itself. EJA+tail uniquely identifies ONE aircraft (confirmed elsewhere in
+// this app), so two legs sharing the same origin AT ESSENTIALLY THE SAME DEPARTURE INSTANT can
+// only be two tellings of the SAME physical departure -- a diversion mid-flight, or NetJets
+// inserting/removing an intermediate stop before departure, both change the destination without
+// changing when or where the aircraft actually left. A tight tolerance here (not the generous
+// 6h one below, meant for the SAME leg's estimate drifting across polls) is what keeps this safe
+// against a real quick-turn -- a genuinely separate, later departure from the same airport sits
+// well outside this window and correctly becomes its own new leg instead of overwriting the row.
+const NETJETS_SAME_DEPARTURE_TOLERANCE_MS = 15 * 60 * 1000;
+function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs) {
     let best = null, bestDiff = Infinity;
     for (const row of existingRows) {
         if (row.departure_airport !== origin) continue;
-        // The dest-conflict check below exists to avoid merging two genuinely unrelated legs that
-        // happen to share an origin -- but that's the wrong call once TFDM itself has flagged THIS
-        // leg as a diversion (tfdm.js's isDiversion, diversionRecoveryIndicator): it's still the
-        // same physical departure, just re-routed mid-flight, so a changed destination shouldn't
-        // spin off a duplicate segment. Only relax the check against a row that isn't already
-        // finalized -- a completed, non-diverted leg from the past shouldn't get reopened by an
-        // unrelated new departure that happens to share an origin.
-        if (isDiversion && row.auto_leg_complete) continue;
-        if (!isDiversion && dest && row.arrival_airport && row.arrival_airport !== dest) continue; // both sides know dest and disagree -- not the same leg
         const rowMs = row.departure_time ? new Date(row.departure_time).getTime() : null;
         if (rowMs == null) continue;
         const diff = Math.abs(rowMs - depTimeMs);
-        if (diff <= NETJETS_LEG_MATCH_TOLERANCE_MS && diff < bestDiff) { best = row; bestDiff = diff; }
+        const destAgrees = !dest || !row.arrival_airport || row.arrival_airport === dest;
+        if (destAgrees) {
+            if (diff > NETJETS_LEG_MATCH_TOLERANCE_MS) continue;
+        } else {
+            if (row.auto_leg_complete || diff > NETJETS_SAME_DEPARTURE_TOLERANCE_MS) continue;
+        }
+        if (diff < bestDiff) { best = row; bestDiff = diff; }
     }
     return best;
 }
@@ -4766,7 +4774,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                 if (lastPos && lastPos.lat != null && lastPos.lon != null) finalDest = _findNearestAirportCode(lastPos.lat, lastPos.lon);
             }
 
-            const row = _findExistingNetjetsLeg(existingRows, origin, dest, new Date(depTime).getTime(), !!leg.isDiversion);
+            const row = _findExistingNetjetsLeg(existingRows, origin, dest, new Date(depTime).getTime());
 
             // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides they
             // aren't doing that flight -- need support for that." A cancelled leg that was never
