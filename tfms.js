@@ -126,6 +126,19 @@ function scheduleTimesSave() {
 // _latest[cs].origin fallback isExpectedOrigin() uses, so a leg key here is never guessed.
 // Deliberately sparser than _flightTimes as a result, but every entry it has is correctly
 // attributed to the leg it's actually about.
+// Moved above the load-from-disk block below (2026-11-02) -- confirmed real, severe bug: these
+// were previously declared further down the file, past where the load-cache try/catch already
+// calls legTimesStaleMsFor() -> _isResearchRelevant() -> NETJETS_RESEARCH_MODE, which a `const`
+// declared later is in the temporal dead zone for at that point. The ReferenceError was silently
+// swallowed by the try/catch, so the disk restore silently failed on every restart, and the next
+// save overwrote the real persisted history with whatever thin in-memory state existed right
+// after boot -- confirmed live: EJA492's legTimes cache collapsed from ~10 real entries to 1
+// within two minutes of a restart. See tfdm.js's identical _isResearchRelevant() for the full
+// reasoning on the regex itself.
+const NETJETS_RESEARCH_MODE = true;
+const NETJETS_TAIL_PREFILTER_RE = /N\d{1,4}QS/;
+function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && (/^EJA\d+$/.test(cs) || /^N\d+QS$/.test(cs)); }
+
 const _legTimes = {};
 const LEG_TIMES_STALE_MS = 48 * 60 * 60 * 1000;
 // See tfdm.js's identical LEG_STALE_MS_RESEARCH for the full reasoning -- a completed leg's
@@ -171,16 +184,6 @@ function textOf(val) {
     return val;
 }
 
-// TEMPORARY (added 2026-10-30, remove once the NetJets same-callsign-all-day filing
-// investigation is done): see tfdm.js's identical _isResearchRelevant() for the full reasoning --
-// a single cheap `includes('EJA')` check, never a per-tail loop, to avoid the exact CPU mistake
-// swim.js's own handleMessage comment documents a real past incident over.
-const NETJETS_RESEARCH_MODE = true;
-// See tfdm.js's identical constant for the full reasoning.
-const NETJETS_TAIL_PREFILTER_RE = /N\d{1,4}QS/;
-// See tfdm.js's identical change for the full reasoning -- outside the lower 48 + Canada,
-// NetJets flies/files under the bare tail number (always ending "QS") instead of EJA####.
-function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && (/^EJA\d+$/.test(cs) || /^N\d+QS$/.test(cs)); }
 
 // Same dedicated-file, log-on-change-only helper as tfdm.js -- see its own comment for the full
 // reasoning. Writes to the SAME file (not a separate one per module) so TFDM and TFMS entries

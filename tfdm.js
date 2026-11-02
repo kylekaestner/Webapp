@@ -76,6 +76,37 @@ const _latest = {};
 // origin/dest-changed reset in processOneMessage below) but wrong for NetJets, which is exactly
 // what corrupted a real auto-created segment's times (see CLAUDE.md). Purely additive: _latest/
 // getFlightInfo() are untouched, so nothing already depending on them changes behavior.
+//
+// TEMPORARY (added 2026-10-30, remove once the NetJets same-callsign-all-day filing
+// investigation is done): treats every real EJA callsign as relevant, not just the handful
+// server.js explicitly lists. Deliberately NOT implemented by enumerating hundreds of individual
+// tails into _relevantCallsigns -- that would turn the cheap per-message substring pre-filter in
+// handleMessage() (a loop over every relevant callsign, checked against every message TFDM
+// delivers nationwide) into an O(hundreds) cost per message, the exact CPU mistake swim.js's own
+// handleMessage comment documents a real past incident over. A single `includes('EJA')` check is
+// O(1) regardless of how many individual tails this ends up covering.
+//
+// Moved above _legs/the load-from-disk block below (2026-11-02) -- confirmed real, severe bug:
+// these were previously declared further down the file, past where the load-cache try/catch
+// already calls legStaleMsFor() -> _isResearchRelevant() -> NETJETS_RESEARCH_MODE, which a
+// `const` declared later is in the temporal dead zone for at that point. The ReferenceError was
+// silently swallowed by the try/catch, so the disk restore silently failed on every restart,
+// and the next save overwrote the real persisted history with whatever thin in-memory state
+// existed right after boot -- confirmed live: EJA492's legTimes cache collapsed from ~10 real
+// entries to 1 within two minutes of a restart.
+const NETJETS_RESEARCH_MODE = true;
+// Cheap pre-filter companion to the 'EJA' substring check below -- every known NetJets tail
+// number ends "QS" (confirmed real), so this is just as safe a nationwide-traffic-narrowing
+// signal as the literal "EJA" substring already is, at the same near-zero cost (one regex test
+// per message, same class as the existing _relevantCallsigns substring loop).
+const NETJETS_TAIL_PREFILTER_RE = /N\d{1,4}QS/;
+// Raised directly: outside the lower 48 + Canada, NetJets flies/files under the bare tail
+// number instead of EJA#### -- confirmed real convention, every known NetJets tail this app has
+// ever seen ends in "QS" (N22QS, N742QS, N815QS, N492QS), making /^N\d+QS$/ exactly as clean a
+// fleet-wide research signal as /^EJA\d+$/ already is, with no separate "known tails" list
+// needed.
+function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && (/^EJA\d+$/.test(cs) || /^N\d+QS$/.test(cs)); }
+
 const _legs = {};
 const LEG_STALE_MS = 48 * 60 * 60 * 1000; // longer than _latest's 1h -- a future leg's plan is exactly what this exists to keep around
 // Raised directly: the NetJets Lookup research tool offers a 3-day lookback, but a completed
@@ -138,26 +169,6 @@ function textOf(val) {
     return val;
 }
 
-// TEMPORARY (added 2026-10-30, remove once the NetJets same-callsign-all-day filing
-// investigation is done): treats every real EJA callsign as relevant, not just the handful
-// server.js explicitly lists. Deliberately NOT implemented by enumerating hundreds of individual
-// tails into _relevantCallsigns -- that would turn the cheap per-message substring pre-filter in
-// handleMessage() (a loop over every relevant callsign, checked against every message TFDM
-// delivers nationwide) into an O(hundreds) cost per message, the exact CPU mistake swim.js's own
-// handleMessage comment documents a real past incident over. A single `includes('EJA')` check is
-// O(1) regardless of how many individual tails this ends up covering.
-const NETJETS_RESEARCH_MODE = true;
-// Cheap pre-filter companion to the 'EJA' substring check below -- every known NetJets tail
-// number ends "QS" (confirmed real), so this is just as safe a nationwide-traffic-narrowing
-// signal as the literal "EJA" substring already is, at the same near-zero cost (one regex test
-// per message, same class as the existing _relevantCallsigns substring loop).
-const NETJETS_TAIL_PREFILTER_RE = /N\d{1,4}QS/;
-// Raised directly: outside the lower 48 + Canada, NetJets flies/files under the bare tail
-// number instead of EJA#### -- confirmed real convention, every known NetJets tail this app has
-// ever seen ends in "QS" (N22QS, N742QS, N815QS, N492QS), making /^N\d+QS$/ exactly as clean a
-// fleet-wide research signal as /^EJA\d+$/ already is, with no separate "known tails" list
-// needed.
-function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && (/^EJA\d+$/.test(cs) || /^N\d+QS$/.test(cs)); }
 
 // Dedicated log file (not pm2's general console output) so the investigation's own volume
 // doesn't bury or get buried by normal app logs, and only written ON CHANGE per callsign (not
