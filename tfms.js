@@ -107,7 +107,7 @@ function scheduleTimesSave() {
         for (const cs of Object.keys(_flightTimes)) if (now - (_flightTimes[cs].timesUpdated || 0) > TIMES_TTL_MS) delete _flightTimes[cs];
         for (const cs of Object.keys(_legTimes)) {
             const legsMap = _legTimes[cs];
-            for (const [k, leg] of legsMap) if (now - (leg.lastMsg || 0) > LEG_TIMES_STALE_MS) legsMap.delete(k);
+            for (const [k, leg] of legsMap) if (now - (leg.lastMsg || 0) > legTimesStaleMsFor(cs)) legsMap.delete(k);
             if (legsMap.size === 0) delete _legTimes[cs];
         }
         try { fs.writeFileSync(TIMES_CACHE_PATH, JSON.stringify(_flightTimes)); } catch (_) {}
@@ -128,6 +128,11 @@ function scheduleTimesSave() {
 // attributed to the leg it's actually about.
 const _legTimes = {};
 const LEG_TIMES_STALE_MS = 48 * 60 * 60 * 1000;
+// See tfdm.js's identical LEG_STALE_MS_RESEARCH for the full reasoning -- a completed leg's
+// lastMsg stops updating the moment the flight ends, so it was aging out at 48h, already gone
+// before the NetJets Lookup tool's own 3-day lookback window could ever show it.
+const LEG_TIMES_STALE_MS_RESEARCH = 7 * 24 * 60 * 60 * 1000;
+function legTimesStaleMsFor(cs) { return _isResearchRelevant(cs) ? LEG_TIMES_STALE_MS_RESEARCH : LEG_TIMES_STALE_MS; }
 // Persisted to disk, same reasoning as _flightTimes above and tfdm.js's identical _legs cache --
 // a pm2 restart otherwise throws away whatever future legs had already been filed ahead.
 const LEG_TIMES_CACHE_PATH = path.join(__dirname, '.tfms_legtimes_cache.json');
@@ -137,7 +142,7 @@ try {
     for (const [cs, entries] of Object.entries(saved)) {
         const map = new Map();
         for (const [key, leg] of entries) {
-            if (now - (leg.lastMsg || 0) <= LEG_TIMES_STALE_MS) map.set(key, leg);
+            if (now - (leg.lastMsg || 0) <= legTimesStaleMsFor(cs)) map.set(key, leg);
         }
         if (map.size) _legTimes[cs] = map;
     }

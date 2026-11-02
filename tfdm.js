@@ -78,6 +78,14 @@ const _latest = {};
 // getFlightInfo() are untouched, so nothing already depending on them changes behavior.
 const _legs = {};
 const LEG_STALE_MS = 48 * 60 * 60 * 1000; // longer than _latest's 1h -- a future leg's plan is exactly what this exists to keep around
+// Raised directly: the NetJets Lookup research tool offers a 3-day lookback, but a completed
+// leg's lastMsg stops updating the moment the flight ends, so it was aging out of this cache at
+// 48h -- already gone before the tool's own default window could ever show it (confirmed real:
+// EJA23's 10/31 KADS->KSAT leg, the only confirmed movement this tail has ever had, had already
+// been purged by 11/2). Research-relevant callsigns get a week instead -- a handful of EJA/tail-
+// number entries, not a memory concern the way every real tracked pilot's legs would be.
+const LEG_STALE_MS_RESEARCH = 7 * 24 * 60 * 60 * 1000;
+function legStaleMsFor(cs) { return _isResearchRelevant(cs) ? LEG_STALE_MS_RESEARCH : LEG_STALE_MS; }
 function legKey(origin, dest) { return (origin && dest) ? `${origin}>${dest}` : null; }
 
 // Persisted to disk, same reasoning and pattern as tfms.js's own _flightTimes cache (and this
@@ -93,7 +101,7 @@ try {
     for (const [cs, entries] of Object.entries(saved)) {
         const map = new Map();
         for (const [key, leg] of entries) {
-            if (now - (leg.lastMsg || 0) <= LEG_STALE_MS) map.set(key, leg);
+            if (now - (leg.lastMsg || 0) <= legStaleMsFor(cs)) map.set(key, leg);
         }
         if (map.size) _legs[cs] = map;
     }
@@ -445,7 +453,7 @@ function purgeStale() {
     for (const cs of Object.keys(_legs)) {
         const legsMap = _legs[cs];
         for (const [k, leg] of legsMap) {
-            if (now - (leg.lastMsg || 0) > LEG_STALE_MS) { legsMap.delete(k); legsChanged = true; }
+            if (now - (leg.lastMsg || 0) > legStaleMsFor(cs)) { legsMap.delete(k); legsChanged = true; }
         }
         if (legsMap.size === 0) delete _legs[cs];
     }
