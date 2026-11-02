@@ -1739,6 +1739,12 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
         out.push({
             origin, dest, depTime, flightState, status: 'real', reason: null,
             arrTime: legTimes.eta || legTimes.airlineInTime || legTimes.airlineOnTime || leg.estArrivalTime || null,
+            // Raised directly: "resolved" (passed the chain-consistency filter) is not the same
+            // claim as "actually confirmed flown" -- confirmed real tail-23 case: 3 legs resolved
+            // for 11/1, FlightAware shows nothing flown since 10/31. A leg only ever gets this
+            // true once TFDM itself reports real movement (taxi-out or later), never just from
+            // surviving the filter.
+            confirmed: REALLY_DEPARTED_RE.test(flightState),
         });
     }
 
@@ -5464,13 +5470,27 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
         const resolved = resolveNetjetsLegsForDisplay(allLegs, legTimes);
         const statusColor = { real: '#4ade80', filtered: '#f87171', cancelled: '#71717a', 'no-time': '#52525b' };
         const statusLabel = { real: 'REAL', filtered: 'FILTERED OUT', cancelled: 'CANCELLED', 'no-time': 'NO TIME YET' };
+        // Raised directly: "resolved" (survived the chain-consistency filter) isn't the same claim
+        // as "actually confirmed flown" -- confirmed real tail-23 case, 3 legs resolved for 11/1
+        // with FlightAware showing nothing flown since 10/31. Same 3h grace period as the day
+        // map's own "never seen flying" rule (_legState rule 8 in app.html) before calling a
+        // still-unconfirmed past-due leg suspicious rather than just "hasn't happened yet."
+        const CONFIRM_GRACE_MS = 3 * 60 * 60 * 1000;
+        const confirmLabel = (r) => {
+            if (r.status !== 'real') return '';
+            if (r.confirmed) return '<span style="color:#4ade80;font-weight:700">✓ confirmed flown</span>';
+            const depMs = r.depTime ? new Date(r.depTime).getTime() : null;
+            if (depMs != null && nowMs - depMs > CONFIRM_GRACE_MS) return '<span style="color:#f87171;font-weight:700">⚠ never confirmed</span>';
+            return '<span style="color:#71717a">— upcoming</span>';
+        };
         const resolvedRows = resolved.length ? resolved.map(r => `<tr style="border-bottom:1px solid #27272a">
                 <td style="padding:10px 12px;font-weight:700">${r.origin || '?'} → ${r.dest || '?'}${r.supersededDest ? `<div style="font-size:9px;color:#71717a">superseded: ${r.origin}→${r.supersededDest}</div>` : ''}</td>
                 <td style="padding:10px 12px;color:#a1a1aa">${r.depTime ? new Date(r.depTime).toISOString().slice(0,16).replace('T',' ') + 'Z' : '—'}</td>
                 <td style="padding:10px 12px;color:#93c5fd">${r.arrTime ? new Date(r.arrTime).toISOString().slice(11,16) + 'Z' : '—'}</td>
                 <td style="padding:10px 12px;color:${statusColor[r.status]};font-weight:700">${statusLabel[r.status]}</td>
+                <td style="padding:10px 12px;font-size:11px">${confirmLabel(r)}</td>
                 <td style="padding:10px 12px;color:#52525b;font-size:11px">${r.reason || ''}</td>
-            </tr>`).join('') : `<tr><td colspan="5" style="padding:20px;text-align:center;color:#71717a">Nothing resolved in this window.</td></tr>`;
+            </tr>`).join('') : `<tr><td colspan="6" style="padding:20px;text-align:center;color:#71717a">Nothing resolved in this window.</td></tr>`;
 
         bodyHtml = `<div style="color:#71717a;font-size:13px;margin-bottom:4px">Callsign <b style="color:#e4e4e7">${cs}</b> · Tail <b style="color:#e4e4e7">N${digits}QS</b>
             · <a href="${faLink}" target="_blank" rel="noopener" style="color:#60a5fa">FlightAware ↗</a>
@@ -5479,7 +5499,7 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
         <table><thead><tr><th>Route</th><th>Scheduled (TFDM)</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th></tr></thead>
         <tbody>${filedRows}</tbody></table>
         <h2 style="font-size:14px;margin:24px 0 8px;color:#e4e4e7">Resolved — what leg-creation would actually keep</h2>
-        <table><thead><tr><th>Route</th><th>Dep</th><th>Arr</th><th>Status</th><th>Why</th></tr></thead>
+        <table><thead><tr><th>Route</th><th>Dep</th><th>Arr</th><th>Status</th><th>Confirmed?</th><th>Why</th></tr></thead>
         <tbody>${resolvedRows}</tbody></table>`;
     }
 
