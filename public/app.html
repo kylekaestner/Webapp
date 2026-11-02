@@ -3674,7 +3674,7 @@
         function inferAwayLayovers(segList, base, baseHistory) {
             const sorted = sortSegmentsByTime(segList);
             const awayEvents = [];
-            const flights = sorted.filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime && s.trip !== 'PERSONAL');
+            const flights = sorted.filter(s => s.type === 'flight' && s.departureTime && s.arrivalTime && s.trip !== 'PERSONAL' && !s.cancelled);
 
             // Same anchor-walk as buildGroundPeriods's baseAt() (app.html, buildGroundPeriods) --
             // a trip already in progress when a base change takes effect stays on the OLD base for
@@ -4038,6 +4038,7 @@
             PILOT_KEYS.forEach(k => {
                 const flying = new Set();
                 (pilotsCache[k]?.segments || []).forEach(s => {
+                    if (s.auto_leg_cancelled) return;
                     if (k === 'kyle' && s.type === 'hard' && s.departure_time) {
                         kyleHardOffDates.add(s.departure_time.slice(0, 10));
                         return;
@@ -4327,6 +4328,7 @@
             PILOT_KEYS.forEach(k => {
                 const flying = new Set();
                 (pilotsCache[k]?.segments || []).forEach(s => {
+                    if (s.auto_leg_cancelled) return;
                     if (k === 'kyle' && s.type === 'hard') return;
                     if (s.type !== 'flight' && s.type !== 'reserve' && s.type !== 'ground' && s.type !== 'training') return;
                     if (s.type === 'flight' && s.trip === 'PERSONAL') return;
@@ -4426,6 +4428,7 @@
             PILOT_KEYS.forEach(k => {
                 const flying = new Set();
                 (pilotsCache[k]?.segments || []).forEach(s => {
+                    if (s.auto_leg_cancelled) return;
                     if (k === 'kyle' && s.type === 'hard' && s.departure_time) {
                         kyleHardOffDates.add(s.departure_time.slice(0, 10)); return;
                     }
@@ -4678,12 +4681,12 @@
                 const home  = homeBase  ? normApt(homeBase)  : null;
                 const homeC = homeCity  ? normApt(homeCity)  : null;
                 const flights = segments
-                    .filter(s => (s.type === 'flight' || s.type === 'ground') && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport)
+                    .filter(s => (s.type === 'flight' || s.type === 'ground') && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport && !s.auto_leg_cancelled)
                     .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
                 // All departing segments including personal/commute — used to terminate ground periods
                 // so a commute home from a layover airport correctly ends the stay there.
                 const allDeps = segments
-                    .filter(s => s.departure_time && s.departure_airport)
+                    .filter(s => s.departure_time && s.departure_airport && !s.auto_leg_cancelled)
                     .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
 
                 // baseAt(d) resolves whichever base actually governed the pilot AT A GIVEN MOMENT,
@@ -5673,7 +5676,7 @@
             const bounds = [];
             const airportSet = new Set();
             const monthPrefix = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}`;
-            const allFlights = segments.filter(s => s.type === 'flight');
+            const allFlights = segments.filter(s => s.type === 'flight' && !s.cancelled);
             const flights = allFlights.filter(s => s.departureTime && s.departureTime.startsWith(monthPrefix));
 
             // Determine airport roles: overnight (slept there) vs turn (same-day)
@@ -7593,14 +7596,16 @@
                 }
                 const data = pilotsCache[key];
                 if (!data || !data.segments) return;
-                allPilotSegments[key] = data.segments.map(seg => ({
-                    id: seg.id, type: seg.type,
-                    departureTime: seg.departure_time, arrivalTime: seg.arrival_time,
-                    departureAirport: seg.departure_airport, arrivalAirport: seg.arrival_airport,
-                    tail: seg.tail || '', flightNumber: seg.flight_number || '',
-                    dh: seg.is_dh ? true : false, blockMinutes: seg.block_minutes || null,
-                    trip: seg.trip || null
-                }));
+                allPilotSegments[key] = data.segments
+                    .filter(seg => !seg.auto_leg_cancelled)
+                    .map(seg => ({
+                        id: seg.id, type: seg.type,
+                        departureTime: seg.departure_time, arrivalTime: seg.arrival_time,
+                        departureAirport: seg.departure_airport, arrivalAirport: seg.arrival_airport,
+                        tail: seg.tail || '', flightNumber: seg.flight_number || '',
+                        dh: seg.is_dh ? true : false, blockMinutes: seg.block_minutes || null,
+                        trip: seg.trip || null
+                    }));
             }));
             if (gen !== mapRenderGen) return;
 
@@ -8465,6 +8470,11 @@
                     if (isToday) dayClasses.push('day-today');
                     const dayEvents = segments.filter(s => {
                         if (!s.departureTime) return false;
+                        // A NetJets leg NetJets itself says isn't happening (auto_leg_cancelled) --
+                        // Day Detail shows it struck-through with context when tapped into, but the
+                        // compact grid/list view has no room for that nuance, so it's excluded
+                        // outright rather than looking like a real extra flight that day.
+                        if (s.cancelled) return false;
                         const depLocal = flightLocalDate(s.departureTime, s.departureAirport);
                         if (depLocal === dateKey) return true;
                         if (!s.arrivalTime) return false;
@@ -8745,6 +8755,11 @@
                     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const dayEvents = segments.filter(s => {
                         if (!s.departureTime) return false;
+                        // A NetJets leg NetJets itself says isn't happening (auto_leg_cancelled) --
+                        // Day Detail shows it struck-through with context when tapped into, but the
+                        // compact grid/list view has no room for that nuance, so it's excluded
+                        // outright rather than looking like a real extra flight that day.
+                        if (s.cancelled) return false;
                         const depLocal = flightLocalDate(s.departureTime, s.departureAirport);
                         if (depLocal === dateKey) return true;
                         if (!s.arrivalTime) return false;
@@ -9186,7 +9201,7 @@
         }
 
         function showDayDetail(dateKey) {
-            const dayEvents = segments.filter(s => s.departureTime && flightLocalDate(s.departureTime, s.departureAirport) === dateKey);
+            const dayEvents = segments.filter(s => s.departureTime && !s.cancelled && flightLocalDate(s.departureTime, s.departureAirport) === dateKey);
             const [yr, mo, dy] = dateKey.split('-');
             const dateObj = new Date(parseInt(yr), parseInt(mo) - 1, parseInt(dy));
             const dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -9353,17 +9368,10 @@
                 // Added because the day-detail sheet (opened by tapping a grid cell) was the one place
                 // showing a completed leg with no indicator at all, after the grid itself got one.
                 const isCompletedLeg = !isActiveLeg && !!aMs && (nowMs >= aMs || _isLandedEarly(_dayCs, aMs)) && dateKey === _localToday();
-                // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides
-                // they aren't doing that flight -- need support for that." Highest-precedence
-                // visual state -- NetJets saying this flight isn't happening overrides everything
-                // else (active/personal/commute all become moot).
-                const isCancelledLeg = !!f.cancelled;
-                const accentColor = isCancelledLeg ? '#71717a' : isActiveLeg ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
-                const cardBorder = isCancelledLeg ? 'border-zinc-700/50' : isActiveLeg ? 'border-emerald-500/50' : isPersonal ? 'border-violet-500/20' : isCommute ? 'border-amber-500/20' : `border-[${accentColor}25]`;
-                const cardBg = isCancelledLeg ? 'bg-zinc-900/40' : isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : isActiveLeg ? 'bg-emerald-950/10' : 'bg-zinc-900/60';
-                const aptColor = isCancelledLeg ? '#71717a' : isActiveLeg ? '#22c55e' : 'rgba(255,255,255,0.92)';
-                const cardOpacity = isCancelledLeg ? 'opacity:0.65;' : '';
-                const strikeStyle = isCancelledLeg ? 'text-decoration:line-through;' : '';
+                const accentColor = isActiveLeg ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
+                const cardBorder = isActiveLeg ? 'border-emerald-500/50' : isPersonal ? 'border-violet-500/20' : isCommute ? 'border-amber-500/20' : `border-[${accentColor}25]`;
+                const cardBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : isActiveLeg ? 'bg-emerald-950/10' : 'bg-zinc-900/60';
+                const aptColor = isActiveLeg ? '#22c55e' : 'rgba(255,255,255,0.92)';
                 const editActions = (f.id && canEdit()) ? `<div class="flex gap-2 px-4 py-2.5 border-t border-white/5">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${f.id})" class="flex-1 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
                     <button onclick="deleteManualFlight(${f.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
@@ -9372,16 +9380,15 @@
                 const depCity = _intelAreaLabel(dep) || '';
                 const arrCity = _intelAreaLabel(arr) || '';
                 const hasStub = (_dayFlLabel || f.flightNumber) || f.tail || groundBadgeTxt || isCompletedLeg;
-                html += `<div class="bp-card border mb-3 ${cardBg}" style="border-color:${accentColor}28;${cardOpacity}">
+                html += `<div class="bp-card border mb-3 ${cardBg}" style="border-color:${accentColor}28">
                     <div class="bp-top-bar" style="background:linear-gradient(90deg,${accentColor},${accentColor}44,transparent)"></div>
                     <div class="flex items-center gap-2 px-4 pt-3 pb-0 flex-wrap">
-                        ${isCancelledLeg ? `<span class="text-[10px] font-black text-zinc-400">⊘ CANCELLED BY NETJETS</span>` : ''}
-                        ${!isCancelledLeg && isActiveLeg ? `<span class="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" style="animation:pulse 1.5s infinite"></span>In the air</span>` : ''}
+                        ${isActiveLeg ? `<span class="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" style="animation:pulse 1.5s infinite"></span>In the air</span>` : ''}
                         ${f.dh ? `<span class="text-[10px] font-semibold text-pink-400">Deadhead</span>` : ''}
                         ${isPersonal ? `<span class="text-[10px] font-semibold text-violet-400">Personal</span>` : ''}
                         ${isCommute ? `<span class="text-[10px] font-semibold text-amber-400">Commute</span>` : ''}
                     </div>
-                    <div class="flex items-center px-4 py-3 gap-0" style="${strikeStyle}">
+                    <div class="flex items-center px-4 py-3 gap-0">
                         <div class="flex-1 min-w-0">
                             <div class="bp-apt-code" style="color:${aptColor}">${dep}</div>
                             ${depCity ? `<div class="bp-city">${depCity}</div>` : ''}

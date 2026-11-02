@@ -1687,6 +1687,17 @@ function icaoToIataAirport(icao) {
     return up;
 }
 
+// Shared with _pollNetjetsLegCreation()'s own local norm3 -- extracted so a human's manual edit
+// can be normalized the same way the auto-poller's own leg matching is. Confirmed real bug: a
+// human-corrected segment stored "KBKV" (4-letter) while the poller always normalizes to "BKV"
+// (3-letter), so _findExistingNetjetsLeg() never recognized the two as the same airport and kept
+// creating fresh duplicate legs for a leg a human had already fixed.
+function norm3Airport(a) {
+    if (!a) return null;
+    const up = String(a).toUpperCase().replace(/^K/, '');
+    return up.length === 3 ? up : (icaoToIataAirport(up.length === 4 ? up : 'K' + up) || up);
+}
+
 // Operating code aliases for eCrew airlines, keyed by main ICAO code.
 // Each alias maps a prefix found in the schedule → the ICAO prefix to store.
 // Numeric-only codes always get the main ICAO prefix.
@@ -2582,12 +2593,20 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
     if (status) return res.status(status).json({ error: msg });
     if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to edit this pilot\'s segment' });
 
-    db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
+    db.get('SELECT id, parser_type FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
         const tripValue = is_personal ? 'PERSONAL' : is_commute ? 'COMMUTE' : null;
         const blockMin = (block_minutes != null && block_minutes > 0) ? Math.round(block_minutes) : null;
+        // Normalize to the same 3-letter form _pollNetjetsLegCreation() always uses -- confirmed
+        // real bug otherwise: a human typing the 4-letter ICAO form ("KBKV") into this edit form
+        // stores a different string than the auto-poller's own "BKV", so the poller never
+        // recognizes the two as the same airport and keeps creating duplicate legs for one a
+        // human already fixed. Scoped to NetJets only -- every other parser already stores its
+        // own consistent convention, not worth touching app-wide.
+        const finalDepArpt = (pilot.parser_type === 'manual_netjets' && departure_airport) ? norm3Airport(departure_airport) : departure_airport;
+        const finalArrArpt = (pilot.parser_type === 'manual_netjets' && arrival_airport) ? norm3Airport(arrival_airport) : arrival_airport;
 
         db.run(
             // auto_leg_edited=1 unconditionally -- a no-op for a normal segment that never had an
@@ -2598,8 +2617,8 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
              flight_number=?, tail=?, trip=?, is_dh=?, is_manual=1, block_minutes=?, auto_leg_edited=1
              WHERE id=? AND pilot_id=?`,
             [dbType, departure_time, arrival_time || null,
-             departure_airport ? departure_airport.trim().toUpperCase() : null,
-             arrival_airport   ? arrival_airport.trim().toUpperCase()   : null,
+             finalDepArpt ? finalDepArpt.trim().toUpperCase() : null,
+             finalArrArpt ? finalArrArpt.trim().toUpperCase()   : null,
              flight_number || null, tail || null, tripValue, is_dh ? 1 : 0, blockMin,
              id, pilot.id],
             function (err) {
@@ -4709,7 +4728,7 @@ function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs) {
 // TFDM's own offBlockTime for that same leg never changed), so an exact-string key would mint a
 // duplicate row every time an estimate moved.
 async function _pollNetjetsLegCreation(db, onDutyList) {
-    const norm3 = a => { if (!a) return null; const up = String(a).toUpperCase().replace(/^K/, ''); return up.length === 3 ? up : (icaoToIataAirport(up.length === 4 ? up : 'K' + up) || up); };
+    const norm3 = norm3Airport;
     for (const nj of onDutyList) {
         const cs = nj.callsign;
         const tourStartMs = new Date(`${nj.tourStart}T00:00:00Z`).getTime();
