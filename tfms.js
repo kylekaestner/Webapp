@@ -171,7 +171,11 @@ function textOf(val) {
 // a single cheap `includes('EJA')` check, never a per-tail loop, to avoid the exact CPU mistake
 // swim.js's own handleMessage comment documents a real past incident over.
 const NETJETS_RESEARCH_MODE = true;
-function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && /^EJA\d+$/.test(cs); }
+// See tfdm.js's identical constant for the full reasoning.
+const NETJETS_TAIL_PREFILTER_RE = /N\d{1,4}QS/;
+// See tfdm.js's identical change for the full reasoning -- outside the lower 48 + Canada,
+// NetJets flies/files under the bare tail number (always ending "QS") instead of EJA####.
+function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && (/^EJA\d+$/.test(cs) || /^N\d+QS$/.test(cs)); }
 
 // Same dedicated-file, log-on-change-only helper as tfdm.js -- see its own comment for the full
 // reasoning. Writes to the SAME file (not a separate one per module) so TFDM and TFMS entries
@@ -710,7 +714,7 @@ function handleMessage(xmlText) {
         // Same fix as swim.js's handleMessage -- see its comment for the full incident writeup.
         // TFMS messages carry `aircraftId` as plain text (processOneFltdMessage), so this is a
         // clean skip with no GUFI-style caveat like stdds.js's.
-        let hasRelevant = NETJETS_RESEARCH_MODE && xmlText.includes('EJA');
+        let hasRelevant = NETJETS_RESEARCH_MODE && (xmlText.includes('EJA') || NETJETS_TAIL_PREFILTER_RE.test(xmlText));
         if (!hasRelevant) for (const cs of _relevantCallsigns) {
             if (xmlText.includes(cs)) { hasRelevant = true; break; }
         }

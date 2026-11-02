@@ -139,7 +139,17 @@ function textOf(val) {
 // handleMessage comment documents a real past incident over. A single `includes('EJA')` check is
 // O(1) regardless of how many individual tails this ends up covering.
 const NETJETS_RESEARCH_MODE = true;
-function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && /^EJA\d+$/.test(cs); }
+// Cheap pre-filter companion to the 'EJA' substring check below -- every known NetJets tail
+// number ends "QS" (confirmed real), so this is just as safe a nationwide-traffic-narrowing
+// signal as the literal "EJA" substring already is, at the same near-zero cost (one regex test
+// per message, same class as the existing _relevantCallsigns substring loop).
+const NETJETS_TAIL_PREFILTER_RE = /N\d{1,4}QS/;
+// Raised directly: outside the lower 48 + Canada, NetJets flies/files under the bare tail
+// number instead of EJA#### -- confirmed real convention, every known NetJets tail this app has
+// ever seen ends in "QS" (N22QS, N742QS, N815QS, N492QS), making /^N\d+QS$/ exactly as clean a
+// fleet-wide research signal as /^EJA\d+$/ already is, with no separate "known tails" list
+// needed.
+function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && (/^EJA\d+$/.test(cs) || /^N\d+QS$/.test(cs)); }
 
 // Dedicated log file (not pm2's general console output) so the investigation's own volume
 // doesn't bury or get buried by normal app logs, and only written ON CHANGE per callsign (not
@@ -398,7 +408,7 @@ function handleMessage(xmlText) {
     // for the production incident this exists to prevent. Skipped only once _relevantCallsigns is
     // actually set; null means the startup grace window, same as every other feed here.
     if (_relevantCallsigns) {
-        let hasRelevant = NETJETS_RESEARCH_MODE && xmlText.includes('EJA');
+        let hasRelevant = NETJETS_RESEARCH_MODE && (xmlText.includes('EJA') || NETJETS_TAIL_PREFILTER_RE.test(xmlText));
         if (!hasRelevant) for (const cs of _relevantCallsigns) {
             if (xmlText.includes(cs)) { hasRelevant = true; break; }
         }

@@ -5376,8 +5376,13 @@ app.get('/admin/download-db', (req, res) => {
 // /api/debug/* endpoints this reuses, just a human-readable page instead of raw JSON.
 app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
     const rawTail = (req.query.tail || '').trim();
+    // A tail flying outside the lower 48 + Canada files/flies under its bare N-number instead of
+    // EJA#### (raised directly) -- the tail-list links below pass that literal callsign straight
+    // through via ?tail=, so it must be recognized as-is before falling back to the normal
+    // digits-only "742" search box input, which would otherwise strip N22QS down to a wrong "22".
+    const tailNumberMatch = /^N\d{1,4}QS$/i.test(rawTail) ? rawTail.toUpperCase() : null;
     const digits = rawTail.replace(/\D/g, '');
-    const cs = digits ? ejaFlightNumber(digits) : null;
+    const cs = tailNumberMatch || (digits ? ejaFlightNumber(digits) : null);
     const norm = norm3Airport;
     const nowMs = Date.now();
     const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

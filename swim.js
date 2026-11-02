@@ -68,7 +68,9 @@ const _watched = new Set();
 // concurrent legs); two concurrent legs sharing the SAME origin (a same-day quick-turn) is a
 // rarer case this doesn't disambiguate, not yet seen live.
 const NETJETS_RESEARCH_MODE = true;
-function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && /^EJA\d+$/.test(cs); }
+// See tfdm.js's identical change for the full reasoning -- outside the lower 48 + Canada,
+// NetJets flies/files under the bare tail number (always ending "QS") instead of EJA####.
+function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && (/^EJA\d+$/.test(cs) || /^N\d+QS$/.test(cs)); }
 const _legRoutes = {}; // callsign -> Map(normOrigin -> {origin, dest, route, routeParsed, sid, star, gufi, lastMsg})
 function _normApt(a) { return a ? String(a).toUpperCase().replace(/^K/, '') : null; }
 function getRouteForOrigin(callsign, originHint) {
