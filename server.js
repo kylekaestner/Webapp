@@ -5584,19 +5584,26 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
         const legTimes = legTimesRaw.filter(l => inRange(l.scheduledDepMs));
         const faLink = `https://flightaware.com/live/flight/${cs}`;
 
-        // "Filed" -- every raw candidate SWIM gave us in this window, unfiltered.
-        const merged = allLegs.map(l => ({
-            ...l,
-            times: legTimes.find(lt => norm(lt.origin) === norm(l.origin) && norm(lt.dest) === norm(l.dest)) || null,
-        })).sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
+        // "Filed" -- every raw entry from both feeds in this window, unfiltered: each TFDM leg (with
+        // its matching TFMS times attached), plus every TFMS leg TFDM has no entry for at all
+        // (untowered fields, cancelled plans) -- those previously never appeared here.
+        const tfmsOnlyPhase = t => t.cancelled ? 'CANCELLED' : t.arrivedAt ? 'ARRIVED' : (t.departedAt || t.tracked) ? 'DEPARTED' : 'FILED';
+        const merged = [
+            ...allLegs.map(l => {
+                const times = legTimes.find(lt => norm(lt.origin) === norm(l.origin) && norm(lt.dest) === norm(l.dest)) || null;
+                return { ...l, times, source: times ? 'TFDM + TFMS' : 'TFDM' };
+            }),
+            ...legTimes.filter(lt => !allLegs.some(l => norm(l.origin) === norm(lt.origin) && norm(l.dest) === norm(lt.dest)))
+                .map(lt => ({ origin: lt.origin, dest: lt.dest, scheduledDepMs: lt.scheduledDepMs, flightState: tfmsOnlyPhase(lt), times: lt, source: 'TFMS' })),
+        ].sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
 
         const filedRows = merged.length ? merged.map(l => {
-            const dep = l.offBlockTime ? new Date(l.offBlockTime) : null;
+            const dep = l.offBlockTime ? new Date(l.offBlockTime) : (l.scheduledDepMs != null ? new Date(l.scheduledDepMs) : null);
             const etd = l.times?.etd || l.times?.igtd || null;
             const eta = l.times?.eta || null;
             const etaFallback = !eta && l.estArrivalTime ? l.estArrivalTime : null;
             const isPast = dep && dep.getTime() < nowMs;
-            const stateColor = /EN_ROUTE|DEPARTED|ON_FINAL|TAXI/.test(l.flightState || '') ? '#4ade80' : isPast ? '#71717a' : '#60a5fa';
+            const stateColor = l.flightState === 'CANCELLED' ? '#71717a' : /EN_ROUTE|DEPARTED|ARRIVED|ON_FINAL|TAXI/.test(l.flightState || '') ? '#4ade80' : isPast ? '#71717a' : '#60a5fa';
             const confTag = (type) => type === 'ACTUAL' ? ' <span style="color:#4ade80;font-size:10px">(actual)</span>' : type ? ` <span style="color:#71717a;font-size:10px">(${type.toLowerCase()})</span>` : '';
             const tfmsDiversion = l.times?.diversionIndicator && l.times.diversionIndicator !== 'NO_DIVERSION';
             return `<tr style="border-bottom:1px solid #27272a">
@@ -5606,8 +5613,9 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
                 <td style="padding:10px 12px;color:#a1a1aa">${l.departureDelayMin != null ? l.departureDelayMin + 'm' : '—'}</td>
                 <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etdType) : '—'}</td>
                 <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etaType) : etaFallback ? `${new Date(etaFallback).toISOString().slice(11,16)}Z <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
+                <td style="padding:10px 12px;color:#71717a;font-size:11px;white-space:nowrap">${l.source}</td>
             </tr>`;
-        }).join('') : `<tr><td colspan="6" style="padding:20px;text-align:center;color:#71717a">No candidates filed in this window.</td></tr>`;
+        }).join('') : `<tr><td colspan="7" style="padding:20px;text-align:center;color:#71717a">No candidates filed in this window.</td></tr>`;
 
         // "Resolved" -- the same chain-consistency filter _pollNetjetsLegCreation() actually
         // applies, run read-only against this window so leg-creation logic can be validated at
@@ -5640,10 +5648,10 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
         bodyHtml = `<div style="color:#71717a;font-size:13px;margin-bottom:4px">Callsign <b style="color:#e4e4e7">${cs}</b> · Tail <b style="color:#e4e4e7">N${digits}QS</b>
             · <a href="${faLink}" target="_blank" rel="noopener" style="color:#60a5fa">FlightAware ↗</a>
             · <a href="?${qs}" style="color:#60a5fa">← all tails</a></div>
-        <h2 style="font-size:14px;margin:20px 0 8px;color:#e4e4e7">Filed — every candidate SWIM gave us</h2>
-        <table><thead><tr><th>Route</th><th>Scheduled (TFDM)</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th></tr></thead>
+        <h2 style="font-size:14px;margin:20px 0 8px;color:#e4e4e7">Filed — every TFDM and TFMS entry, unfiltered</h2>
+        <table><thead><tr><th>Route</th><th>Scheduled</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th><th>Source</th></tr></thead>
         <tbody>${filedRows}</tbody></table>
-        <h2 style="font-size:14px;margin:24px 0 8px;color:#e4e4e7">Resolved — what leg-creation would actually keep</h2>
+        <h2 style="font-size:14px;margin:24px 0 8px;color:#e4e4e7">Resolved — what would make sense on a pilot's schedule with this tail</h2>
         <table><thead><tr><th>Route</th><th>Dep</th><th>Arr</th><th>Status</th><th>Confirmed?</th><th>Why</th></tr></thead>
         <tbody>${resolvedRows}</tbody></table>`;
     }
