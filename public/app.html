@@ -3522,8 +3522,25 @@
         }
         function _netjetsHomeOnOffDays(pilotKey, periods) {
             const hw = _netjetsHomeWindows(pilotKey);
-            if (!hw || !hw.windows.length) return periods;
-            let out = periods.map(p => ({ ...p }));
+            if (!hw) return periods;
+            // An away stay with no later leg departing it is the airline "still there until the next
+            // logged flight" rule. Up to now that's backed by tracking (the tail is watched all tour,
+            // so if it had flown there'd be a leg), but NetJets only files ~18h ahead -- past that the
+            // pilot's location is genuinely unknown, so the stay is cut there rather than assumed.
+            const deps = (pilotsCache[pilotKey]?.segments || [])
+                .filter(s => s.departure_time && s.departure_airport && !s.auto_leg_cancelled)
+                // Both readings: buildGroundPeriods uses new Date() (browser-local for a hand-edited
+                // row stored without Z), flightUTCTime the airport-correct one.
+                .flatMap(s => [new Date(s.departure_time).getTime(), flightUTCTime(s.departure_time, s.departure_airport)?.getTime()]
+                    .map(t => ({ apt: normApt(s.departure_airport), t })));
+            const horizon = 18 * 3600000;
+            let out = periods.map(p => {
+                if (p.airport === hw.homeC) return { ...p };
+                const endsOnDeparture = deps.some(d => d.apt === p.airport && d.t && Math.abs(d.t - p.end.getTime()) < 60000);
+                if (endsOnDeparture) return { ...p };
+                const cap = new Date(Math.max(Date.now(), p.start.getTime()) + horizon);
+                return { ...p, end: p.end > cap ? cap : p.end };
+            });
             for (const w of hw.windows) {
                 out = out.filter(p => {
                     if (p.airport === hw.homeC) return true;
