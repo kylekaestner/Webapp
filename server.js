@@ -4050,9 +4050,11 @@ function processPositionUpdate(data, sinceUnixSec = null) {
 
 // Fetch live position from ADS-B sources, racing for the fastest response.
 async function fetchAdsbPosition(callsign) {
+    // airplanes.live now 403s every request until a project registers by email (2,780 failures
+    // in the log by 2026-11-03); adsb.fi's open API is the same readsb v2 format, keyless.
     const ADSB_SOURCES = [
         `https://api.adsb.lol/v2/callsign/${encodeURIComponent(callsign)}`,
-        `https://api.airplanes.live/v2/callsign/${encodeURIComponent(callsign)}`
+        `https://opendata.adsb.fi/api/v2/callsign/${encodeURIComponent(callsign)}`
     ];
     const trySource = async (url) => {
         const resp = await fetch(url, { signal: AbortSignal.timeout(7000) });

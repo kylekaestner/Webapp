@@ -623,7 +623,16 @@ function processLegTimes(msgObj, cs, origin, dest, candidateMs, msgType) {
     }
     if (msgType === 'departureInformation' && !leg.departedAt) leg.departedAt = Date.now();
     else if (msgType === 'arrivalInformation' && !leg.arrivedAt) leg.arrivedAt = Date.now();
-    else if (msgType === 'trackInformation') leg.tracked = true;
+    else if (msgType === 'trackInformation') {
+        leg.tracked = true;
+        // Radar track after TFMS already called it arrived = it wasn't (go-around, or "arrived"
+        // was really radar loss near an untowered field: EJA23 into E38, 2026-11-03, arrival
+        // 17:59Z "not estimated" from a track that ended at 17:54Z). Back to airborne.
+        if (leg.arrivedAt && Date.now() - leg.arrivedAt > 60000) {
+            delete leg.arrivedAt;
+            if (leg.timeOfArrival) leg.timeOfArrivalEstimated = true;
+        }
+    }
     // Real movement after a cancellation means NetJets re-filed and flew it (EJA762 DJT->VDI:
     // cancelled 23:49Z, departed 01:04Z) -- the earlier cancellation no longer applies.
     if (leg.cancelled && (leg.departedAt || leg.arrivedAt || leg.tracked)) delete leg.cancelled;
