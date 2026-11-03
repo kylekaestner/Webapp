@@ -4673,8 +4673,30 @@ app.get('/api/flight-status', (req, res) => {
         return originOk(cs, _everAirborneOrigin[cs]) && originOk(cs, _parkedOrigin[cs]);
     };
     const normApt2 = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
+    // NetJets: one callsign flies every leg of the day, so the per-callsign evidence above (one
+    // frozen airborne origin, TFMS's flat times = the latest-filed leg) describes whichever leg
+    // happened to write it last. Confirmed 2026-11-03: EJA23 SAT->E38 showed "departure due" on
+    // short final -- the airborne evidence said "from E38" and the flat times were E38->OKC's.
+    // TFMS's per-leg store knows this exact leg departed / was on radar / arrived, so it answers
+    // for that leg directly (closest expected arrival if two legs share the origin).
+    const njLeg = cs => {
+        if (!/^(EJA\d+|N\d+QS)$/.test(cs) || !expectedOrigin[cs]) return null;
+        const exp = norm3Airport(expectedOrigin[cs]);
+        const cands = tfms.getAllLegTimes(cs).filter(l => norm3Airport(l.origin) === exp);
+        if (cands.length < 2 || !expectedArrival[cs]) return cands[0] || null;
+        const arrOf = l => Date.parse(l.eta || l.routeEta || '') || l.scheduledDepMs || 0;
+        return cands.sort((a, b) => Math.abs(arrOf(a) - expectedArrival[cs]) - Math.abs(arrOf(b) - expectedArrival[cs]))[0];
+    };
+    const njLegOf = {};
+    for (const cs of list) { const l = njLeg(cs); if (l) njLegOf[cs] = l; }
     const times = {};
     for (const cs of list) {
+        const nl = njLegOf[cs];
+        if (nl) {
+            const t = { etd: nl.etd || nl.igtd || null, eta: nl.eta || nl.routeEta || null, airlineOnTime: null, airlineInTime: null };
+            if (t.etd || t.eta) times[cs] = t;
+            continue;
+        }
         if (!originCheckOk(cs) || !notStale(cs)) continue;
         // Leg-matched entry preferred over the flat tfms.getFlightTimes(cs) -- same reasoning as
         // withTfdmInfo()'s own leg-aware delay/phase fix: a callsign with several concurrently
@@ -4708,16 +4730,21 @@ app.get('/api/flight-status', (req, res) => {
     // whether HIS leg ever flew); (2) applying notStale to the historical fact too then left NO
     // evidence available at all until the separate 3-hour-never-seen-flying fallback caught up --
     // nearly an hour of showing "DEPARTURE DUE" for a flight that had already landed on schedule.
-    const airborne = list.filter(cs => !isParked(cs) && (
-        (_everAirborneCallsigns.has(cs) && originOk(cs, _everAirborneOrigin[cs])) ||
-        (notStale(cs) && originCheckOk(cs) && /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || ''))
-    ));
+    const airborne = [...new Set(list)].filter(cs => {
+        const nl = njLegOf[cs];
+        if (nl) return _tfmsLegFlown(nl) && !_tfmsLegArrived(nl);
+        return !isParked(cs) && (
+            (_everAirborneCallsigns.has(cs) && originOk(cs, _everAirborneOrigin[cs])) ||
+            (notStale(cs) && originCheckOk(cs) && /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || ''))
+        );
+    });
     // Ground state for whichever callsigns are currently "live" -- lets the day map's static
     // status line distinguish a flight that's genuinely airborne from one that's landed and
     // taxiing in but not yet confirmed parked, instead of calling both "IN THE AIR".
     const onGround = {};
     for (const cs of live) { if (_liveCache[cs]?.data?.onGround) onGround[cs] = true; }
-    res.json({ parked: list.filter(cs => isParked(cs) && originCheckOk(cs)), live, airborne, onGround, times });
+    const parked = [...new Set(list)].filter(cs => njLegOf[cs] ? _tfmsLegArrived(njLegOf[cs]) : (isParked(cs) && originCheckOk(cs)));
+    res.json({ parked, live, airborne, onGround, times });
 });
 
 app.get('/api/live-position', async (req, res) => {
