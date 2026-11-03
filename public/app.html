@@ -9547,6 +9547,9 @@ let _blockUserEdited = false;
             if (!val) return null;
             const m = val.match(/^(\d+):(\d{2})$/);
             if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
+            // A bare whole number of 20+ means minutes, not hours -- James typed "30" for a
+            // 35-minute leg and it saved as a 30-hour block. "1.5" / "2" still mean hours.
+            if (/^\d+$/.test(val.trim()) && parseInt(val) >= 20) return parseInt(val);
             const h = parseFloat(val);
             return isNaN(h) ? null : Math.round(h * 60);
         }
@@ -9662,7 +9665,9 @@ let _blockUserEdited = false;
                 const bm = seg.blockMinutes % 60;
                 blockEl.value = `${bh}:${String(bm).padStart(2, '0')}`;
                 blockLbl.textContent = '(saved)';
-                _blockUserEdited = true;
+                // Not locked: changing times/airports on an edit recomputes it (the saved value
+                // was derived from the old times); untouched, the saved value is kept as-is.
+                _blockUserEdited = false;
             } else {
                 blockEl.value = '';
                 blockLbl.textContent = '(auto-calculated)';
@@ -9834,6 +9839,10 @@ let _blockUserEdited = false;
             }
 
             const payload = _buildFlightPayload(pilot, date, dep, arr, depTime, arrTime);
+            if (payload.block_minutes != null && payload.block_minutes > 24 * 60) {
+                errEl.textContent = 'Block time is over 24 hours — enter it as h:mm (e.g. 0:35 or 2:15).';
+                return errEl.classList.remove('hidden');
+            }
             const isEdit = _editSegmentId !== null;
             const url = isEdit
                 ? `${API_BASE}/pilots/${pilot}/segments/${_editSegmentId}`
