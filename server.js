@@ -1740,25 +1740,31 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
         // and adding it twice would have the two fight over one row's arrival_airport.
         if (!o || tfdmLegs.some(l => norm(l.origin) === o && (norm(l.dest) === d
             || (l.scheduledDepMs != null && Math.abs(l.scheduledDepMs - t.scheduledDepMs) <= 60 * 60 * 1000)))) continue;
-        out.push({ origin: t.origin, dest: t.dest, scheduledDepMs: t.scheduledDepMs, flightState: t.arrivedAt ? 'ARRIVAL' : 'EN_ROUTE', tfmsOnly: true });
+        out.push({ origin: t.origin, dest: t.dest, scheduledDepMs: t.scheduledDepMs, flightState: t.arrivedAt ? 'ARRIVAL' : 'EN_ROUTE', tfmsOnly: true, cs: t.cs });
     }
 
     // In advance (requested directly): the earliest still-merely-filed plan departing from where
     // the tail is headed -- the dest of the latest leg already on the schedule (any TFDM leg, which
     // is created as soon as it's filed, or a proven TFMS one). Mack's E38->OKC shows once TFDM has
     // SAT->E38; a plan from anywhere else (DJT->CQF while the tail sits at LBE) stays hidden.
-    const lastProven = [...tfdmLegs, ...out]
+    //
+    // Followed leg by leg (requested directly): NetJets files a whole day at once, so each added
+    // leg's dest becomes the next anchor -- SAT->E38->OKC->TUL shows in full the evening before
+    // instead of one leg at a time. Capped at 8 steps; each step must be later than the last.
+    let anchor = [...tfdmLegs, ...out]
         .filter(l => l.scheduledDepMs != null && l.dest)
         .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs).pop();
-    const here = lastProven && norm(lastProven.dest);
-    if (here) {
+    for (let step = 0; anchor && step < 8; step++) {
+        const here = norm(anchor.dest);
         const next = tfmsLegTimes
             .filter(t => !t.cancelled && !t.departedAt && !t.arrivedAt && !t.tracked
-                && t.scheduledDepMs != null && t.scheduledDepMs > lastProven.scheduledDepMs && t.scheduledDepMs >= minDepMs
+                && t.scheduledDepMs != null && t.scheduledDepMs > anchor.scheduledDepMs && t.scheduledDepMs >= minDepMs
                 && norm(t.origin) === here
                 && !tfdmLegs.some(l => norm(l.origin) === here && l.scheduledDepMs != null && Math.abs(l.scheduledDepMs - t.scheduledDepMs) <= 60 * 60 * 1000))
             .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs)[0];
-        if (next) out.push({ origin: next.origin, dest: next.dest, scheduledDepMs: next.scheduledDepMs, flightState: 'SCHEDULED', tfmsOnly: true });
+        if (!next) break;
+        anchor = { origin: next.origin, dest: next.dest, scheduledDepMs: next.scheduledDepMs, flightState: 'SCHEDULED', tfmsOnly: true, inAdvance: true, cs: next.cs };
+        out.push(anchor);
     }
     return out;
 }
@@ -4877,7 +4883,9 @@ function _getOnDutyNetjetsPilots(db, todayStr, cb) {
                 db.get(`SELECT tail, start_airport FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?`, [p.id, tourStart], (err3, tailRow) => {
                     if (!err3 && tailRow && tailRow.tail) {
                         const callsign = ejaFlightNumber(tailRow.tail);
-                        if (callsign) results.push({ pilotId: p.id, pilotKey: p.pilot_key, base: p.base || '', tail: tailRow.tail, callsign, tourStart, startAirport: (tailRow.start_airport || '').toUpperCase().trim() || null });
+                        const tailDigits = String(tailRow.tail).replace(/D/g, '');
+                        const tailCallsign = tailDigits ? `N${tailDigits}QS` : null; // outside lower 48 + Canada
+                        if (callsign) results.push({ pilotId: p.id, pilotKey: p.pilot_key, base: p.base || '', tail: tailRow.tail, callsign, tailCallsign, tourStart, startAirport: (tailRow.start_airport || '').toUpperCase().trim() || null });
                     }
                     done();
                 });
@@ -4960,8 +4968,14 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
     for (const nj of onDutyList) {
         const cs = nj.callsign;
         const tourStartMs = new Date(`${nj.tourStart}T00:00:00Z`).getTime();
-        const tfmsLegTimes = tfms.getAllLegTimes(cs);
-        const tfdmLegs = tfdm.getAllLegs(cs).filter(l => (l.scheduledDepMs || 0) >= tourStartMs);
+        // EJA#### only covers the lower 48 + Canada; anywhere else NetJets files under the bare
+        // tail number (N22QS flew ORL->TISX that way on 2026-11-02, while its EJA22 plans for the
+        // same afternoon were cancelled). Same aircraft, so both feed one leg list; each leg keeps
+        // the callsign it was filed under (its flight_number, and what live tracking polls).
+        const csList = [cs, nj.tailCallsign].filter(Boolean);
+        const tfmsLegTimes = csList.flatMap(c => tfms.getAllLegTimes(c).map(l => ({ ...l, cs: c })));
+        const tfdmLegs = csList.flatMap(c => tfdm.getAllLegs(c).map(l => ({ ...l, cs: c })))
+            .filter(l => (l.scheduledDepMs || 0) >= tourStartMs);
         const allLegs = [...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs)]
             .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
         if (!allLegs.length) continue; // nothing known yet for this tour -- wait for a real signal
@@ -5061,13 +5075,14 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             const estimatedMin = arrTime ? null : await _estimatedRouteDurationMin(db, origin, dest);
             const estimatedArrTime = estimatedMin ? new Date(new Date(depTime).getTime() + estimatedMin * 60000).toISOString() : null;
 
-            const landed = /ARRIVAL|TAXI_IN|LUAW/.test(flightState) || isParkedForOrigin(cs, origin);
+            const legCs = leg.cs || cs;
+            const landed = /ARRIVAL|TAXI_IN|LUAW/.test(flightState) || isParkedForOrigin(legCs, origin);
             let finalDest = dest;
             if (landed && !finalDest) {
                 // Last resort: neither SWIM feed ever gave a destination for a leg that's
                 // genuinely over -- reverse-geocode the last known live position instead of
                 // leaving it with no arrival at all.
-                const lastPos = _liveCache[cs]?.data;
+                const lastPos = _liveCache[legCs]?.data;
                 if (lastPos && lastPos.lat != null && lastPos.lon != null) finalDest = _findNearestAirportCode(lastPos.lat, lastPos.lon);
             }
 
@@ -5078,6 +5093,12 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             // aren't doing that flight -- need support for that." A cancelled leg that was never
             // created isn't worth creating at all.
             if (!row && legTimes.cancelled) continue;
+
+            // An in-advance leg 3h+ past its departure with still no departure/track/arrival
+            // event: NetJets dropped the plan without sending a cancellation (11% of filed plans
+            // fleet-wide, research log 2026-10-30..11-03). Never created, or cancelled if it was.
+            const staleInAdvance = leg.inAdvance && Date.now() - new Date(depTime).getTime() > 3 * 60 * 60 * 1000;
+            if (!row && staleInAdvance) continue;
 
             if (!row) {
                 // New leg -- created outright, future or not. Unlike the old reactive design,
@@ -5102,7 +5123,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                     const newId = await new Promise((resolve, reject) => {
                         db.run(
                             `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, flight_number, block_minutes, is_manual, auto_leg_key, auto_leg_complete) VALUES (?, 'flight', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-                            [nj.pilotId, depTime, finalArrTime, origin, finalDest || '', nj.tail, cs, (block && block > 0) ? block : null, autoLegKey, landed ? 1 : 0],
+                            [nj.pilotId, depTime, finalArrTime, origin, finalDest || '', nj.tail, legCs, (block && block > 0) ? block : null, autoLegKey, landed ? 1 : 0],
                             function (err) { err ? reject(err) : resolve(this.lastID); }
                         );
                     });
@@ -5124,6 +5145,11 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                 continue;
             }
             if (row.auto_leg_cancelled) continue;
+            if (staleInAdvance && !row.auto_leg_complete) {
+                db.run('UPDATE segments SET auto_leg_cancelled=1 WHERE id=?', [row.id], () => {});
+                console.log(`[NetJets] ${nj.pilotKey}: leg ${row.auto_leg_key} filtered out -- 3h past departure, never flew (plan dropped)`);
+                continue;
+            }
 
             // Refine whatever's newly known about an already-created leg.
             const updates = [], params = [];
@@ -5404,6 +5430,10 @@ async function runActiveFlightPoller() {
             } catch (_) {}
             for (const nj of onDutyNetjets) {
                 swimRelevant.add(nj.callsign);
+                if (nj.tailCallsign) { // international legs, see _pollNetjetsLegCreation
+                    swimRelevant.add(nj.tailCallsign);
+                    if (!swimDepTimes.has(nj.tailCallsign)) swimDepTimes.set(nj.tailCallsign, new Set());
+                }
                 if (!swimDepTimes.has(nj.callsign)) swimDepTimes.set(nj.callsign, new Set());
                 if (!polled.has(nj.callsign)) {
                     polled.add(nj.callsign);
@@ -5531,9 +5561,11 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
     // EJA#### (raised directly) -- the tail-list links below pass that literal callsign straight
     // through via ?tail=, so it must be recognized as-is before falling back to the normal
     // digits-only "742" search box input, which would otherwise strip N22QS down to a wrong "22".
-    const tailNumberMatch = /^N\d{1,4}QS$/i.test(rawTail) ? rawTail.toUpperCase() : null;
+    // One page per TAIL, covering both callsigns it flies under (requested directly): EJA#### in
+    // the lower 48 + Canada, the bare N####QS anywhere else. "22", "EJA22" and "N22QS" all land here.
     const digits = rawTail.replace(/\D/g, '');
-    const cs = tailNumberMatch || (digits ? ejaFlightNumber(digits) : null);
+    const cs = digits ? ejaFlightNumber(digits) : null;
+    const tailCs = digits ? `N${digits}QS` : null;
     const norm = norm3Airport;
     const nowMs = Date.now();
     const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -5555,30 +5587,33 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
         // many NJ users on tour to try."
         const tfdmTails = tfdm.getCallsignsWithLegs();
         const tfmsTails = tfms.getCallsignsWithLegTimes();
-        const byCallsign = new Map();
-        for (const t of tfdmTails) byCallsign.set(t.callsign, { callsign: t.callsign, tfdmLegs: t.legCount, tfmsLegs: 0, lastMs: t.lastMs });
-        for (const t of tfmsTails) {
-            const existing = byCallsign.get(t.callsign);
-            if (existing) { existing.tfmsLegs = t.legCount; existing.lastMs = Math.max(existing.lastMs, t.lastMs); }
-            else byCallsign.set(t.callsign, { callsign: t.callsign, tfdmLegs: 0, tfmsLegs: t.legCount, lastMs: t.lastMs });
-        }
-        const tails = [...byCallsign.values()].sort((a, b) => b.lastMs - a.lastMs);
+        // Grouped by tail digits -- EJA22 and N22QS are the same aircraft, one row.
+        const byTail = new Map();
+        const add = (t, field) => {
+            const d = t.callsign.replace(/\D/g, '');
+            const row = byTail.get(d) || { digits: d, callsigns: new Set(), tfdmLegs: 0, tfmsLegs: 0, lastMs: 0 };
+            row.callsigns.add(t.callsign); row[field] += t.legCount; row.lastMs = Math.max(row.lastMs, t.lastMs);
+            byTail.set(d, row);
+        };
+        for (const t of tfdmTails) add(t, 'tfdmLegs');
+        for (const t of tfmsTails) add(t, 'tfmsLegs');
+        const tails = [...byTail.values()].sort((a, b) => b.lastMs - a.lastMs);
         const tailRows = tails.length ? tails.map(t => {
-            const tDigits = t.callsign.replace(/^EJA/, '');
             const ageMin = Math.round((nowMs - t.lastMs) / 60000);
+            const intl = t.callsigns.has(`N${t.digits}QS`) ? ` <span style="color:#fbbf24;font-size:10px;font-weight:400">intl legs</span>` : '';
             return `<tr style="border-bottom:1px solid #27272a">
-                <td style="padding:8px 12px"><a href="?tail=${tDigits}&${qs}" style="color:#60a5fa;font-weight:700;text-decoration:none">${t.callsign}</a></td>
+                <td style="padding:8px 12px"><a href="?tail=${t.digits}&${qs}" style="color:#60a5fa;font-weight:700;text-decoration:none">N${t.digits}QS · EJA${t.digits}</a>${intl}</td>
                 <td style="padding:8px 12px;color:#a1a1aa">${t.tfdmLegs}</td>
                 <td style="padding:8px 12px;color:#a1a1aa">${t.tfmsLegs}</td>
                 <td style="padding:8px 12px;color:#52525b;font-size:11px">${ageMin < 60 ? ageMin + 'm ago' : Math.round(ageMin/60) + 'h ago'}</td>
             </tr>`;
         }).join('') : `<tr><td colspan="4" style="padding:24px;text-align:center;color:#71717a">No tails captured yet.</td></tr>`;
         bodyHtml = `<div style="color:#71717a;font-size:13px;margin-bottom:12px">${tails.length} tail${tails.length===1?'':'s'} with captured data — pick one, or search a tail's digits above.</div>
-        <table><thead><tr><th>Callsign</th><th>TFDM legs</th><th>TFMS legs</th><th>Last seen</th></tr></thead>
+        <table><thead><tr><th>Tail · callsign</th><th>TFDM legs</th><th>TFMS legs</th><th>Last seen</th></tr></thead>
         <tbody>${tailRows}</tbody></table>`;
     } else {
-        const allLegsRaw = tfdm.getAllLegs(cs);
-        const legTimesRaw = tfms.getAllLegTimes(cs);
+        const allLegsRaw = [cs, tailCs].flatMap(c => tfdm.getAllLegs(c).map(l => ({ ...l, cs: c })));
+        const legTimesRaw = [cs, tailCs].flatMap(c => tfms.getAllLegTimes(c).map(l => ({ ...l, cs: c })));
         const inRange = ms => ms != null && ms >= fromMs && ms <= toMs;
         const allLegs = allLegsRaw.filter(l => inRange(l.scheduledDepMs));
         const legTimes = legTimesRaw.filter(l => inRange(l.scheduledDepMs));
@@ -5594,7 +5629,7 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
                 return { ...l, times, source: times ? 'TFDM + TFMS' : 'TFDM' };
             }),
             ...legTimes.filter(lt => !allLegs.some(l => norm(l.origin) === norm(lt.origin) && norm(l.dest) === norm(lt.dest)))
-                .map(lt => ({ origin: lt.origin, dest: lt.dest, scheduledDepMs: lt.scheduledDepMs, flightState: tfmsOnlyPhase(lt), times: lt, source: 'TFMS' })),
+                .map(lt => ({ origin: lt.origin, dest: lt.dest, scheduledDepMs: lt.scheduledDepMs, flightState: tfmsOnlyPhase(lt), times: lt, source: 'TFMS', cs: lt.cs })),
         ].sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
 
         const filedRows = merged.length ? merged.map(l => {
@@ -5613,9 +5648,10 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
                 <td style="padding:10px 12px;color:#a1a1aa">${l.departureDelayMin != null ? l.departureDelayMin + 'm' : '—'}</td>
                 <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etdType) : '—'}</td>
                 <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etaType) : etaFallback ? `${new Date(etaFallback).toISOString().slice(11,16)}Z <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
+                <td style="padding:10px 12px;color:${/^N/.test(l.cs || '') ? '#fbbf24' : '#a1a1aa'};font-size:11px;white-space:nowrap">${l.cs || '—'}</td>
                 <td style="padding:10px 12px;color:#71717a;font-size:11px;white-space:nowrap">${l.source}</td>
             </tr>`;
-        }).join('') : `<tr><td colspan="7" style="padding:20px;text-align:center;color:#71717a">No candidates filed in this window.</td></tr>`;
+        }).join('') : `<tr><td colspan="8" style="padding:20px;text-align:center;color:#71717a">No candidates filed in this window.</td></tr>`;
 
         // "Resolved" -- the same chain-consistency filter _pollNetjetsLegCreation() actually
         // applies, run read-only against this window so leg-creation logic can be validated at
@@ -5645,11 +5681,11 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
                 <td style="padding:10px 12px;color:#52525b;font-size:11px">${r.reason || ''}</td>
             </tr>`).join('') : `<tr><td colspan="6" style="padding:20px;text-align:center;color:#71717a">Nothing resolved in this window.</td></tr>`;
 
-        bodyHtml = `<div style="color:#71717a;font-size:13px;margin-bottom:4px">Callsign <b style="color:#e4e4e7">${cs}</b> · Tail <b style="color:#e4e4e7">N${digits}QS</b>
-            · <a href="${faLink}" target="_blank" rel="noopener" style="color:#60a5fa">FlightAware ↗</a>
+        bodyHtml = `<div style="color:#71717a;font-size:13px;margin-bottom:4px">Tail <b style="color:#e4e4e7">${tailCs}</b> · callsigns <b style="color:#e4e4e7">${cs}</b> (lower 48 + Canada) and <b style="color:#fbbf24">${tailCs}</b> (international)
+            · FlightAware: <a href="${faLink}" target="_blank" rel="noopener" style="color:#60a5fa">${cs} ↗</a> <a href="https://flightaware.com/live/flight/${tailCs}" target="_blank" rel="noopener" style="color:#60a5fa">${tailCs} ↗</a>
             · <a href="?${qs}" style="color:#60a5fa">← all tails</a></div>
         <h2 style="font-size:14px;margin:20px 0 8px;color:#e4e4e7">Filed — every TFDM and TFMS entry, unfiltered</h2>
-        <table><thead><tr><th>Route</th><th>Scheduled</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th><th>Source</th></tr></thead>
+        <table><thead><tr><th>Route</th><th>Scheduled</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th><th>Callsign</th><th>Source</th></tr></thead>
         <tbody>${filedRows}</tbody></table>
         <h2 style="font-size:14px;margin:24px 0 8px;color:#e4e4e7">Resolved — what would make sense on a pilot's schedule with this tail</h2>
         <table><thead><tr><th>Route</th><th>Dep</th><th>Arr</th><th>Status</th><th>Confirmed?</th><th>Why</th></tr></thead>
