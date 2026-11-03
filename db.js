@@ -246,6 +246,20 @@ function initDB() {
             UNIQUE(pilot_id, date)
         )`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_cc_schedule_day_pilot ON pilot_cc_schedule_day(pilot_id)`);
+        // NetJets voluntary tour extension: an extra on-duty day tacked onto an existing tour (the
+        // pilot stays on past the last day instead of airlining home). Keyed to the tour it extends
+        // so the tour start -- and with it the saved tail -- stays the same; highest precedence of
+        // all on/off-duty signals, since the pilot set it explicitly.
+        db.run(`CREATE TABLE IF NOT EXISTS pilot_tour_extension (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pilot_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            tour_start_date TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pilot_id) REFERENCES pilots(id) ON DELETE CASCADE,
+            UNIQUE(pilot_id, date)
+        )`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_tour_extension_pilot ON pilot_tour_extension(pilot_id)`);
         // Which CC program (52/60/72/76 -- the trimester day-count) a pilot bids, e.g. "72".
         // Purely informational/display -- the real on/off-duty truth always comes from
         // pilot_cc_schedule_day's actual uploaded day records, never computed from this number

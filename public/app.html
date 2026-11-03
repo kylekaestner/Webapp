@@ -1822,6 +1822,10 @@
                 <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Starting Airport</label>
                 <input id="netjets-tour-modal-start-airport" type="text" maxlength="4" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white uppercase" placeholder="SGR">
             </div>
+            <div class="flex items-center gap-2">
+                <button onclick="extendNetjetsTour()" class="flex-1 py-2 rounded-lg border border-zinc-700 text-[11px] font-black uppercase tracking-wide text-emerald-400 hover:bg-emerald-950/30 transition-colors">＋ Extend 1 day</button>
+                <button id="netjets-tour-modal-unextend-btn" onclick="unextendNetjetsTour()" class="hidden py-2 px-3 rounded-lg border border-zinc-700 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors">Undo</button>
+            </div>
             <button onclick="_openCommuteForTour()" class="w-full text-left text-[11px] font-bold text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1.5">📋 Log the commute/deadhead to get there</button>
             <p id="netjets-tour-modal-status" class="text-xs text-zinc-500 h-4"></p>
         </div>
@@ -3559,7 +3563,26 @@
             return hw.windows.some(w => w.start.getTime() <= now && now < w.end.getTime()) ? hw.homeC : null;
         }
 
+        // Voluntary extension day (pilot stayed on past the tour's last day) -> the tour it extends.
+        function _tourExtensionFor(pilotKey, dateStr) {
+            return (pilotsCache[pilotKey]?.tour_extensions || []).find(e => e.date === dateStr)?.tour_start_date || null;
+        }
+        // Last day of the tour starting tourStart: walks forward while each day still resolves to
+        // this tour (rotation, CC run, seam, extensions).
+        function _tourEndDateFor(pilotKey, tourStart) {
+            let end = tourStart;
+            const d = new Date(tourStart + 'T12:00:00');
+            for (let i = 0; i < 45; i++) {
+                d.setDate(d.getDate() + 1);
+                const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                if (_tourStartDateFor(pilotKey, ds) !== tourStart) break;
+                end = ds;
+            }
+            return end;
+        }
+
         function _isNetJetsOnDuty(pilotKey, dateStr) {
+            if (_tourExtensionFor(pilotKey, dateStr)) return true; // set explicitly -- highest precedence
             const cc = _ccScheduleOverrideFor(pilotKey, dateStr);
             if (cc !== null) return !!cc;
             const seam = _seamOverrideFor(pilotKey, dateStr);
@@ -3610,6 +3633,8 @@
         // (YYYY-MM-DD) of day 1 of the on-duty tour containing dateStr -- the key used to look up
         // / save that tour's tail in pilot_tour_tail.
         function _tourStartDateFor(pilotKey, dateStr) {
+            const ext = _tourExtensionFor(pilotKey, dateStr);
+            if (ext) return ext;
             // CC day records win over the formula (same as _isNetJetsOnDuty) -- a CC "tour" is a
             // run of consecutive X days, starting at its first X. Mirrors _netjetsTourStartServer.
             const ccDays = pilotsCache[pilotKey]?.cc_schedule_days;
@@ -11377,21 +11402,65 @@ async function openAdminPanel(tab = 'users') {
         function openNetjetsTourModal(tourStartDate) {
             if (!tourStartDate || !myPilot) return;
             _netjetsTourModalDate = tourStartDate;
-            const rotation = _resolveRotationAt(pilotsCache[myPilot]?.rotation_history, tourStartDate);
-            let rangeTxt = `Day 1: ${tourStartDate}`;
-            if (rotation?.days_on) {
-                const start = new Date(tourStartDate + 'T12:00:00');
-                const end = new Date(start.getTime() + (rotation.days_on - 1) * 86400000);
-                const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                rangeTxt = `${fmt(start)} – ${fmt(end)} (${rotation.days_on} day${rotation.days_on === 1 ? '' : 's'})`;
-            }
-            document.getElementById('netjets-tour-modal-range').textContent = rangeTxt;
+            _refreshNetjetsTourRange();
             document.getElementById('netjets-tour-modal-tail').value = _tourTailFor(myPilot, tourStartDate) || '';
             document.getElementById('netjets-tour-modal-start-airport').value = _tourStartAirportFor(myPilot, tourStartDate) || '';
             document.getElementById('netjets-tour-modal-status').textContent = '';
             // Nothing saved for this tour yet -- no point offering to reset a blank.
             document.getElementById('netjets-tour-modal-reset-btn').classList.toggle('hidden', !_tourTailFor(myPilot, tourStartDate));
             document.getElementById('netjets-tour-modal').classList.remove('hidden');
+        }
+        // Walks the actual tour (rotation, CC days, seam, and any extension days) rather than
+        // assuming days_on, so an extended tour shows its real length.
+        function _refreshNetjetsTourRange() {
+            const ts = _netjetsTourModalDate;
+            if (!ts) return;
+            const end = _tourEndDateFor(myPilot, ts);
+            const ext = (pilotsCache[myPilot]?.tour_extensions || []).filter(e => e.tour_start_date === ts).length;
+            const fmt = ds => new Date(ds + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const days = Math.round((new Date(end + 'T12:00:00') - new Date(ts + 'T12:00:00')) / 86400000) + 1;
+            document.getElementById('netjets-tour-modal-range').textContent =
+                `${fmt(ts)} – ${fmt(end)} (${days} day${days === 1 ? '' : 's'}${ext ? `, extended +${ext}` : ''})`;
+            document.getElementById('netjets-tour-modal-unextend-btn').classList.toggle('hidden', !ext);
+        }
+        async function extendNetjetsTour() {
+            const ts = _netjetsTourModalDate;
+            const statusEl = document.getElementById('netjets-tour-modal-status');
+            if (!ts) return;
+            const end = new Date(_tourEndDateFor(myPilot, ts) + 'T12:00:00');
+            end.setDate(end.getDate() + 1);
+            const date = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+            statusEl.textContent = 'Saving…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}/tour-extension`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, tourStartDate: ts, date })
+                });
+                if (!r.ok) { statusEl.textContent = 'Extend failed — try again.'; return; }
+                const exts = (pilotsCache[myPilot].tour_extensions || []).filter(e => e.date !== date);
+                pilotsCache[myPilot].tour_extensions = [...exts, { date, tour_start_date: ts }];
+                statusEl.textContent = 'Extended — same tail, no commute home until the new last day.';
+                _refreshNetjetsTourRange();
+                if (currentPilot === myPilot) render();
+            } catch { statusEl.textContent = 'Extend failed — try again.'; }
+        }
+        async function unextendNetjetsTour() {
+            const ts = _netjetsTourModalDate;
+            const statusEl = document.getElementById('netjets-tour-modal-status');
+            const last = (pilotsCache[myPilot]?.tour_extensions || []).filter(e => e.tour_start_date === ts).map(e => e.date).sort().pop();
+            if (!last) return;
+            statusEl.textContent = 'Saving…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${myPilot}/tour-extension`, {
+                    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, date: last })
+                });
+                if (!r.ok) { statusEl.textContent = 'Undo failed — try again.'; return; }
+                pilotsCache[myPilot].tour_extensions = pilotsCache[myPilot].tour_extensions.filter(e => e.date !== last);
+                statusEl.textContent = 'Extension removed.';
+                _refreshNetjetsTourRange();
+                if (currentPilot === myPilot) render();
+            } catch { statusEl.textContent = 'Undo failed — try again.'; }
         }
         function dismissNetjetsTourModal() {
             document.getElementById('netjets-tour-modal')?.classList.add('hidden');

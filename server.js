@@ -1523,6 +1523,13 @@ function _resolveRotationAtServer(rotationHistory, dateStr) {
 // app.html's _isNetJetsOnDuty(). A CC "tour" is a run of consecutive X days -- its start is the
 // first X of the run containing dateStr. No CC record for dateStr -> the rotation formula.
 function _netjetsTourStartServer(db, pilotId, dateStr, cb) {
+    // A voluntary extension day belongs to the tour it extends -- highest precedence, set explicitly.
+    db.get('SELECT tour_start_date FROM pilot_tour_extension WHERE pilot_id=? AND date=?', [pilotId, dateStr], (errExt, ext) => {
+        if (!errExt && ext) return cb(ext.tour_start_date);
+        _netjetsTourStartFromScheduleServer(db, pilotId, dateStr, cb);
+    });
+}
+function _netjetsTourStartFromScheduleServer(db, pilotId, dateStr, cb) {
     db.all(`SELECT date, status FROM pilot_cc_schedule_day WHERE pilot_id=? AND date BETWEEN date(?, '-40 days') AND ?`, [pilotId, dateStr, dateStr], (errCc, ccRows) => {
         const cc = new Map((errCc ? [] : ccRows || []).map(r => [r.date, r.status]));
         if (cc.has(dateStr)) {
@@ -2050,8 +2057,11 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
                                     if (err5) return res.status(500).json({ error: err5.message });
                                     db.all('SELECT date, status FROM pilot_cc_schedule_day WHERE pilot_id = ? ORDER BY date ASC', [pilot.id], (err6, ccDays) => {
                                         if (err6) return res.status(500).json({ error: err6.message });
-                                        const resolvedParser = getParserForPilot(pilotKey, pilot);
-                                        res.json({ ...pilot, parser_type: resolvedParser, airline_code: pilot.airline_code || '', segments, base_history: baseHistory || [], rotation_history: rotationHistory || [], tour_tails: tourTails || [], rotation_seams: rotationSeams || [], cc_schedule_days: ccDays || [] });
+                                        db.all('SELECT date, tour_start_date FROM pilot_tour_extension WHERE pilot_id = ? ORDER BY date ASC', [pilot.id], (err7, tourExtensions) => {
+                                            if (err7) return res.status(500).json({ error: err7.message });
+                                            const resolvedParser = getParserForPilot(pilotKey, pilot);
+                                            res.json({ ...pilot, parser_type: resolvedParser, airline_code: pilot.airline_code || '', segments, base_history: baseHistory || [], rotation_history: rotationHistory || [], tour_tails: tourTails || [], rotation_seams: rotationSeams || [], cc_schedule_days: ccDays || [], tour_extensions: tourExtensions || [] });
+                                        });
                                     });
                                 });
                             });
@@ -3124,6 +3134,47 @@ app.delete('/api/pilots/:pilotKey/cc-schedule', (req, res) => {
             if (err) return res.status(500).json({ error: err.message });
             if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
             db.run(`DELETE FROM pilot_cc_schedule_day WHERE pilot_id=? AND date LIKE ?`, [pilotRow.id, `${month}-%`], function (err2) {
+                if (err2) return res.status(500).json({ error: err2.message });
+                res.json({ success: true, deleted: this.changes });
+            });
+        });
+    });
+});
+
+// NetJets voluntary tour extension (requested directly): the pilot stays on past the tour's last
+// day instead of airlining home. One row per extra day, keyed to the tour it extends so the tour
+// start (and its saved tail) doesn't change. Admin-or-self.
+app.put('/api/pilots/:pilotKey/tour-extension', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { token, tourStartDate, date } = req.body;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tourStartDate || '') || !/^\d{4}-\d{2}-\d{2}$/.test(date || '') || date <= tourStartDate) {
+        return res.status(400).json({ error: 'tourStartDate and a later date (YYYY-MM-DD) required' });
+    }
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
+            db.run(`INSERT INTO pilot_tour_extension (pilot_id, date, tour_start_date) VALUES (?, ?, ?)
+                    ON CONFLICT(pilot_id, date) DO UPDATE SET tour_start_date=excluded.tour_start_date`,
+                [pilotRow.id, date, tourStartDate], (err2) => err2 ? res.status(500).json({ error: err2.message }) : res.json({ success: true }));
+        });
+    });
+});
+app.delete('/api/pilots/:pilotKey/tour-extension', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { token, date } = req.body;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+        db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
+            db.run('DELETE FROM pilot_tour_extension WHERE pilot_id=? AND date=?', [pilotRow.id, date], function (err2) {
                 if (err2) return res.status(500).json({ error: err2.message });
                 res.json({ success: true, deleted: this.changes });
             });
@@ -5564,8 +5615,19 @@ app.get('/admin/download-db', (req, res) => {
 // it inherits that page's existing cookie-based auth without any change to the login/cookie code
 // (rosterAuth's cookie is scoped to Path=/crew-roster). Read-only -- same posture as the
 // /api/debug/* endpoints this reuses, just a human-readable page instead of raw JSON.
-app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
+app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
     const rawTail = (req.query.tail || '').trim();
+    const db = getDB();
+    const dbAll = (sql, params) => new Promise(resolve => db.all(sql, params, (err, rows) => resolve(err ? [] : (rows || []))));
+    // CrewSync pilots who've saved each tail for a tour (most recent first) -- labels the tail list
+    // and, on a tail page, which pilot's real schedule to compare against.
+    const tailPilots = new Map(); // digits -> [{ name, pilot_key, pilot_id, tour_start_date }]
+    for (const r of await dbAll(`SELECT t.tail, t.tour_start_date, p.id AS pilot_id, p.pilot_key, p.name FROM pilot_tour_tail t JOIN pilots p ON p.id=t.pilot_id ORDER BY t.tour_start_date DESC`, [])) {
+        const d = String(r.tail || '').replace(/\D/g, '');
+        if (!d) continue;
+        if (!tailPilots.has(d)) tailPilots.set(d, []);
+        tailPilots.get(d).push(r);
+    }
     // A tail flying outside the lower 48 + Canada files/flies under its bare N-number instead of
     // EJA#### (raised directly) -- the tail-list links below pass that literal callsign straight
     // through via ?tail=, so it must be recognized as-is before falling back to the normal
@@ -5610,8 +5672,10 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
         const tailRows = tails.length ? tails.map(t => {
             const ageMin = Math.round((nowMs - t.lastMs) / 60000);
             const intl = t.callsigns.has(`N${t.digits}QS`) ? ` <span style="color:#fbbf24;font-size:10px;font-weight:400">intl legs</span>` : '';
+            const crew = tailPilots.get(t.digits);
+            const crewTag = crew ? ` <span style="color:#a78bfa;font-size:10px;font-weight:700">· ${[...new Set(crew.map(c => (c.name || c.pilot_key).split(' ')[0]))].join(', ')}</span>` : '';
             return `<tr style="border-bottom:1px solid #27272a">
-                <td style="padding:8px 12px"><a href="?tail=${t.digits}&${qs}" style="color:#60a5fa;font-weight:700;text-decoration:none">N${t.digits}QS · EJA${t.digits}</a>${intl}</td>
+                <td style="padding:8px 12px"><a href="?tail=${t.digits}&${qs}" style="color:#60a5fa;font-weight:700;text-decoration:none">N${t.digits}QS · EJA${t.digits}</a>${intl}${crewTag}</td>
                 <td style="padding:8px 12px;color:#a1a1aa">${t.tfdmLegs}</td>
                 <td style="padding:8px 12px;color:#a1a1aa">${t.tfmsLegs}</td>
                 <td style="padding:8px 12px;color:#52525b;font-size:11px">${ageMin < 60 ? ageMin + 'm ago' : Math.round(ageMin/60) + 'h ago'}</td>
@@ -5641,8 +5705,39 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
                 .map(lt => ({ origin: lt.origin, dest: lt.dest, scheduledDepMs: lt.scheduledDepMs, flightState: tfmsOnlyPhase(lt), times: lt, source: 'TFMS', cs: lt.cs })),
         ].sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
 
+        // Local time at the airport, like FlightAware shows it, with UTC underneath for the raw value.
+        const fmtLocal = (t, apt, withDate = true) => {
+            if (!t) return '—';
+            const d = new Date(t);
+            if (isNaN(d)) return '—';
+            const tz = _aptTimezone[norm(apt)];
+            const z = `<div style="font-size:10px;color:#52525b">${d.toISOString().slice(withDate ? 5 : 11, 16).replace('T', ' ')}Z</div>`;
+            if (!tz) return d.toISOString().slice(withDate ? 5 : 11, 16).replace('T', ' ') + 'Z';
+            const opts = { timeZone: tz, hour: 'numeric', minute: '2-digit', timeZoneName: 'short', ...(withDate ? { month: 'short', day: 'numeric' } : {}) };
+            return d.toLocaleString('en-US', opts) + z;
+        };
+        const localDay = (t, apt) => {
+            const tz = _aptTimezone[norm(apt)];
+            return t ? new Date(t).toLocaleDateString('en-US', { timeZone: tz || 'UTC', weekday: 'short', month: 'short', day: 'numeric' }) : '';
+        };
+        const dayRow = (label, cols) => `<tr><td colspan="${cols}" style="padding:14px 12px 6px;color:#e4e4e7;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #3f3f46">${label}</td></tr>`;
+        // What proves this leg flew: TFMS departure/arrival/radar-track events, TFDM movement.
+        const evidence = l => {
+            const chips = [];
+            const t = l.times || {};
+            if (t.departedAt) chips.push('dep');
+            if (_tfmsLegArrived(t)) chips.push('arr');
+            if (t.tracked) chips.push('radar');
+            if (/TAXI_OUT|DEPARTED|TAKEOFF|LUAW|QUEUE|EN_ROUTE|ON_FINAL|ARRIVAL|TAXI_IN/.test(l.source !== 'TFMS' ? (l.flightState || '') : '')) chips.push('TFDM');
+            return chips.length ? chips.map(c => `<span style="display:inline-block;padding:1px 6px;margin:1px;border-radius:9px;background:#14532d;color:#86efac;font-size:10px">${c}</span>`).join('')
+                : '<span style="color:#52525b;font-size:11px">none</span>';
+        };
+        let lastFiledDay = null;
         const filedRows = merged.length ? merged.map(l => {
             const dep = l.offBlockTime ? new Date(l.offBlockTime) : (l.scheduledDepMs != null ? new Date(l.scheduledDepMs) : null);
+            const dayLabel = dep ? localDay(dep, l.origin) : '';
+            const sep = dayLabel && dayLabel !== lastFiledDay ? dayRow(dayLabel, 9) : '';
+            lastFiledDay = dayLabel || lastFiledDay;
             const etd = l.times?.etd || l.times?.igtd || null;
             const eta = l.times?.eta || null;
             const etaFallback = !eta && l.estArrivalTime ? l.estArrivalTime : null;
@@ -5650,17 +5745,18 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
             const stateColor = l.flightState === 'CANCELLED' ? '#71717a' : /EN_ROUTE|DEPARTED|ARRIVED|ON_FINAL|TAXI/.test(l.flightState || '') ? '#4ade80' : isPast ? '#71717a' : '#60a5fa';
             const confTag = (type) => type === 'ACTUAL' ? ' <span style="color:#4ade80;font-size:10px">(actual)</span>' : type ? ` <span style="color:#71717a;font-size:10px">(${type.toLowerCase()})</span>` : '';
             const tfmsDiversion = l.times?.diversionIndicator && l.times.diversionIndicator !== 'NO_DIVERSION';
-            return `<tr style="border-bottom:1px solid #27272a">
+            return `${sep}<tr style="border-bottom:1px solid #27272a">
                 <td style="padding:10px 12px;font-weight:700">${l.origin || '?'} → ${l.dest || '?'}${l.times?.gufi ? `<div style="font-size:9px;color:#3f3f46;font-weight:400">${l.times.gufi}</div>` : ''}</td>
-                <td style="padding:10px 12px;color:#a1a1aa">${dep ? dep.toISOString().slice(0,16).replace('T',' ') + 'Z' : '—'}</td>
+                <td style="padding:10px 12px;color:#a1a1aa">${dep ? fmtLocal(dep, l.origin, false) : '—'}</td>
                 <td style="padding:10px 12px;color:${stateColor};font-weight:700">${l.flightState || '—'}${l.source !== 'TFMS' && _tfmsLegCancelled(l.times) ? ' <span style="color:#f87171">· CANCELLED (TFMS)</span>' : ''}${(l.isDiversion || tfmsDiversion) ? ' <span style="color:#f87171">⚠ DIVERSION</span>' : ''}</td>
                 <td style="padding:10px 12px;color:#a1a1aa">${l.departureDelayMin != null ? l.departureDelayMin + 'm' : '—'}</td>
-                <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etdType) : '—'}</td>
-                <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etaType) : etaFallback ? `${new Date(etaFallback).toISOString().slice(11,16)}Z <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
+                <td style="padding:10px 12px;color:#93c5fd">${etd ? fmtLocal(etd, l.origin, false) + confTag(l.times?.etdType) : '—'}</td>
+                <td style="padding:10px 12px;color:#93c5fd">${eta ? fmtLocal(eta, l.dest, false) + confTag(l.times?.etaType) : etaFallback ? `${fmtLocal(etaFallback, l.dest, false)} <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
+                <td style="padding:10px 12px">${evidence(l)}</td>
                 <td style="padding:10px 12px;color:${/^N/.test(l.cs || '') ? '#fbbf24' : '#a1a1aa'};font-size:11px;white-space:nowrap">${l.cs || '—'}</td>
                 <td style="padding:10px 12px;color:#71717a;font-size:11px;white-space:nowrap">${l.source}</td>
             </tr>`;
-        }).join('') : `<tr><td colspan="8" style="padding:20px;text-align:center;color:#71717a">No candidates filed in this window.</td></tr>`;
+        }).join('') : `<tr><td colspan="9" style="padding:20px;text-align:center;color:#71717a">No candidates filed in this window.</td></tr>`;
 
         // "Resolved" -- the same chain-consistency filter _pollNetjetsLegCreation() actually
         // applies, run read-only against this window so leg-creation logic can be validated at
@@ -5681,24 +5777,66 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
             if (depMs != null && nowMs - depMs > CONFIRM_GRACE_MS) return '<span style="color:#f87171;font-weight:700">⚠ never confirmed</span>';
             return '<span style="color:#71717a">— upcoming</span>';
         };
-        const resolvedRows = resolved.length ? resolved.map(r => `<tr style="border-bottom:1px solid #27272a">
+        let lastResolvedDay = null;
+        const resolvedRows = resolved.length ? resolved.map(r => {
+            const dayLabel = r.depTime ? localDay(r.depTime, r.origin) : '';
+            const sep = dayLabel && dayLabel !== lastResolvedDay ? dayRow(dayLabel, 6) : '';
+            lastResolvedDay = dayLabel || lastResolvedDay;
+            return `${sep}<tr style="border-bottom:1px solid #27272a">
                 <td style="padding:10px 12px;font-weight:700">${r.origin || '?'} → ${r.dest || '?'}${r.supersededDest ? `<div style="font-size:9px;color:#71717a">superseded: ${r.origin}→${r.supersededDest}</div>` : ''}</td>
-                <td style="padding:10px 12px;color:#a1a1aa">${r.depTime ? new Date(r.depTime).toISOString().slice(0,16).replace('T',' ') + 'Z' : '—'}</td>
-                <td style="padding:10px 12px;color:#93c5fd">${r.arrTime ? new Date(r.arrTime).toISOString().slice(11,16) + 'Z' : '—'}</td>
+                <td style="padding:10px 12px;color:#a1a1aa">${r.depTime ? fmtLocal(r.depTime, r.origin, false) : '—'}</td>
+                <td style="padding:10px 12px;color:#93c5fd">${r.arrTime ? fmtLocal(r.arrTime, r.dest, false) : '—'}</td>
                 <td style="padding:10px 12px;color:${statusColor[r.status]};font-weight:700">${statusLabel[r.status]}</td>
                 <td style="padding:10px 12px;font-size:11px">${confirmLabel(r)}</td>
                 <td style="padding:10px 12px;color:#52525b;font-size:11px">${r.reason || ''}</td>
-            </tr>`).join('') : `<tr><td colspan="6" style="padding:20px;text-align:center;color:#71717a">Nothing resolved in this window.</td></tr>`;
+            </tr>`;
+        }).join('') : `<tr><td colspan="6" style="padding:20px;text-align:center;color:#71717a">Nothing resolved in this window.</td></tr>`;
+
+        // What actually got created on a CrewSync pilot's schedule for this tail -- the real result
+        // to hold against Resolved (the simulation) and FlightAware (the truth).
+        const crew = tailPilots.get(digits) || [];
+        let scheduleHtml = '';
+        if (crew.length) {
+            const pilotIds = [...new Set(crew.map(c => c.pilot_id))];
+            const segs = await dbAll(
+                `SELECT s.departure_time, s.arrival_time, s.departure_airport, s.arrival_airport, s.flight_number, s.auto_leg_key, s.auto_leg_complete, s.auto_leg_cancelled, s.auto_leg_edited, s.is_manual, p.name, p.pilot_key
+                 FROM segments s JOIN pilots p ON p.id=s.pilot_id
+                 WHERE s.pilot_id IN (${pilotIds.map(() => '?').join(',')}) AND s.type='flight'
+                   AND (s.auto_leg_key LIKE ? OR s.flight_number IN (?, ?) OR UPPER(s.tail) IN (?, ?))
+                 ORDER BY s.departure_time ASC`,
+                [...pilotIds, `${cs}|%`, cs, tailCs, digits, tailCs]);
+            const inWindow = segs.filter(s => { const t = new Date(s.departure_time).getTime(); return t >= fromMs && t <= toMs; });
+            let lastSchedDay = null;
+            const rows = inWindow.map(s => {
+                const dayLabel = localDay(s.departure_time, s.departure_airport);
+                const sep = dayLabel !== lastSchedDay ? dayRow(dayLabel, 5) : '';
+                lastSchedDay = dayLabel;
+                const state = s.auto_leg_cancelled ? '<span style="color:#71717a">hidden (cancelled/filtered)</span>'
+                    : s.auto_leg_complete ? '<span style="color:#4ade80;font-weight:700">✓ flown</span>'
+                    : '<span style="color:#60a5fa">scheduled</span>';
+                const origin = s.auto_leg_edited ? 'edited by pilot' : s.auto_leg_key ? 'auto' : 'manual';
+                return `${sep}<tr style="border-bottom:1px solid #27272a">
+                    <td style="padding:10px 12px;font-weight:700">${s.departure_airport} → ${s.arrival_airport || '?'}</td>
+                    <td style="padding:10px 12px;color:#a1a1aa">${fmtLocal(s.departure_time, s.departure_airport, false)}</td>
+                    <td style="padding:10px 12px;color:#93c5fd">${fmtLocal(s.arrival_time, s.arrival_airport, false)}</td>
+                    <td style="padding:10px 12px;font-size:11px">${state}</td>
+                    <td style="padding:10px 12px;color:#71717a;font-size:11px">${(s.name || s.pilot_key).split(' ')[0]} · ${origin} · ${s.flight_number || ''}</td>
+                </tr>`;
+            }).join('') || `<tr><td colspan="5" style="padding:20px;text-align:center;color:#71717a">Nothing on a pilot's schedule in this window.</td></tr>`;
+            scheduleHtml = `<h2 style="font-size:14px;margin:24px 0 8px;color:#e4e4e7">On the pilot's schedule — what CrewSync actually created</h2>
+            <table><thead><tr><th>Route</th><th>Dep</th><th>Arr</th><th>State</th><th>Pilot · source · callsign</th></tr></thead>
+            <tbody>${rows}</tbody></table>`;
+        }
 
         bodyHtml = `<div style="color:#71717a;font-size:13px;margin-bottom:4px">Tail <b style="color:#e4e4e7">${tailCs}</b> · callsigns <b style="color:#e4e4e7">${cs}</b> (lower 48 + Canada) and <b style="color:#fbbf24">${tailCs}</b> (international)
             · FlightAware: <a href="${faLink}" target="_blank" rel="noopener" style="color:#60a5fa">${cs} ↗</a> <a href="https://flightaware.com/live/flight/${tailCs}" target="_blank" rel="noopener" style="color:#60a5fa">${tailCs} ↗</a>
             · <a href="?${qs}" style="color:#60a5fa">← all tails</a></div>
         <h2 style="font-size:14px;margin:20px 0 8px;color:#e4e4e7">Filed — every TFDM and TFMS entry, unfiltered</h2>
-        <table><thead><tr><th>Route</th><th>Scheduled</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th><th>Callsign</th><th>Source</th></tr></thead>
+        <table><thead><tr><th>Route</th><th>Scheduled</th><th>Phase</th><th>Delay</th><th>ETD</th><th>ETA</th><th>Evidence</th><th>Callsign</th><th>Source</th></tr></thead>
         <tbody>${filedRows}</tbody></table>
         <h2 style="font-size:14px;margin:24px 0 8px;color:#e4e4e7">Resolved — what would make sense on a pilot's schedule with this tail</h2>
         <table><thead><tr><th>Route</th><th>Dep</th><th>Arr</th><th>Status</th><th>Confirmed?</th><th>Why</th></tr></thead>
-        <tbody>${resolvedRows}</tbody></table>`;
+        <tbody>${resolvedRows}</tbody></table>${scheduleHtml}`;
     }
 
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
