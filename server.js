@@ -5561,6 +5561,28 @@ const ROSTER_LOGIN_PAGE = `<!DOCTYPE html><html><head><meta charset="utf-8"><tit
 
 const ROSTER_PW = process.env.ROSTER_PASSWORD || 'crewsync2026';
 
+// Display-only timezone for the NetJets Lookup page: airports.dat lacks many small fields NetJets
+// uses (E38, 27K), so fall back to the nearest airport that has one, using coordinates from the
+// larger OurAirports file. Cached per code.
+const _lookupTzCache = {};
+function _lookupTzForAirport(code) {
+    if (!code) return null;
+    if (_aptTimezone[code]) return _aptTimezone[code];
+    if (code in _lookupTzCache) return _lookupTzCache[code];
+    const c = _aptCoords[code] || _airportCities[code] || _airportCities['K' + code];
+    const lat = Array.isArray(c) ? c[0] : c?.lat, lon = Array.isArray(c) ? c[1] : c?.lon;
+    let best = null, bestD = Infinity;
+    if (isFinite(lat) && isFinite(lon)) {
+        for (const [k, tz] of Object.entries(_aptTimezone)) {
+            const p = _aptCoords[k];
+            if (!p) continue;
+            const d = (p[0] - lat) ** 2 + ((p[1] - lon) * Math.cos(lat * Math.PI / 180)) ** 2;
+            if (d < bestD) { bestD = d; best = tz; }
+        }
+    }
+    return (_lookupTzCache[code] = best);
+}
+
 function rosterAuth(req, res, next) {
     const cookie = req.headers.cookie || '';
     const match = cookie.match(/roster_auth=([^;]+)/);
@@ -5710,14 +5732,14 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
             if (!t) return '—';
             const d = new Date(t);
             if (isNaN(d)) return '—';
-            const tz = _aptTimezone[norm(apt)];
+            const tz = _lookupTzForAirport(norm(apt));
             const z = `<div style="font-size:10px;color:#52525b">${d.toISOString().slice(withDate ? 5 : 11, 16).replace('T', ' ')}Z</div>`;
             if (!tz) return d.toISOString().slice(withDate ? 5 : 11, 16).replace('T', ' ') + 'Z';
             const opts = { timeZone: tz, hour: 'numeric', minute: '2-digit', timeZoneName: 'short', ...(withDate ? { month: 'short', day: 'numeric' } : {}) };
             return d.toLocaleString('en-US', opts) + z;
         };
         const localDay = (t, apt) => {
-            const tz = _aptTimezone[norm(apt)];
+            const tz = _lookupTzForAirport(norm(apt));
             return t ? new Date(t).toLocaleDateString('en-US', { timeZone: tz || 'UTC', weekday: 'short', month: 'short', day: 'numeric' }) : '';
         };
         const dayRow = (label, cols) => `<tr><td colspan="${cols}" style="padding:14px 12px 6px;color:#e4e4e7;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #3f3f46">${label}</td></tr>`;
