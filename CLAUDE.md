@@ -790,9 +790,6 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 - **Resolved** — `resolveNetjetsLegsForDisplay()`, a read-only simulation of the leg-creation filter, never writes to the DB. It picks the most recently updated TFMS entry for the same origin/departure instant (not TFDM's possibly stale dest), propagates confirmation backward through the chain (a leg that the next confirmed leg chains onto must have flown), and drops unconfirmed candidates departing from an airport the tail was never confirmed at. A **Confirmed?** column reads green once TFDM shows real movement, red when 3h past departure with none, grey while upcoming.
 
 A FlightAware link per tail allows manual cross-checks.
-
-**Temporary debug capture still live**: a raw-XML capture for `N22QS` (capped at 15 per feed, `.n22qs_debug_{tfdm,tfms,swim}.xml`) — remove once the tail-number-callsign check is done.
-
 Full build narrative — the F70-timezone bug and its own regression, the same-callsign-concurrent-leg discovery (59% of tracked EJA callsigns showing 2+ concurrent legs fleet-wide), the leg-creation rewrite, the arrival-before-departure fix, the grid-poller "completed" fallback fix, the TFDM-scheduled-state-window research, and the GUFI/etdType/diversionIndicator extraction pass: `CLAUDE_HISTORY.md § NetJets manual tracking`.
 
 ---
