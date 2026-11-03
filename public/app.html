@@ -1900,6 +1900,7 @@
         // computeOverlap(), renderAllPilotsMap(), and renderDayMap() all read from it
         // to avoid redundant fetches when switching views.
         const pilotsCache = {};
+        const _pilotLoads = new Map(); // pilot key -> request in flight, see _loadPilotOnce()
 
         // True if this pilot's flight times are stored as UTC (Z suffix).
         // Only flight segments are checked — events like hard/vacation use local midnight without Z.
@@ -2471,6 +2472,19 @@
 
         function _pilotFetchUrl(key) {
             return `${API_BASE}/pilots/${key}${myToken ? '?token=' + encodeURIComponent(myToken) : ''}`;
+        }
+
+        // One request per pilot at a time. The grid, Crossings, Off Days and the maps all load the same
+        // pilots at startup, and each used to download everyone separately. Rejects if the fetch fails.
+        function _loadPilotOnce(key) {
+            if (pilotsCache[key]) return Promise.resolve(pilotsCache[key]);
+            if (_pilotLoads.has(key)) return _pilotLoads.get(key);
+            const load = fetch(_pilotFetchUrl(key))
+                .then(r => r.json())
+                .then(d => { if (!pilotsCache[key]) pilotsCache[key] = d; return pilotsCache[key]; })
+                .finally(() => _pilotLoads.delete(key));
+            _pilotLoads.set(key, load);
+            return load;
         }
 
         async function loadFriends() {
@@ -4437,7 +4451,7 @@
             // used to work because every pilot saw everyone; now it would just collect 403s.
             await Promise.all(visiblePilotKeys().map(async key => {
                 if (!pilotsCache[key]) {
-                    try { pilotsCache[key] = await (await fetch(_pilotFetchUrl(key))).json(); }
+                    try { await _loadPilotOnce(key); }
                     catch(_) {}
                 }
             }));
@@ -4860,7 +4874,7 @@
             // only fetch pilots we're friends with (or everyone, for admin/viewer).
             await Promise.all(visiblePilotKeys().map(async key => {
                 if (!pilotsCache[key]) {
-                    try { pilotsCache[key] = await (await fetch(_pilotFetchUrl(key))).json(); }
+                    try { await _loadPilotOnce(key); }
                     catch (e) { return; }
                 }
             }));
@@ -5767,7 +5781,7 @@
             const visiblePilots = getCrewVisible();
             await Promise.all(visiblePilots.map(async key => {
                 if (!pilotsCache[key]) {
-                    try { pilotsCache[key] = await (await fetch(_pilotFetchUrl(key))).json(); }
+                    try { await _loadPilotOnce(key); }
                     catch(_) {}
                 }
             }));
@@ -7910,10 +7924,7 @@
             const allPilotSegments = {};
             await Promise.all(visiblePilots.map(async (key) => {
                 if (!pilotsCache[key]) {
-                    try {
-                        const resp = await fetch(_pilotFetchUrl(key));
-                        pilotsCache[key] = await resp.json();
-                    } catch (e) { return; }
+                    try { await _loadPilotOnce(key); } catch (e) { return; }
                 }
                 const data = pilotsCache[key];
                 if (!data || !data.segments) return;
@@ -8788,7 +8799,7 @@
                 // load -- only pilots we can actually see, not everyone.
                 visiblePilotKeys().forEach(k => {
                     if (!pilotsCache[k]) {
-                        fetch(_pilotFetchUrl(k)).then(r => r.json()).then(d => { pilotsCache[k] = d; }).catch(() => {});
+                        _loadPilotOnce(k).catch(() => {});
                     }
                 });
                 // Monthly totals shown next to the legend below, tallied from the exact same
