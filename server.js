@@ -5567,9 +5567,13 @@ const ROSTER_PW = process.env.ROSTER_PASSWORD || 'crewsync2026';
 const _lookupTzCache = {};
 function _lookupTzForAirport(code) {
     if (!code) return null;
-    if (_aptTimezone[code]) return _aptTimezone[code];
+    code = String(code).toUpperCase();
     if (code in _lookupTzCache) return _lookupTzCache[code];
-    const c = _aptCoords[code] || _airportCities[code] || _airportCities['K' + code];
+    // Coordinates first, US K-code preferred for a 3-letter code: NetJets codes are 3-letter only
+    // because norm3Airport() stripped the K, and the bare 3-letter IATA table collides (BKV
+    // Brooksville FL resolved to an Asian airport's GMT+8, putting legs under the wrong day).
+    const c = (code.length === 3 && (_aptCoords['K' + code] || _airportCities['K' + code]))
+        || _aptCoords[code] || _airportCities[code];
     const lat = Array.isArray(c) ? c[0] : c?.lat, lon = Array.isArray(c) ? c[1] : c?.lon;
     let best = null, bestD = Infinity;
     if (isFinite(lat) && isFinite(lon)) {
@@ -5580,7 +5584,7 @@ function _lookupTzForAirport(code) {
             if (d < bestD) { bestD = d; best = tz; }
         }
     }
-    return (_lookupTzCache[code] = best);
+    return (_lookupTzCache[code] = best || _aptTimezone[code] || null);
 }
 
 function rosterAuth(req, res, next) {
@@ -5717,6 +5721,7 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
         // "Filed" -- every raw entry from both feeds in this window, unfiltered: each TFDM leg (with
         // its matching TFMS times attached), plus every TFMS leg TFDM has no entry for at all
         // (untowered fields, cancelled plans) -- those previously never appeared here.
+        const filedDepMs = l => (l.offBlockTime ? Date.parse(l.offBlockTime) : null) ?? l.scheduledDepMs ?? 0;
         const tfmsOnlyPhase = t => _tfmsLegCancelled(t) ? 'CANCELLED' : _tfmsLegArrived(t) ? 'ARRIVED' : _tfmsLegFlown(t) ? 'DEPARTED' : 'FILED';
         const merged = [
             ...allLegs.map(l => {
@@ -5725,7 +5730,7 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
             }),
             ...legTimes.filter(lt => !allLegs.some(l => norm(l.origin) === norm(lt.origin) && norm(l.dest) === norm(lt.dest)))
                 .map(lt => ({ origin: lt.origin, dest: lt.dest, scheduledDepMs: lt.scheduledDepMs, flightState: tfmsOnlyPhase(lt), times: lt, source: 'TFMS', cs: lt.cs })),
-        ].sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
+        ].sort((a, b) => filedDepMs(a) - filedDepMs(b)); // same time the Scheduled column shows
 
         // Local time at the airport, like FlightAware shows it, with UTC underneath for the raw value.
         const fmtLocal = (t, apt, withDate = true) => {
@@ -5827,10 +5832,21 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
                    AND (s.auto_leg_key LIKE ? OR s.flight_number IN (?, ?) OR UPPER(s.tail) IN (?, ?))
                  ORDER BY s.departure_time ASC`,
                 [...pilotIds, `${cs}|%`, cs, tailCs, digits, tailCs]);
-            const inWindow = segs.filter(s => { const t = new Date(s.departure_time).getTime(); return t >= fromMs && t <= toMs; });
+            // Auto legs are stored in UTC (Z); a pilot-edited row is local airport time with no Z,
+            // which new Date() in Node would misread as UTC.
+            const realTime = (t, apt) => {
+                if (!t) return null;
+                if (/Z$|[+-]\d\d:?\d\d$/.test(t)) return new Date(t);
+                const tz = _lookupTzForAirport(norm(apt));
+                return new Date(tz ? localTZToUTC(t.slice(0, 19).replace(/[-:]/g, ''), tz) : t + 'Z');
+            };
+            const inWindow = segs
+                .map(s => ({ ...s, dep: realTime(s.departure_time, s.departure_airport), arr: realTime(s.arrival_time, s.arrival_airport) }))
+                .filter(s => s.dep && s.dep.getTime() >= fromMs && s.dep.getTime() <= toMs)
+                .sort((a, b) => a.dep - b.dep);
             let lastSchedDay = null;
             const rows = inWindow.map(s => {
-                const dayLabel = localDay(s.departure_time, s.departure_airport);
+                const dayLabel = localDay(s.dep, s.departure_airport);
                 const sep = dayLabel !== lastSchedDay ? dayRow(dayLabel, 5) : '';
                 lastSchedDay = dayLabel;
                 const state = s.auto_leg_cancelled ? '<span style="color:#71717a">hidden (cancelled/filtered)</span>'
@@ -5839,8 +5855,8 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
                 const origin = s.auto_leg_edited ? 'edited by pilot' : s.auto_leg_key ? 'auto' : 'manual';
                 return `${sep}<tr style="border-bottom:1px solid #27272a">
                     <td style="padding:10px 12px;font-weight:700">${s.departure_airport} → ${s.arrival_airport || '?'}</td>
-                    <td style="padding:10px 12px;color:#a1a1aa">${fmtLocal(s.departure_time, s.departure_airport, false)}</td>
-                    <td style="padding:10px 12px;color:#93c5fd">${fmtLocal(s.arrival_time, s.arrival_airport, false)}</td>
+                    <td style="padding:10px 12px;color:#a1a1aa">${fmtLocal(s.dep, s.departure_airport, false)}</td>
+                    <td style="padding:10px 12px;color:#93c5fd">${fmtLocal(s.arr, s.arrival_airport, false)}</td>
                     <td style="padding:10px 12px;font-size:11px">${state}</td>
                     <td style="padding:10px 12px;color:#71717a;font-size:11px">${(s.name || s.pilot_key).split(' ')[0]} · ${origin} · ${s.flight_number || ''}</td>
                 </tr>`;
