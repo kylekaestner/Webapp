@@ -48,27 +48,6 @@ const TFMS_QUEUE = process.env.TFMS_QUEUE;
 
 const TFMS_ENABLED = !!(TFMS_HOST && TFMS_VPN && TFMS_USER && TFMS_PASS && TFMS_QUEUE);
 
-// TEMPORARY (added 2026-10-31): raw per-flight message dump, same pattern as tfdm.js's own
-// dumpSample() -- scratch/tfms-samples/ turned out to only ever hold the OLD APTC-only capture
-// (2026-10-02), never a real per-flight fltdMessage, so there's been no way to audit the full
-// real shape of what this module actually receives for a flight -- only what processOneFltdMessage()
-// already knew to look for. Separate directory so the existing APTC samples aren't touched.
-// Stops itself once it's collected enough; remove this block once that audit is done.
-const FLTD_DUMP_DIR = path.join(__dirname, 'scratch', 'tfms-fltd-samples');
-let _fltdDumpCount = 0;
-const FLTD_DUMP_CAP = 25;
-function dumpFltdSample(xmlText) {
-    if (_fltdDumpCount >= FLTD_DUMP_CAP) return;
-    try {
-        fs.mkdirSync(FLTD_DUMP_DIR, { recursive: true });
-        fs.writeFileSync(path.join(FLTD_DUMP_DIR, `sample-${Date.now()}-${_fltdDumpCount}.xml`), xmlText);
-        _fltdDumpCount++;
-        if (_fltdDumpCount === FLTD_DUMP_CAP) console.log(`[TFMS] collected ${FLTD_DUMP_CAP} raw per-flight samples in ${FLTD_DUMP_DIR}`);
-    } catch (e) {
-        console.warn('[TFMS] fltd sample dump failed:', e.message);
-    }
-}
-
 let _connected = false;
 let _relevantCallsigns = null; // same pattern as swim.js/stdds.js
 // callsign -> Set<scheduledDepUTCms> -- see setRelevantCallsigns()/isExpectedDay() below. Unlike
@@ -184,20 +163,6 @@ function textOf(val) {
     return val;
 }
 
-
-// Same dedicated-file, log-on-change-only helper as tfdm.js -- see its own comment for the full
-// reasoning. Writes to the SAME file (not a separate one per module) so TFDM and TFMS entries
-// interleave in real chronological order when reviewing the investigation later.
-const _NETJETS_RESEARCH_LOG_PATH = path.join(__dirname, '.netjets_research.log');
-const _netjetsResearchLastSig = new Map();
-function _netjetsResearchLog(source, cs, detail) {
-    const key = `${source}|${cs}`;
-    if (_netjetsResearchLastSig.get(key) === detail) return;
-    _netjetsResearchLastSig.set(key, detail);
-    try {
-        fs.appendFileSync(_NETJETS_RESEARCH_LOG_PATH, `${new Date().toISOString()} [${source}] ${cs} ${detail}\n`);
-    } catch (_) {}
-}
 
 function setRelevantCallsigns(input) {
     // Accepts either a plain Set/array of callsign strings (no day-check -- permissive, same as
@@ -413,17 +378,6 @@ function processOneFltdMessage(msgObj) {
     const candidateMs = candidateMessageTimeMs(msgObj);
     const ownOrigin = routeOrigin(messageRouteString(msgObj));
     const candidateOrigin = ownOrigin || (_latest[cs] && _latest[cs].origin) || null;
-    // TEMPORARY research trace (added 2026-10-30, remove once the NetJets same-callsign
-    // investigation is done). Logs every raw TFMS message for ANY EJA callsign BEFORE either
-    // day/origin check below has a chance to reject anything, specifically to see whether a
-    // message's own candidate time ever points at a different calendar day than today --
-    // isExpectedDay()/isExpectedOrigin() are both permissive no-ops for an EJA callsign right now
-    // (no known schedule to check against), so nothing here is actually being filtered yet; this
-    // is purely to see what the raw feed looks like. Only ON CHANGE (see _netjetsResearchLog()).
-    if (_isResearchRelevant(cs)) {
-        const dayGapHrs = candidateMs != null ? ((candidateMs - Date.now()) / 3600000).toFixed(1) : '-';
-        _netjetsResearchLog('TFMS', cs, `msgType=${findAttr(msgObj, 'msgType') || '-'} candidateTime=${candidateMs != null ? new Date(candidateMs).toISOString() : '-'} (${dayGapHrs}h from now) candidateOrigin=${candidateOrigin || '-'} route=${messageRouteString(msgObj) || '-'}`);
-    }
     // Reject a message describing a different calendar-day instance of a recurring flight number
     // (see isExpectedDay()'s and _relevantDepTimes's header comments) before any of it gets
     // merged into _latest/_flightTimes -- route, times, everything, not just one field.
@@ -579,6 +533,10 @@ function _extractTimeFields(msgObj) {
 function processFlightTimes(msgObj, cs) {
     const times = _extractTimeFields(msgObj);
     if (Object.keys(times).length === 0) return;
+    // Only callsigns CrewSync actually tracks -- research mode routes ~500 fleet-wide NetJets
+    // tails through here, which grew this cache to 2.7MB (slow startup) for data nothing reads;
+    // their per-leg times live in _legTimes.
+    if (_relevantCallsigns && !_relevantCallsigns.has(cs)) return;
     _flightTimes[cs] = { ...(_flightTimes[cs] || {}), ...times, timesUpdated: Date.now() };
     scheduleTimesSave();
 }
@@ -640,25 +598,7 @@ function processLegTimes(msgObj, cs, origin, dest, candidateMs, msgType) {
     legsMap.set(key, leg);
     scheduleTimesSave();
 
-    // TEMPORARY research-only (added 2026-10-31, remove once the NetJets ETD-drift question is
-    // answered): tracks the FIRST estimated departure ever seen for this leg, purely so a later
-    // analysis can measure how far an estimate moves over a leg's lifetime. Raised directly:
-    // "delays may not happen with EJA flights as their departure time may just keep pushing
-    // further" -- confirmed partially true on EJA742's own SGR->DAL leg, whose TFDM
-    // departureDelayMin was never populated at all despite its own estimate visibly sliding
-    // ~30 minutes. This measures drift independently of whether TFDM ever flags a delay. Never
-    // read by any production code path -- logging only, in-memory, not persisted across a
-    // restart (an acceptable gap for a research-only measurement).
-    const bestEstimate = times.etd || times.igtd || null;
-    if (bestEstimate) {
-        const dkey = `${cs}|${key}`;
-        const bestMs = new Date(bestEstimate).getTime();
-        if (!_driftFirstSeen[dkey]) _driftFirstSeen[dkey] = { value: bestEstimate, ms: bestMs };
-        const driftMin = Math.round((bestMs - _driftFirstSeen[dkey].ms) / 60000);
-        _netjetsResearchLog('TFMS-drift', cs, `${key} firstSeen=${_driftFirstSeen[dkey].value} current=${bestEstimate} driftMin=${driftMin}`);
-    }
 }
-const _driftFirstSeen = {}; // "cs|origin>dest" -> { value: ISO string, ms: number } -- see processLegTimes() above
 
 // All currently-known distinct legs' times for a callsign, sorted by scheduled departure
 // ascending -- the per-leg counterpart to getFlightTimes() below.
@@ -711,20 +651,6 @@ function processOneFiMessage(msgObj) {
         updateTime: val('updateTime') || val('eventTime'),
         lastMsg: Date.now(),
     };
-    // TEMPORARY — logging only, to settle a real question with evidence instead of guessing:
-    // does FAA re-broadcast APTC periodically even when nothing changed (a heartbeat, in which
-    // case a long silence really does mean something's stale/wrong), or only when the
-    // configuration actually changes (in which case the 30min staleness window in
-    // getAirportConfig() is needlessly discarding good data and should be relaxed)? Compares
-    // every field except lastMsg/updateTime (which naturally differ message-to-message even with
-    // an unchanged config) against what was already stored for this airport. Remove once this
-    // has run long enough to answer the question.
-    const unchanged = prev && ['facility','arrRunwayConf','depRunwayConf','arrRate','depRate','weather','stratAar']
-        .every(k => prev[k] === next[k]);
-    const sinceLastMs = prev ? Date.now() - prev.lastMsg : null;
-    console.log(`[TFMS-APTC] ${key} ${unchanged ? 'UNCHANGED' : (prev ? 'CHANGED' : 'FIRST')}` +
-        (sinceLastMs != null ? ` (+${Math.round(sinceLastMs/60000)}min since last msg)` : '') +
-        ` dep=${next.depRunwayConf || '-'} arr=${next.arrRunwayConf || '-'}`);
     _airportConfig[key] = next;
 }
 
@@ -768,7 +694,6 @@ function handleMessage(xmlText) {
 
     const fltdOutput = findDeep(service, 'fltdOutput');
     if (!fltdOutput) return; // fiOutput (TMI lists, or APTC already handled above) — not flight-route data, ignored
-    dumpFltdSample(xmlText);
     const raw = fltdOutput.fltdMessage;
     const messages = Array.isArray(raw) ? raw : (raw ? [raw] : []);
     for (const m of messages) processOneFltdMessage(m);

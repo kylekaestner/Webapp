@@ -36,25 +36,6 @@ const TFDM_QUEUE = process.env.TFDM_QUEUE;
 
 const TFDM_ENABLED = !!(TFDM_HOST && TFDM_VPN && TFDM_USER && TFDM_PASS && TFDM_QUEUE);
 
-// Diagnostic mode: dump the first N raw messages (and N more that match a relevant callsign, once
-// any are being watched) to disk for schema inspection, then stop dumping. Not gated behind any
-// env flag — this is a one-time, local-only exploration aid, cheap to leave on, and automatically
-// stops itself once it's collected enough samples.
-const DUMP_DIR = path.join(__dirname, 'scratch', 'tfdm-samples');
-let _dumpCount = 0;
-const DUMP_CAP = 25;
-function dumpSample(xmlText) {
-    if (_dumpCount >= DUMP_CAP) return;
-    try {
-        fs.mkdirSync(DUMP_DIR, { recursive: true });
-        fs.writeFileSync(path.join(DUMP_DIR, `sample-${Date.now()}-${_dumpCount}.xml`), xmlText);
-        _dumpCount++;
-        if (_dumpCount === DUMP_CAP) console.log(`[TFDM] collected ${DUMP_CAP} raw sample messages in ${DUMP_DIR} — inspect these to confirm real field names`);
-    } catch (e) {
-        console.warn('[TFDM] sample dump failed:', e.message);
-    }
-}
-
 let _connected = false;
 let _relevantCallsigns = null; // same pattern as swim.js/stdds.js/tfms.js
 // callsign -> Set<scheduledDepUTCms> -- see setRelevantCallsigns()/isExpectedDay() below, same
@@ -170,21 +151,6 @@ function textOf(val) {
 }
 
 
-// Dedicated log file (not pm2's general console output) so the investigation's own volume
-// doesn't bury or get buried by normal app logs, and only written ON CHANGE per callsign (not
-// every repeated message -- a flight sends position/plan updates every few seconds to minutes,
-// and this now potentially covers the whole active NetJets fleet, not one or two watched tails).
-const _NETJETS_RESEARCH_LOG_PATH = path.join(__dirname, '.netjets_research.log');
-const _netjetsResearchLastSig = new Map(); // callsign -> last-logged detail string
-function _netjetsResearchLog(source, cs, detail) {
-    const key = `${source}|${cs}`;
-    if (_netjetsResearchLastSig.get(key) === detail) return;
-    _netjetsResearchLastSig.set(key, detail);
-    try {
-        fs.appendFileSync(_NETJETS_RESEARCH_LOG_PATH, `${new Date().toISOString()} [${source}] ${cs} ${detail}\n`);
-    } catch (_) {}
-}
-
 function setRelevantCallsigns(input) {
     // Accepts either a plain Set/array of callsign strings (no day-check) or a
     // Map<callsign, Iterable<number|Date|string>> of known scheduled departure time(s) -- see
@@ -297,16 +263,6 @@ function processOneMessage(msgObj) {
     // callsign, not the identical route flown again tomorrow, which is exactly this failure mode.
     const offBlockIso = textOf(departure?.offBlockTime?.initial);
     const scheduledDepMs = offBlockIso ? (d => isNaN(d) ? null : d.getTime())(new Date(offBlockIso)) : null;
-    // TEMPORARY research trace (added 2026-10-30, remove once the NetJets same-callsign
-    // investigation is done). Logs every raw TFDM message for ANY EJA callsign BEFORE
-    // isExpectedDay() has a chance to reject anything, specifically to see whether a message's
-    // own offBlockTime ever points at a different calendar day than today -- but only ON CHANGE
-    // (see _netjetsResearchLog()), not every repeated message, to keep log volume sane now that
-    // this covers the whole NetJets fleet rather than one or two watched tails.
-    if (_isResearchRelevant(cs)) {
-        const dayGapHrs = scheduledDepMs != null ? ((scheduledDepMs - Date.now()) / 3600000).toFixed(1) : '-';
-        _netjetsResearchLog('TFDM', cs, `offBlockTime=${offBlockIso || '-'} (${dayGapHrs}h from now) origin=${departure ? findAttr(departure, 'departurePointText') : '-'} dest=${arrival ? findAttr(arrival, 'destinationPointText') : '-'} state=${findAttr(flight.flightStatus?.tfdmFlightState, 'value') || '-'}`);
-    }
     if (!isExpectedDay(cs, scheduledDepMs)) return;
     const origin = departure ? findAttr(departure, 'departurePointText') : null;
     const dest = arrival ? findAttr(arrival, 'destinationPointText') : null;
@@ -402,10 +358,8 @@ function handleMessage(xmlText) {
         if (!hasRelevant) for (const cs of _relevantCallsigns) {
             if (xmlText.includes(cs)) { hasRelevant = true; break; }
         }
-        if (!hasRelevant && _dumpCount >= DUMP_CAP) return;
+        if (!hasRelevant) return;
     }
-
-    dumpSample(xmlText);
 
     let parsed;
     try {
@@ -572,17 +526,4 @@ function getCallsignsWithLegs() {
     }).sort((a, b) => b.lastMs - a.lastMs);
 }
 
-// TEMP — same purpose as swim.js's _testSeedFlight: injects a synthetic runway assignment for a
-// test callsign so the pickBody() runway-matching logic in navdata.js can be exercised on demand
-// (e.g. forcing AARCH2's BUELL vs FDRKO leg) without waiting for TFDM to happen to report a real
-// assignment for whatever flight is being tested.
-function _testSeedRunway(callsign, { depRunway, arrRunway } = {}) {
-    const cs = String(callsign).trim().toUpperCase();
-    const entry = _latest[cs] || (_latest[cs] = {});
-    entry.lastMsg = Date.now();
-    if (depRunway) entry.depRunway = depRunway;
-    if (arrRunway) entry.arrRunway = arrRunway;
-    return true;
-}
-
-module.exports = { connect, getFlightInfo, getAllLegs, getCallsignsWithLegs, setRelevantCallsigns, _testSeedRunway, isEnabled: () => TFDM_ENABLED };
+module.exports = { connect, getFlightInfo, getAllLegs, getCallsignsWithLegs, setRelevantCallsigns, isEnabled: () => TFDM_ENABLED };

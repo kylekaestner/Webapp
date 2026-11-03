@@ -1,3 +1,6 @@
+// Startup timing (2026-11-03): restarts had crept up to ~30-45s before the site answered; each stage logs its elapsed time so the slow one is visible in pm2 logs.
+const _bootT0 = Date.now();
+const _bootMark = label => console.log(`[boot] ${label}: ${((Date.now() - _bootT0) / 1000).toFixed(1)}s`);
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -16,6 +19,7 @@ const tfms = require('./tfms');
 const tfdm = require('./tfdm');
 const navdata = require('./navdata');
 const vnas = require('./vnas');
+_bootMark('modules + feed caches loaded');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1733,6 +1737,7 @@ try {
         n++;
     }
     console.log(`Airport DB (FAA NASR cycle ${nasr.cycle}): ${n} US airports`);
+    _bootMark('airport tables loaded');
 } catch (e) {
     console.error('Could not load data/nasr/airports.json:', e.message);
 }
@@ -4488,63 +4493,6 @@ app.get('/api/early-landings', (req, res) => {
 // pattern already used throughout this file (e.g. `GET /api/pilots`) -- see that endpoint's own
 // comment for the original unauthenticated-endpoint incident this mirrors.
 
-// TEMP — read-only inspector for the ever-airborne/parked origin-tracking state, used to debug
-// the same-day reused-callsign origin cross-check in /api/flight-status without guessing.
-app.get('/api/debug/origin-state/:callsign', (req, res) => {
-    const db = getDB();
-    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
-        if (status) return res.status(status).json({ error: msg });
-        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-        const cs = req.params.callsign.toUpperCase().trim();
-        db.all(`SELECT * FROM flight_log WHERE callsign = ? ORDER BY day DESC`, [cs], (err, rows) => {
-            res.json({
-                everAirborne: _everAirborneCallsigns.has(cs),
-                everAirborneAt: _everAirborneAt[cs] || null,
-                everAirborneOrigin: _everAirborneOrigin[cs] || null,
-                parked: _parkedCallsigns.has(cs),
-                parkedAt: _parkedAt[cs] || null,
-                parkedOrigin: _parkedOrigin[cs] || null,
-                flightLogRows: err ? `ERROR: ${err.message}` : rows
-            });
-        });
-    });
-});
-
-// TEMP — read-only inspector for what TFDM actually has cached for a callsign (runway
-// assignment, flight phase, delay), independent of the position pipeline. Used to verify why a
-// specific STAR transition/runway body got picked (see navdata.js's pickBody()) without guessing.
-app.get('/api/debug/tfdm/:callsign', (req, res) => {
-    _resolvePilotToken(req.query.token, getDB(), (status, msg, callerKey) => {
-        if (status) return res.status(status).json({ error: msg });
-        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-        res.json(tfdm.getFlightInfo(req.params.callsign) || { found: false });
-    });
-});
-
-// TEMP — proof-of-concept inspector for the multi-leg-per-callsign fix (2026-10-30): every
-// distinct leg tfdm.js currently has for this callsign (real origin/dest/offBlockTime, fully
-// disambiguated per message -- see tfdm.js's _legs comment) merged with whatever TFMS leg-times
-// entry matches the same origin/dest pair. This is the actual answer to "can we get accurate
-// ETD/ETA for a NetJets tail's future, not-yet-departed legs to build a schedule from" -- a
-// callsign with legs still ahead of its current one should list multiple distinct rows here,
-// each with its own real scheduled time, not one record clobbered by whichever leg's message
-// arrived last.
-app.get('/api/debug/netjets-legs/:callsign', (req, res) => {
-    _resolvePilotToken(req.query.token, getDB(), (status, msg, callerKey) => {
-        if (status) return res.status(status).json({ error: msg });
-        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-        const cs = req.params.callsign.toUpperCase().trim();
-        const norm = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
-        const legs = tfdm.getAllLegs(cs);
-        const legTimes = tfms.getAllLegTimes(cs);
-        const merged = legs.map(l => ({
-            ...l,
-            times: legTimes.find(lt => norm(lt.origin) === norm(l.origin) && norm(lt.dest) === norm(l.dest)) || null,
-        }));
-        res.json({ callsign: cs, legCount: merged.length, legs: merged, legTimesOnlyCount: legTimes.length, legTimes });
-    });
-});
-
 // TEMP — read-only inspector for NetJets auto-leg-creation: on-duty/tour-tail resolution, the
 // derived callsign, EVERY auto-created segment for this tour (plural now -- _pollNetjetsLegCreation
 // materializes every known leg concurrently, not one "current" row, see that function's header
@@ -4574,51 +4522,6 @@ app.get('/api/debug/netjets/:pilotKey', (req, res) => {
                 }
             );
         });
-    });
-});
-
-// TEMP — same pattern, for TFMS's airport-configuration (APTC) cache. Accepts a bare 3-letter or
-// 4-letter ICAO code (getAirportConfig() normalizes either). Used to verify real APTC data is
-// actually flowing/fresh for a given airport before trusting it as a pickBody() fallback.
-app.get('/api/debug/tfms-aptc/:code', (req, res) => {
-    _resolvePilotToken(req.query.token, getDB(), (status, msg, callerKey) => {
-        if (status) return res.status(status).json({ error: msg });
-        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-        res.json(tfms.getAirportConfig(req.params.code) || { found: false });
-    });
-});
-
-// TEMP — manually seed route data for a live-tracked callsign, for map-rendering tests without
-// waiting on the live feed to happen to send a route-bearing message for that specific flight.
-app.post('/api/debug/seed-route', express.json(), (req, res) => {
-    _resolvePilotToken(req.body.token, getDB(), (status, msg, callerKey) => {
-        if (status) return res.status(status).json({ error: msg });
-        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-        const { callsign, route, origin, dest } = req.body || {};
-        if (!callsign || !route) return res.status(400).json({ error: 'callsign and route required' });
-        const ok = swim._testSeedRoute(callsign, route, origin, dest);
-        res.json({ ok });
-    });
-});
-
-// TEMP — fully synthetic test flight: creates position + route from scratch (no real live-tracked
-// flight required) and optionally a fake TFDM runway assignment, for exercising the frontend map
-// rendering and the runway-aware STAR/SID body selection on demand. `source: 'stdds'` seeds a
-// ground/taxi position instead (speedKts/altFt/status) -- needed for a believable taxiing/just-
-// departed test flight, since SWIM-sourced positions always report onGround:false (see swim.js).
-app.post('/api/debug/seed-flight', express.json(), (req, res) => {
-    _resolvePilotToken(req.body.token, getDB(), (status, msg, callerKey) => {
-        if (status) return res.status(status).json({ error: msg });
-        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-        const { callsign, lat, lon, route, origin, dest, depRunway, arrRunway, source, speedKts, altFt, heading, status: pstatus, airport } = req.body || {};
-        if (!callsign || lat == null || lon == null) return res.status(400).json({ error: 'callsign, lat, lon required' });
-        if (source === 'stdds') {
-            stdds._testSeedFlight(callsign, { lat, lon, speedKts, altFt, heading, status: pstatus, airport });
-        } else {
-            swim._testSeedFlight(callsign, { lat, lon, route, origin, dest });
-        }
-        if (depRunway || arrRunway) tfdm._testSeedRunway(callsign, { depRunway, arrRunway });
-        res.json({ ok: true });
     });
 });
 
@@ -5101,11 +5004,6 @@ function _getOnDutyNetjetsPilots(db, todayStr, cb) {
         });
     });
 }
-
-// TEMPORARY -- see its one call site in runActiveFlightPoller() for the full explanation. Real
-// NetJets callsigns being watched purely for investigation, not tied to any CrewSync pilot's own
-// tour. Add/remove callsigns here as the investigation needs a wider or different sample.
-const _NETJETS_RESEARCH_CALLSIGNS = ['EJA303'];
 
 // How close two candidate departure times have to be to count as "the same leg" when matching a
 // freshly-polled leg against an already-created segment (see _pollNetjetsLegCreation below). Not
@@ -5691,23 +5589,6 @@ async function runActiveFlightPoller() {
                         _liveCache[nj.callsign] = { ts: Date.now(), data };
                     } catch (_) {}
                 }
-            }
-            // TEMPORARY research tracking (added 2026-10-30, remove once the investigation into
-            // NetJets' same-callsign-all-day filing pattern is done) -- watching a small, fixed
-            // set of real NetJets callsigns NOT tied to any CrewSync pilot, purely to build a
-            // timeline of when TFDM/TFMS actually report route/time data relative to when each
-            // leg really happens (per FlightAware), and specifically whether a flight plan for a
-            // FUTURE calendar day ever shows up while today's duty day is still in progress --
-            // explicit direction: "we may need to start looking for flight plans being filed for
-            // flights tomorrow." Deliberately given an empty swimDepTimes entry (same permissive
-            // treatment on-duty NetJets pilots already get above) so isExpectedDay() doesn't
-            // filter anything out before we get a chance to see it -- the whole point here is to
-            // observe raw, unfiltered behavior, not to test a safeguard that doesn't exist yet for
-            // this pilot type. See tfdm.js's processOneMessage()/tfms.js's processOneFltdMessage()
-            // for the actual log lines this produces.
-            for (const rcs of _NETJETS_RESEARCH_CALLSIGNS) {
-                swimRelevant.add(rcs);
-                if (!swimDepTimes.has(rcs)) swimDepTimes.set(rcs, new Set());
             }
             // Wider swimRelevant set, refreshed every 15s — SWIM only needs to retain state for
             // these, not every callsign nationwide. Deliberately NOT the same set `polled` drives
@@ -6926,6 +6807,7 @@ app.get('/api/admin/stats', (req, res) => {
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    _bootMark('listening');
     swim.connect();
     stdds.connect();
     tfms.connect();

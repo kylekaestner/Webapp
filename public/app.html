@@ -670,7 +670,7 @@
                         </div>
                         <div class="flex gap-1">
                             <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
-                            <button id="btn-basemap" onclick="toggleBasemap()" class="map-ctrl-pill" title="Switch base map: CARTO dark / Esri Dark Gray">🗺 CARTO</button>
+                            <button id="btn-basemap" onclick="toggleBasemap()" class="map-ctrl-pill" title="Switch base map detail: CARTO standard / CARTO+ (more cities and roads, smaller labels)">🗺 CARTO</button>
                             <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill" title="Toggle route detail (VOR/fix/waypoint symbols)">✦ RTE</button>
                             <button id="btn-show-sector" onclick="toggleShowSector()" class="map-ctrl-pill" title="Show the real ATC frequency currently controlling each live flight, when it resolves">📻 FREQ</button>
                         </div>
@@ -6459,22 +6459,23 @@
             return (distToDep + distToArr) <= routeDist + slackMi;
         }
 
-        // Base map, switchable for testing (requested 2026-11-03): CARTO restyled dark_all (fewer
-        // labels zoomed out, lighter blue-grey water) and no longer serves the old look at any URL;
-        // Esri's Dark Gray Base + Reference keeps state lines and more cities. Choice persists per
-        // device (cs_basemap); toggleBasemap() swaps it live on every open map.
+        // Base map detail, switchable (2026-11-03): CARTO restyled dark_all (fewer labels zoomed out,
+        // lighter blue-grey water) and no longer serves the old look at any URL. Standard vs CARTO+
+        // (next zoom level at half size). Choice persists per device (cs_basemap); toggleBasemap()
+        // swaps it live on every open map.
         var BASEMAPS = { // var: addBasemap() can run before this line during startup
             carto: { label: 'CARTO', layers: [
                 { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
                   nolabels: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
                   opts: { className: 'cs-basemap', subdomains: 'abcd', maxZoom: 19 } } ] },
-            esri: { label: 'ESRI', layers: [
-                { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-                  opts: { maxNativeZoom: 16, maxZoom: 19, attribution: 'Tiles &copy; Esri' } },
-                { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
-                  labels: true, opts: { maxNativeZoom: 16, maxZoom: 19 } } ] },
+            // Same CARTO style, one zoom level more detailed: next-zoom tiles drawn at half size (128px),
+            // so more cities/roads/rivers show zoomed out, with smaller labels. Kept CARTO per Kyle 11/3.
+            detail: { label: 'CARTO+', layers: [
+                { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
+                  nolabels: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
+                  opts: { className: 'cs-basemap', subdomains: 'abcd', tileSize: 128, zoomOffset: 1, maxNativeZoom: 18, maxZoom: 19 } } ] },
         };
-        var _basemapChoice = (() => { try { return localStorage.getItem('cs_basemap') === 'esri' ? 'esri' : 'carto'; } catch (_) { return 'carto'; } })();
+        var _basemapChoice = (() => { try { return localStorage.getItem('cs_basemap') === 'detail' ? 'detail' : 'carto'; } catch (_) { return 'carto'; } })();
         var _basemapMaps = []; // [{ map, noLabels, layers }]
         function _basemapLayersFor(noLabels) {
             return BASEMAPS[_basemapChoice].layers
@@ -6489,7 +6490,7 @@
             _refreshBasemapButton();
         }
         function toggleBasemap() {
-            _basemapChoice = _basemapChoice === 'carto' ? 'esri' : 'carto';
+            _basemapChoice = _basemapChoice === 'carto' ? 'detail' : 'carto';
             try { localStorage.setItem('cs_basemap', _basemapChoice); } catch (_) {}
             for (const e of _basemapMaps) {
                 e.layers.forEach(l => { try { e.map.removeLayer(l); } catch (_) {} });

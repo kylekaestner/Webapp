@@ -456,10 +456,6 @@ PUT  /api/pilots/:key/tour-tail           NetJets per-tour tail + start airport 
 GET  /api/health                          health check
 GET  /admin/users                         admin user management page
 GET  /api/pilots/:key/here-now            debug: HERE-NOW priority-chain reimplementation
-GET  /api/debug/tfdm/:callsign            debug: raw TFDM state for a callsign
-GET  /api/debug/tfms-aptc/:code           debug: raw TFMS APTC state for an airport
-GET  /api/debug/origin-state/:callsign    debug: airborne/parked evidence + flight_log rows
-GET  /api/debug/seed-route                debug: inject a test route onto a tracked flight
 ```
 
 ---
@@ -629,9 +625,9 @@ Shows the planned/filed route up to `PREFLIGHT_ROUTE_MS` (30 minutes) before sch
 
 `vnas.js` fetches the full vNAS payload every 6h, builds a `facilityId → Map(sectorId → {frequency, callsign})` index, discards the raw payload. Two linkage shapes: **enroute** (ARTCC, numeric sectorId) via `eramConfiguration.sectorId`; **terminal** (TRACON/tower, lettered sectorId) via `starsConfiguration.tcps[]`/`tcpId`. `getFrequency()` returns `null` for anything unresolvable (not every small facility is in VATSIM's model). `swim.js` stores the raw handoff as `entry.sector = {unit, sectorId}`; `server.js`'s `withResolvedFrequency()` resolves it once per poll onto a new sector object. Frontend: `buildBaseTooltip()` shows the MHz next to the callsign, gated by `_showSectorOn` (persisted `cs_show_sector`, **default ON**), button `#btn-show-sector` ("📻 FREQ"). `_liveLabelRefreshers` (global `callsign → refresh()` registry) lets the toggle repaint every tracked label instantly from cached data instead of waiting for each flight's own next poll.
 
-### Temporary test infrastructure (still in use)
+### Debugging NetJets
 
-`POST /api/debug/seed-route` + `swim._testSeedRoute()` — inject a route string onto an already-tracked flight for testing. Not yet removed; per-session testing still ongoing.
+The one debug source is **`/crew-roster/netjets-lookup`** (Filed / Resolved / On the pilot's schedule per tail), plus the admin-gated `GET /api/debug/netjets/:pilotKey` for on-duty/tour resolution. The research log (`.netjets_research.log`), sample dumps, ETD-drift tracking, the EJA303 poller, the other `/api/debug/*` inspectors and the `seed-route`/`seed-flight` test injectors were all removed 2026-11-03. Research mode itself stays because it feeds the Lookup's fleet-wide data. The flat `.tfms_times_cache.json` only stores callsigns CrewSync tracks (research tails live in the per-leg store). Startup logs `[boot]` timings per stage.
 
 ### Route/trail persistence across restarts
 
@@ -645,7 +641,7 @@ A second, unrelated `fiOutput`/`msgType="APTC"` message family on the TFMS queue
 <fcm:depRunwayConf>35L/35R</fcm:depRunwayConf> <fcm:arrRate>64</fcm:arrRate>
 <fcm:depRate>70</fcm:depRate> <fcm:weather>VMC</fcm:weather> <fcm:stratAar>64</fcm:stratAar>
 ```
-`tfms.js` parses this into a flat `_airportConfig` map keyed by bare 3-letter code, unconditionally stored (never gated by relevant-callsigns — only a few hundred towered airports exist). Detected via a cheap substring check on `msgType="APTC"` before the relevant-callsigns gate (APTC messages carry no callsign at all). `getAirportConfig(aptCode)` returns `null` past a 30min staleness window. **Known limit**: airport-wide, not per-flight — a genuinely opposite-direction runway split resolves cleanly, but a finer split within the same flow direction could still land on the wrong body. Temporary `GET /api/debug/tfms-aptc/:code` inspector still in place.
+`tfms.js` parses this into a flat `_airportConfig` map keyed by bare 3-letter code, unconditionally stored (never gated by relevant-callsigns — only a few hundred towered airports exist). Detected via a cheap substring check on `msgType="APTC"` before the relevant-callsigns gate (APTC messages carry no callsign at all). `getAirportConfig(aptCode)` returns `null` past a 30min staleness window. **Known limit**: airport-wide, not per-flight — a genuinely opposite-direction runway split resolves cleanly, but a finer split within the same flow direction could still land on the wrong body. 
 
 ### Trail backfill from ADS-B
 
@@ -730,7 +726,7 @@ A callsign does not uniquely identify one leg — Kyle's corporate flights deriv
 - TFMS's real OOOI `airlineOnTime`/`airlineInTime` is used as a last-resort "definitely landed" signal when the position-polling pipeline has nothing (checked after the live-tracking `active` rules so an actively-tracked taxi-in still shows active).
 - Day-map popup shows "▶ TAXIING IN" instead of "▶ IN THE AIR" when `onGround` is true for a flight in the `live` list (scoped to the day-map popup only, not grid/list/day-detail).
 - `matchesExpectedOrigin(data, expectedOrigin)` (server.js) — compares a live-feed-reported origin against the caller's own already-known scheduled `departure_airport`, applied at every mutation/read site: `fetchLivePosition()`'s STDDS/SWIM return paths, `/api/live-position`'s cache short-circuit and parked-recovery branch, `runActiveFlightPoller()`'s own parked-recovery branch, `/api/flight-status`'s `live`/`airborne`/`parked` arrays, and `restoreFromFlightLog()`. `isExpectedDay()`/`isExpectedOrigin()` reject a mismatched message's *entire* contents at ingestion in `tfdm.js`/`tfms.js`. `tfms.js` parses the real origin straight out of its own filed-route string (`routeOrigin()`) and caches it on `_latest[cs].origin`.
-- A temporary debug endpoint, `GET /api/debug/origin-state/:callsign`, is still live from this investigation.
+- The `origin-state` debug endpoint from this investigation was removed 2026-11-03.
 
 Full bug-by-bug discovery narrative (8 distinct findings across 2026-10-09 through 2026-10-20): `CLAUDE_HISTORY.md § Same-day round trip sharing one callsign`.
 

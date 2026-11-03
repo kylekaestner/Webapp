@@ -314,25 +314,6 @@ function processOneMessage(msgObj) {
         return;
     }
     const cs = String(rawCallsign).trim().toUpperCase();
-    // TEMP — capture SWA2932 specifically: both nasRouteText and expandedRoute together, to
-    // check directly whether expandedRoute actually expands a SID/STAR into its real fixes.
-    // Bypasses the relevant-callsigns filter just for this one callsign.
-    if (cs === 'SWA2932') {
-        const route = findAttr(msgObj, 'nasRouteText');
-        const expandedRoute = findDeep(msgObj, 'expandedRoute');
-        if (route || expandedRoute) {
-            try {
-                const file = path.join(__dirname, '.swim_swa2932.json');
-                let existing = {};
-                try { existing = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) {}
-                if (route) existing.route = route;
-                if (expandedRoute) existing.expandedRoute = expandedRoute;
-                existing.sid = existing.sid || (findDeep(msgObj, 'adaptedDepartureRoute') ? findAttr(findDeep(msgObj, 'adaptedDepartureRoute'), 'nasRouteIdentifier') : undefined);
-                existing.star = existing.star || (findDeep(msgObj, 'nasadaptedArrivalRoute') ? findAttr(findDeep(msgObj, 'nasadaptedArrivalRoute'), 'nasRouteIdentifier') : undefined);
-                fs.writeFileSync(file, JSON.stringify(existing, null, 1));
-            } catch (_) {}
-        }
-    }
     if (_relevantCallsigns && !_relevantCallsigns.has(cs)) return; // not a CrewSync-scheduled flight — drop before any further parsing
 
     // Position is <enRoute><position>...<position xsi:type="...LocationPointType"><location>
@@ -678,42 +659,4 @@ function callsignForGufi(gufi) {
     return null;
 }
 
-// TEMP — manually seeds route data for a callsign, going through the same parseRouteString()
-// used for real messages, to let the map-rendering pipeline be tested with a known real route
-// without waiting on the live feed to happen to send one for this specific flight. Does not
-// touch position/lat/lon — only useful if the callsign is already being live-tracked.
-function _testSeedRoute(callsign, routeText, origin, dest) {
-    const cs = String(callsign).trim().toUpperCase();
-    const entry = _latest[cs];
-    if (!entry) return false;
-    if (!entry.originalRoute) entry.originalRoute = routeText;
-    entry.route = routeText;
-    entry.routeParsed = parseRouteString(routeText, origin || entry.origin, dest || entry.dest);
-    return true;
-}
-
-// TEMP — like _testSeedRoute, but CREATES the entry outright (position included) instead of
-// requiring a real flight already being live-tracked. Lets the frontend/map-rendering pipeline be
-// exercised on demand for a fully synthetic test flight — no need to find a real aircraft
-// currently airborne on a route that happens to exercise whatever's being tested (e.g. a specific
-// STAR runway leg).
-function _testSeedFlight(callsign, { lat, lon, altFt, speedKts, heading, route, origin, dest }) {
-    const cs = String(callsign).trim().toUpperCase();
-    const entry = _latest[cs] || (_latest[cs] = {});
-    entry.lastMsg = Date.now();
-    if (lat != null) entry.lat = lat;
-    if (lon != null) entry.lon = lon;
-    if (altFt != null) entry.altFt = altFt;
-    if (speedKts != null) entry.speedKts = speedKts;
-    if (heading != null) entry.heading = heading;
-    if (origin) entry.origin = origin;
-    if (dest) entry.dest = dest;
-    if (route) {
-        if (!entry.originalRoute) entry.originalRoute = route;
-        entry.route = route;
-        entry.routeParsed = parseRouteString(route, origin || entry.origin, dest || entry.dest);
-    }
-    return true;
-}
-
-module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, getRouteForOrigin, _testSeedRoute, _testSeedFlight, isEnabled: () => SWIM_ENABLED };
+module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, getRouteForOrigin, isEnabled: () => SWIM_ENABLED };
