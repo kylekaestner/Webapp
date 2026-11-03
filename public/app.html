@@ -9625,8 +9625,24 @@
         let _addFlightType = 'work';
         let _editSegmentId = null;
 
+        // The tour's tail/EJA flight # only belong on a Work leg -- a DH, commute or personal flight
+        // is an airline flight with its own number. Cleared on switching away (only if still the
+        // untouched pre-fill), restored on switching back to Work for a new flight.
+        var _addFlightNjPrefill = null; // var: setAddFlightType may run before this line during startup
+        function _applyNetjetsPrefill(type) {
+            if (!_addFlightNjPrefill || _editSegmentId !== null) return;
+            const tailEl = document.getElementById('add-tail-num'), fnEl = document.getElementById('add-flight-num');
+            if (type === 'work') {
+                if (!tailEl.value) tailEl.value = _addFlightNjPrefill.tail;
+                if (!fnEl.value) fnEl.value = _addFlightNjPrefill.fn;
+            } else {
+                if (tailEl.value === _addFlightNjPrefill.tail) tailEl.value = '';
+                if (fnEl.value === _addFlightNjPrefill.fn) fnEl.value = '';
+            }
+        }
         function setAddFlightType(type) {
             _addFlightType = type;
+            _applyNetjetsPrefill(type);
             const colors    = { work: 'bg-blue-600 text-white', dh: 'bg-pink-700 text-white', commute: 'bg-amber-600 text-white', personal: 'bg-violet-600 text-white', training: 'bg-orange-600 text-white', vacation: 'bg-teal-600 text-white' };
             const accentHex = { work: '#3b82f6', dh: '#be185d', commute: '#d97706', personal: '#7c3aed', training: '#f97316', vacation: '#14b8a6' };
             ['work', 'dh', 'commute', 'personal', 'training', 'vacation'].forEach(t => {
@@ -9788,18 +9804,20 @@ let _blockUserEdited = false;
             document.getElementById('add-block-auto-label').textContent = '(auto-calculated)';
             document.getElementById('add-arr-next-day-label').textContent = '';
             document.getElementById('add-flight-error').classList.add('hidden');
+            _addFlightNjPrefill = null; // before setAddFlightType, so a previous open's pre-fill can't leak in
             setAddFlightType('work');
             // NetJets: tail/flight-number stay the same for the whole tour, so pre-fill from
             // whatever was saved for TODAY's tour rather than making them retype it per leg --
             // the whole point of entering it once on day 1 (see netjets_tracking_plan).
             const targetKey = myPilot || currentPilot;
+            _addFlightNjPrefill = null;
             if (pilotsCache[targetKey]?.parser_type === 'manual_netjets') {
                 const tourStart = _tourStartDateFor(targetKey, _localToday());
                 const tail = _tourTailFor(targetKey, tourStart);
                 if (tail) {
-                    document.getElementById('add-tail-num').value = tail;
                     const digits = tail.replace(/\D/g, '');
-                    if (digits) document.getElementById('add-flight-num').value = `EJA${digits}`;
+                    _addFlightNjPrefill = { tail, fn: digits ? `EJA${digits}` : '' };
+                    _applyNetjetsPrefill('work');
                 }
             }
             document.getElementById('add-flight-modal').classList.remove('hidden');
