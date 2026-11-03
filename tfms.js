@@ -454,7 +454,7 @@ function processOneFltdMessage(msgObj) {
         if (legOrigin && legDest) {
             // THIS message's own route (or its depArpt/arrArpt attributes) resolves both ends --
             // never guessed.
-            processLegTimes(msgObj, cs, legOrigin, legDest, candidateMs);
+            processLegTimes(msgObj, cs, legOrigin, legDest, candidateMs, msgType);
             // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides they
             // aren't doing that flight -- need support for that." flightPlanCancellation carries
             // depArpt/arrArpt the same as every other message type (confirmed real, 3/3 sampled),
@@ -486,7 +486,7 @@ function processOneFltdMessage(msgObj) {
                 }
                 if (bestKey) {
                     const leg = existing.get(bestKey);
-                    processLegTimes(msgObj, cs, leg.origin, leg.dest, candidateMs);
+                    processLegTimes(msgObj, cs, leg.origin, leg.dest, candidateMs, msgType);
                 }
             }
         }
@@ -584,13 +584,21 @@ function processFlightTimes(msgObj, cs) {
 // Per-leg counterpart -- see _legTimes's header comment. origin/dest here are always THIS
 // message's own route-string ends (never _latest[cs]'s stale fallback), so distinct concurrently
 // -filed legs for one callsign land in separate entries instead of one overwriting the other.
-function processLegTimes(msgObj, cs, origin, dest, candidateMs) {
+function processLegTimes(msgObj, cs, origin, dest, candidateMs, msgType) {
     const times = _extractTimeFields(msgObj);
     const key = `${origin}>${dest}`;
     const legsMap = _legTimes[cs] || (_legTimes[cs] = new Map());
     const leg = legsMap.get(key) || { origin, dest };
     Object.assign(leg, times);
     if (candidateMs != null) leg.scheduledDepMs = candidateMs;
+    // Real-movement evidence, distinct from a plan merely being filed: TFMS only sends
+    // departureInformation/arrivalInformation when the flight actually departs/arrives, and
+    // trackInformation only while it has a real radar track. Confirmed on EJA492 2026-11-02: every
+    // leg it really flew got a departure/arrival pair, none of its stale alternate plans ever did --
+    // which is what lets server.js trust a TFMS-only leg TFDM never saw (untowered 27K->LBE).
+    if (msgType === 'departureInformation' && !leg.departedAt) leg.departedAt = Date.now();
+    else if (msgType === 'arrivalInformation' && !leg.arrivedAt) leg.arrivedAt = Date.now();
+    else if (msgType === 'trackInformation') leg.tracked = true;
     leg.lastMsg = Date.now();
     legsMap.set(key, leg);
     scheduleTimesSave();

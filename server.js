@@ -1698,6 +1698,29 @@ function norm3Airport(a) {
     return up.length === 3 ? up : (icaoToIataAirport(up.length === 4 ? up : 'K' + up) || up);
 }
 
+// TFDM only covers towered airports, so a leg into or out of an untowered field (confirmed on
+// EJA492 2026-11-02: 27K->LBE) never appears in tfdm.getAllLegs() at all -- and the leg creator
+// only ever walked TFDM legs, so it was never created despite TFMS recording a real departure,
+// radar track, and arrival. This adds TFMS-only legs in TFDM's own shape, but ONLY with real
+// movement evidence (tfms.js's departedAt/arrivedAt/tracked) -- a merely-filed TFMS plan is
+// exactly where stale alternates come from, and none of those ever get those messages.
+function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
+    const norm = norm3Airport;
+    const out = [];
+    for (const t of tfmsLegTimes) {
+        if (t.cancelled || t.scheduledDepMs == null || t.scheduledDepMs < minDepMs) continue;
+        if (!t.departedAt && !t.arrivedAt && !t.tracked) continue;
+        const o = norm(t.origin), d = norm(t.dest);
+        // Only fill departures TFDM has no record of at all -- the same physical departure under
+        // a different dest (TFDM's can be stale) is already handled by the dest-conflict logic,
+        // and adding it twice would have the two fight over one row's arrival_airport.
+        if (!o || tfdmLegs.some(l => norm(l.origin) === o && (norm(l.dest) === d
+            || (l.scheduledDepMs != null && Math.abs(l.scheduledDepMs - t.scheduledDepMs) <= 60 * 60 * 1000)))) continue;
+        out.push({ origin: t.origin, dest: t.dest, scheduledDepMs: t.scheduledDepMs, flightState: t.arrivedAt ? 'ARRIVAL' : 'EN_ROUTE', tfmsOnly: true });
+    }
+    return out;
+}
+
 // Research/validation tool for /crew-roster/netjets-lookup: a read-only simulation of
 // _pollNetjetsLegCreation()'s own chain-consistency filter (same REALLY_DEPARTED_RE /
 // confirmedDepartureByOrigin logic, same same-origin/same-departure-instant dest-conflict
@@ -4890,7 +4913,10 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
     for (const nj of onDutyList) {
         const cs = nj.callsign;
         const tourStartMs = new Date(`${nj.tourStart}T00:00:00Z`).getTime();
-        const allLegs = tfdm.getAllLegs(cs).filter(l => (l.scheduledDepMs || 0) >= tourStartMs);
+        const tfmsLegTimes = tfms.getAllLegTimes(cs);
+        const tfdmLegs = tfdm.getAllLegs(cs).filter(l => (l.scheduledDepMs || 0) >= tourStartMs);
+        const allLegs = [...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs)]
+            .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
         if (!allLegs.length) continue; // nothing known yet for this tour -- wait for a real signal
 
         // Informational only, not a gate -- see this function's header comment for why a hard
@@ -4903,7 +4929,6 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             console.warn(`[NetJets] ${nj.pilotKey}: tour's earliest known leg starts at ${firstOrigin}, not the saved start airport ${nj.startAirport} -- continuing anyway, but start_airport may be stale`);
         }
 
-        const tfmsLegTimes = tfms.getAllLegTimes(cs);
         const existingRows = await new Promise(resolve => {
             db.all(
                 `SELECT id, auto_leg_key, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_cancelled
@@ -5518,7 +5543,7 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
         // "Resolved" -- the same chain-consistency filter _pollNetjetsLegCreation() actually
         // applies, run read-only against this window so leg-creation logic can be validated at
         // fleet scale without a real on-duty pilot tracking this tail.
-        const resolved = resolveNetjetsLegsForDisplay(allLegs, legTimes);
+        const resolved = resolveNetjetsLegsForDisplay([...allLegs, ..._tfmsOnlyFlownLegs(allLegs, legTimes, -Infinity)].sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0)), legTimes);
         const statusColor = { real: '#4ade80', filtered: '#f87171', cancelled: '#71717a', 'no-time': '#52525b' };
         const statusLabel = { real: 'REAL', filtered: 'FILTERED OUT', cancelled: 'CANCELLED', 'no-time': 'NO TIME YET' };
         // Raised directly: "resolved" (survived the chain-consistency filter) isn't the same claim
