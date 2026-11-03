@@ -4077,7 +4077,12 @@
                     // data is sparse by design (legs only exist once auto-created or manually
                     // added), not a sign their schedule is actually out of date.
                     if (k === 'kyle' || pilotsCache[k]?.parser_type === 'manual_netjets') return false;
-                    const diff = (new Date(allDatesMax) - new Date(pilotMaxDate[k] || '2000-01-01')) / 86400000;
+                    // Schedules publish as whole bid months, so a pilot's data covers through the
+                    // end of the month of their last working day -- a real block of days off at the
+                    // end of the month (Drew) isn't missing data.
+                    const last = new Date((pilotMaxDate[k] || '2000-01-01') + 'T12:00:00');
+                    const coveredThrough = new Date(last.getFullYear(), last.getMonth() + 1, 0, 12);
+                    const diff = (new Date(allDatesMax + 'T12:00:00') - coveredThrough) / 86400000;
                     return diff > 7;
                   })
                 : [];
