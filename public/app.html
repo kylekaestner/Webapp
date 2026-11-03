@@ -6679,7 +6679,7 @@
                 // Server returns the same composite "callsign|arrMs" keys it was given --
                 // add them as-is, don't re-derive a bare-callsign key here.
                 const before = _landedEarly.size;
-                (data.callsigns || []).forEach(k => _landedEarly.add(k));
+                (data.callsigns || []).filter(k => !_NJ_CS_RE.test(k.split('|')[0])).forEach(k => _landedEarly.add(k));
                 return _landedEarly.size > before;
             } catch (_) { return false; }
         }
@@ -7253,6 +7253,10 @@
             // moment either one's poller decided to give up, which looked like a shared ADS-B
             // outage but was actually this flight's own cleanup taking the whole map down with it.
             let _pollerStopped = false;
+            // One NetJets callsign flies every leg of the day, so "airborne" and "had a trail" can be from
+            // an earlier leg. No position then means parked on the ramp, not landed, and arrival times are
+            // only estimates, so "early" means nothing. These legs end on real arrival evidence only.
+            const _isNetjetsLeg = _NJ_CS_RE.test(callsign || '');
             const finishTracking = (savedEarly) => {
                 _pollerStopped = true;
                 // A newer leg's own startLiveTracking() call already superseded this instance (see
@@ -7337,7 +7341,7 @@
 
                     // Server confirmed the plane is parked — flight complete
                     if (d.parked) {
-                        const early = scheduledArrUTC && new Date() < scheduledArrUTC;
+                        const early = !_isNetjetsLeg && scheduledArrUTC && new Date() < scheduledArrUTC;
                         if (early) _saveLandedEarly(callsign, scheduledArrUTC?.getTime());
                         finishTracking(early);
                         return;
@@ -7437,15 +7441,15 @@
                         // already flew and is no longer transmitting (early landing, taxi-in done).
                         // After a few misses, remove the scheduled arc + plane icon so we don't
                         // show a misleading "in progress" view.
-                        if (!confirmedAirborne && d.hadTrail && missCount >= 3) {
-                            const early = scheduledArrUTC && new Date() < scheduledArrUTC;
+                        if (!_isNetjetsLeg && !confirmedAirborne && d.hadTrail && missCount >= 3) {
+                            const early = !_isNetjetsLeg && scheduledArrUTC && new Date() < scheduledArrUTC;
                             if (early) _saveLandedEarly(callsign, scheduledArrUTC?.getTime());
                             finishTracking(early);
                             return;
                         }
                         // Was airborne + server's trail gone (parked confirmed server-side) → done
-                        if (confirmedAirborne && !d.hadTrail && missCount >= 3) {
-                            const early = scheduledArrUTC && new Date() < scheduledArrUTC;
+                        if (!_isNetjetsLeg && confirmedAirborne && !d.hadTrail && missCount >= 3) {
+                            const early = !_isNetjetsLeg && scheduledArrUTC && new Date() < scheduledArrUTC;
                             if (early) _saveLandedEarly(callsign, scheduledArrUTC?.getTime());
                             finishTracking(early);
                             return;
@@ -7459,8 +7463,8 @@
                         // Close to or past the scheduled arrival, a short gap is far more plausibly real.
                         const minsToSchedArr = scheduledArrUTC ? (scheduledArrUTC.getTime() - Date.now()) / 60000 : -Infinity;
                         const probablyLandedThreshold = minsToSchedArr > 15 ? 38 /* ~5 min */ : 5 /* ~40s */;
-                        if (confirmedAirborne && missCount >= probablyLandedThreshold) {
-                            const early = scheduledArrUTC && new Date() < scheduledArrUTC;
+                        if (!_isNetjetsLeg && confirmedAirborne && missCount >= probablyLandedThreshold) {
+                            const early = !_isNetjetsLeg && scheduledArrUTC && new Date() < scheduledArrUTC;
                             if (early) _saveLandedEarly(callsign, scheduledArrUTC?.getTime());
                             finishTracking(early);
                             return;
