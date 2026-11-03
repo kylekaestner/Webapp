@@ -1861,7 +1861,6 @@
 </div>
 
     <script>
-        window._perfAppStart = performance.now(); // TEMPORARY, see the map timing readout
         /*
          * ╔══════════════════════════════════════════════════════════════════╗
          * ║  CrewSync  app.html  --  architecture overview                  ║
@@ -3738,13 +3737,10 @@
         }
 
         function loadAirportDB() {
-            window._perfAptAsked = performance.now();
             fetch('/airports.json').then(r => {
-                window._perfAptHeaders = performance.now();
                 if (!r.ok) throw new Error('Failed to load airports.json');
                 return r.json();
             }).then(data => {
-                window._perfAptParsed = performance.now();
                 Object.assign(AIRPORTS, data);
                 // Renamed airports newer than airports.json (same list as server.js): KPBI -> KDJT.
                 for (const [neu, old] of Object.entries({ DJT: 'PBI', KDJT: 'KPBI' })) {
@@ -3753,7 +3749,6 @@
                 // Timezones are looked up per airport as needed (airportTz()), not for all 111k up front.
                 // Redraw so times that had no airport data yet pick up their zone.
                 if (typeof render === 'function') render();
-                window._perfAptMs = performance.now();
                 airportDbReady = true;
                 if (currentView === 'map') renderMap();
             }).catch(err => {
@@ -4865,8 +4860,6 @@
             // buildGroundPeriods/cross-pairing/render work below runs, and switching
             // to Overlap can feel like it hangs before the view even appears.
             await new Promise(r => setTimeout(r, 0));
-            const _cx = currentView === 'overlap';
-            if (_cx) _perfStart('Crossings');
 
             const now = new Date();
             const bufferMs = 3 * 60 * 60 * 1000;
@@ -4879,7 +4872,6 @@
                     catch (e) { return; }
                 }
             }));
-            if (_cx) _perfMark('pilot data');
 
             function buildGroundPeriods(segments, homeBase, homeCity, baseHistory) {
                 // Normalize all airport codes so KLGA === LGA, CYYZ === YYZ, etc.
@@ -5052,7 +5044,6 @@
                 pilotPeriods[key] = data?.parser_type === 'manual_netjets' ? _netjetsHomeOnOffDays(key, periods) : periods;
             });
 
-            if (_cx) _perfMark('ground periods');
             const getCoords = code => AIRPORTS[code] || AIRPORTS['K' + code] || null;
             const sameMetro = (a, b) => { const mA = METRO_GROUPS[a], mB = METRO_GROUPS[b]; return !!(mA && mA === mB); };
             const airportsNear = (a, b) => {
@@ -5245,7 +5236,6 @@
             const filtered = byPilot.filter(o => visibleCrew.has(o.kA) && visibleCrew.has(o.kB));
 
             filtered.sort((a, b) => a.sortKey - b.sortKey);
-            if (_cx) _perfMark(`pair matching (${filtered.length} found)`);
 
             const _pad = n => String(n).padStart(2, '0');
             const localDateStr = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
@@ -5578,7 +5568,6 @@
                 requestAnimationFrame(() => scrollToOverlapCard(scrollTargetIdx));
             }
 
-            if (_cx) { _perfMark('cards built'); _perfDone(); }
             return filtered;
         }
 
@@ -5741,79 +5730,8 @@
             if (mapDayMode) renderDayMap(); else renderAllPilotsMap();
         }
 
-        // ── TEMPORARY map timing readout ── remove once the slow stage is found and fixed.
-        // On for Kyle's own login, the admin login, or anyone with ?perf=1. One timeline per map open: a render that
-        // restarts another keeps the first start time, since that's what the person actually waits through.
-        let _perfRun = null, _perfBox = null;
-        const _perfOn = () => myPilot === 'kyle' || (myPilot === null && !myViewer && !isDemo) || new URLSearchParams(location.search).get('perf') === '1';
-        function _perfStart(view) {
-            if (!_perfOn()) return;
-            const t = performance.now();
-            if (_perfRun && !_perfRun.done && t - _perfRun.t0 < 20000) {
-                if (!view) _perfRun.restarts++; // a view name means renderMap() handing off, not a restart
-                if (view) _perfRun.view = view;
-            } else {
-                _perfRun = { view: view || 'Map', t0: t, last: t, marks: [], restarts: 0, done: false, total: null, layers: 0, live: 0 };
-            }
-            _perfPaint();
-        }
-        function _perfMark(label) {
-            if (!_perfRun) return;
-            const t = performance.now();
-            _perfRun.marks.push({ label, ms: t - _perfRun.last });
-            _perfRun.last = t;
-            _perfPaint();
-        }
-        function _perfDone() {
-            const run = _perfRun;
-            if (!run || run.done) return;
-            run.done = true;
-            _perfMark('draw finished');
-            run.layers = Object.values(mapLayers).reduce((n, a) => n + a.length, 0);
-            // Two frames: the first runs before the browser paints, the second after.
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                if (run !== _perfRun) return;
-                _perfMark('browser paint');
-                run.total = performance.now() - run.t0;
-                _perfPaint();
-            }));
-        }
-        function _perfLive() {
-            const run = _perfRun;
-            if (!run) return;
-            run.live++;
-            run.liveAt = performance.now() - run.t0;
-            _perfPaint();
-        }
-        function _perfPaint() {
-            const run = _perfRun;
-            if (!run) return;
-            if (!_perfBox) {
-                _perfBox = document.createElement('div');
-                _perfBox.style.cssText = 'position:fixed;top:calc(env(safe-area-inset-top) + 110px);left:8px;z-index:99999;background:rgba(0,0,0,.85);color:#e4e4e7;border:1px solid #3f3f46;border-radius:8px;padding:6px 8px;font:11px/1.45 ui-monospace,Menlo,monospace;white-space:pre;pointer-events:none';
-                document.body.appendChild(_perfBox);
-                setInterval(() => { _perfBox.style.display = (currentView === 'map' || currentView === 'overlap') ? '' : 'none'; }, 500);
-            }
-            const sec = ms => (ms / 1000).toFixed(2) + 's';
-            const lines = [`${run.view} · opened ${sec(run.t0)} after launch`];
-            if (window._perfAptMs) lines.push(`airport file: asked ${sec(window._perfAptAsked)}, reply ${sec(window._perfAptHeaders)}`, `  parsed ${sec(window._perfAptParsed)}, ready ${sec(window._perfAptMs)}`);
-            // Startup: when each thing the app waits for finished, in seconds after launch.
-            const nav = performance.getEntriesByType('navigation')[0];
-            const res = performance.getEntriesByType('resource');
-            const finishedAt = part => { const e = res.find(r => r.name.includes(part)); return e ? sec(e.responseEnd) : '-'; };
-            lines.push(`page ${nav ? sec(nav.responseEnd) : '-'}, tailwind ${finishedAt('tailwindcss')}`,
-                `leaflet ${finishedAt('leaflet.js')}, geodesic ${finishedAt('geodesic')}`,
-                `tz ${finishedAt('tz-lookup')}, app code ${sec(window._perfAppStart)}`);
-            run.marks.forEach(m => lines.push(`${sec(m.ms).padStart(7)}  ${m.label}`));
-            if (run.total != null) lines.push(`${sec(run.total).padStart(7)}  TOTAL${run.view === 'Crossings' ? '' : ` · ${run.layers} layers`}`);
-            if (run.restarts) lines.push(`restarted ${run.restarts}x`);
-            if (run.live) lines.push(`${sec(run.liveAt).padStart(7)}  live routes drawn (${run.live})`);
-            _perfBox.textContent = lines.join('\n');
-        }
-
         async function renderAllPilotsMap() {
             const gen = mapRenderGen;
-            _perfStart('All crew month');
             stopLivePollers();
             [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels]
                 .forEach(l => map.removeLayer(l));
@@ -5828,7 +5746,6 @@
                 }
             }));
             if (gen !== mapRenderGen) return;
-            _perfMark('pilot data');
 
             const now = new Date();
             const monthPrefix = `${viewDate.getFullYear()}-${String(viewDate.getMonth()+1).padStart(2,'0')}`;
@@ -5896,7 +5813,7 @@
                             const dots = worldPlaneMarkers(arcCoords[idx], makePlaneIcon(bearing, pilotColor, null, true));
                             dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(al, key);
-                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], alArrUTC, [], weight, monthHits, alDepUTC, key, al.departure_airport);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], alArrUTC, [], weight, monthHits, alDepUTC, key, al.departure_airport, al.arrival_airport);
                         }
                     } else {
                         // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
@@ -5913,7 +5830,7 @@
                             const dots = worldPlaneMarkers(depC, makePlaneIcon(computeBearing(depC, arrC), pilotColor, null, true));
                             dots.forEach(d => mapLayers.active.push(d));
                             const cs = deriveCallsign(pf, key);
-                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], pfArrUTC, [], weight, monthHits, pfDepUTC, key, pf.departure_airport);
+                            if (cs) startLiveTracking(dots, cs, pilotColor, depC, arrC, lines, mapLayers.active, (PILOT_NAMES[key] || '').split(' ')[0], pfArrUTC, [], weight, monthHits, pfDepUTC, key, pf.departure_airport, pf.arrival_airport);
                         }
                     }
 
@@ -5939,7 +5856,6 @@
                 const nb = bounds.map(p => [p[0], ((p[1] % 360) + 360) % 360]);
                 map.fitBounds(L.latLngBounds(nb).pad(0.2));
             }
-            _perfDone();
         }
 
         function distanceProportionalArc(start, end, steps = 80) {
@@ -5974,8 +5890,7 @@
         }
 
         async function renderMap() {
-            _perfStart();
-            if (!map || !airportDbReady) { _perfMark('held: airport file not ready'); return; }
+            if (!map || !airportDbReady) return;
             stopLivePollers();
             // loadPilot() already loaded these, so the map doesn't wait on a refresh. If it finds a
             // new one, redraw. The set only grows, so this can't loop.
@@ -5983,7 +5898,6 @@
             mapRenderGen++;
             if (mapDayMode) { renderDayMap(); return; }
             if (mapAllMode) { renderAllPilotsMap(); return; }
-            if (_perfRun) _perfRun.view = 'Single pilot month';
             // Restore single-pilot legend
             document.getElementById('legend-single')?.classList.remove('hidden');
             document.getElementById('legend-day')?.classList.add('hidden');
@@ -6158,7 +6072,7 @@
                         dots[2].bindTooltip('✈ In the air now', { permanent: false, className: 'dark-popup' });
                         dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(activeLeg, currentPilot);
-                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], arrTime, hereNowMarkers, weight, hitLines, depTime, currentPilot, activeLeg.departureAirport);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], arrTime, hereNowMarkers, weight, hitLines, depTime, currentPilot, activeLeg.departureAirport, activeLeg.arrivalAirport);
                     }
                 } else {
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
@@ -6173,7 +6087,7 @@
                         const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), '#22c55e', null, true));
                         dots.forEach(d => mapLayers.active.push(d));
                         const cs = deriveCallsign(pf, currentPilot);
-                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], pfArrTime, hereNowMarkers, weight, hitLines, pfDepTime, currentPilot, pf.departureAirport);
+                        if (cs) startLiveTracking(dots, cs, '#22c55e', depCoords, arrCoords, routeLines, mapLayers.active, (PILOT_NAMES[currentPilot] || '').split(' ')[0], pfArrTime, hereNowMarkers, weight, hitLines, pfDepTime, currentPilot, pf.departureAirport, pf.arrivalAirport);
                     }
                 }
 
@@ -6363,7 +6277,6 @@
                 const nb = bounds.map(p => [p[0], ((p[1] % 360) + 360) % 360]);
                 map.fitBounds(L.latLngBounds(nb).pad(0.2));
             }
-            _perfDone();
         }
 
         function toggleMapFilter(type) {
@@ -6755,7 +6668,7 @@
                         return;
                     }
                     try {
-                        const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(cs)}${depApt ? `&origin=${encodeURIComponent(depApt)}` : ''}${arrMs ? `&arrMs=${arrMs}` : ''}`).then(r => r.json());
+                        const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(cs)}${depApt ? `&origin=${encodeURIComponent(depApt)}` : ''}${arrMs ? `&arrMs=${arrMs}` : ''}${arrApt ? `&dest=${encodeURIComponent(arrApt)}` : ''}`).then(r => r.json());
                         // This only ever updated the small altitude/speed text below -- the
                         // cell's own "active-leg" border/background and "IN THE AIR" label are
                         // baked in once at render() time and nothing here re-evaluated them as
@@ -7067,7 +6980,7 @@
         // not a literal frequency check-in (this app has no voice comms to check in on).
         const VCI_ICON_SVG = `<svg width="9" height="9" viewBox="0 0 16 16" style="display:inline-block;vertical-align:middle;margin-right:3px" fill="rgb(0,204,0)"><rect x="2" y="2" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="3" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="7" y="4" width="2" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="9" y="5" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="2" y="7" width="1" height="1"/><rect x="4" y="7" width="2" height="1"/><rect x="11" y="7" width="1" height="1"/><rect x="2" y="8" width="1" height="1"/><rect x="6" y="8" width="2" height="1"/><rect x="11" y="8" width="1" height="1"/><rect x="2" y="9" width="1" height="1"/><rect x="7" y="9" width="1" height="1"/><rect x="12" y="9" width="1" height="1"/><rect x="2" y="10" width="1" height="1"/><rect x="8" y="10" width="1" height="1"/><rect x="12" y="10" width="1" height="1"/><rect x="2" y="11" width="1" height="1"/><rect x="8" y="11" width="1" height="1"/><rect x="12" y="11" width="1" height="1"/><rect x="2" y="12" width="1" height="1"/><rect x="2" y="13" width="12" height="1"/></svg>`;
 
-        function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null, pilotKey = null, depAirportCode = null) {
+        function startLiveTracking(markers, callsign, color, depCoords, arrCoords, routeLines, activeLayersArr, pilotName, scheduledArrUTC, hereNowMarkers = [], lineWeight = 2.5, hitLines = null, scheduledDepUTC = null, pilotKey = null, depAirportCode = null, arrAirportCode = null) {
             const newRouteLines = Array.isArray(routeLines) ? routeLines : (routeLines ? [routeLines] : []);
             const newHitLines = hitLines || [];
             // Flown trail reads as "already behind you, less important now" vs. the heavier
@@ -7354,7 +7267,7 @@
                     // live, Sam's LGA-TUL kept showing "in the air" with a real but WRONG dashed
                     // route/position (Republic's genuine TUL-LGA return under the same RPA4605),
                     // since this fetch never told the server which direction it actually meant.
-                    const _originQs = (depAirportCode ? `&origin=${encodeURIComponent(depAirportCode)}` : '') + (scheduledArrUTC ? `&arrMs=${scheduledArrUTC.getTime()}` : '');
+                    const _originQs = (depAirportCode ? `&origin=${encodeURIComponent(depAirportCode)}` : '') + (scheduledArrUTC ? `&arrMs=${scheduledArrUTC.getTime()}` : '') + (arrAirportCode ? `&dest=${encodeURIComponent(arrAirportCode)}` : '');
                     const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}${_depQs}${_originQs}`).then(r => r.json());
 
                     // Server confirmed the plane is parked — flight complete
@@ -7804,7 +7717,7 @@
                 if (_pollerStopped || !_isCurrent()) return;
                 _livePollers[callsign] = setTimeout(async () => { await update(); scheduleNextPoll(); }, _pollDelayMs);
             };
-            update().then(() => { _perfLive(); scheduleNextPoll(); }); // immediate first update, then start the adaptive loop
+            update().then(scheduleNextPoll); // immediate first update, then start the adaptive loop
         }
 
         // Aircraft SVG shapes from ADS-B Exchange / tar1090 (BSD-2 licensed)
@@ -7971,7 +7884,6 @@
         async function renderDayMap() {
             const gen = mapRenderGen;
             if (!map) return;
-            _perfStart('All crew day');
             stopLivePollers();
             [...mapLayers.past, ...mapLayers.future, ...mapLayers.active, ...mapLayers.airports, ...mapLayers.labels].forEach(l => map.removeLayer(l));
             mapLayers = { past: [], future: [], active: [], airports: [], labels: [] };
@@ -8003,7 +7915,6 @@
                         trip: seg.trip || null
                     }));
             }));
-            _perfMark('pilot data');
             if (gen !== mapRenderGen) return;
 
             const now = new Date();
@@ -8074,7 +7985,6 @@
                 } catch (e) {}
                 if (gen !== mapRenderGen) return;
             }
-            _perfMark('flight status');
             // One place that decides a leg's state on the day map and in here-now.
             //  active     - seen flying: a live position, or airborne evidence and not yet past the estimated arrival
             //  completed  - landed early or parked; or seen flying and past the estimated arrival; or no flying
@@ -8149,7 +8059,6 @@
             const _dayAptCodes = [...new Set(allDayFlights.flatMap(f => [f.departureAirport, f.arrivalAirport]).filter(Boolean))];
             await _prefetchCities(_dayAptCodes);
             if (gen !== mapRenderGen) return;
-            _perfMark('city names');
 
             // Group by city pair (sorted) to detect overlapping routes
             const pairGroups = {};
@@ -8251,14 +8160,14 @@
                     dots[2].bindTooltip(`✈ ${(PILOT_NAMES[f.pilotKey] || '').split(' ')[0]} — in the air`, { permanent: false, className: 'dark-popup' });
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
-                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey, f.departureAirport);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey, f.departureAirport, f.arrivalAirport);
                 } else if (!landedEarly && isPreflightWindow(depTime?.getTime(), now.getTime(), arrTime?.getTime())
                     && !_earlierLegOpen(f.pilotKey, deriveCallsign(f, f.pilotKey), depTime?.getTime(), now.getTime())) {
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
                     const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), color, null, true));
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
-                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey, f.departureAirport);
+                    if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey, f.departureAirport, f.arrivalAirport);
                 }
             });
 
@@ -8294,7 +8203,6 @@
                 map.fitBounds(L.latLngBounds(nb).pad(0.25));
             }
 
-            _perfMark('route lines');
             // Here-now pins for all crew — only meaningful when viewing today
             if (mapDayDate === _localToday()) {
                 const now2 = new Date();
@@ -8593,7 +8501,6 @@
                     });
                 });
             }
-            _perfDone();
         }
 
         // Tooltip element for flight details

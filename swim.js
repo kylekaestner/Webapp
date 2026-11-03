@@ -64,23 +64,25 @@ const _watched = new Set();
 // route-bearing message happens to arrive, so a wrong leg's route can sit there clobbered for the
 // rest of that flight. This additive per-leg store (never replaces the flat one above, so every
 // other pilot's tracking is unaffected) lets server.js's fetchLivePosition() pick the right leg's
-// route by the origin it already knows from the caller's own expectedOrigin. Keyed by normalized
-// origin rather than GUFI -- simpler, and sufficient for the reported bug (two different-origin
-// concurrent legs); two concurrent legs sharing the SAME origin (a same-day quick-turn) is a
-// rarer case this doesn't disambiguate, not yet seen live.
+// route for a leg already on the schedule. Keyed origin>dest: keyed by origin alone, a later filing
+// from that airport replaced the one before it, so SAT->PEQ could be drawn on the SAT->E38 leg.
 const NETJETS_RESEARCH_MODE = true;
 // See tfdm.js's identical change for the full reasoning -- outside the lower 48 + Canada,
 // NetJets flies/files under the bare tail number (always ending "QS") instead of EJA####.
 function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && (/^EJA\d+$/.test(cs) || /^N\d+QS$/.test(cs)); }
-const _legRoutes = {}; // callsign -> Map(normOrigin -> {origin, dest, route, routeParsed, sid, star, gufi, lastMsg})
+const _legRoutes = {}; // callsign -> Map("ORIGIN>DEST" -> {origin, dest, route, routeParsed, sid, star, gufi, lastMsg})
 function _normApt(a) { return a ? String(a).toUpperCase().replace(/^K/, '') : null; }
-function getRouteForOrigin(callsign, originHint) {
+function _legRouteKey(origin, dest) { return `${_normApt(origin)}>${_normApt(dest)}`; }
+// A filed route is matched to a scheduled leg, never the other way round: same origin, same
+// destination, and sent around that flight's time, since the same city pair recurs on other days.
+// No match means no route for this leg yet.
+function getRouteForLeg(callsign, origin, dest, arrMs) {
     const cs = String(callsign || '').trim().toUpperCase();
-    const legMap = _legRoutes[cs];
-    if (!legMap) return null;
-    const o = _normApt(originHint);
-    if (!o) return null;
-    return legMap.get(o) || null;
+    if (!origin || !dest) return null;
+    const r = _legRoutes[cs]?.get(_legRouteKey(origin, dest));
+    if (!r) return null;
+    if (arrMs && r.lastMsg && (r.lastMsg > arrMs + 6 * 3600000 || r.lastMsg < arrMs - 48 * 3600000)) return null;
+    return r;
 }
 
 // SFDPS can't be filtered server-side — the queue delivers every en-route flight in the
@@ -155,7 +157,7 @@ function loadStateCache() {
         const data = JSON.parse(fs.readFileSync(STATE_CACHE_FILE, 'utf8'));
         if (data.__legRoutes && Date.now() - data.__legRoutes.ts <= 24 * 60 * 60 * 1000) {
             for (const [cs, entries] of Object.entries(data.__legRoutes.legRoutesOut || {})) {
-                _legRoutes[cs] = new Map(entries);
+                _legRoutes[cs] = new Map(entries.map(([, r]) => [_legRouteKey(r.origin, r.dest), r])); // re-keys older saves
             }
         }
         const cutoff = Date.now() - 24 * 60 * 60 * 1000; // same reuse-the-next-day concern trail already had
@@ -403,9 +405,10 @@ function processOneMessage(msgObj) {
         // Additive per-leg overlay -- see _legRoutes's header comment. Never replaces the flat
         // entry above (every other pilot's tracking stays exactly as it was).
         const legOrigin = _normApt(origin || entry.origin);
-        if (_isResearchRelevant(cs) && legOrigin) {
+        const legDest = _normApt(dest || entry.dest);
+        if (_isResearchRelevant(cs) && legOrigin && legDest) {
             const legMap = _legRoutes[cs] || (_legRoutes[cs] = new Map());
-            legMap.set(legOrigin, {
+            legMap.set(_legRouteKey(legOrigin, legDest), {
                 origin: origin || entry.origin, dest: dest || entry.dest, route,
                 routeParsed: parseRouteString(route, origin || entry.origin, dest || entry.dest),
                 sid, star, gufi: gufi || null, lastMsg: Date.now(),
@@ -653,4 +656,4 @@ function callsignForGufi(gufi) {
     return null;
 }
 
-module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, getRouteForOrigin, isEnabled: () => SWIM_ENABLED };
+module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, getRouteForLeg, isEnabled: () => SWIM_ENABLED };
