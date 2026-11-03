@@ -696,7 +696,19 @@ function processOneFiMessage(msgObj) {
     _airportConfig[key] = next;
 }
 
+// TEMPORARY one-off raw capture (added 2026-11-03, remove once read): EJA492's 21:00Z 11/3 plan
+// arrived as FlightCreate/FlightRoute with no airports we parse, so the per-leg store dropped it.
+// Captures the raw XML of its plan messages to see where the airports actually live.
+let _eja492CaptureCount = 0;
+const _EJA492_DEBUG_PATH = path.join(__dirname, '.eja492_debug_tfms.xml');
+function _captureEja492(xmlText) {
+    if (_eja492CaptureCount >= 10 || !xmlText.includes('EJA492') || !/msgType="(FlightCreate|FlightRoute|FlightSectors|FlightModify)"/.test(xmlText)) return;
+    _eja492CaptureCount++;
+    try { fs.appendFileSync(_EJA492_DEBUG_PATH, `\n\n==== CAPTURE ${_eja492CaptureCount} @ ${new Date().toISOString()} ====\n${xmlText}`); } catch (e) {}
+}
+
 function handleMessage(xmlText) {
+    _captureEja492(xmlText);
     // APTC messages carry no callsign at all, so they'd always fail the relevant-callsigns
     // substring check below and never reach the parser once that check applies — checked for
     // and parsed unconditionally, ahead of that gate, same cheap-substring-first approach as
