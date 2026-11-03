@@ -5023,6 +5023,7 @@ function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs) {
 // time keeps refining poll to poll (confirmed live: EJA742's TFMS igtd moved 01:18Z->01:48Z while
 // TFDM's own offBlockTime for that same leg never changed), so an exact-string key would mint a
 // duplicate row every time an estimate moved.
+const _netjetsStartWarned = new Set();
 async function _pollNetjetsLegCreation(db, onDutyList) {
     const norm3 = norm3Airport;
     for (const nj of onDutyList) {
@@ -5046,7 +5047,11 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
         // of silently doing nothing with it (the old hard-reject's failure mode, confirmed live
         // against the real MRY/SGR mixup).
         const firstOrigin = norm3(allLegs[0].origin);
-        if (nj.startAirport && firstOrigin && firstOrigin !== nj.startAirport) {
+        // Once per pilot/tour/mismatch -- this runs every poll, and logging it each time buried real
+        // errors in the error log.
+        const startWarnKey = `${nj.pilotKey}|${nj.tourStart}|${firstOrigin}|${nj.startAirport}`;
+        if (nj.startAirport && firstOrigin && firstOrigin !== nj.startAirport && !_netjetsStartWarned.has(startWarnKey)) {
+            _netjetsStartWarned.add(startWarnKey);
             console.warn(`[NetJets] ${nj.pilotKey}: tour's earliest known leg starts at ${firstOrigin}, not the saved start airport ${nj.startAirport} -- continuing anyway, but start_airport may be stale`);
         }
 

@@ -10025,6 +10025,15 @@ let _blockUserEdited = false;
                 return errEl.classList.remove('hidden');
             }
             const isEdit = _editSegmentId !== null;
+            // Keep a UTC-stored row (NetJets auto leg, Schedaero) in UTC: the form is local airport
+            // time, and saving it back as local left that pilot's rows mixed, so Crossings (which
+            // reads a UTC pilot's rows as UTC) was off by the viewer-vs-airport timezone gap.
+            const origSeg = isEdit ? segments.find(s => s.id === _editSegmentId) : null;
+            if (origSeg && /Z$/.test(origSeg.departureTime || '')) {
+                const toUtc = (iso, apt) => { const tz = iso && airportTz(apt); return tz ? localTimeToUTC(iso, tz).toISOString() : iso; };
+                payload.departure_time = toUtc(payload.departure_time, dep);
+                payload.arrival_time = toUtc(payload.arrival_time, arr);
+            }
             const url = isEdit
                 ? `${API_BASE}/pilots/${pilot}/segments/${_editSegmentId}`
                 : `${API_BASE}/pilots/${pilot}/add-segment`;
