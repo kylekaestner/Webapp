@@ -670,6 +670,7 @@
                         </div>
                         <div class="flex gap-1">
                             <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
+                            <button id="btn-basemap" onclick="toggleBasemap()" class="map-ctrl-pill" title="Switch base map: CARTO dark / Esri Dark Gray">🗺 CARTO</button>
                             <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill" title="Toggle route detail (VOR/fix/waypoint symbols)">✦ RTE</button>
                             <button id="btn-show-sector" onclick="toggleShowSector()" class="map-ctrl-pill" title="Show the real ATC frequency currently controlling each live flight, when it resolves">📻 FREQ</button>
                         </div>
@@ -5537,7 +5538,7 @@
         function initMap() {
             if (map) return;
             map = L.map('map', { zoomControl: false, doubleClickZoom: true, bounceAtZoomLimits: false }).setView([39.8283, -98.5795], 4);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5', { className: 'cs-basemap', subdomains: 'abcd', maxZoom: 19 }).addTo(map);
+            addBasemap(map);
             setupDoubleTapZoom(map);
             map.on('zoomend', deoverlapLiveLabels);
             map.on('moveend', deoverlapLiveLabels);
@@ -6456,6 +6457,50 @@
             // more than this regardless of the route's own length.
             const slackMi = Math.max(routeDist * 0.25, 300);
             return (distToDep + distToArr) <= routeDist + slackMi;
+        }
+
+        // Base map, switchable for testing (requested 2026-11-03): CARTO restyled dark_all (fewer
+        // labels zoomed out, lighter blue-grey water) and no longer serves the old look at any URL;
+        // Esri's Dark Gray Base + Reference keeps state lines and more cities. Choice persists per
+        // device (cs_basemap); toggleBasemap() swaps it live on every open map.
+        var BASEMAPS = { // var: addBasemap() can run before this line during startup
+            carto: { label: 'CARTO', layers: [
+                { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
+                  nolabels: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
+                  opts: { className: 'cs-basemap', subdomains: 'abcd', maxZoom: 19 } } ] },
+            esri: { label: 'ESRI', layers: [
+                { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+                  opts: { maxNativeZoom: 16, maxZoom: 19, attribution: 'Tiles &copy; Esri' } },
+                { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+                  labels: true, opts: { maxNativeZoom: 16, maxZoom: 19 } } ] },
+        };
+        var _basemapChoice = (() => { try { return localStorage.getItem('cs_basemap') === 'esri' ? 'esri' : 'carto'; } catch (_) { return 'carto'; } })();
+        var _basemapMaps = []; // [{ map, noLabels, layers }]
+        function _basemapLayersFor(noLabels) {
+            return BASEMAPS[_basemapChoice].layers
+                .filter(l => !(noLabels && l.labels))
+                .map(l => L.tileLayer(noLabels && l.nolabels ? l.nolabels : l.url, l.opts));
+        }
+        function addBasemap(m, { noLabels = false } = {}) {
+            if (!m) return;
+            const entry = { map: m, noLabels, layers: _basemapLayersFor(noLabels) };
+            entry.layers.forEach(l => l.addTo(m));
+            _basemapMaps.push(entry);
+            _refreshBasemapButton();
+        }
+        function toggleBasemap() {
+            _basemapChoice = _basemapChoice === 'carto' ? 'esri' : 'carto';
+            try { localStorage.setItem('cs_basemap', _basemapChoice); } catch (_) {}
+            for (const e of _basemapMaps) {
+                e.layers.forEach(l => { try { e.map.removeLayer(l); } catch (_) {} });
+                e.layers = _basemapLayersFor(e.noLabels);
+                e.layers.forEach(l => { l.addTo(e.map); l.bringToBack(); });
+            }
+            _refreshBasemapButton();
+        }
+        function _refreshBasemapButton() {
+            const b = document.getElementById('btn-basemap');
+            if (b) b.textContent = '🗺 ' + BASEMAPS[_basemapChoice].label;
         }
 
         function addRadarLayer() {
@@ -12406,7 +12451,7 @@ async function openAdminPanel(tab = 'users') {
                 _intelMap.remove(); _intelMap = null;
             }
             _intelMap = L.map('intel-map-el', { zoomControl: false, attributionControl: false, worldCopyJump: true, doubleClickZoom: true, bounceAtZoomLimits: false });
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5', { className: 'cs-basemap', subdomains: 'abcd', maxZoom: 19 }).addTo(_intelMap);
+            addBasemap(_intelMap);
             setupDoubleTapZoom(_intelMap);
             const _intelZoom = document.createElement('div');
             _intelZoom.style.cssText = 'position:absolute;top:10px;left:10px;z-index:1000;display:flex;flex-direction:column;gap:4px;pointer-events:auto';
@@ -13695,9 +13740,7 @@ async function openAdminPanel(tab = 'users') {
                 touchZoom: false, boxZoom: false, keyboard: false, tap: false,
                 bounceAtZoomLimits: false,
             });
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5', {
-                className: 'cs-basemap', subdomains: 'abcd', maxZoom: 19
-            }).addTo(_wrappedMapInst);
+            addBasemap(_wrappedMapInst, { noLabels: true });
 
             // Route frequency (bidirectional collapse)
             const routeFreq = {};
