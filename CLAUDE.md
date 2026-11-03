@@ -741,6 +741,18 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 
 **Auto-creating legs.** SWIM-first: the derived `EJA` callsign is fed into `setRelevantCallsigns()` proactively every poll cycle via `_getOnDutyNetjetsPilots()`, merged in before the main scheduled-flight relevance computation (NetJets legs have no `departure_time` to drive that query otherwise). `_pollNetjetsLegCreation()` materializes **every known leg** from a per-leg store (`tfdm.getAllLegs()`/`tfms.getAllLegTimes()`, both disk-persisted and scoped to EJA callsigns only) rather than tracking just "the current" leg — real NetJets callsigns routinely carry 2+ concurrently-filed legs, sometimes spanning today and tomorrow. Matching across polls is fuzzy (an estimated time can legitimately drift poll to poll), not an exact key. `isParkedForOrigin()` (NetJets-specific) avoids the generic `isParked()`'s single-slot-per-callsign confusion when two legs on the same tail are both tracked.
 
+**Leg matching/filtering rules in `_pollNetjetsLegCreation()`** (EJA+tail = one physical aircraft, so there's no "different flight, same callsign" ambiguity):
+- Origin/dest come from TFMS's `depArpt`/`arrArpt` message attributes (`attrAirport()`, tfms.js) as a fallback when no route string is present (~90% of NetJets-relevant TFMS traffic). Airports are normalized to 3 letters via the shared `norm3Airport()`, also applied to manual edits of a `manual_netjets` pilot's segments.
+- `_findExistingNetjetsLeg()`: a dest mismatch against an open row is still the **same leg** when both share an origin at nearly the same departure instant (15min tolerance, separate from the 6h refine tolerance) — covers diversions (`isDiversion`) and NetJets inserting/removing a stop before departure.
+- **Chain-consistency filter**: once the tail has really departed an airport (`REALLY_DEPARTED_RE`, taxi-out or later), any still-FILED/SCHEDULED candidate arriving at that airport at or after that departure is a stale plan and is skipped (or `auto_leg_cancelled`-marked if already created). Earliest confirmed departure per origin is used, so a real later return visit isn't touched.
+- Time priority: `etd`/`eta` over `airlineOutTime`/`airlineInTime` — NetJets doesn't feed real OOOI, those fields just freeze at the original plan.
+
+**Cancellations** (`segments.auto_leg_cancelled`): set on a TFMS `flightPlanCancellation` or by the chain filter. The row stays in the DB for research, but it's excluded from every pilot-facing view (grid, list, day detail, both maps, `inferAwayLayovers`, Crossings/Off Days).
+
+**Live-map route per leg**: `swim.js` keeps an additive per-leg route store (`_legRoutes`, keyed by origin, EJA-only, persisted) alongside the flat `_latest[cs]` cache. `fetchLivePosition()` prefers the leg-matched route via `expectedOrigin`, so a concurrently-filed later leg's route can't clobber the one actually being flown. Separately, `fetchLivePosition()` falls through to ADS-B whenever SWIM has no **live** position (`swimHit?.found`), not just when SWIM has never seen the flight — matters for oceanic legs. The filed route is carried forward either way.
+
+**Research mode (temporary, `NETJETS_RESEARCH_MODE` in tfdm.js/tfms.js/swim.js)**: every `EJA####` **and** bare tail-number `N####QS` callsign is treated as relevant fleet-wide (NetJets files under the tail outside the lower 48 + Canada). Cheap substring/regex pre-filter only, never a per-tail loop. Research callsigns get 7-day per-leg retention (`LEG_STALE_MS_RESEARCH`/`LEG_TIMES_STALE_MS_RESEARCH`) instead of 48h, since a completed leg's `lastMsg` stops updating. **These constants must stay declared above each file's load-from-disk block** — declared later, they sit in the TDZ when the restore runs, the swallowed ReferenceError silently skips the restore, and the next save wipes the persisted cache.
+
 **Restart-safe by construction.** `auto_leg_key` (format `<callsign>|<tourStartDate>|<legNumber>`) on the `segments` row is the actual source of truth — `_pollNetjetsLegCreation()` queries fresh every call, no persisted in-memory cache.
 
 **Resolving timing data for a leg**, in priority order: TFDM's parsed per-flight origin/dest (most authoritative) → TFMS's filed route string (`routeDest()`, local mirror of `routeOrigin()`) → reverse-geocoding the last known ADS-B/STDDS position (`_findNearestAirportCode()`) once a leg looks landed with no SWIM destination ever reported. `block_minutes` is a plain UTC diff (TFMS's `processFlightTimes()` already normalizes every time field to real UTC-with-`Z` strings — `pilotUsesUtc()` auto-detects this, same convention as Kyle's segments). An inconsistent arrival-before-departure value is corrected to `arrival_time = departure_time` (a neutral placeholder), never left `NULL` — several places in app.html assume a `type='flight'` segment always has both times.
@@ -751,7 +763,11 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 
 **A human's manual correction is never silently overwritten.** `segments.auto_leg_edited` is set unconditionally by the existing segment-edit endpoint — once a human touches an auto-created row, `_pollNetjetsLegCreation()` goes permanently hands-off on that row's fields, only reading `arrival_airport` back out as the next leg's informational context.
 
-**Day-1-only reminder, two layers.** `checkNetjetsTourReminders()` (server.js, every 6h) sends a push/in-app notification the evening before each tour's Day 1 if no tail is saved, deduped via `pilot_tour_reminder_sent`. `_maybeShowNetjetsTailReminder()` (client, called from `loadPilot()`) shows a modal once per day, localStorage-deduped, scoped to the tour's actual first day only.
+**Tour modal (`#netjets-tour-modal`)** — the per-tour tail/start-airport editor, opened from an "Edit Tour" button on the day-detail sheet (any on-duty day, self-service only) or from the reminder. **Mid-tour tail swap**: `PUT /tour-tail` detects a changed tail for an active tour, finalizes any still-open leg under the old callsign, and takes the new `start_airport` as given. `_openCommuteForTour()` jumps from the modal into Add Flight → Commute with the arrival pre-filled from Starting Airport (the deadhead-to-the-jet shortcut).
+
+**Beta reset endpoints** (admin-or-self): `DELETE /api/pilots/:key/tour-tail` (one tour), `DELETE .../cc-schedule` (one month), `DELETE .../rotation` (rotation + seams + CC variant, falls back to pure segment-based off days). Each finalizes any open auto-created leg under the cleared tail first.
+
+**Tour reminder, two layers.** `checkNetjetsTourReminders()` (server.js, every 6h) sends a push/in-app notification the evening before each tour's Day 1 if no tail is saved, deduped via `pilot_tour_reminder_sent`. `_maybeShowNetjetsTailReminder()` (client, called from `loadPilot()`) shows a modal once per day, localStorage-deduped, on the evening before Day 1 and on Day 1 itself; its button opens the tour modal.
 
 **Admin gets read-only visibility, not an edit UI.** `#edit-user-netjets-section` (`_loadEditUserNetjetsStatus()`) — no admin-side setter; this is self-service by design for a one-pilot beta.
 
@@ -765,11 +781,17 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 
 **Resolution precedence, `_isNetJetsOnDuty()`**: (1) `_ccScheduleOverrideFor()` — explicit CC day record, if one exists; (2) `_seamOverrideFor()` — seam transition window; (3) fallback to the normal rotation formula. A pilot's CC schedule overrides any overlapping tours from a previous 7&7/8&6 schedule, by design.
 
-**Known, unaddressed blind spot**: getting to/from the jet on day 1 / the last day of a tour is typically a commercial deadhead, invisible to tail-based tracking. The existing manual "Commute" flight type (`trip='COMMUTE'`) is the intended fallback (2 entries per tour) but isn't yet specifically surfaced/encouraged in the UI for this pilot type.
+**Known blind spot**: getting to/from the jet on day 1 / the last day of a tour is typically a commercial deadhead, invisible to tail-based tracking. The manual "Commute" flight type (`trip='COMMUTE'`) is the fallback, surfaced via the tour modal's commute shortcut above.
 
 **Tail display**: a pilot enters just the tail digits ("742"); `displayTail()` shows the full `N742QS` wherever a reader sees it, without changing what's stored.
 
-**`/crew-roster/netjets-lookup`** — a human-readable exploration page over `tfdm.getAllLegs()`/`tfms.getAllLegTimes()`.
+**`/crew-roster/netjets-lookup`** — fleet-wide validation tool over `tfdm.getAllLegs()`/`tfms.getAllLegTimes()`. With no tail, it lists every research-mode callsign with captured data (`getCallsignsWithLegs()`/`getCallsignsWithLegTimes()`). `?tail=` accepts digits or a literal `N####QS`. Per tail and date range it shows:
+- **Filed** — raw candidates.
+- **Resolved** — `resolveNetjetsLegsForDisplay()`, a read-only simulation of the leg-creation filter, never writes to the DB. It picks the most recently updated TFMS entry for the same origin/departure instant (not TFDM's possibly stale dest), propagates confirmation backward through the chain (a leg that the next confirmed leg chains onto must have flown), and drops unconfirmed candidates departing from an airport the tail was never confirmed at. A **Confirmed?** column reads green once TFDM shows real movement, red when 3h past departure with none, grey while upcoming.
+
+A FlightAware link per tail allows manual cross-checks.
+
+**Temporary debug capture still live**: a raw-XML capture for `N22QS` (capped at 15 per feed, `.n22qs_debug_{tfdm,tfms,swim}.xml`) — remove once the tail-number-callsign check is done.
 
 Full build narrative — the F70-timezone bug and its own regression, the same-callsign-concurrent-leg discovery (59% of tracked EJA callsigns showing 2+ concurrent legs fleet-wide), the leg-creation rewrite, the arrival-before-departure fix, the grid-poller "completed" fallback fix, the TFDM-scheduled-state-window research, and the GUFI/etdType/diversionIndicator extraction pass: `CLAUDE_HISTORY.md § NetJets manual tracking`.
 

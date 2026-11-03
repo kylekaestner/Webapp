@@ -683,20 +683,6 @@ function processOneFiMessage(msgObj) {
     _airportConfig[key] = next;
 }
 
-// TEMPORARY one-off raw capture (added 2026-10-31, remove once the EJA829 missing-leg
-// investigation is done) -- user explicitly wants the UNPARSED XML, not our own
-// messageRouteString()/candidateOrigin fields, since those already have a confirmed blind spot.
-// Appends every distinct raw message mentioning EJA829 (capped) so the real wire format can be
-// read directly instead of trusting our extraction code.
-let _eja829CaptureCount = 0;
-const _EJA829_CAP = 15;
-const _EJA829_DEBUG_PATH = path.join(__dirname, '.eja829_debug_tfms.xml');
-function _captureEja829(xmlText) {
-    if (_eja829CaptureCount >= _EJA829_CAP || !xmlText.includes('EJA829')) return;
-    _eja829CaptureCount++;
-    try { fs.appendFileSync(_EJA829_DEBUG_PATH, `\n\n==== CAPTURE ${_eja829CaptureCount} @ ${new Date().toISOString()} ====\n${xmlText}`); } catch (e) {}
-}
-
 // TEMPORARY one-off raw capture (added 2026-11-02, remove once the N22QS tail-number-callsign
 // investigation is done) -- see tfdm.js's identical capture for the full reasoning.
 let _n22qsCaptureCount = 0;
@@ -709,7 +695,6 @@ function _captureN22qs(xmlText) {
 }
 
 function handleMessage(xmlText) {
-    _captureEja829(xmlText);
     _captureN22qs(xmlText);
     // APTC messages carry no callsign at all, so they'd always fail the relevant-callsigns
     // substring check below and never reach the parser once that check applies — checked for
