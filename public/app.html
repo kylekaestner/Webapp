@@ -161,6 +161,10 @@
         #calendar-list-content .list-past { filter: grayscale(30%) brightness(0.75); }
         .day-today { border-color: #38bdf8 !important; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.3); }
         .day-today .day-number { color: #7dd3fc; }
+        /* CARTO restyled dark_all with a lighter blue-grey water than its near-black land, so the
+           map read as two-toned. Dim + desaturate the basemap only (class on the CARTO layers) so
+           the NEXRAD radar overlay, also a tile layer, keeps its colors. */
+        .cs-basemap { filter: brightness(0.8) saturate(0.3); }
         .dark-popup .leaflet-popup-content-wrapper { background: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.8); }
         .dark-popup .leaflet-popup-tip { background: #0f172a; }
         .dark-popup .leaflet-popup-content { margin: 12px 14px; }
@@ -5533,7 +5537,7 @@
         function initMap() {
             if (map) return;
             map = L.map('map', { zoomControl: false, doubleClickZoom: true, bounceAtZoomLimits: false }).setView([39.8283, -98.5795], 4);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5', { subdomains: 'abcd', maxZoom: 19 }).addTo(map);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5', { className: 'cs-basemap', subdomains: 'abcd', maxZoom: 19 }).addTo(map);
             setupDoubleTapZoom(map);
             map.on('zoomend', deoverlapLiveLabels);
             map.on('moveend', deoverlapLiveLabels);
@@ -12402,7 +12406,7 @@ async function openAdminPanel(tab = 'users') {
                 _intelMap.remove(); _intelMap = null;
             }
             _intelMap = L.map('intel-map-el', { zoomControl: false, attributionControl: false, worldCopyJump: true, doubleClickZoom: true, bounceAtZoomLimits: false });
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5', { subdomains: 'abcd', maxZoom: 19 }).addTo(_intelMap);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5', { className: 'cs-basemap', subdomains: 'abcd', maxZoom: 19 }).addTo(_intelMap);
             setupDoubleTapZoom(_intelMap);
             const _intelZoom = document.createElement('div');
             _intelZoom.style.cssText = 'position:absolute;top:10px;left:10px;z-index:1000;display:flex;flex-direction:column;gap:4px;pointer-events:auto';
@@ -13692,7 +13696,7 @@ async function openAdminPanel(tab = 'users') {
                 bounceAtZoomLimits: false,
             });
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5', {
-                subdomains: 'abcd', maxZoom: 19
+                className: 'cs-basemap', subdomains: 'abcd', maxZoom: 19
             }).addTo(_wrappedMapInst);
 
             // Route frequency (bidirectional collapse)
