@@ -810,7 +810,7 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 
 - **On the pilot's schedule** — only for a tail a CrewSync pilot saved in `pilot_tour_tail`: the segments actually created (auto, edited, or manual; flown/scheduled/hidden). This is the real result to compare with Resolved and FlightAware. Those tails are labeled with the pilot's first name in the tail list.
 
-Kyle uses this page to compare each tail against FlightAware, so times show in local airport time with a TZ abbreviation (UTC underneath), rows are grouped by local day, and Filed has an **Evidence** column (TFMS dep/arr/radar, TFDM movement). Timezones use `_lookupTzForAirport()`: `airports.dat`, then the nearest airport with a known zone by OurAirports coordinates, for small fields like E38/27K. The handler is `async` (DB reads for pilot tails and segments).
+Kyle uses this page to compare each tail against FlightAware, so times show in local airport time with a TZ abbreviation (UTC underneath), rows are grouped by local day, and Filed has an **Evidence** column (TFMS dep/arr/radar, TFDM movement). Timezones use `_lookupTzForAirport()`: by coordinates (US `K`-code preferred for a 3-letter code, since the bare IATA table collides, e.g. BKV resolved to GMT+8), nearest airport with a known zone. That also covers small fields like E38/27K. Pilot-edited rows (local time, no `Z`) are converted to UTC before display, and every table sorts by the time it shows. The handler is `async` (DB reads for pilot tails and segments).
 
 Full build narrative — the F70-timezone bug and its own regression, the same-callsign-concurrent-leg discovery (59% of tracked EJA callsigns showing 2+ concurrent legs fleet-wide), the leg-creation rewrite, the arrival-before-departure fix, the grid-poller "completed" fallback fix, the TFDM-scheduled-state-window research, and the GUFI/etdType/diversionIndicator extraction pass: `CLAUDE_HISTORY.md § NetJets manual tracking`.
 
@@ -828,7 +828,7 @@ Full build narrative — the F70-timezone bug and its own regression, the same-c
 
 ## Add flight modal (`submitAddFlight()`, ~line 7024)
 
-4 flight types: **Work** (`trip` = pairing #), **DH** (`is_dh=true`), **Commute** (`trip='COMMUTE'`, `is_manual=1`), **Personal** (`trip='PERSONAL'`, `is_manual=1`). Fields: pilot selector (admin only), date, DEP/ARR airports (auto-uppercased), dep/arr times, block time (auto-calculated via `autoComputeBlockTime()` unless manually edited), flight #, tail #. POSTs to `/api/pilots/:key/add-segment`; edit mode PUTs to `/segments/:id`. Separate `#edit-ground-modal` for ground legs.
+4 flight types: **Work** (`trip` = pairing #), **DH** (`is_dh=true`), **Commute** (`trip='COMMUTE'`, `is_manual=1`), **Personal** (`trip='PERSONAL'`, `is_manual=1`). Fields: pilot selector (admin only), date, DEP/ARR airports (auto-uppercased), dep/arr times, block time (auto-calculated via `autoComputeBlockTime()` unless manually edited), flight #, tail #. POSTs to `/api/pilots/:key/add-segment`; edit mode PUTs to `/segments/:id`. The form is always local airport time. When editing a UTC-stored row (NetJets auto legs, Schedaero), `openEditFlight()` converts the `Z` time to airport-local before pre-filling. Slicing the raw string used to shift the leg by the UTC offset on any save. Separate `#edit-ground-modal` for ground legs.
 
 ---
 
