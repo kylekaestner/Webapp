@@ -4290,7 +4290,19 @@ async function fetchLivePosition(callsign, expectedOrigin) {
     // the segment's own departure_airport at every call site -- when it tells us which leg this
     // actually is, prefer that leg's own stored route over whichever one most recently clobbered
     // the flat cache. Scoped to EJA callsigns only; every other pilot's flow is untouched.
-    if (swimHit && expectedOrigin && /^EJA\d+$/.test(String(callsign).toUpperCase())) {
+    if (swimHit && expectedOrigin && /^(EJA\d+|N\d+QS)$/.test(String(callsign).toUpperCase())) {
+        // Only when the aircraft is actually on THIS leg. Asked about the next leg (E38->OKC) while
+        // still flying SAT->E38, the swap used to hand back that leg's route *and origin*, so the
+        // origin check passed, the next leg read as live, and the map drew E38->OKC from the
+        // aircraft's position (EJA23 2026-11-03; the same thing on EJA492 the day before). The leg
+        // being flown = the one TFMS most recently saw depart or on radar, not yet arrived.
+        const flying = tfms.getAllLegTimes(callsign)
+            .filter(t => (t.departedAt || t.tracked) && !_tfmsLegArrived(t))
+            .sort((a, b) => (b.departedAt || b.scheduledDepMs || 0) - (a.departedAt || a.scheduledDepMs || 0))[0];
+        if (flying && norm3Airport(flying.origin) !== norm3Airport(expectedOrigin)) {
+            // Not airborne on this leg yet -- the map shows nothing for it until it really departs.
+            return { found: false, notThisLeg: true, origin: flying.origin, dest: flying.dest, source: 'swim' };
+        }
         const legRoute = swim.getRouteForOrigin(callsign, expectedOrigin);
         if (legRoute && legRoute.route !== swimHit.route) {
             swimHit.route = legRoute.route;
