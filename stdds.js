@@ -361,6 +361,7 @@ function getGroundPosition(callsign) {
         hadTrail: !!(f.trail && f.trail.length),
         parked: false,
         airport: f.airport, runway: f.runway, status: f.status, event: f.event, // STDDS-specific extras, harmless if unused
+        positionMs: f.lastMsg || null, // lets server.js prefer SFDPS once this terminal track goes stale
         source: 'stdds',
     };
 }

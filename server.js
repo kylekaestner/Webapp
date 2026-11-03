@@ -4389,7 +4389,12 @@ async function fetchLivePosition(callsign, expectedOrigin) {
     // (runway/ground status). SFDPS naturally goes quiet once a flight drops off ERAM's active
     // track near landing, which is exactly when STDDS picks up — so this also covers the
     // handoff near touchdown, not just a straight either/or.
-    if (stddsHit) {
+    // ...unless SFDPS has a clearly newer fix. STDDS holds an airborne position up to 10 minutes,
+    // so once a departure climbs out of the terminal area its last TAIS fix stayed "preferred"
+    // while SFDPS tracked it live -- EJA492 out of KDJT: the icon sat ~25 mi behind its own trail.
+    const swimFixMs = swimHit?.found && swimHit.trail?.length ? swimHit.trail[swimHit.trail.length - 1][2] : null;
+    const stddsStale = stddsHit && swimFixMs && stddsHit.positionMs && swimFixMs - stddsHit.positionMs > 30000;
+    if (stddsHit && !stddsStale) {
         // Keep the trail continuous across that handoff — without this, a plane landing would
         // visually reset to an empty trail right at touchdown, the one moment that matters most.
         if (swimHit?.trail?.length) stddsHit.trail = [...swimHit.trail, ...stddsHit.trail];
