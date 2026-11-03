@@ -549,7 +549,14 @@ function processLegTimes(msgObj, cs, origin, dest, candidateMs, msgType) {
     const times = _extractTimeFields(msgObj);
     const key = `${origin}>${dest}`;
     const legsMap = _legTimes[cs] || (_legTimes[cs] = new Map());
-    const leg = legsMap.get(key) || { origin, dest };
+    let leg = legsMap.get(key) || { origin, dest };
+    // The key has no date, so the same city pair flown again later lands on this entry. Its departed/
+    // arrived evidence is the old flight's, and would mark the new one finished before it leaves. Only
+    // once the old one is really over: tomorrow's plan mustn't wipe the same pair in the air today.
+    const oldFlightOver = leg.arrivedAt || Date.now() - (leg.lastMsg || 0) > 6 * 3600000;
+    if (candidateMs != null && leg.scheduledDepMs != null && Math.abs(candidateMs - leg.scheduledDepMs) > 6 * 3600000 && oldFlightOver) {
+        leg = { origin, dest };
+    }
     Object.assign(leg, times);
     if (candidateMs != null) leg.scheduledDepMs = candidateMs;
     // Real-movement evidence, distinct from a plan merely being filed: TFMS only sends

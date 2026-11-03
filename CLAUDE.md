@@ -223,6 +223,8 @@ Emits `{ airport, start, end, ... }` windows. Key parameters:
 
 Tier 1-2 → primary cards; tier 3 → compact "Also Nearby" rows. `adjustedPeriod()` shifts times for UTC-storing pilots (Schedaero/Kyle) to match airport local time before overlap comparisons.
 
+**Perf — full history is the trap.** A pilot's segments span their whole history and this runs at startup in the background, blocking taps. `buildGroundPeriods()` works out dates/airports once up front (`tMs()`, `depTimes`, `depApts`, `latestArrAt`, memoized `baseAt()`); doing it per scan cost 2.6s on a phone. The pair loop checks time before distance and skips pairs where both periods ended over 2 days ago, since ended crossings are dropped anyway.
+
 **Perf note — don't remove the paint-yield.** Both `computeOverlap()`/`computeOffDays()` do `await new Promise(r => setTimeout(r, 0))` right after setting the spinner HTML, forcing a real paint before the heavy pipeline runs. Removing this makes the Overlap view feel like it hangs (history: `CLAUDE_HISTORY.md § Crossings pipeline`).
 
 ---
@@ -234,6 +236,8 @@ This section documents non-obvious behaviors already implemented. Check here bef
 ### Time handling — two systems coexist
 
 **Kyle** uses UTC times (Schedaero source, strings end in `Z`). All other pilots use local airport time (no timezone suffix). `pilotUsesUtc(k)` detects which system a pilot uses by inspecting the first flight's departure_time string. `flightUTCTime(isoStr, airportCode)` converts any time string to a real UTC Date (use for cross-pilot comparisons — never compare raw `new Date(localString)` across pilots). `flightLocalDate(isoStr, airportCode)` extracts the local calendar date (YYYY-MM-DD) at the airport. `adjustedPeriod(k, p)` shifts a ground period's start/end by the browser-TZ/airport-TZ difference so UTC comparisons between pilots stay consistent.
+
+**Never build an `Intl.DateTimeFormat` in a loop**: very slow, worst on iPhone. `_tzOffsetFmts`/`_tzDateFmts` hold one per zone, and `localTimeToUTC()` memoizes results (`_utcMemo`, returns a new Date each time).
 
 **Local → UTC conversion** (`localTimeToUTC()` app, `localTZToUTC()` server): the DST rules come from the runtime's IANA database via `Intl`, never hand-coded. Both converters take a second pass, reading the offset at the corrected instant. A single pass read it a few hours from the real moment, so on a DST-change day a time shortly after the switch came out an hour off. Times inside the switch itself are inherently ambiguous (fall) or don't exist (spring).
 
@@ -340,7 +344,7 @@ Because a single leg can cross zones, the parser converts each endpoint to real 
 
 ### `pilotsCache` invalidation
 
-`pilotsCache[key]` is set once per page load (or after upload/sync). The Crossings "Refresh" button calls `computeOverlap()` but does **not** clear the cache — it re-runs `buildGroundPeriods` on cached data. A stale cache can make crossings appear wrong even after a schedule fix. To force-refresh: reload the page.
+`pilotsCache[key]` is set once per page load (or after upload/sync). Bulk loads go through `_loadPilotOnce(key)`, one request per pilot at a time, since the grid, Crossings, Off Days and maps all load everyone at startup. The Crossings "Refresh" button calls `computeOverlap()` but does **not** clear the cache — it re-runs `buildGroundPeriods` on cached data. A stale cache can make crossings appear wrong even after a schedule fix. To force-refresh: reload the page.
 
 ---
 
@@ -771,7 +775,21 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 
 **Leg state is per leg, like an airline flight number** (the root of the map/grid mixups): airline legs each have their own flight number, so per-callsign evidence is per-leg for free, but one NetJets callsign flies every leg of the day. The app keys NetJets evidence by **callsign + departure airport**: `parkedKey(cs, depApt)` for `_confirmedParked`, and `isFlightStillActive(…, csig, depApt)`. A caller without the airport just loses the parked short-circuit and never marks the wrong leg done. The day map sends every NetJets leg separately (`njlegs=callsign~origin~arrival`), and `/api/flight-status` answers each from TFMS's per-leg store (`perLeg["callsign~origin"]`: airborne = ever flew, parked = arrived, times = that leg's own, live only for the leg actually being flown). `_legState(…, origin)` uses that answer when present. Single-leg requests (the grid poller) get the same per-leg treatment through `njLegOf`. Airline legs are unchanged.
 
-**Live position is per leg**: `fetchLivePosition()` asked about a leg the aircraft isn't on yet returns `{found:false, notThisLeg:true}`. The leg being flown is the one TFMS most recently saw depart or on radar, not yet arrived. Such an answer is never written to `_liveCache`. Without this, the next leg read as live and the map drew its route from the aircraft (EJA23 E38→OKC, EJA492 the day before).
+**One answer for "which leg, and is it done"** (server.js, beside `_tfmsLegArrived`). Everything about a NetJets leg goes through these, and `getAllLegTimes()` returns copies, so legs are compared by `.key`, never `===`:
+- `_njLegFor(cs, origin, arrMs)`: TFMS's record of one scheduled leg (closest arrival, uncancelled preferred, nothing over 12h off).
+- `_njLegDone(t, legs, now)`: real arrival, or a later leg has moved, or past ETA +30min with TFMS silent 15min. TFMS doesn't always send an arrival (EJA23 E38→OKC went quiet 11min after departure), and without this the leg stayed "being flown" and blocked every later leg.
+- `_njFlyingLeg(cs, now)`: the leg the aircraft is on now.
+- `_njLegGate()` decides without a position: done → `{found:false, parked:true, notThisLeg:true}`, another leg being flown → `{found:false, notThisLeg:true}`. Runs before the per-callsign parked flag and cache in `/api/live-position`. `notThisLeg` answers are never written to `_liveCache`.
+
+**Live position is per leg**: `fetchLivePosition(cs, origin, arrMs)` wraps `_fetchLivePositionRaw()` for NetJets. A not-yet-moved leg on the ramp gets `_njRouteOnly()` (filed route, no position), since that position and any parked flag are the previous leg's. A last fix that's low (<1500 ft), over 2min old and near the ETA reads as landed. With no origin given (the background poller) it answers for the leg being flown: the flat SWIM record can be two legs at once (origin CQF, route HOT→CLT), and caching that put the next leg's route on the current one. A cached NetJets answer must name its origin. `resolveRouteWaypoints()` only uses TFMS's trajectory and TFDM's runway when they aren't known to be for another leg, since both are per callsign.
+
+**A leg's route waits for the leg before it**: `_earlierLegOpen()` holds the preview at all three map sites. `startLiveTracking()` tears down whatever that callsign had, so only one leg per callsign can be on the map.
+
+**NetJets legs are never "landed early"**: airborne/trail evidence is per callsign, so a parked aircraft's next leg inherited it and no position read as signal lost after landing (EJA492 HOT→CLT flagged on the ramp, CQF→HOT mid-flight). `_isNetjetsLeg` in `startLiveTracking()` skips the miss-based endings, and stored flags for these callsigns are ignored. They end on `d.parked`, or past arrival.
+
+**TFMS leg key has no date** (`origin>dest`): `processLegTimes()` starts a fresh entry when a filing is 6h+ from the stored departure and the old flight is over, otherwise a repeat of a city pair inherits the old departed/arrived evidence.
+
+**No ADS-B is the normal state before departure.** `fetchAdsbPosition()` rejects then, so `_fetchLivePositionRaw()` holds that error until after the filed-route return. An unguarded await skipped it and no leg got a preflight route. For airlines the route is only returned if the callsign hasn't flown yet, so a landed flight still reaches the error path.
 
 **Live-map route per leg**: `swim.js` keeps an additive per-leg route store (`_legRoutes`, keyed by origin, EJA-only, persisted) alongside the flat `_latest[cs]` cache. `fetchLivePosition()` prefers the leg-matched route via `expectedOrigin`, so a concurrently-filed later leg's route can't clobber the one actually being flown. Separately, `fetchLivePosition()` falls through to ADS-B whenever SWIM has no **live** position (`swimHit?.found`), not just when SWIM has never seen the flight — matters for oceanic legs. The filed route is carried forward either way.
 

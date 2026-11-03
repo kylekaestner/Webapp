@@ -5905,7 +5905,7 @@
                         const pf = legs.find(f => {
                             const d = flightUTCTime(f.departure_time, f.departure_airport);
                             const a = flightUTCTime(f.arrival_time, f.arrival_airport);
-                            return isPreflightWindow(d, now, a);
+                            return isPreflightWindow(d, now, a) && !_earlierLegOpen(key, deriveCallsign(f, key), d?.getTime(), now.getTime());
                         });
                         if (pf) {
                             const pfDepUTC = flightUTCTime(pf.departure_time, pf.departure_airport);
@@ -6165,7 +6165,7 @@
                     const pf = legs.find(f => {
                         const d = flightUTCTime(f.departureTime, f.departureAirport);
                         const a = flightUTCTime(f.arrivalTime, f.arrivalAirport);
-                        return isPreflightWindow(d, now, a);
+                        return isPreflightWindow(d, now, a) && !_earlierLegOpen(currentPilot, deriveCallsign(f, currentPilot), d?.getTime(), now.getTime());
                     });
                     if (pf) {
                         const pfDepTime = flightUTCTime(pf.departureTime, pf.departureAirport);
@@ -6550,6 +6550,24 @@
             });
         }
 
+        // Is an earlier leg on this same callsign still open? One callsign can only be tracked one leg at
+        // a time (startLiveTracking() tears down whatever that callsign had), so the next leg's route
+        // preview waits until the aircraft is done with the leg before it.
+        function _earlierLegOpen(pilotKey, callsign, ownDepMs, nowMs) {
+            if (!pilotKey || !callsign || !ownDepMs) return false;
+            const windowStart = new Date(ownDepMs - 48 * 3600000).toISOString().slice(0, 10);
+            const ownDay = new Date(ownDepMs + 24 * 3600000).toISOString().slice(0, 10);
+            return (pilotsCache[pilotKey]?.segments || []).some(s => {
+                if (s.type !== 'flight' || s.auto_leg_cancelled || !s.departure_time) return false;
+                const day = s.departure_time.slice(0, 10);
+                if (day < windowStart || day > ownDay) return false;
+                const dMs = flightUTCTime(s.departure_time, s.departure_airport)?.getTime();
+                if (!dMs || dMs >= ownDepMs || deriveCallsign(s, pilotKey) !== callsign) return false;
+                const aMs = flightUTCTime(s.arrival_time, s.arrival_airport)?.getTime();
+                return isFlightStillActive(dMs, aMs, nowMs, callsign, s.departure_airport);
+            });
+        }
+
         function normalizeFlightNum(fn, carrier) {
             if (!fn) return '';
             for (const [iata, icao] of IATA_TO_CALLSIGN_ENTRIES) {
@@ -6737,7 +6755,7 @@
                         return;
                     }
                     try {
-                        const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(cs)}${depApt ? `&origin=${encodeURIComponent(depApt)}` : ''}`).then(r => r.json());
+                        const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(cs)}${depApt ? `&origin=${encodeURIComponent(depApt)}` : ''}${arrMs ? `&arrMs=${arrMs}` : ''}`).then(r => r.json());
                         // This only ever updated the small altitude/speed text below -- the
                         // cell's own "active-leg" border/background and "IN THE AIR" label are
                         // baked in once at render() time and nothing here re-evaluated them as
@@ -7336,7 +7354,7 @@
                     // live, Sam's LGA-TUL kept showing "in the air" with a real but WRONG dashed
                     // route/position (Republic's genuine TUL-LGA return under the same RPA4605),
                     // since this fetch never told the server which direction it actually meant.
-                    const _originQs = depAirportCode ? `&origin=${encodeURIComponent(depAirportCode)}` : '';
+                    const _originQs = (depAirportCode ? `&origin=${encodeURIComponent(depAirportCode)}` : '') + (scheduledArrUTC ? `&arrMs=${scheduledArrUTC.getTime()}` : '');
                     const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}${_depQs}${_originQs}`).then(r => r.json());
 
                     // Server confirmed the plane is parked — flight complete
@@ -8234,7 +8252,8 @@
                     dots.forEach(d => mapLayers.active.push(d));
                     const cs = deriveCallsign(f, f.pilotKey);
                     if (cs) startLiveTracking(dots, cs, color, depCoords, arrCoords, dayLines, mapLayers.active, (PILOT_NAMES[f.pilotKey] || '').split(' ')[0], arrTime, [], weight, dayHits, depTime, f.pilotKey, f.departureAirport);
-                } else if (!landedEarly && isPreflightWindow(depTime?.getTime(), now.getTime(), arrTime?.getTime())) {
+                } else if (!landedEarly && isPreflightWindow(depTime?.getTime(), now.getTime(), arrTime?.getTime())
+                    && !_earlierLegOpen(f.pilotKey, deriveCallsign(f, f.pilotKey), depTime?.getTime(), now.getTime())) {
                     // Preflight — within PREFLIGHT_ROUTE_MS of departure but not airborne yet.
                     const dots = worldPlaneMarkers(depCoords, makePlaneIcon(computeBearing(depCoords, arrCoords), color, null, true));
                     dots.forEach(d => mapLayers.active.push(d));
@@ -9400,9 +9419,17 @@
             // the next paint guarantees the real, final layout before measuring where to scroll.
             if (currentView === 'grid') {
                 requestAnimationFrame(() => {
-                    gridContainer.querySelectorAll('.flight-item.active-leg').forEach(el => {
-                        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    const liveLegs = gridContainer.querySelectorAll('.flight-item.active-leg');
+                    liveLegs.forEach(el => el.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+                    if (liveLegs.length) return;
+                    // Nothing in the air: today's next leg, which can sit below the fold of a busy day.
+                    const today = _localToday(), nowMs = Date.now();
+                    const nextLeg = [...gridContainer.querySelectorAll('.flight-item[data-dep-time]')].find(el => {
+                        if (flightLocalDate(el.dataset.depTime, el.dataset.depApt || '') !== today) return false;
+                        const arrMs = el.dataset.arrTime ? flightUTCTime(el.dataset.arrTime, el.dataset.arrApt || '')?.getTime() : null;
+                        return !!arrMs && arrMs > nowMs;
                     });
+                    nextLeg?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                 });
             }
         }

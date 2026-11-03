@@ -269,3 +269,9 @@ Confirmed directly: SpiritJets' real flight numbers are `SJJ` + the first three 
 ## Crew Intel — history notes
 
 Clutter filters added after auditing the full intel dataset (434 entries, 426 from one pilot — Drew) for low-value, easily-googled content. Voting added 2026-10-01 as a crowd-sourced complement to the keyword/blank-body filters.
+
+## 2026-11-03 — map/Crossings speed, and NetJets leg identity
+
+**Speed.** Measured with a temporary on-screen timing box, on PC and iPhone. Here-now pins took 1.17s on PC from a fresh `Intl.DateTimeFormat` per conversion; now 0.01s. Each view downloaded every pilot separately, now `_loadPilotOnce()`. Crossings: `buildGroundPeriods()` 2.63s on a phone, fixed with identical output across 65,741 periods (old vs new function, 300 random schedules). The pair loop compared whole histories before discarding the past. An early guess that a 111k-airport timezone pass explained a slow airport file was wrong: it took 45ms, and the file was only requested 5-10s after launch on a phone, so the time is before app code runs.
+
+**Leg identity.** Green after landing, false "landed early", next leg's route on the current leg, two dashed lines and missing preview routes were all per-callsign state being read as per-leg: TFMS never sent E38→OKC's arrival so it stayed "flying" for hours; the no-leg poller cached the flat record (origin CQF, route HOT→CLT) which then passed the origin check; a rejected ADS-B call made the filed-route return unreachable; `startLiveTracking()` tore down a callsign's other leg. Fixed with `_njLegFor`/`_njLegDone`/`_njFlyingLeg`/`_njLegGate`. Replayed against that day's real EJA23/EJA492 records.

@@ -1802,6 +1802,68 @@ function _tfmsLegArrived(t) { return !!(t && (t.arrivedAt || (t.timeOfArrival &&
 function _tfmsLegFlown(t) { return !!(t && (t.departedAt || t.tracked || _tfmsLegArrived(t))); }
 function _tfmsLegCancelled(t) { return !!(t && t.cancelled && !_tfmsLegFlown(t)); }
 
+// NetJets legs: one callsign flies every leg of the day, so "is it live", "is it parked" and "which
+// route" only mean anything per leg. Everything that answers those for a NetJets leg goes through
+// these three functions.
+const NJ_CALLSIGN_RE = /^(EJA\d+|N\d+QS)$/;
+const NJ_ETA_GRACE_MS = 30 * 60 * 1000;   // late or holding, but still believable
+const NJ_SILENT_MS = 15 * 60 * 1000;      // TFMS sends track updates all flight; this long quiet means it stopped
+const NJ_LEG_MATCH_MS = 12 * 3600000;     // further off than this is a different day's leg from the same airport
+
+// TFMS doesn't always send an arrival (EJA23 E38->OKC: last message 11 minutes after departure, then
+// nothing). With no end to that leg it stayed "being flown" for good and blocked every later leg.
+function _njLegDone(t, legs, nowMs) {
+    if (_tfmsLegArrived(t)) return true;
+    if (!(t && (t.departedAt || t.tracked))) return false;
+    const depMs = t.departedAt || t.scheduledDepMs || 0;
+    if ((legs || []).some(o => o.key !== t.key && (o.departedAt || o.tracked || _tfmsLegArrived(o)) && (o.departedAt || o.scheduledDepMs || 0) > depMs)) return true;
+    const etaMs = Date.parse(t.eta || t.routeEta || '') || 0;
+    return !!etaMs && nowMs > etaMs + NJ_ETA_GRACE_MS && nowMs - (t.lastMsg || 0) > NJ_SILENT_MS;
+}
+
+// The leg the aircraft is on right now, if any.
+function _njFlyingLeg(callsign, nowMs) {
+    const legs = tfms.getAllLegTimes(callsign);
+    return legs.filter(t => (t.departedAt || t.tracked) && !_njLegDone(t, legs, nowMs))
+        .sort((a, b) => (b.departedAt || b.scheduledDepMs || 0) - (a.departedAt || a.scheduledDepMs || 0))[0] || null;
+}
+
+// TFMS's record of one scheduled leg: same origin, closest arrival (or closest to now without one).
+// A tail can leave the same airport twice in a week, so a far-off match is treated as no match.
+function _njLegFor(callsign, origin, arrMs) {
+    if (!NJ_CALLSIGN_RE.test(String(callsign || '')) || !origin) return null;
+    const exp = norm3Airport(origin);
+    const all = tfms.getAllLegTimes(callsign).filter(l => norm3Airport(l.origin) === exp);
+    const live = all.filter(l => !_tfmsLegCancelled(l));
+    const cands = live.length ? live : all;
+    if (!cands.length) return null;
+    const arrOf = l => Date.parse(l.eta || l.routeEta || '') || l.scheduledDepMs || 0;
+    const depOf = l => l.departedAt || l.scheduledDepMs || Date.parse(l.etd || '') || 0;
+    const gap = l => arrMs ? Math.abs(arrOf(l) - arrMs) : Math.abs(depOf(l) - Date.now());
+    const best = [...cands].sort((a, b) => gap(a) - gap(b))[0];
+    return gap(best) <= NJ_LEG_MATCH_MS ? best : null;
+}
+
+// Answers a NetJets leg without looking at any position, when the leg state already decides it.
+// notThisLeg keeps these out of the per-callsign live cache, since they're only true for this leg.
+function _njLegGate(callsign, origin, arrMs, nowMs) {
+    const leg = _njLegFor(callsign, origin, arrMs);
+    if (leg && _njLegDone(leg, tfms.getAllLegTimes(callsign), nowMs)) return { found: false, parked: true, notThisLeg: true };
+    const flying = _njFlyingLeg(callsign, nowMs);
+    if (flying && (leg ? flying.key !== leg.key : norm3Airport(flying.origin) !== norm3Airport(origin))) {
+        return { found: false, notThisLeg: true, origin: flying.origin, dest: flying.dest, source: 'swim' };
+    }
+    return null;
+}
+
+// A leg that hasn't moved yet: its own filed route and no position, whatever the aircraft is doing.
+function _njRouteOnly(callsign, origin) {
+    const r = origin ? swim.getRouteForOrigin(callsign, origin) : null;
+    if (!r?.route) return { found: false, source: 'swim' };
+    resolveRouteWaypoints(r.routeParsed, callsign);
+    return { found: false, hasRoute: true, route: r.route, routeParsed: r.routeParsed, sid: r.sid, star: r.star, origin: r.origin || origin, dest: r.dest || null, source: 'swim' };
+}
+
 function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
     const norm = norm3Airport;
     const out = [];
@@ -4141,8 +4203,14 @@ function resolveRouteWaypoints(routeParsed, callsign) {
     // back to our own NASR-based resolution (navdata.js) only when TFMS has nothing for this
     // callsign — e.g. TFMS hasn't sent a fresh flightPlanInformation message yet, or doesn't
     // cover this flight for some other reason.
+    const originWp = routeParsed.waypoints.find(wp => wp.type === 'airport');
+    const destWp = [...routeParsed.waypoints].reverse().find(wp => wp.type === 'airport');
+    // TFMS's and TFDM's flat records are per callsign, so they can be a different leg of a NetJets
+    // tail. Used on this route only when they aren't known to be for somewhere else.
+    const sameApt = (a, b) => !a || !b || norm3Airport(a) === norm3Airport(b);
+    const sameLeg = d => !!d && sameApt(d.origin, originWp?.name) && sameApt(d.dest, destWp?.name);
     const tfmsData = callsign ? tfms.getFlightData(callsign) : null;
-    if (tfmsData?.trajectory?.length) {
+    if (tfmsData?.trajectory?.length && sameLeg(tfmsData)) {
         routeParsed.resolvedPath = tfmsData.trajectory
             .slice().sort((a, b) => a.seq - b.seq)
             // TFMS trajectory points are dense, unnamed lat/lon samples along the path — not
@@ -4157,9 +4225,8 @@ function resolveRouteWaypoints(routeParsed, callsign) {
     // instead of its old "always bodies[0]" guess — see navdata.js's pickBody(). `null` fields
     // (TFDM hasn't reported a runway for this flight yet) are handled there as "no preference,
     // fall back to the old deterministic guess", not an error.
-    const runwayInfo = callsign ? tfdm.getFlightInfo(callsign) : null;
-    const originWp = routeParsed.waypoints.find(wp => wp.type === 'airport');
-    const destWp = [...routeParsed.waypoints].reverse().find(wp => wp.type === 'airport');
+    const tfdmInfo = callsign ? tfdm.getFlightInfo(callsign) : null;
+    const runwayInfo = sameLeg(tfdmInfo) ? tfdmInfo : null;
 
     // When TFDM has nothing for this flight yet, fall back to TFMS's airport-configuration feed
     // (tfms.js's getAirportConfig(), msgType="APTC") — the airport's actual current runway flow,
@@ -4353,8 +4420,46 @@ function matchesExpectedOrigin(data, expectedOrigin) {
     return norm(data.origin) === norm(expectedOrigin);
 }
 
-async function fetchLivePosition(callsign, expectedOrigin) {
+async function fetchLivePosition(callsign, expectedOrigin, arrMs) {
+    const cs = String(callsign || '').toUpperCase();
+    if (!NJ_CALLSIGN_RE.test(cs)) return _fetchLivePositionRaw(callsign, expectedOrigin);
+    const nowMs = Date.now();
+    if (expectedOrigin) {
+        const gate = _njLegGate(cs, expectedOrigin, arrMs, nowMs);
+        if (gate) return gate;
+    }
+    // No leg named (the background poller): answer for the leg being flown, never the flat record,
+    // whose origin and route can be two different legs (origin CQF, route HOT->CLT).
+    const origin = expectedOrigin || _njFlyingLeg(cs, nowMs)?.origin || null;
+    let data;
+    try {
+        data = await _fetchLivePositionRaw(callsign, origin);
+    } catch (e) {
+        const routeOnly = _njRouteOnly(cs, origin);
+        if (!routeOnly.hasRoute) throw e;
+        return routeOnly;
+    }
+    const leg = origin ? _njLegFor(cs, origin, arrMs) : null;
+    if (!leg) return data;
+    // On the ramp for a leg that hasn't moved: that position, and any parked flag, belong to the leg
+    // before it. Rolling on the ground counts as this leg (taxi out).
+    if (!_tfmsLegFlown(leg) && (data.parked || (data.found && data.onGround && (data.speedKts ?? 0) < 5))) {
+        return _njRouteOnly(cs, origin);
+    }
+    // Last fix low, old and near the ETA: it landed where coverage ends (EJA492 froze at 200 ft, 117 kts).
+    if (data.found && _tfmsLegFlown(leg)) {
+        const fixMs = data.positionMs || data.trail?.[data.trail.length - 1]?.[2] || 0;
+        const etaMs = Date.parse(leg.eta || leg.routeEta || '') || 0;
+        if (fixMs && nowMs - fixMs > 120000 && (data.altFt ?? 0) < 1500 && etaMs && nowMs >= etaMs - 20 * 60000) {
+            return { found: false, parked: true, notThisLeg: true };
+        }
+    }
+    return data;
+}
+
+async function _fetchLivePositionRaw(callsign, expectedOrigin) {
     const swimHit = swim.getSwimPosition(callsign);
+    const isNetjets = NJ_CALLSIGN_RE.test(String(callsign).toUpperCase());
     // NetJets concurrent-leg route-clobber fix -- see swim.js's _legRoutes header comment.
     // Confirmed live on EJA492: a later-received 27K->LBE route amendment clobbered the flat
     // per-callsign cache while the aircraft was still actually flying RDU->27K, so the map drew
@@ -4363,28 +4468,17 @@ async function fetchLivePosition(callsign, expectedOrigin) {
     // the segment's own departure_airport at every call site -- when it tells us which leg this
     // actually is, prefer that leg's own stored route over whichever one most recently clobbered
     // the flat cache. Scoped to EJA callsigns only; every other pilot's flow is untouched.
-    if (swimHit && expectedOrigin && /^(EJA\d+|N\d+QS)$/.test(String(callsign).toUpperCase())) {
-        // Only when the aircraft is actually on THIS leg. Asked about the next leg (E38->OKC) while
-        // still flying SAT->E38, the swap used to hand back that leg's route *and origin*, so the
-        // origin check passed, the next leg read as live, and the map drew E38->OKC from the
-        // aircraft's position (EJA23 2026-11-03; the same thing on EJA492 the day before). The leg
-        // being flown = the one TFMS most recently saw depart or on radar, not yet arrived.
-        const flying = tfms.getAllLegTimes(callsign)
-            .filter(t => (t.departedAt || t.tracked) && !_tfmsLegArrived(t))
-            .sort((a, b) => (b.departedAt || b.scheduledDepMs || 0) - (a.departedAt || a.scheduledDepMs || 0))[0];
-        if (flying && norm3Airport(flying.origin) !== norm3Airport(expectedOrigin)) {
-            // Not airborne on this leg yet -- the map shows nothing for it until it really departs.
-            return { found: false, notThisLeg: true, origin: flying.origin, dest: flying.dest, source: 'swim' };
-        }
-        const legRoute = swim.getRouteForOrigin(callsign, expectedOrigin);
-        if (legRoute && legRoute.route !== swimHit.route) {
-            swimHit.route = legRoute.route;
-            swimHit.routeParsed = legRoute.routeParsed;
-            swimHit.sid = legRoute.sid;
-            swimHit.star = legRoute.star;
-            swimHit.origin = legRoute.origin || swimHit.origin;
-            swimHit.dest = legRoute.dest || swimHit.dest;
-        }
+    // Whether the aircraft is on this leg at all is _njLegGate()'s call, made before this runs.
+    if (swimHit && isNetjets) {
+        const legRoute = expectedOrigin ? swim.getRouteForOrigin(callsign, expectedOrigin) : null;
+        // No route stored for this leg means none to show: the flat one is some other leg's.
+        swimHit.route = legRoute?.route || null;
+        swimHit.routeParsed = legRoute?.routeParsed || null;
+        swimHit.sid = legRoute?.sid || null;
+        swimHit.star = legRoute?.star || null;
+        swimHit.origin = legRoute?.origin || expectedOrigin || null;
+        swimHit.dest = legRoute?.dest || null;
+        swimHit.hasRoute = !!legRoute?.route;
     }
     if (swimHit?.sector) swimHit.sector = withResolvedFrequency(swimHit.sector);
     const stddsHit = stdds.getGroundPosition(callsign);
@@ -4443,7 +4537,11 @@ async function fetchLivePosition(callsign, expectedOrigin) {
     // meant ANY cached route -- even with zero live position -- returned right here and never
     // even attempted ADS-B, for the rest of that flight. ADS-B (satellite-covered in many such
     // regions) can still have a real position SWIM doesn't.
-    const adsbHit = await fetchAdsbPosition(callsign);
+    // fetchAdsbPosition() rejects when no source has the aircraft, which is the normal state before
+    // departure. Held until below so the filed route still gets returned: an unguarded await skipped
+    // it, and a leg waiting to depart showed no route (EJA492 HOT->CLT).
+    let adsbHit = null, adsbErr = null;
+    try { adsbHit = await fetchAdsbPosition(callsign); } catch (e) { adsbErr = e; }
     // Carry the filed route forward regardless of which source answers position -- the flight
     // plan doesn't change just because live tracking source did. Same pattern STDDS's own branch
     // above already uses when carrying SWIM's route forward.
@@ -4461,7 +4559,11 @@ async function fetchLivePosition(callsign, expectedOrigin) {
     }
     // No live position anywhere (ADS-B included) -- same preflight/no-position response SWIM
     // alone would have given, just reached via a real ADS-B attempt first instead of skipping it.
-    if (swimHit?.hasRoute) return swimHit;
+    // Once this flight has flown, no position means landed or out of coverage, not "waiting to depart":
+    // that goes through the error path, which tells the app it flew. NetJets legs are already gated.
+    if (swimHit?.hasRoute && matchesExpectedOrigin(swimHit, expectedOrigin)
+        && (isNetjets || !_everAirborneCallsigns.has(String(callsign).toUpperCase()))) return swimHit;
+    if (adsbErr) throw adsbErr;
     noteNoPosition(callsign);
     return withTfdmInfo(withEverAirborne(applyCallsignGroundState(adsbHit, callsign, 'adsb'), callsign), callsign, expectedOrigin);
 }
@@ -4621,15 +4723,7 @@ app.get('/api/flight-status', (req, res) => {
     // short final -- the airborne evidence said "from E38" and the flat times were E38->OKC's.
     // TFMS's per-leg store knows this exact leg departed / was on radar / arrived, so it answers
     // for that leg directly (closest expected arrival if two legs share the origin).
-    const njLegFor = (cs, origin, arrMs) => {
-        if (!/^(EJA\d+|N\d+QS)$/.test(cs) || !origin) return null;
-        const exp = norm3Airport(origin);
-        const cands = tfms.getAllLegTimes(cs).filter(l => norm3Airport(l.origin) === exp);
-        if (cands.length < 2 || !arrMs) return cands[0] || null;
-        const arrOf = l => Date.parse(l.eta || l.routeEta || '') || l.scheduledDepMs || 0;
-        return cands.sort((a, b) => Math.abs(arrOf(a) - arrMs) - Math.abs(arrOf(b) - arrMs))[0];
-    };
-    const njLeg = cs => njLegFor(cs, expectedOrigin[cs], expectedArrival[cs]);
+    const njLeg = cs => _njLegFor(cs, expectedOrigin[cs], expectedArrival[cs]);
     const njLegOf = {};
     for (const cs of list) { const l = njLeg(cs); if (l) njLegOf[cs] = l; }
     const times = {};
@@ -4688,7 +4782,7 @@ app.get('/api/flight-status', (req, res) => {
     // taxiing in but not yet confirmed parked, instead of calling both "IN THE AIR".
     const onGround = {};
     for (const cs of live) { if (_liveCache[cs]?.data?.onGround) onGround[cs] = true; }
-    const parked = [...new Set(list)].filter(cs => njLegOf[cs] ? _tfmsLegArrived(njLegOf[cs]) : (isParked(cs) && originCheckOk(cs)));
+    const parked = [...new Set(list)].filter(cs => njLegOf[cs] ? _njLegDone(njLegOf[cs], tfms.getAllLegTimes(cs), now) : (isParked(cs) && originCheckOk(cs)));
     // Per-leg answers for NetJets legs (njlegs=callsign~origin~arrival,...), keyed the same way --
     // the day map asks about every leg of the day separately, since one callsign flies them all.
     // "live" belongs only to the leg actually being flown (most recently departed / on radar, not
@@ -4697,17 +4791,16 @@ app.get('/api/flight-status', (req, res) => {
     for (const spec of String(req.query.njlegs || '').split(',').filter(Boolean).slice(0, 60)) {
         const [csRaw, origin, arrIso] = spec.split('~');
         const cs = (csRaw || '').toUpperCase();
-        const l = njLegFor(cs, origin, Date.parse(arrIso || '') || null);
+        const l = _njLegFor(cs, origin, Date.parse(arrIso || '') || null);
         if (!l) continue;
-        const flying = tfms.getAllLegTimes(cs).filter(t => (t.departedAt || t.tracked) && !_tfmsLegArrived(t))
-            .sort((a, b) => (b.departedAt || b.scheduledDepMs || 0) - (a.departedAt || a.scheduledDepMs || 0))[0];
+        const flying = _njFlyingLeg(cs, now);
         const c = _liveCache[cs];
         const fresh = !!(c && c.data?.found && now - c.ts < 3 * 60 * 1000);
-        const isFlying = flying && norm3Airport(flying.origin) === norm3Airport(l.origin);
+        const isFlying = flying?.key === l.key;
         perLeg[`${csRaw}~${origin}`] = { // same key the app builds: callsign~origin as sent
             live: fresh && !!isFlying,
             airborne: _tfmsLegFlown(l),
-            parked: _tfmsLegArrived(l),
+            parked: _njLegDone(l, tfms.getAllLegTimes(cs), now),
             onGround: fresh && !!isFlying && !!c.data.onGround,
             times: { etd: l.etd || l.igtd || null, eta: l.eta || l.routeEta || null, airlineOnTime: null, airlineInTime: null },
         };
@@ -4725,10 +4818,18 @@ app.get('/api/live-position', async (req, res) => {
     // call for why this is preferred over waiting on a fresh live-feed origin, especially for a
     // reused same-day/same-tail callsign (e.g. Kyle's corporate flights).
     const knownOrigin = (req.query.origin || '').toUpperCase() || null;
+    const knownArrMs = parseInt(req.query.arrMs, 10) || null;
+
+    // NetJets legs are decided per leg, ahead of the per-callsign parked flag and cache below.
+    const isNetjetsLeg = !!knownOrigin && NJ_CALLSIGN_RE.test(callsign);
+    if (isNetjetsLeg) {
+        const gate = _njLegGate(callsign, knownOrigin, knownArrMs, Date.now());
+        if (gate) return res.json(gate);
+    }
 
     // If the server already confirmed this callsign parked, tell the client immediately
     // so it can clean up even if the scheduled arrival time hasn't passed yet.
-    if (isParked(callsign)) {
+    if (!isNetjetsLeg && isParked(callsign)) {
         const sw = swim.getSwimPosition(callsign);
         unparkIfNewLeg(callsign, knownOrigin || sw?.origin);
         if (isParked(callsign)) {
@@ -4748,14 +4849,15 @@ app.get('/api/live-position', async (req, res) => {
     }
 
     const cached = _liveCache[callsign];
-    if (cached && matchesExpectedOrigin(cached.data, knownOrigin)) {
+    // A cached NetJets answer has to name its leg: no origin means it could be any of them.
+    if (cached && (!isNetjetsLeg || cached.data?.origin) && matchesExpectedOrigin(cached.data, knownOrigin)) {
         const ttl = cached.data?.source === 'adsb' ? ADSB_CACHE_TTL : LIVE_TTL;
         if (Date.now() - cached.ts < ttl) return res.json(cached.data);
     }
 
     let data;
     try {
-        data = await fetchLivePosition(callsign, knownOrigin);
+        data = await fetchLivePosition(callsign, knownOrigin, knownArrMs);
     } catch (e) {
         const details = e instanceof AggregateError
             ? e.errors.map(err => err.message).join(' | ')
@@ -5553,7 +5655,7 @@ async function runActiveFlightPoller() {
                     // the actual source of the contamination on Sam's RPA4605: this poller's own
                     // unguarded write cached the wrong leg's real position well before any client
                     // ever polled for it.
-                    const data = await fetchLivePosition(callsign, row.departure_airport);
+                    const data = await fetchLivePosition(callsign, row.departure_airport, Date.parse(row.arrival_time || '') || null);
                     processPositionUpdate(data, depUnixSec);
                     // Update the live cache so the next client poll gets pre-built data (never a
                     // leg-specific "not this leg" answer -- see /api/live-position's own write)
@@ -5584,9 +5686,9 @@ async function runActiveFlightPoller() {
                 if (!polled.has(nj.callsign)) {
                     polled.add(nj.callsign);
                     try {
-                        const data = await fetchLivePosition(nj.callsign); // no expected origin -- it changes leg to leg, nothing to check against
+                        const data = await fetchLivePosition(nj.callsign); // answers for the leg being flown, see fetchLivePosition()
                         processPositionUpdate(data);
-                        _liveCache[nj.callsign] = { ts: Date.now(), data };
+                        if (!data?.notThisLeg) _liveCache[nj.callsign] = { ts: Date.now(), data };
                     } catch (_) {}
                 }
             }
