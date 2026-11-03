@@ -6627,6 +6627,12 @@
             Object.values(_calListPollers).forEach(id => clearInterval(id));
             for (const k in _calListPollers) delete _calListPollers[k];
         }
+        // A NetJets row takes its real times from the server once the leg flies or lands. Picks them up
+        // without a manual refresh, after the server's next leg pass has had time to write them.
+        function _refetchNetjetsTimes(cs) {
+            if (!_NJ_CS_RE.test(cs || '')) return;
+            setTimeout(() => { if (currentPilot) loadPilot(currentPilot); }, 20000);
+        }
         function startCalListLivePolling() {
             stopCalListPollers();
             document.querySelectorAll('[data-live-callsign]').forEach(el => {
@@ -6684,6 +6690,7 @@
                             clearInterval(_calListPollers[cs]);
                             delete _calListPollers[cs];
                             render();
+                            _refetchNetjetsTimes(cs);
                             return;
                         }
                         let txt = '';
@@ -6702,6 +6709,7 @@
                             clearInterval(_calListPollers[cs]);
                             delete _calListPollers[cs];
                             render();
+                            _refetchNetjetsTimes(cs);
                             return;
                         }
                         // Real TFDM departure-delay insight (uploaded schedule itself is never
