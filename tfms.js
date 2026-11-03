@@ -461,7 +461,9 @@ function processOneFltdMessage(msgObj) {
             // so the fallback above already resolved which leg this cancels.
             if (msgType === 'flightPlanCancellation') {
                 const leg = _legTimes[cs]?.get(`${legOrigin}>${legDest}`);
-                if (leg) leg.cancelled = true;
+                // Ignored once the leg already really flew -- NetJets sends cleanup cancellations
+                // after landing (N713QS PHOG->BFI arrived 00:54Z, cancelled 01:38Z).
+                if (leg && !(leg.departedAt || leg.arrivedAt || leg.tracked || (leg.timeOfArrival && leg.timeOfArrivalEstimated === false))) leg.cancelled = true;
             }
         } else if (candidateMs != null) {
             // Routeless times-only update (confirmed the common case live: most ongoing ETD/ETA
@@ -599,6 +601,9 @@ function processLegTimes(msgObj, cs, origin, dest, candidateMs, msgType) {
     if (msgType === 'departureInformation' && !leg.departedAt) leg.departedAt = Date.now();
     else if (msgType === 'arrivalInformation' && !leg.arrivedAt) leg.arrivedAt = Date.now();
     else if (msgType === 'trackInformation') leg.tracked = true;
+    // Real movement after a cancellation means NetJets re-filed and flew it (EJA762 DJT->VDI:
+    // cancelled 23:49Z, departed 01:04Z) -- the earlier cancellation no longer applies.
+    if (leg.cancelled && (leg.departedAt || leg.arrivedAt || leg.tracked)) delete leg.cancelled;
     leg.lastMsg = Date.now();
     legsMap.set(key, leg);
     scheduleTimesSave();

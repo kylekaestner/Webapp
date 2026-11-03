@@ -1728,19 +1728,28 @@ function norm3Airport(a) {
 // radar track, and arrival. This adds TFMS-only legs in TFDM's own shape, but ONLY with real
 // movement evidence (tfms.js's departedAt/arrivedAt/tracked) -- a merely-filed TFMS plan is
 // exactly where stale alternates come from, and none of those ever get those messages.
+// Proof a TFMS leg really flew: a departure/arrival event, a radar track, or a non-estimated
+// arrival time (only arrivalInformation carries that -- covers legs recorded before the
+// departedAt/arrivedAt/tracked fields existed, like N22QS ORL->TISX). Proof overrides a
+// cancellation: NetJets cancels and re-files the same leg (EJA762 DJT->VDI, cancelled 23:49Z,
+// departed 01:04Z) and sends cleanup cancellations after landing (N713QS PHOG->BFI).
+function _tfmsLegArrived(t) { return !!(t && (t.arrivedAt || (t.timeOfArrival && t.timeOfArrivalEstimated === false))); }
+function _tfmsLegFlown(t) { return !!(t && (t.departedAt || t.tracked || _tfmsLegArrived(t))); }
+function _tfmsLegCancelled(t) { return !!(t && t.cancelled && !_tfmsLegFlown(t)); }
+
 function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
     const norm = norm3Airport;
     const out = [];
     for (const t of tfmsLegTimes) {
-        if (t.cancelled || t.scheduledDepMs == null || t.scheduledDepMs < minDepMs) continue;
-        if (!t.departedAt && !t.arrivedAt && !t.tracked) continue;
+        if (t.scheduledDepMs == null || t.scheduledDepMs < minDepMs) continue;
+        if (!_tfmsLegFlown(t)) continue;
         const o = norm(t.origin), d = norm(t.dest);
         // Only fill departures TFDM has no record of at all -- the same physical departure under
         // a different dest (TFDM's can be stale) is already handled by the dest-conflict logic,
         // and adding it twice would have the two fight over one row's arrival_airport.
         if (!o || tfdmLegs.some(l => norm(l.origin) === o && (norm(l.dest) === d
             || (l.scheduledDepMs != null && Math.abs(l.scheduledDepMs - t.scheduledDepMs) <= 60 * 60 * 1000)))) continue;
-        out.push({ origin: t.origin, dest: t.dest, scheduledDepMs: t.scheduledDepMs, flightState: t.arrivedAt ? 'ARRIVAL' : 'EN_ROUTE', tfmsOnly: true, cs: t.cs });
+        out.push({ origin: t.origin, dest: t.dest, scheduledDepMs: t.scheduledDepMs, flightState: _tfmsLegArrived(t) ? 'ARRIVAL' : 'EN_ROUTE', tfmsOnly: true, cs: t.cs });
     }
 
     // In advance (requested directly): the earliest still-merely-filed plan departing from where
@@ -1757,7 +1766,7 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
     for (let step = 0; anchor && step < 8; step++) {
         const here = norm(anchor.dest);
         const next = tfmsLegTimes
-            .filter(t => !t.cancelled && !t.departedAt && !t.arrivedAt && !t.tracked
+            .filter(t => !t.cancelled && !_tfmsLegFlown(t)
                 && t.scheduledDepMs != null && t.scheduledDepMs > anchor.scheduledDepMs && t.scheduledDepMs >= minDepMs
                 && norm(t.origin) === here
                 && !tfdmLegs.some(l => norm(l.origin) === here && l.scheduledDepMs != null && Math.abs(l.scheduledDepMs - t.scheduledDepMs) <= 60 * 60 * 1000))
@@ -1818,7 +1827,7 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
                 continue;
             }
         }
-        if (legTimes.cancelled) { out.push({ origin, dest, depTime, flightState, status: 'cancelled', reason: 'NetJets flightPlanCancellation' }); continue; }
+        if (_tfmsLegCancelled(legTimes)) { out.push({ origin, dest, depTime, flightState, status: 'cancelled', reason: 'NetJets flightPlanCancellation' }); continue; }
 
         out.push({
             origin, dest, depTime, flightState, status: 'real', reason: null,
@@ -5092,7 +5101,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides they
             // aren't doing that flight -- need support for that." A cancelled leg that was never
             // created isn't worth creating at all.
-            if (!row && legTimes.cancelled) continue;
+            if (!row && _tfmsLegCancelled(legTimes)) continue;
 
             // An in-advance leg 3h+ past its departure with still no departure/track/arrival
             // event: NetJets dropped the plan without sending a cancellation (11% of filed plans
@@ -5139,7 +5148,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             // Surfaced as a visible "cancelled" state rather than silently deleting the row, so
             // the pilot sees why a flight disappeared from their real plan. Marked once, then left
             // alone -- no further refine makes sense for a leg NetJets says isn't happening.
-            if (legTimes.cancelled && !row.auto_leg_cancelled) {
+            if (_tfmsLegCancelled(legTimes) && !row.auto_leg_cancelled) {
                 db.run('UPDATE segments SET auto_leg_cancelled=1 WHERE id=?', [row.id], () => {});
                 console.log(`[NetJets] ${nj.pilotKey}: leg ${row.auto_leg_key} cancelled (${origin}->${dest || '?'})`);
                 continue;
@@ -5622,7 +5631,7 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
         // "Filed" -- every raw entry from both feeds in this window, unfiltered: each TFDM leg (with
         // its matching TFMS times attached), plus every TFMS leg TFDM has no entry for at all
         // (untowered fields, cancelled plans) -- those previously never appeared here.
-        const tfmsOnlyPhase = t => t.cancelled ? 'CANCELLED' : t.arrivedAt ? 'ARRIVED' : (t.departedAt || t.tracked) ? 'DEPARTED' : 'FILED';
+        const tfmsOnlyPhase = t => _tfmsLegCancelled(t) ? 'CANCELLED' : _tfmsLegArrived(t) ? 'ARRIVED' : _tfmsLegFlown(t) ? 'DEPARTED' : 'FILED';
         const merged = [
             ...allLegs.map(l => {
                 const times = legTimes.find(lt => norm(lt.origin) === norm(l.origin) && norm(lt.dest) === norm(l.dest)) || null;
@@ -5644,7 +5653,7 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, (req, res) => {
             return `<tr style="border-bottom:1px solid #27272a">
                 <td style="padding:10px 12px;font-weight:700">${l.origin || '?'} → ${l.dest || '?'}${l.times?.gufi ? `<div style="font-size:9px;color:#3f3f46;font-weight:400">${l.times.gufi}</div>` : ''}</td>
                 <td style="padding:10px 12px;color:#a1a1aa">${dep ? dep.toISOString().slice(0,16).replace('T',' ') + 'Z' : '—'}</td>
-                <td style="padding:10px 12px;color:${stateColor};font-weight:700">${l.flightState || '—'}${l.source !== 'TFMS' && l.times?.cancelled ? ' <span style="color:#f87171">· CANCELLED (TFMS)</span>' : ''}${(l.isDiversion || tfmsDiversion) ? ' <span style="color:#f87171">⚠ DIVERSION</span>' : ''}</td>
+                <td style="padding:10px 12px;color:${stateColor};font-weight:700">${l.flightState || '—'}${l.source !== 'TFMS' && _tfmsLegCancelled(l.times) ? ' <span style="color:#f87171">· CANCELLED (TFMS)</span>' : ''}${(l.isDiversion || tfmsDiversion) ? ' <span style="color:#f87171">⚠ DIVERSION</span>' : ''}</td>
                 <td style="padding:10px 12px;color:#a1a1aa">${l.departureDelayMin != null ? l.departureDelayMin + 'm' : '—'}</td>
                 <td style="padding:10px 12px;color:#93c5fd">${etd ? new Date(etd).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etdType) : '—'}</td>
                 <td style="padding:10px 12px;color:#93c5fd">${eta ? new Date(eta).toISOString().slice(11,16) + 'Z' + confTag(l.times?.etaType) : etaFallback ? `${new Date(etaFallback).toISOString().slice(11,16)}Z <span style="color:#52525b;font-size:10px">(TFDM)</span>` : '—'}</td>
