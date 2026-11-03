@@ -1767,7 +1767,10 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
     // Followed leg by leg (requested directly): NetJets files a whole day at once, so each added
     // leg's dest becomes the next anchor -- SAT->E38->OKC->TUL shows in full the evening before
     // instead of one leg at a time. Capped at 8 steps; each step must be later than the last.
-    let anchor = [...tfdmLegs, ...out]
+    // TFDM can keep a plan at SCHEDULED after TFMS cancels it (EJA492's APF->RDU 21:00Z) -- never
+    // anchor the chain on one of those, or the in-advance legs follow a plan that isn't happening.
+    const tfmsCancelled = l => tfmsLegTimes.some(t => norm(t.origin) === norm(l.origin) && norm(t.dest) === norm(l.dest) && _tfmsLegCancelled(t));
+    let anchor = [...tfdmLegs.filter(l => !tfmsCancelled(l)), ...out]
         .filter(l => l.scheduledDepMs != null && l.dest)
         .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs).pop();
     for (let step = 0; anchor && step < 8; step++) {
