@@ -234,6 +234,10 @@ This section documents non-obvious behaviors already implemented. Check here bef
 
 **Kyle** uses UTC times (Schedaero source, strings end in `Z`). All other pilots use local airport time (no timezone suffix). `pilotUsesUtc(k)` detects which system a pilot uses by inspecting the first flight's departure_time string. `flightUTCTime(isoStr, airportCode)` converts any time string to a real UTC Date (use for cross-pilot comparisons — never compare raw `new Date(localString)` across pilots). `flightLocalDate(isoStr, airportCode)` extracts the local calendar date (YYYY-MM-DD) at the airport. `adjustedPeriod(k, p)` shifts a ground period's start/end by the browser-TZ/airport-TZ difference so UTC comparisons between pilots stay consistent.
 
+**Local → UTC conversion** (`localTimeToUTC()` app, `localTZToUTC()` server): the DST rules come from the runtime's IANA database via `Intl`, never hand-coded. Both converters take a second pass, reading the offset at the corrected instant. A single pass read it a few hours from the real moment, so on a DST-change day a time shortly after the switch came out an hour off. Times inside the switch itself are inherently ambiguous (fall) or don't exist (spring).
+
+**ADS-B fallback sources**: `api.adsb.lol` and `opendata.adsb.fi` (same readsb v2 format, no key). `api.airplanes.live` was dropped because it 403s every request until a project registers by email.
+
 ### "Here Now" / pilot location pins (`renderDayMap`)
 
 Priority order (numbered comments `// ── N. ──` in the code, ~line 7085 onward):

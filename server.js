@@ -696,15 +696,22 @@ function localTZToUTC(dtStr, tzid) {
     const y = dtStr.slice(0, 4), mo = dtStr.slice(4, 6), d = dtStr.slice(6, 8);
     const h = dtStr.slice(9, 11), mi = dtStr.slice(11, 13), s = dtStr.slice(13, 15) || '00';
     const asUTC = new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`); // treat local as UTC first
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const fmt = new Intl.DateTimeFormat('en-US', {
         timeZone: tzid, year: 'numeric', month: '2-digit', day: '2-digit',
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-    }).formatToParts(asUTC);
-    const p = {};
-    parts.forEach(pt => { if (pt.type !== 'literal') p[pt.type] = pt.value; });
-    const hh = p.hour === '24' ? '00' : p.hour;
-    const tzDisplayed = new Date(`${p.year}-${p.month}-${p.day}T${hh}:${p.minute}:${p.second}Z`);
-    const offsetMs = asUTC.getTime() - tzDisplayed.getTime();
+    });
+    // UTC-minus-local offset at a given instant
+    const offsetAt = inst => {
+        const p = {};
+        fmt.formatToParts(inst).forEach(pt => { if (pt.type !== 'literal') p[pt.type] = pt.value; });
+        const hh = p.hour === '24' ? '00' : p.hour;
+        return inst.getTime() - new Date(`${p.year}-${p.month}-${p.day}T${hh}:${p.minute}:${p.second}Z`).getTime();
+    };
+    // Second pass with the offset at the corrected instant -- the first guess reads it a few hours
+    // from the real moment, so on a DST-change day a time shortly after the switch came out an
+    // hour off (Nov 1 2026 3:00 AM CST converted as 2:00 AM).
+    const first = offsetAt(asUTC);
+    const offsetMs = offsetAt(new Date(asUTC.getTime() + first));
     return new Date(asUTC.getTime() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 

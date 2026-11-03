@@ -9703,12 +9703,18 @@ let _blockUserEdited = false;
 
         function localTimeToUTC(localISO, tzName) {
             const approx = new Date(localISO + 'Z');
-            const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, timeZoneName: 'longOffset' }).formatToParts(approx);
-            const tzStr = parts.find(p => p.type === 'timeZoneName')?.value || '';
-            const m = tzStr.match(/GMT([+-])(\d+):(\d{2})/);
-            if (!m) return approx;
-            const offsetMin = (m[1] === '+' ? 1 : -1) * (parseInt(m[2]) * 60 + parseInt(m[3]));
-            return new Date(approx.getTime() - offsetMin * 60000);
+            const offsetAt = d => {
+                const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, timeZoneName: 'longOffset' }).formatToParts(d);
+                const m = (parts.find(p => p.type === 'timeZoneName')?.value || '').match(/GMT([+-])(\d+):(\d{2})/);
+                return m ? (m[1] === '+' ? 1 : -1) * (parseInt(m[2]) * 60 + parseInt(m[3])) : null;
+            };
+            const first = offsetAt(approx);
+            if (first == null) return approx;
+            // Second pass with the offset at the corrected instant: the first guess reads the offset
+            // a few hours away from the real moment, so on a DST-change day a time shortly after
+            // the switch came out an hour off (Nov 1 3:00 AM CST converted as 2:00 AM).
+            const second = offsetAt(new Date(approx.getTime() - first * 60000));
+            return new Date(approx.getTime() - (second ?? first) * 60000);
         }
 
         // Returns the local calendar date (YYYY-MM-DD) of a flight time at its airport.
