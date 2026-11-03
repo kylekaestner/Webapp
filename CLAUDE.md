@@ -27,6 +27,7 @@ Current version: `1.0.10-beta` (`package.json`/`package-lock.json`). Bump it for
 | `public/frat-autofill.user.js` | Tampermonkey userscript — autofills Kyle's PRISM SMS flight risk assessments |
 | `swim.js` / `stdds.js` / `tfms.js` / `tfdm.js` | FAA SWIM feed consumers (SFDPS en-route, STDDS surface/terminal, TFMS flow/route/airport-config, TFDM per-flight runway/phase/delay) — see "FAA SWIM integration" below |
 | `vnas.js` | VATSIM vNAS facility/frequency lookup (real ATC sector → frequency, for the live map's FREQ toggle) — unrelated data source from the FAA SWIM feeds above, see "Real ATC frequency" under "FAA SWIM integration" |
+| `scripts/update-nasr-airports.js` | **Run each FAA 28-day NASR cycle** (next: 2026-11-26): downloads the current cycle's airports (`data/nasr/airports.json`, every US airport's FAA/ICAO IDs, coordinates, timezone) and fixes/navaids/SIDs/STARs/airways (via `build-navdata.js`), with checks that restore the previous files on anything suspicious. Then `node scripts/build-airports.js`, commit, deploy with restart. No tokens/Claude needed. `--dry-run`, `--airports-only`, `--force` |
 | `navdata.js` / `scripts/build-navdata.js` | FAA NASR data resolution (fixes/navaids/SID/STAR/airways) for the live-map route display, and the script that builds `data/nasr/*.json` from raw NASR CSVs |
 
 ---
@@ -655,6 +656,14 @@ A second, unrelated `fiOutput`/`msgType="APTC"` message family on the TFMS queue
 Not implemented. SWIM only pushes live deltas with no snapshot/backlog of already-active NOTAMs, which FRAT's actual need (every NOTAM currently in effect) can't be built from alone. If revisited: start from the FAA NOTAM Search API (`api.faa.gov`) as the baseline, SWIM only ever as a live-update layer on top. Full story: `CLAUDE_HISTORY.md § FAA SWIM integration`.
 
 ---
+
+## Airport data — three sources, layered
+
+1. **FAA NASR** (`data/nasr/airports.json`): authoritative for US airports, with current IDs (KPBI → KDJT), exact coordinates, and an IANA timezone computed from coordinates at build time (`tz-lookup` is a devDependency, so the server needs no new package). ICAO IDs always win. A bare FAA ID only fills an empty slot or replaces the **same** airport (within 50 km), never a different one abroad sharing the letters (CQF = Calais, HND = Tokyo). Loaded by `server.js` after OurAirports, and merged into `public/airports.json` by `build-airports.js` as its last pass.
+2. **OurAirports** (`data/airports_raw.csv`): worldwide coordinates and city names, no timezones.
+3. **OpenFlights** (`airports.dat`): unmaintained and ~7,700 airline airports only, but still the server's timezone source outside the US.
+
+NASR has no timezone column (checked against APT_BASE.csv), hence computing zones from coordinates.
 
 ## Resource usage (1 vCPU/1GB droplet)
 

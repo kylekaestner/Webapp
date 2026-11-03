@@ -1711,6 +1711,31 @@ try {
 } catch (e) {
     console.error('Could not load airports_raw.csv:', e.message);
 }
+// FAA NASR airport base data (data/nasr/airports.json, refreshed each 28-day cycle by
+// scripts/update-nasr-airports.js): every US airport's current FAA/ICAO IDs, exact coordinates,
+// and a timezone computed from them. Authoritative for US airports -- airports.dat is unmaintained
+// and has no small fields (E38, 27K), OurAirports has no timezones. ICAO IDs are US-unique, so they
+// always win; a bare FAA ID only fills an empty slot or replaces the same airport (<50 km) --
+// never a different one abroad sharing the letters (CQF = Calais, HND = Tokyo).
+try {
+    const nasr = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'nasr', 'airports.json'), 'utf8'));
+    const km = (a, b) => Math.hypot(a[0] - b[0], (a[1] - b[1]) * Math.cos(a[0] * Math.PI / 180)) * 111;
+    let n = 0;
+    for (const a of nasr.airports) {
+        const ll = [a.lat, a.lon];
+        if (a.icao) { _aptCoords[a.icao] = ll; if (a.tz) _aptTimezone[a.icao] = a.tz; }
+        const existing = _aptCoords[a.faa];
+        if (!existing || km(existing, ll) < 50) {
+            _aptCoords[a.faa] = ll;
+            if (a.tz) _aptTimezone[a.faa] = a.tz;
+            if (a.icao) { _icaoToIataApt[a.icao] = _icaoToIataApt[a.icao] || a.faa; _iataToIcaoApt[a.faa] = _iataToIcaoApt[a.faa] || a.icao; }
+        }
+        n++;
+    }
+    console.log(`Airport DB (FAA NASR cycle ${nasr.cycle}): ${n} US airports`);
+} catch (e) {
+    console.error('Could not load data/nasr/airports.json:', e.message);
+}
 // Renamed airports newer than the bundled data: new code -> old code, copied onto the new one.
 // KPBI (Palm Beach Intl) became KDJT -- EJA492 filed out of it on 11/3 with no coords/timezone.
 const _AIRPORT_RENAMES = { DJT: 'PBI', KDJT: 'KPBI' };

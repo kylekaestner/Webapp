@@ -124,6 +124,27 @@ for (const r of rows) {
 }
 console.log(`local_code pass: added ${localAdded} new coord entries`);
 
+// FAA NASR pass (data/nasr/airports.json, from scripts/update-nasr-airports.js): authoritative for
+// US airports -- current IDs (KPBI renamed KDJT) and exact coordinates. Same rules as server.js:
+// ICAO IDs are US-unique so they always win; a bare FAA ID only fills a gap or replaces the same
+// airport (<50 km), never a different one abroad sharing the letters (CQF = Calais, HND = Tokyo).
+try {
+    const nasr = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'nasr', 'airports.json'), 'utf8'));
+    const km = (a, b) => Math.hypot(a[0] - b[0], (a[1] - b[1]) * Math.cos(a[0] * Math.PI / 180)) * 111;
+    let nasrSet = 0;
+    for (const a of nasr.airports) {
+        const ll = [a.lat, a.lon];
+        const label = [a.city && a.city.replace(/\b\w+/g, w => w[0] + w.slice(1).toLowerCase()), a.state].filter(Boolean).join(', ');
+        if (a.icao) { coords[a.icao] = ll; if (label && !cities[a.icao]) cities[a.icao] = label; nasrSet++; }
+        if (!coords[a.faa] || km(coords[a.faa], ll) < 50) {
+            coords[a.faa] = ll; if (label && !cities[a.faa]) cities[a.faa] = label; nasrSet++;
+        }
+    }
+    console.log(`NASR pass (cycle ${nasr.cycle}): set ${nasrSet} coord entries`);
+} catch (e) {
+    console.warn('NASR pass skipped:', e.message);
+}
+
 console.log(`Processed ${processed} airports, skipped ${skipped}`);
 console.log(`City entries: ${Object.keys(cities).length}`);
 console.log(`Coord entries: ${Object.keys(coords).length}`);
