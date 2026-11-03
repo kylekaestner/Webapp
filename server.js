@@ -1515,7 +1515,31 @@ function _resolveRotationAtServer(rotationHistory, dateStr) {
         if (r.effective_from <= dateStr) resolved = r;
         else break;
     }
-    return resolved;
+    // A days_on=0 row = rotation ended from that date (pilot switched onto a CC schedule).
+    return resolved && resolved.days_on > 0 ? resolved : null;
+}
+
+// CC-aware tour start: an uploaded CC day record wins over the formula, same precedence as
+// app.html's _isNetJetsOnDuty(). A CC "tour" is a run of consecutive X days -- its start is the
+// first X of the run containing dateStr. No CC record for dateStr -> the rotation formula.
+function _netjetsTourStartServer(db, pilotId, dateStr, cb) {
+    db.all(`SELECT date, status FROM pilot_cc_schedule_day WHERE pilot_id=? AND date BETWEEN date(?, '-40 days') AND ?`, [pilotId, dateStr, dateStr], (errCc, ccRows) => {
+        const cc = new Map((errCc ? [] : ccRows || []).map(r => [r.date, r.status]));
+        if (cc.has(dateStr)) {
+            if (cc.get(dateStr) !== 'X') return cb(null);
+            let start = dateStr;
+            for (;;) {
+                const prev = new Date(new Date(start + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
+                if (cc.get(prev) !== 'X') break;
+                start = prev;
+            }
+            return cb(start);
+        }
+        db.all('SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id=? ORDER BY effective_from ASC, id ASC', [pilotId], (err2, rotHist) => {
+            if (err2) return cb(null);
+            cb(_tourStartDateForServer(_resolveRotationAtServer(rotHist || [], dateStr), dateStr));
+        });
+    });
 }
 function _tourStartDateForServer(rotation, dateStr) {
     if (!rotation) return null;
@@ -2901,7 +2925,14 @@ app.put('/api/pilots/:pilotKey/rotation', (req, res) => {
             return db.run('UPDATE pilots SET cc_variant=? WHERE pilot_key=?', [String(ccVariant), pilotKey], function (err) {
                 if (err) return res.status(500).json({ error: err.message });
                 if (this.changes === 0) return res.status(404).json({ error: 'Pilot not found' });
-                res.json({ success: true });
+                // Switching onto CC ends any 7&7/8&6 formula from effectiveFrom (a days_on=0 row)
+                // -- otherwise every day without uploaded CC data kept showing the old rotation.
+                // History before it stays intact. Only when a rotation exists to end.
+                if (!effectiveFrom) return res.json({ success: true });
+                db.run(`INSERT INTO pilot_duty_rotation (pilot_id, anchor_date, days_on, days_off, effective_from)
+                        SELECT id, ?, 0, 0, ? FROM pilots WHERE pilot_key=? AND EXISTS (SELECT 1 FROM pilot_duty_rotation r WHERE r.pilot_id=pilots.id)
+                        ON CONFLICT(pilot_id, effective_from) DO UPDATE SET anchor_date=excluded.anchor_date, days_on=0, days_off=0`,
+                    [effectiveFrom, effectiveFrom, pilotKey], (err2) => err2 ? res.status(500).json({ error: err2.message }) : res.json({ success: true }));
             });
         }
 
@@ -2919,6 +2950,7 @@ app.put('/api/pilots/:pilotKey/rotation', (req, res) => {
                     ON CONFLICT(pilot_id, effective_from) DO UPDATE SET anchor_date=excluded.anchor_date, days_on=excluded.days_on, days_off=excluded.days_off`,
                 [pilotRow.id, anchorDate, on, off, effectiveFrom], function(err2) {
                     if (err2) return res.status(500).json({ error: err2.message });
+                    db.run('UPDATE pilots SET cc_variant=NULL WHERE id=?', [pilotRow.id], () => {}); // back on a line formula
                     // A real switch (previousFamily/previousLine given, not a first-time setup)
                     // gets a seam row too -- the 28-day transition isn't a clean cutover, see
                     // _computeSeamWindow()'s own header comment.
@@ -4840,10 +4872,7 @@ function _getOnDutyNetjetsPilots(db, todayStr, cb) {
         let remaining = pilots.length;
         const done = () => { if (--remaining === 0) cb(results); };
         pilots.forEach(p => {
-            db.all(`SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id=? ORDER BY effective_from ASC, id ASC`, [p.id], (err2, rotHist) => {
-                if (err2) return done();
-                const rotation = _resolveRotationAtServer(rotHist || [], todayStr);
-                const tourStart = _tourStartDateForServer(rotation, todayStr);
+            _netjetsTourStartServer(db, p.id, todayStr, (tourStart) => {
                 if (!tourStart) return done();
                 db.get(`SELECT tail, start_airport FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?`, [p.id, tourStart], (err3, tailRow) => {
                     if (!err3 && tailRow && tailRow.tail) {
@@ -5188,10 +5217,7 @@ function checkNetjetsTourReminders() {
     db.all(`SELECT id, pilot_key FROM pilots WHERE parser_type='manual_netjets'`, [], (err, pilots) => {
         if (err || !pilots || !pilots.length) return;
         pilots.forEach(p => {
-            db.all(`SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id=? ORDER BY effective_from ASC, id ASC`, [p.id], (err2, rotHist) => {
-                if (err2) return;
-                const rotation = _resolveRotationAtServer(rotHist || [], tomorrow);
-                const tourStart = _tourStartDateForServer(rotation, tomorrow);
+            _netjetsTourStartServer(db, p.id, tomorrow, (tourStart) => {
                 if (tourStart !== tomorrow) return; // tomorrow isn't day 1 of a tour -- nothing to remind about
                 db.get(`SELECT tail FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?`, [p.id, tourStart], (err3, tailRow) => {
                     if (!err3 && tailRow && tailRow.tail) return; // already set, nothing to nudge

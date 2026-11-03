@@ -783,6 +783,12 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 
 **Resolution precedence, `_isNetJetsOnDuty()`**: (1) `_ccScheduleOverrideFor()` — explicit CC day record, if one exists; (2) `_seamOverrideFor()` — seam transition window; (3) fallback to the normal rotation formula. A pilot's CC schedule overrides any overlapping tours from a previous 7&7/8&6 schedule, by design.
 
+**Switching onto CC ends the formula.** Saving CC (`PUT /rotation` with `ccVariant` + `effectiveFrom`) inserts a `days_on=0` row dated today. Both `_resolveRotationAt()`/`_resolveRotationAtServer()` treat that row as "no rotation" from then on (`_resolveRotationRowAt()` returns it raw, and `_seamOverrideFor()` stops applying past it), so days without uploaded CC data are off, not 8&6. History before the switch is untouched. Saving a 7&7/8&6 line again clears `cc_variant` and adds a dated row; any existing history means a dated change, never the `2000-01-01` backfill.
+
+**Tour start is CC-aware** (`_tourStartDateFor()` client, `_netjetsTourStartServer()` server, used by `_getOnDutyNetjetsPilots()` and `checkNetjetsTourReminders()`): a CC day record wins. A CC tour is a run of consecutive `X` days, starting at its first `X` (spans month boundaries). With no record for that date, it uses the rotation formula. **A CC pilot with no uploaded month is off-duty, so their tail isn't tracked.**
+
+**Clear Month** (`#my-info-cc-clear-month`) is a `<select>` of months that actually have uploaded CC days, latest preselected (`_refreshCcClearMonthOptions()`).
+
 **Known blind spot**: getting to/from the jet on day 1 / the last day of a tour is typically a commercial deadhead, invisible to tail-based tracking. The manual "Commute" flight type (`trip='COMMUTE'`) is the fallback, surfaced via the tour modal's commute shortcut above.
 
 **Tail display**: a pilot enters just the tail digits ("742"); `displayTail()` shows the full `N742QS` wherever a reader sees it, without changing what's stored.

@@ -1767,7 +1767,7 @@
                 </div>
                 <p id="my-info-rotation-status" class="text-[10px] text-zinc-500 mt-1"></p>
                 <div id="my-info-cc-clear-row" class="hidden flex gap-2 mt-2">
-                    <input id="my-info-cc-clear-month" type="month" class="flex-1 px-3 py-2 rounded-xl border border-zinc-700 bg-zinc-900 text-xs text-zinc-100 focus:border-red-500 outline-none">
+                    <select id="my-info-cc-clear-month" class="flex-1 px-3 py-2 rounded-xl border border-zinc-700 bg-zinc-900 text-xs text-zinc-100 focus:border-red-500 outline-none"></select>
                     <button type="button" onclick="clearMyCcScheduleMonth()" class="px-3 py-2 rounded-xl bg-red-950/40 hover:bg-red-950/70 border border-red-900 text-[10px] font-black uppercase tracking-wide text-red-400 transition-colors">Clear Month</button>
                 </div>
             </div>
@@ -3414,7 +3414,7 @@
         // preserving like resolveBaseAt above -- walk forward, keep the last entry still <= the
         // target date, since a pilot's rotation cadence itself can change over time and a past
         // date must resolve against whatever cadence was actually in effect then.
-        function _resolveRotationAt(rotationHistory, dateStr) {
+        function _resolveRotationRowAt(rotationHistory, dateStr) {
             if (!rotationHistory || !rotationHistory.length) return null;
             let resolved = null;
             for (const r of rotationHistory) {
@@ -3422,6 +3422,12 @@
                 else break;
             }
             return resolved;
+        }
+        // A days_on=0 row marks the rotation as ended from its effective_from (saved when the
+        // pilot switches onto a CC schedule) -- "no rotation" from then on, history before it intact.
+        function _resolveRotationAt(rotationHistory, dateStr) {
+            const r = _resolveRotationRowAt(rotationHistory, dateStr);
+            return r && r.days_on > 0 ? r : null;
         }
 
         // Given a resolved rotation (anchor_date + days_on/days_off), is dateStr an on-duty day?
@@ -3435,6 +3441,8 @@
             if (!_seamTables) return null;
             const seams = pilotsCache[pilotKey]?.rotation_seams;
             if (!seams || !seams.length) return null;
+            const row = _resolveRotationRowAt(pilotsCache[pilotKey]?.rotation_history, dateStr);
+            if (row && !(row.days_on > 0)) return null; // rotation ended (switched to CC)
             for (const s of seams) {
                 const windowStart = new Date(s.window_start_date + 'T12:00:00');
                 const d = new Date(dateStr + 'T12:00:00');
@@ -3507,6 +3515,24 @@
         // (YYYY-MM-DD) of day 1 of the on-duty tour containing dateStr -- the key used to look up
         // / save that tour's tail in pilot_tour_tail.
         function _tourStartDateFor(pilotKey, dateStr) {
+            // CC day records win over the formula (same as _isNetJetsOnDuty) -- a CC "tour" is a
+            // run of consecutive X days, starting at its first X. Mirrors _netjetsTourStartServer.
+            const ccDays = pilotsCache[pilotKey]?.cc_schedule_days;
+            if (ccDays && ccDays.length) {
+                const cc = new Map(ccDays.map(d => [d.date, d.status]));
+                if (cc.has(dateStr)) {
+                    if (cc.get(dateStr) !== 'X') return null;
+                    let start = dateStr;
+                    for (;;) {
+                        const p = new Date(start + 'T12:00:00');
+                        p.setDate(p.getDate() - 1);
+                        const prev = `${p.getFullYear()}-${String(p.getMonth() + 1).padStart(2, '0')}-${String(p.getDate()).padStart(2, '0')}`;
+                        if (cc.get(prev) !== 'X') break;
+                        start = prev;
+                    }
+                    return start;
+                }
+            }
             const rotation = _resolveRotationAt(pilotsCache[pilotKey]?.rotation_history, dateStr);
             if (!rotation) return null;
             const period = rotation.days_on + rotation.days_off;
@@ -10964,7 +10990,7 @@ async function openAdminPanel(tab = 'users') {
                 const rh = pilot?.rotation_history || [];
                 document.getElementById('my-info-rotation-family').value = '';
                 let lineValueToSet = '';
-                if ((pilot?.cc_schedule_days || []).length) {
+                if (pilot?.cc_variant || (pilot?.cc_schedule_days || []).length) {
                     // A CC schedule overrides any Line-based rotation whenever it has data (see
                     // _isNetJetsOnDuty()'s precedence) -- showing "CC" here reflects what's
                     // actually governing, even if a stale 7&7/8&6 rotation row also still exists
@@ -11049,6 +11075,17 @@ async function openAdminPanel(tab = 'users') {
                 ? 'Pick which CC program you bid. The real on/off-duty schedule always comes from your uploaded monthly export (Upload Schedule button) — this is just for reference.'
                 : 'Pick your schedule family and bid line.';
             document.getElementById('my-info-cc-clear-row').classList.toggle('hidden', !isCC);
+            if (isCC) _refreshCcClearMonthOptions();
+        }
+
+        // Only months that actually have uploaded CC days, latest first and preselected -- a bare
+        // type="month" input had no value until picked (iOS shows a month it never sets).
+        function _refreshCcClearMonthOptions() {
+            const sel = document.getElementById('my-info-cc-clear-month');
+            const months = [...new Set((pilotsCache[myPilot]?.cc_schedule_days || []).map(d => d.date.slice(0, 7)))].sort().reverse();
+            sel.innerHTML = months.length
+                ? months.map(m => `<option value="${m}">${new Date(m + '-15T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</option>`).join('')
+                : '<option value="">No uploaded months</option>';
         }
 
         // Notes.md: "no way currently to get them off of a rotation. For testing purposes while
@@ -11100,6 +11137,11 @@ async function openAdminPanel(tab = 'users') {
                     pilotsCache[myPilot].cc_schedule_days = pilotsCache[myPilot].cc_schedule_days.filter(d => !d.date.startsWith(monthVal));
                 }
                 statusEl.textContent = `Cleared ${j.deleted || 0} day(s) for ${monthVal}.`;
+                _refreshCcClearMonthOptions();
+                if (currentPilot === myPilot) {
+                    render();
+                    if (document.getElementById('view-overlap')?.classList.contains('view-active')) computeOffDays();
+                }
             } catch { statusEl.textContent = 'Clear failed — try again.'; }
         }
 
@@ -11119,12 +11161,24 @@ async function openAdminPanel(tab = 'users') {
                     const r = await fetch(`${API_BASE}/pilots/${myPilot}/rotation`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ token: myToken, ccVariant: lineSel })
+                        body: JSON.stringify({ token: myToken, ccVariant: lineSel, effectiveFrom: _todayLocalDateStr() })
                     });
                     if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
                     if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
                     pilotsCache[myPilot].cc_variant = lineSel;
+                    // Server ended any 7&7/8&6 formula from today (days_on=0 row) -- mirror it so
+                    // days with no uploaded CC data stop showing the old rotation.
+                    const rh = pilotsCache[myPilot].rotation_history || [];
+                    if (rh.length) {
+                        const today = _todayLocalDateStr();
+                        pilotsCache[myPilot].rotation_history = [...rh.filter(r => r.effective_from !== today), { anchor_date: today, days_on: 0, days_off: 0, effective_from: today }];
+                    }
+                    _refreshMyInfoNetjetsStatus();
                     statusEl.textContent = 'Saved.';
+                    if (currentPilot === myPilot) {
+                        render();
+                        if (document.getElementById('view-overlap')?.classList.contains('view-active')) computeOffDays();
+                    }
                 } catch { statusEl.textContent = 'Save failed — try again.'; }
                 return;
             }
@@ -11141,7 +11195,9 @@ async function openAdminPanel(tab = 'users') {
             // is a real dated change, not a backfill -- that one is forward-only from today, so it
             // doesn't retroactively overwrite the old line's own history.
             const existingRotation = _resolveRotationAt(pilotsCache[myPilot]?.rotation_history, _todayLocalDateStr());
-            const effectiveFrom = existingRotation ? _todayLocalDateStr() : '2000-01-01';
+            // Any history at all (even an ended one, after a CC stint) means this is a dated
+            // change -- a 2000-01-01 backfill would overwrite the original first row.
+            const effectiveFrom = (pilotsCache[myPilot]?.rotation_history || []).length ? _todayLocalDateStr() : '2000-01-01';
             // A real switch (there's a current rotation to switch FROM) gets a seam row -- the
             // 28-day transition isn't a clean cutover, see _computeSeamWindow()'s own comment.
             // First-time setup has nothing to seam from, so these stay null.
@@ -11156,7 +11212,8 @@ async function openAdminPanel(tab = 'users') {
                 });
                 if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
                 if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
-                pilotsCache[myPilot].rotation_history = [...(pilotsCache[myPilot].rotation_history || []), { anchor_date: anchor, days_on: Number(daysOn), days_off: Number(daysOff), effective_from: effectiveFrom }];
+                pilotsCache[myPilot].cc_variant = null;
+                pilotsCache[myPilot].rotation_history = [...(pilotsCache[myPilot].rotation_history || []).filter(r => r.effective_from !== effectiveFrom), { anchor_date: anchor, days_on: Number(daysOn), days_off: Number(daysOff), effective_from: effectiveFrom }];
                 _refreshMyInfoNetjetsStatus();
                 statusEl.textContent = 'Saved.';
                 // The cache update above is enough for the My Info modal's own status text, but
