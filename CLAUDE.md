@@ -593,6 +593,8 @@ Three backend modules consume FAA SWIM data via Solace PubSub+ (`solclientjs`), 
 | `tfms.js` | TFMS (flow/route) | A dense, already-computed lat/lon trajectory when available; also real OOOI times (`etd`/`eta`/`airlineOnTime`/`airlineInTime`), airport-configuration (APTC) runway flow, and real per-flight route origin (`routeOrigin()`) |
 | `tfdm.js` | TFDM (per-flight) | Runway assignment, flight phase (`tfdmState`: `FILED`→...→`ARRIVAL`→...→`LUAW`), departure delay, diversion indicator |
 
+**Paced message processing** (`feed-queue.js`): each feed's Solace `MESSAGE` handler enqueues instead of parsing inline. Messages are processed 20 per event-loop turn (`setImmediate` between batches) and acknowledged only after handling, so with CLIENT acks the broker keeps just its window of unacked messages in flight. Inline processing with immediate acks let a reconnect backlog starve HTTP: the server listened 4.5s after boot but didn't answer until ~90s. Startup logs `[boot]` stage timings.
+
 All expose `setRelevantCallsigns(swimRelevant)`, fed by `runActiveFlightPoller`, pruning stale callsigns on every call. **Two separate relevance windows**: `ADSB_LOOKAHEAD_MS` (30min, drives real rate-limited ADS-B calls) vs `SWIM_LOOKAHEAD_MS` (4h, drives the free SWIM-family calls) — `POLLER_LOOKBACK_MS` (8h) applies to both. `tfms.setRelevantOrigins()` feeds a parallel `callsign → Set<departure_airport>` map so a same-day callsign reuse by an unrelated flight (see "Same-day round trip" below) gets rejected at ingestion, not just on read.
 
 ### Route resolution pipeline (`resolveRouteWaypoints()` in server.js)
@@ -624,6 +626,10 @@ Shows the planned/filed route up to `PREFLIGHT_ROUTE_MS` (30 minutes) before sch
 ### Real ATC frequency (vNAS)
 
 `vnas.js` fetches the full vNAS payload every 6h, builds a `facilityId → Map(sectorId → {frequency, callsign})` index, discards the raw payload. Two linkage shapes: **enroute** (ARTCC, numeric sectorId) via `eramConfiguration.sectorId`; **terminal** (TRACON/tower, lettered sectorId) via `starsConfiguration.tcps[]`/`tcpId`. `getFrequency()` returns `null` for anything unresolvable (not every small facility is in VATSIM's model). `swim.js` stores the raw handoff as `entry.sector = {unit, sectorId}`; `server.js`'s `withResolvedFrequency()` resolves it once per poll onto a new sector object. Frontend: `buildBaseTooltip()` shows the MHz next to the callsign, gated by `_showSectorOn` (persisted `cs_show_sector`, **default ON**), button `#btn-show-sector` ("📻 FREQ"). `_liveLabelRefreshers` (global `callsign → refresh()` registry) lets the toggle repaint every tracked label instantly from cached data instead of waiting for each flight's own next poll.
+
+### Base map
+
+CARTO `dark_all` shown as **CARTO+**: the next zoom level's tiles at half size (`tileSize: 128, zoomOffset: 1`), so more cities, roads and rivers show zoomed out. CARTO restyled the plain version, with fewer labels and lighter blue-grey water, and no longer serves the old look anywhere. `addBasemap(map)` sets it up for every map (route maps, Crew Intel, Wrapped). A `.cs-basemap` CSS filter (`brightness(0.8) saturate(0.3)`) evens out the land/water contrast and leaves the NEXRAD radar overlay untouched. `BASEMAPS.carto` (standard) is kept as a fallback. Leaflet stays 1.9.4; 2.0 is a beta and a breaking rewrite.
 
 ### Debugging NetJets
 

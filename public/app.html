@@ -670,7 +670,6 @@
                         </div>
                         <div class="flex gap-1">
                             <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
-                            <button id="btn-basemap" onclick="toggleBasemap()" class="map-ctrl-pill" title="Switch base map detail: CARTO standard / CARTO+ (more cities and roads, smaller labels)">🗺 CARTO</button>
                             <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill" title="Toggle route detail (VOR/fix/waypoint symbols)">✦ RTE</button>
                             <button id="btn-show-sector" onclick="toggleShowSector()" class="map-ctrl-pill" title="Show the real ATC frequency currently controlling each live flight, when it resolves">📻 FREQ</button>
                         </div>
@@ -6475,7 +6474,7 @@
                   nolabels: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
                   opts: { className: 'cs-basemap', subdomains: 'abcd', tileSize: 128, zoomOffset: 1, maxNativeZoom: 18, maxZoom: 19 } } ] },
         };
-        var _basemapChoice = (() => { try { return localStorage.getItem('cs_basemap') === 'detail' ? 'detail' : 'carto'; } catch (_) { return 'carto'; } })();
+        var _basemapChoice = 'detail'; // CARTO+ for everyone (picked 2026-11-03); 'carto' kept as the plain fallback
         var _basemapMaps = []; // [{ map, noLabels, layers }]
         function _basemapLayersFor(noLabels) {
             return BASEMAPS[_basemapChoice].layers

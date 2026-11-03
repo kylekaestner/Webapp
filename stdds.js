@@ -10,6 +10,7 @@
 // started in. Expect this to need correction once connected to real messages.
 
 const solace = require('solclientjs');
+const { createFeedQueue } = require('./feed-queue');
 const { XMLParser } = require('fast-xml-parser');
 
 const STDDS_HOST  = process.env.SCDSCONNECTION__HOST;
@@ -313,16 +314,11 @@ function startConsumer() {
         _connected = false;
     });
 
-    messageConsumer.on(solace.MessageConsumerEventName.MESSAGE, (message) => {
-        try {
-            const xmlText = message.getXmlContent(); // confirmed accessor from swim.js — trying same one first
-            if (xmlText) handleMessage(xmlText);
-        } catch (e) {
-            if (_unmappedWarnings++ < WARN_CAP) console.warn('[STDDS] message handling error:', e.message);
-        } finally {
-            try { message.acknowledge(); } catch (_) {}
-        }
+    // Paced + ack-after-processing (feed-queue.js) so a reconnect backlog can't starve HTTP.
+    const enqueue = createFeedQueue('STDDS', handleMessage, e => {
+        if (_unmappedWarnings++ < WARN_CAP) console.warn('[STDDS] message handling error:', e.message);
     });
+    messageConsumer.on(solace.MessageConsumerEventName.MESSAGE, enqueue);
 
     try {
         messageConsumer.connect();

@@ -15,6 +15,7 @@
 // real messages and fix what's wrong. Treat this the same way.
 
 const solace = require('solclientjs');
+const { createFeedQueue } = require('./feed-queue');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const path = require('path');
@@ -565,18 +566,11 @@ function startConsumer() {
         _connected = false;
     });
 
-    messageConsumer.on(solace.MessageConsumerEventName.MESSAGE, (message) => {
-        try {
-            // Confirmed live: SFDPS sends the FIXM payload as the message's XML content part,
-            // not the generic binary attachment (getBinaryAttachment() returns null for these).
-            const xmlText = message.getXmlContent();
-            if (xmlText) handleMessage(xmlText);
-        } catch (e) {
-            if (_unmappedWarnings++ < WARN_CAP) console.warn('[SWIM] message handling error:', e.message);
-        } finally {
-            try { message.acknowledge(); } catch (_) {}
-        }
+    // Paced + ack-after-processing (feed-queue.js) so a reconnect backlog can't starve HTTP.
+    const enqueue = createFeedQueue('SWIM', handleMessage, e => {
+        if (_unmappedWarnings++ < WARN_CAP) console.warn('[SWIM] message handling error:', e.message);
     });
+    messageConsumer.on(solace.MessageConsumerEventName.MESSAGE, enqueue);
 
     try {
         messageConsumer.connect();
