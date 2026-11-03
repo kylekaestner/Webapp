@@ -9812,14 +9812,28 @@ let _blockUserEdited = false;
             document.getElementById('add-flight-title').textContent = 'Edit Flight';
             document.getElementById('add-flight-submit-btn').textContent = 'Save Changes';
             document.getElementById('add-pilot').value = myPilot || currentPilot || PILOT_KEYS[0];
+            // The form is local airport time (what gets saved), but NetJets auto legs / Schedaero
+            // rows are stored in UTC -- slicing "19:56" out of a Z string pre-filled the UTC clock as
+            // if local, so saving any edit (even just the destination) shifted the leg by the UTC
+            // offset (James's TEB->APF moved 2:56 PM -> 7:56 PM EST). Convert to airport-local first.
+            const localParts = (iso, apt) => {
+                if (!iso) return { date: '', time: '' };
+                const tz = /Z$/.test(iso) && airportTz(apt);
+                if (!tz) return { date: iso.slice(0, 10), time: iso.slice(11, 16) };
+                const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+                    .formatToParts(new Date(iso)).map(x => [x.type, x.value]));
+                return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour === '24' ? '00' : p.hour}:${p.minute}` };
+            };
+            const depLocal = localParts(seg.departureTime, seg.departureAirport);
+            const arrLocal = localParts(seg.arrivalTime, seg.arrivalAirport);
             // Date
-            const depDate = seg.departureTime ? seg.departureTime.slice(0, 10) : '';
+            const depDate = depLocal.date;
             document.getElementById('add-date').value = depDate;
             document.getElementById('add-dep').value = seg.departureAirport || '';
             document.getElementById('add-arr').value = seg.arrivalAirport || '';
             // Times
-            document.getElementById('add-dep-time').value = seg.departureTime ? seg.departureTime.slice(11, 16) : '';
-            document.getElementById('add-arr-time').value = seg.arrivalTime ? seg.arrivalTime.slice(11, 16) : '';
+            document.getElementById('add-dep-time').value = depLocal.time;
+            document.getElementById('add-arr-time').value = arrLocal.time;
             document.getElementById('add-flight-num').value = seg.flightNumber || '';
             document.getElementById('add-tail-num').value = seg.tail || '';
             document.getElementById('add-flight-error').classList.add('hidden');
