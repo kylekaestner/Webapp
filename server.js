@@ -4713,14 +4713,15 @@ app.get('/api/flight-status', (req, res) => {
     // short final -- the airborne evidence said "from E38" and the flat times were E38->OKC's.
     // TFMS's per-leg store knows this exact leg departed / was on radar / arrived, so it answers
     // for that leg directly (closest expected arrival if two legs share the origin).
-    const njLeg = cs => {
-        if (!/^(EJA\d+|N\d+QS)$/.test(cs) || !expectedOrigin[cs]) return null;
-        const exp = norm3Airport(expectedOrigin[cs]);
+    const njLegFor = (cs, origin, arrMs) => {
+        if (!/^(EJA\d+|N\d+QS)$/.test(cs) || !origin) return null;
+        const exp = norm3Airport(origin);
         const cands = tfms.getAllLegTimes(cs).filter(l => norm3Airport(l.origin) === exp);
-        if (cands.length < 2 || !expectedArrival[cs]) return cands[0] || null;
+        if (cands.length < 2 || !arrMs) return cands[0] || null;
         const arrOf = l => Date.parse(l.eta || l.routeEta || '') || l.scheduledDepMs || 0;
-        return cands.sort((a, b) => Math.abs(arrOf(a) - expectedArrival[cs]) - Math.abs(arrOf(b) - expectedArrival[cs]))[0];
+        return cands.sort((a, b) => Math.abs(arrOf(a) - arrMs) - Math.abs(arrOf(b) - arrMs))[0];
     };
+    const njLeg = cs => njLegFor(cs, expectedOrigin[cs], expectedArrival[cs]);
     const njLegOf = {};
     for (const cs of list) { const l = njLeg(cs); if (l) njLegOf[cs] = l; }
     const times = {};
@@ -4766,7 +4767,9 @@ app.get('/api/flight-status', (req, res) => {
     // nearly an hour of showing "DEPARTURE DUE" for a flight that had already landed on schedule.
     const airborne = [...new Set(list)].filter(cs => {
         const nl = njLegOf[cs];
-        if (nl) return _tfmsLegFlown(nl) && !_tfmsLegArrived(nl);
+        // "Ever flew" (historical), not "in the air now" -- the grid marks a leg done on airborne +
+        // past arrival, and excluding arrived legs left LBE->DJT stuck on "departure due".
+        if (nl) return _tfmsLegFlown(nl);
         return !isParked(cs) && (
             (_everAirborneCallsigns.has(cs) && originOk(cs, _everAirborneOrigin[cs])) ||
             (notStale(cs) && originCheckOk(cs) && /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || ''))
@@ -4778,7 +4781,30 @@ app.get('/api/flight-status', (req, res) => {
     const onGround = {};
     for (const cs of live) { if (_liveCache[cs]?.data?.onGround) onGround[cs] = true; }
     const parked = [...new Set(list)].filter(cs => njLegOf[cs] ? _tfmsLegArrived(njLegOf[cs]) : (isParked(cs) && originCheckOk(cs)));
-    res.json({ parked, live, airborne, onGround, times });
+    // Per-leg answers for NetJets legs (njlegs=callsign~origin~arrival,...), keyed the same way --
+    // the day map asks about every leg of the day separately, since one callsign flies them all.
+    // "live" belongs only to the leg actually being flown (most recently departed / on radar, not
+    // arrived): on the ground at DJT, a fresh position no longer made the 23:24Z HOT->CLT active.
+    const perLeg = {};
+    for (const spec of String(req.query.njlegs || '').split(',').filter(Boolean).slice(0, 60)) {
+        const [csRaw, origin, arrIso] = spec.split('~');
+        const cs = (csRaw || '').toUpperCase();
+        const l = njLegFor(cs, origin, Date.parse(arrIso || '') || null);
+        if (!l) continue;
+        const flying = tfms.getAllLegTimes(cs).filter(t => (t.departedAt || t.tracked) && !_tfmsLegArrived(t))
+            .sort((a, b) => (b.departedAt || b.scheduledDepMs || 0) - (a.departedAt || a.scheduledDepMs || 0))[0];
+        const c = _liveCache[cs];
+        const fresh = !!(c && c.data?.found && now - c.ts < 3 * 60 * 1000);
+        const isFlying = flying && norm3Airport(flying.origin) === norm3Airport(l.origin);
+        perLeg[`${csRaw}~${origin}`] = { // same key the app builds: callsign~origin as sent
+            live: fresh && !!isFlying,
+            airborne: _tfmsLegFlown(l),
+            parked: _tfmsLegArrived(l),
+            onGround: fresh && !!isFlying && !!c.data.onGround,
+            times: { etd: l.etd || l.igtd || null, eta: l.eta || l.routeEta || null, airlineOnTime: null, airlineInTime: null },
+        };
+    }
+    res.json({ parked, live, airborne, onGround, times, perLeg });
 });
 
 app.get('/api/live-position', async (req, res) => {
