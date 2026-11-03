@@ -1718,6 +1718,24 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
             || (l.scheduledDepMs != null && Math.abs(l.scheduledDepMs - t.scheduledDepMs) <= 60 * 60 * 1000)))) continue;
         out.push({ origin: t.origin, dest: t.dest, scheduledDepMs: t.scheduledDepMs, flightState: t.arrivedAt ? 'ARRIVAL' : 'EN_ROUTE', tfmsOnly: true });
     }
+
+    // In advance (requested directly): the earliest still-merely-filed plan departing from where
+    // the tail last went -- the dest of its latest proven leg. A plan from anywhere else (DJT->CQF
+    // while the tail sits at LBE) stays hidden until the tail actually gets there.
+    const REALLY_DEPARTED_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
+    const lastProven = [...tfdmLegs.filter(l => REALLY_DEPARTED_RE.test(l.flightState || '')), ...out]
+        .filter(l => l.scheduledDepMs != null)
+        .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs).pop();
+    const here = lastProven && norm(lastProven.dest);
+    if (here) {
+        const next = tfmsLegTimes
+            .filter(t => !t.cancelled && !t.departedAt && !t.arrivedAt && !t.tracked
+                && t.scheduledDepMs != null && t.scheduledDepMs > lastProven.scheduledDepMs && t.scheduledDepMs >= minDepMs
+                && norm(t.origin) === here
+                && !tfdmLegs.some(l => norm(l.origin) === here && l.scheduledDepMs != null && Math.abs(l.scheduledDepMs - t.scheduledDepMs) <= 60 * 60 * 1000))
+            .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs)[0];
+        if (next) out.push({ origin: next.origin, dest: next.dest, scheduledDepMs: next.scheduledDepMs, flightState: 'SCHEDULED', tfmsOnly: true });
+    }
     return out;
 }
 
@@ -4956,6 +4974,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             if (existing == null || l.scheduledDepMs < existing) confirmedDepartureByOrigin.set(o, l.scheduledDepMs);
         }
 
+        const touchedRowIds = new Set(); // rows some current candidate matched/created this poll
         for (const leg of allLegs) {
             const origin = norm3(leg.origin);
             if (!origin) continue; // can't key a leg without at least knowing where it starts
@@ -5021,6 +5040,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             }
 
             const row = _findExistingNetjetsLeg(existingRows, origin, dest, new Date(depTime).getTime());
+            if (row) touchedRowIds.add(row.id);
 
             // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides they
             // aren't doing that flight -- need support for that." A cancelled leg that was never
@@ -5054,6 +5074,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                             function (err) { err ? reject(err) : resolve(this.lastID); }
                         );
                     });
+                    touchedRowIds.add(newId);
                     existingRows.push({ id: newId, auto_leg_key: autoLegKey, departure_airport: origin, arrival_airport: finalDest || '', departure_time: depTime, arrival_time: finalArrTime, auto_leg_complete: landed ? 1 : 0, auto_leg_edited: 0, auto_leg_cancelled: 0 });
                     console.log(`[NetJets] ${nj.pilotKey}: new leg ${autoLegKey} ${origin}->${finalDest || '?'}`);
                 } catch (e) { console.error('[NetJets] insert failed:', e.message); }
@@ -5130,6 +5151,25 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                 db.run(`UPDATE segments SET ${updates.join(', ')} WHERE id=? AND auto_leg_key=?`, params, () => {});
                 if (landed && !row.auto_leg_complete) console.log(`[NetJets] ${nj.pilotKey}: leg ${row.auto_leg_key} complete (${origin}->${finalDest || '?'})`);
             }
+        }
+
+        // Origin-side mirror of the dest filter above, mainly for an in-advance leg
+        // (_tfmsOnlyFlownLegs) that never flew: once the tail really departs an airport on a
+        // different leg, an unflown row from that same airport that no current candidate matches
+        // anymore can't be real. Same 15min same-departure tolerance as _findExistingNetjetsLeg,
+        // bounded to 12h so a genuine later return through the same airport isn't touched.
+        const confirmedDeps = allLegs
+            .filter(l => REALLY_DEPARTED_RE.test(l.flightState || '') && l.scheduledDepMs != null)
+            .map(l => ({ origin: norm3(l.origin), ms: l.scheduledDepMs }));
+        for (const r of existingRows) {
+            if (touchedRowIds.has(r.id) || r.auto_leg_complete || r.auto_leg_cancelled || r.auto_leg_edited) continue;
+            const rMs = r.departure_time ? new Date(r.departure_time).getTime() : null;
+            if (rMs == null) continue;
+            const supersededBy = confirmedDeps.find(c => c.origin === r.departure_airport
+                && Math.abs(c.ms - rMs) > NETJETS_SAME_DEPARTURE_TOLERANCE_MS && Math.abs(c.ms - rMs) <= 12 * 60 * 60 * 1000);
+            if (!supersededBy) continue;
+            db.run('UPDATE segments SET auto_leg_cancelled=1 WHERE id=? AND auto_leg_cancelled=0', [r.id], () => {});
+            console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} filtered out -- tail really left ${r.departure_airport} on a different leg`);
         }
     }
 }
