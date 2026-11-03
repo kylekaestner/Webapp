@@ -19,7 +19,7 @@ This file is the short core, loaded every session. Detail lives in topic docs, r
 
 ## Standing rules
 
-- The uploaded schedule is the source of truth for when a flight is supposed to fly. It's never overwritten with live times. Only the display may use live evidence. NetJets legs are the exception: they have no schedule, so a flown leg's row takes its real times (`docs/netjets.md`).
+- The uploaded schedule is the source of truth for when a flight is supposed to fly. It's never overwritten with live times. Only the display may use live evidence.
 - A callsign doesn't identify a leg. One NetJets callsign flies every leg of a day, and airlines reuse flight numbers. Anything about a leg (live, parked, route, airborne) must be per leg. Check this first on any tracking bug.
 - Making schedule legs and displaying routes are separate jobs. A filed route attaches to a leg that already exists, and no match means no route.
 - Never build an `Intl.DateTimeFormat` in a loop, and never rescan a pilot's whole history per flight. Segments span their full history.
