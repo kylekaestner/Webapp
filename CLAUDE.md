@@ -828,7 +828,7 @@ Full build narrative — the F70-timezone bug and its own regression, the same-c
 
 ## Add flight modal (`submitAddFlight()`, ~line 7024)
 
-4 flight types: **Work** (`trip` = pairing #), **DH** (`is_dh=true`), **Commute** (`trip='COMMUTE'`, `is_manual=1`), **Personal** (`trip='PERSONAL'`, `is_manual=1`). Fields: pilot selector (admin only), date, DEP/ARR airports (auto-uppercased), dep/arr times, block time (auto-calculated via `autoComputeBlockTime()` unless manually edited), flight #, tail #. POSTs to `/api/pilots/:key/add-segment`; edit mode PUTs to `/segments/:id`. The form is always local airport time. When editing a UTC-stored row (NetJets auto legs, Schedaero), `openEditFlight()` converts the `Z` time to airport-local before pre-filling. Slicing the raw string used to shift the leg by the UTC offset on any save. Separate `#edit-ground-modal` for ground legs.
+4 flight types: **Work** (`trip` = pairing #), **DH** (`is_dh=true`), **Commute** (`trip='COMMUTE'`, `is_manual=1`), **Personal** (`trip='PERSONAL'`, `is_manual=1`). Fields: pilot selector (admin only), date, DEP/ARR airports (auto-uppercased), dep/arr times, block time (auto-calculated via `autoComputeBlockTime()` unless manually edited), flight #, tail #. POSTs to `/api/pilots/:key/add-segment`; edit mode PUTs to `/segments/:id`. The form is always local airport time. When editing a UTC-stored row (NetJets auto legs, Schedaero), `openEditFlight()` converts the `Z` time to airport-local before pre-filling. Slicing the raw string used to shift the leg by the UTC offset on any save. On save, a row that was stored in UTC is converted back to UTC, so a pilot's rows never end up mixed: Crossings reads a UTC pilot's rows as UTC. Separate `#edit-ground-modal` for ground legs.
 
 ---
 
