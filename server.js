@@ -1744,11 +1744,11 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
     }
 
     // In advance (requested directly): the earliest still-merely-filed plan departing from where
-    // the tail last went -- the dest of its latest proven leg. A plan from anywhere else (DJT->CQF
-    // while the tail sits at LBE) stays hidden until the tail actually gets there.
-    const REALLY_DEPARTED_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
-    const lastProven = [...tfdmLegs.filter(l => REALLY_DEPARTED_RE.test(l.flightState || '')), ...out]
-        .filter(l => l.scheduledDepMs != null)
+    // the tail is headed -- the dest of the latest leg already on the schedule (any TFDM leg, which
+    // is created as soon as it's filed, or a proven TFMS one). Mack's E38->OKC shows once TFDM has
+    // SAT->E38; a plan from anywhere else (DJT->CQF while the tail sits at LBE) stays hidden.
+    const lastProven = [...tfdmLegs, ...out]
+        .filter(l => l.scheduledDepMs != null && l.dest)
         .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs).pop();
     const here = lastProven && norm(lastProven.dest);
     if (here) {
@@ -4980,7 +4980,10 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             db.all(
                 `SELECT id, auto_leg_key, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_cancelled
                  FROM segments WHERE pilot_id=? AND auto_leg_key LIKE ?`,
-                [nj.pilotId, `${cs}|${nj.tourStart}|%`],
+                // Every row for this callsign, not just this tour's key -- EJA+tail is one aircraft, and
+                // a changed tour start (rotation re-saved) otherwise hid already-created rows, so the
+                // same leg was created again under the new key (Mack's SAT->E38, 2026-11-02).
+                [nj.pilotId, `${cs}|%`],
                 (err, rows) => resolve(err ? [] : (rows || []))
             );
         });
