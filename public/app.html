@@ -9336,7 +9336,14 @@
                         const arrMs = el.dataset.arrTime ? flightUTCTime(el.dataset.arrTime, el.dataset.arrApt || '')?.getTime() : null;
                         return !!arrMs && arrMs > nowMs;
                     });
-                    nextLeg?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    // Only the day's own list. scrollIntoView() also moves the page, and this runs on most
+                    // redraws, so it would pull you back to today while you're scrolling the month.
+                    const dayList = nextLeg?.closest('.overflow-y-auto');
+                    if (dayList && dayList.id !== 'view-grid') {
+                        const leg = nextLeg.getBoundingClientRect(), box = dayList.getBoundingClientRect();
+                        if (leg.bottom > box.bottom) dayList.scrollTop += leg.bottom - box.bottom;
+                        else if (leg.top < box.top) dayList.scrollTop -= box.top - leg.top;
+                    }
                 });
             }
         }
