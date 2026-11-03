@@ -11301,8 +11301,11 @@ async function openAdminPanel(tab = 'users') {
                 if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
                 const existing = (pilotsCache[myPilot].tour_tails || []).filter(t => t.tour_start_date !== tourStart);
                 pilotsCache[myPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || null }];
-                statusEl.textContent = isSwap ? 'Tail swapped — tracking switches to the new tail now.' : 'Saved.';
                 _refreshMyInfoNetjetsStatus();
+                // Done -- close the tour modal and the day detail sheet it was opened from.
+                dismissNetjetsTourModal();
+                document.getElementById('day-detail-sheet')?.classList.add('hidden');
+                showToast(isSwap ? 'Tail swapped — tracking switches to the new tail now.' : 'Tour saved.', 'success');
             } catch { statusEl.textContent = 'Save failed — try again.'; }
         }
 
