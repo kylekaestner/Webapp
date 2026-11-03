@@ -165,6 +165,10 @@
            map read as two-toned. Dim + desaturate the basemap only (class on the CARTO layers) so
            the NEXRAD radar overlay, also a tile layer, keeps its colors. */
         .cs-basemap { filter: brightness(0.8) saturate(0.3); }
+        /* Pilot legend grows with the crew -- cap it and scroll instead of covering the map. */
+        .legend-scroll { max-height: min(40vh, 220px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-right: 4px; scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
+        .legend-scroll::-webkit-scrollbar { width: 4px; }
+        .legend-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 2px; }
         .dark-popup .leaflet-popup-content-wrapper { background: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.8); }
         .dark-popup .leaflet-popup-tip { background: #0f172a; }
         .dark-popup .leaflet-popup-content { margin: 12px 14px; }
@@ -655,7 +659,7 @@
                             <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 border border-white/60" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-500">Here Now</span></div>
                         </div>
                         <div id="legend-day" class="hidden space-y-1 pointer-events-auto">
-                            <div id="legend-day-pilots" class="space-y-1"></div>
+                            <div id="legend-day-pilots" class="space-y-1 legend-scroll"></div>
                             <div class="flex items-center gap-1.5 pt-1 mt-0.5 border-t border-zinc-800/60"><span class="inline-block w-4 shrink-0" style="height:2.5px;background:repeating-linear-gradient(90deg,#94a3b8 0,#94a3b8 5px,transparent 5px,transparent 8px)"></span><span class="text-zinc-500">Airborne</span></div>
                         </div>
                     </div>
@@ -5538,6 +5542,9 @@
             if (map) return;
             map = L.map('map', { zoomControl: false, doubleClickZoom: true, bounceAtZoomLimits: false }).setView([39.8283, -98.5795], 4);
             addBasemap(map);
+            // Scrolling/swiping the pilot legend shouldn't pan or zoom the map underneath it
+            const _legendScroll = document.getElementById('legend-day-pilots');
+            if (_legendScroll) { L.DomEvent.disableScrollPropagation(_legendScroll); L.DomEvent.disableClickPropagation(_legendScroll); }
             setupDoubleTapZoom(map);
             map.on('zoomend', deoverlapLiveLabels);
             map.on('moveend', deoverlapLiveLabels);
