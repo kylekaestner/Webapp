@@ -5662,6 +5662,14 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
         if (!tailPilots.has(d)) tailPilots.set(d, []);
         tailPilots.get(d).push(r);
     }
+    // Each pilot's current tour = their latest saved tour that has started (rows are newest-first)
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    const currentTourByPilot = new Map();
+    for (const rows of tailPilots.values()) for (const r of rows) {
+        if (r.tour_start_date > todayUtc) continue;
+        const cur = currentTourByPilot.get(r.pilot_id);
+        if (!cur || r.tour_start_date > cur) currentTourByPilot.set(r.pilot_id, r.tour_start_date);
+    }
     // A tail flying outside the lower 48 + Canada files/flies under its bare N-number instead of
     // EJA#### (raised directly) -- the tail-list links below pass that literal callsign straight
     // through via ?tail=, so it must be recognized as-is before falling back to the normal
@@ -5706,8 +5714,20 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
         const tailRows = tails.length ? tails.map(t => {
             const ageMin = Math.round((nowMs - t.lastMs) / 60000);
             const intl = t.callsigns.has(`N${t.digits}QS`) ? ` <span style="color:#fbbf24;font-size:10px;font-weight:400">intl legs</span>` : '';
-            const crew = tailPilots.get(t.digits);
-            const crewTag = crew ? ` <span style="color:#a78bfa;font-size:10px;font-weight:700">· ${[...new Set(crew.map(c => (c.name || c.pilot_key).split(' ')[0]))].join(', ')}</span>` : '';
+            // Which tour, not just who: a pilot's tail history otherwise labels every tail they've
+            // ever saved (Mack's 10/30 test tour on 815 still read as "Mack"). Current = the pilot's
+            // latest tour that has started.
+            const rowsForTail = tailPilots.get(t.digits) || [];
+            const currentHere = new Set(rowsForTail.filter(c => currentTourByPilot.get(c.pilot_id) === c.tour_start_date).map(c => c.pilot_id));
+            const crewTag = rowsForTail.filter((c, i, all) => currentHere.has(c.pilot_id)
+                    ? currentTourByPilot.get(c.pilot_id) === c.tour_start_date          // current pilot: just the current tag
+                    : all.findIndex(x => x.pilot_id === c.pilot_id) === i)             // past pilot: their latest tour only
+                .map(c => {
+                const name = (c.name || c.pilot_key).split(' ')[0];
+                if (currentTourByPilot.get(c.pilot_id) === c.tour_start_date) return ` <span style="color:#a78bfa;font-size:10px;font-weight:700">· ${name} · current</span>`;
+                const d = new Date(c.tour_start_date + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+                return ` <span style="color:#52525b;font-size:10px">· ${name} · ${d} tour</span>`;
+            }).join('');
             return `<tr style="border-bottom:1px solid #27272a">
                 <td style="padding:8px 12px"><a href="?tail=${t.digits}&${qs}" style="color:#60a5fa;font-weight:700;text-decoration:none">N${t.digits}QS · EJA${t.digits}</a>${intl}${crewTag}</td>
                 <td style="padding:8px 12px;color:#a1a1aa">${t.tfdmLegs}</td>
