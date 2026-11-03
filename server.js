@@ -5026,6 +5026,36 @@ function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs) {
 // time keeps refining poll to poll (confirmed live: EJA742's TFMS igtd moved 01:18Z->01:48Z while
 // TFDM's own offBlockTime for that same leg never changed), so an exact-string key would mint a
 // duplicate row every time an estimate moved.
+// Flight-plan placeholder for a destination with no ICAO code (E38 Alpine) -- not an airport.
+const NETJETS_PLACEHOLDER_APT_RE = /^K?(ZZZZ|XXXX|ZZZ)$/i;
+
+// TFDM can carry two versions of one departure at once (EJA23 2026-11-03: SAT>E38 and SAT>KPEQ,
+// plus SAT>ZZZZ, same 17:00Z off-block, alternating every few seconds). Each matched the same
+// row through _findExistingNetjetsLeg's same-departure tolerance, so whichever ran last each
+// poll rewrote arrival_airport -- E38/PEQ/ZZZZ flipped and the map lost the leg on ZZZZ. Keep
+// exactly one per origin + departure instant, choosing the dest TFMS proves was flown, else
+// TFMS's most recently updated plan (same rule as the Lookup's Resolved table).
+function _collapseSameDepartureLegs(legs, tfmsLegTimes) {
+    const norm = norm3Airport;
+    const MOVING_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
+    const groups = [];
+    for (const l of legs) {
+        const leg = NETJETS_PLACEHOLDER_APT_RE.test(l.dest || '') ? { ...l, dest: null } : l;
+        const g = groups.find(g => norm(g[0].origin) === norm(leg.origin) && g[0].scheduledDepMs != null && leg.scheduledDepMs != null
+            && Math.abs(g[0].scheduledDepMs - leg.scheduledDepMs) <= NETJETS_SAME_DEPARTURE_TOLERANCE_MS);
+        if (g) g.push(leg); else groups.push([leg]);
+    }
+    return groups.map(g => {
+        const base = g.find(l => MOVING_RE.test(l.flightState || '')) || g.find(l => l.dest) || g[0];
+        const candidates = tfmsLegTimes.filter(t => norm(t.origin) === norm(base.origin) && t.scheduledDepMs != null && base.scheduledDepMs != null
+            && Math.abs(t.scheduledDepMs - base.scheduledDepMs) <= NETJETS_SAME_DEPARTURE_TOLERANCE_MS && t.dest && !NETJETS_PLACEHOLDER_APT_RE.test(t.dest));
+        const best = candidates.find(_tfmsLegFlown)
+            || candidates.reduce((b, t) => (!b || (t.lastMsg || 0) > (b.lastMsg || 0)) ? t : b, null);
+        // TFMS's best telling wins over TFDM's (possibly stale) dest; the more advanced phase is kept
+        return best && norm(best.dest) !== norm(base.dest) ? { ...base, dest: best.dest } : base;
+    });
+}
+
 const _netjetsStartWarned = new Set();
 async function _pollNetjetsLegCreation(db, onDutyList) {
     const norm3 = norm3Airport;
@@ -5040,7 +5070,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
         const tfmsLegTimes = csList.flatMap(c => tfms.getAllLegTimes(c).map(l => ({ ...l, cs: c })));
         const tfdmLegs = csList.flatMap(c => tfdm.getAllLegs(c).map(l => ({ ...l, cs: c })))
             .filter(l => (l.scheduledDepMs || 0) >= tourStartMs);
-        const allLegs = [...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs)]
+        const allLegs = _collapseSameDepartureLegs([...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs)], tfmsLegTimes)
             .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
         if (!allLegs.length) continue; // nothing known yet for this tour -- wait for a real signal
 
