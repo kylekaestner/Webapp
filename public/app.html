@@ -1861,6 +1861,7 @@
 </div>
 
     <script>
+        window._perfAppStart = performance.now(); // TEMPORARY, see the map timing readout
         /*
          * ╔══════════════════════════════════════════════════════════════════╗
          * ║  CrewSync  app.html  --  architecture overview                  ║
@@ -4887,14 +4888,26 @@
                 // actually governed a given moment, for a pilot whose base changed over time.
                 const home  = homeBase  ? normApt(homeBase)  : null;
                 const homeC = homeCity  ? normApt(homeCity)  : null;
+                // A pilot's whole history runs through the scans below, once per flight. Every date and
+                // airport code is worked out once here, not again on each pass of each scan.
+                const _tMemo = new Map();
+                const tMs = str => {
+                    let v = _tMemo.get(str);
+                    if (v === undefined) { v = new Date(str).getTime(); _tMemo.set(str, v); }
+                    return v;
+                };
                 const flights = segments
                     .filter(s => (s.type === 'flight' || s.type === 'ground') && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport && !s.auto_leg_cancelled)
-                    .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
+                    .sort((a, b) => tMs(a.departure_time) - tMs(b.departure_time));
                 // All departing segments including personal/commute — used to terminate ground periods
                 // so a commute home from a layover airport correctly ends the stay there.
                 const allDeps = segments
                     .filter(s => s.departure_time && s.departure_airport && !s.auto_leg_cancelled)
-                    .sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
+                    .sort((a, b) => tMs(a.departure_time) - tMs(b.departure_time));
+                const depTimes = allDeps.map(n => tMs(n.departure_time));
+                const depApts = allDeps.map(n => normApt(n.departure_airport));
+                const fltDepTimes = flights.map(n => tMs(n.departure_time));
+                const fltDepApts = flights.map(n => normApt(n.departure_airport));
 
                 // baseAt(d) resolves whichever base actually governed the pilot AT A GIVEN MOMENT,
                 // for one whose base changed (baseHistory from the API, see resolveBaseAt). It is
@@ -4912,17 +4925,22 @@
                 const knownBases = new Set();
                 if (home) knownBases.add(home);
                 (baseHistory || []).forEach(h => h.base && knownBases.add(normApt(h.base)));
+                const depIsBase = depApts.map(a => knownBases.has(a));
+                const _baseMemo = new Map();
                 const baseAt = (d) => {
-                    const atDate = d instanceof Date ? d : new Date(d);
-                    let anchor = atDate;
-                    for (const n of allDeps) {
-                        const nT = new Date(n.departure_time);
-                        if (nT > atDate) break;
-                        if (knownBases.has(normApt(n.departure_airport))) anchor = nT;
+                    const atMs = d instanceof Date ? d.getTime() : tMs(d);
+                    if (_baseMemo.has(atMs)) return _baseMemo.get(atMs);
+                    let anchorMs = atMs;
+                    for (let x = 0; x < depTimes.length; x++) {
+                        if (depTimes[x] > atMs) break;
+                        if (depIsBase[x]) anchorMs = depTimes[x];
                     }
-                    return resolveBaseAt(homeBase, baseHistory, anchor);
+                    const base = resolveBaseAt(homeBase, baseHistory, new Date(anchorMs));
+                    _baseMemo.set(atMs, base);
+                    return base;
                 };
                 const periods = [];
+                const latestArrAt = new Map(); // airport -> the latest-arriving flight so far (first one wins a tie)
 
                 flights.forEach((f, i) => {
                     const dep = normApt(f.departure_airport);
@@ -4930,10 +4948,12 @@
                     const depT = new Date(f.departure_time);
                     const arrT = new Date(f.arrival_time);
 
-                    const recentArr = flights.slice(0, i)
-                        .filter(p => normApt(p.arrival_airport) === dep)
-                        .sort((a, b) => new Date(b.arrival_time) - new Date(a.arrival_time))[0];
+                    const depMs = depT.getTime(), arrMs = arrT.getTime();
+                    const recentArr = latestArrAt.get(dep);
+                    const prevLatest = latestArrAt.get(arr);
+                    if (!prevLatest || arrMs > tMs(prevLatest.arrival_time)) latestArrAt.set(arr, f);
                     const recentArrT = recentArr ? new Date(recentArr.arrival_time) : null;
+                    const recentArrMs = recentArr ? recentArrT.getTime() : null;
                     // For home base: only use arrival if within 24h (pilot lives there).
                     // For other airports: only use if pilot hasn't flown elsewhere since — i.e. still
                     // on the same trip. A departure from any other airport between recentArr and now
@@ -4941,11 +4961,7 @@
                     const useRecentArr = recentArr && (
                         dep === baseAt(depT)
                             ? (depT - recentArrT) < 24 * 3600000
-                            : !allDeps.some(n =>
-                                normApt(n.departure_airport) !== dep &&
-                                new Date(n.departure_time) > recentArrT &&
-                                new Date(n.departure_time) < depT
-                            )
+                            : !depTimes.some((t, x) => depApts[x] !== dep && t > recentArrMs && t < depMs)
                     );
                     const groundStart = useRecentArr ? new Date(recentArr.arrival_time)
                         : new Date(depT.getTime() - 2 * 3600000);
@@ -4963,10 +4979,9 @@
                         // Commuter back at base: the trip home isn't logged, so they're at their home city once the
                         // commute window has passed, until they next leave from home or base.
                         const commuteStart = new Date(arrT.getTime() + 3 * 3600000);
-                        const nextLeave = allDeps.find(n => {
-                            const dep = normApt(n.departure_airport);
-                            return (dep === homeC || dep === baseAt(n.departure_time)) && new Date(n.departure_time) > commuteStart;
-                        });
+                        const commuteStartMs = commuteStart.getTime();
+                        const nextLeave = allDeps.find((n, x) =>
+                            depTimes[x] > commuteStartMs && (depApts[x] === homeC || depApts[x] === baseAt(n.departure_time)));
                         const commuteEnd = nextLeave ? new Date(nextLeave.departure_time) : new Date(arrT.getTime() + 7 * 86400000);
                         if (homeC && commuteEnd > commuteStart) {
                             // Two commutes back close together (e.g. two base arrivals in a day) are one stay at home.
@@ -4981,12 +4996,12 @@
                         return;
                     }
                     // Use allDeps so personal/commute departures also terminate ground periods
-                    const nextFromArr = allDeps.find(n => normApt(n.departure_airport) === arr && new Date(n.departure_time) > arrT);
+                    const nextFromArr = allDeps.find((n, x) => depApts[x] === arr && depTimes[x] > arrMs);
                     let groundEnd;
                     if (homeC && arr === homeC) {
-                        const nextFromBase = home ? flights.slice(i + 1).find(n =>
-                            normApt(n.departure_airport) === baseAt(n.departure_time) &&
-                            (!nextFromArr || new Date(n.departure_time) < new Date(nextFromArr.departure_time))
+                        const nextFromArrMs = nextFromArr ? tMs(nextFromArr.departure_time) : null;
+                        const nextFromBase = home ? flights.find((n, x) =>
+                            x > i && (!nextFromArr || fltDepTimes[x] < nextFromArrMs) && fltDepApts[x] === baseAt(n.departure_time)
                         ) : null;
                         // Stays put until the next logged flight; the seven-day bound only stops a stay with nothing
                         // scheduled after it from running on forever.
@@ -5002,11 +5017,8 @@
                         if (gapDays > 2) {
                             // Long gap before next departure from arr — if the pilot flew from any
                             // other airport during this gap, they went home after this arrival.
-                            const wentHome = allDeps.some(n =>
-                                normApt(n.departure_airport) !== arr &&
-                                new Date(n.departure_time) > arrT &&
-                                new Date(n.departure_time) < nextT
-                            );
+                            const nextMs = nextT.getTime();
+                            const wentHome = depTimes.some((t, x) => depApts[x] !== arr && t > arrMs && t < nextMs);
                             groundEnd = wentHome ? new Date(arrT.getTime() + 8 * 3600000) : nextT;
                         } else {
                             groundEnd = nextT;
@@ -5785,6 +5797,13 @@
             const sec = ms => (ms / 1000).toFixed(2) + 's';
             const lines = [`${run.view} · opened ${sec(run.t0)} after launch`];
             if (window._perfAptMs) lines.push(`airport file: asked ${sec(window._perfAptAsked)}, reply ${sec(window._perfAptHeaders)}`, `  parsed ${sec(window._perfAptParsed)}, ready ${sec(window._perfAptMs)}`);
+            // Startup: when each thing the app waits for finished, in seconds after launch.
+            const nav = performance.getEntriesByType('navigation')[0];
+            const res = performance.getEntriesByType('resource');
+            const finishedAt = part => { const e = res.find(r => r.name.includes(part)); return e ? sec(e.responseEnd) : '-'; };
+            lines.push(`page ${nav ? sec(nav.responseEnd) : '-'}, tailwind ${finishedAt('tailwindcss')}`,
+                `leaflet ${finishedAt('leaflet.js')}, geodesic ${finishedAt('geodesic')}`,
+                `tz ${finishedAt('tz-lookup')}, app code ${sec(window._perfAppStart)}`);
             run.marks.forEach(m => lines.push(`${sec(m.ms).padStart(7)}  ${m.label}`));
             if (run.total != null) lines.push(`${sec(run.total).padStart(7)}  TOTAL${run.view === 'Crossings' ? '' : ` · ${run.layers} layers`}`);
             if (run.restarts) lines.push(`restarted ${run.restarts}x`);
