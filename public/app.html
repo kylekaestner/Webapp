@@ -3387,15 +3387,18 @@
             const tourStartTomorrow = _tourStartDateFor(pilotKey, tomorrowStr);
             // Prefer the evening-before case (tomorrow IS a tour's day 1) over today-is-day-1,
             // since that's the one actually relevant to "tonight" if both somehow matched.
-            const tourStart = (tourStartTomorrow === tomorrowStr) ? tourStartTomorrow
-                : (tourStartToday === todayStr) ? tourStartToday : null;
+            // Mid-tour counts too: with no tail saved, nothing on this tour is being tracked at all
+            // (no legs, no crossings) -- the tail is the one thing the whole NetJets model hangs on.
+            const tourStart = (tourStartTomorrow === tomorrowStr && !_tourTailFor(pilotKey, tourStartTomorrow)) ? tourStartTomorrow
+                : tourStartToday;
             if (!tourStart) return;
             if (_tourTailFor(pilotKey, tourStart)) return;
             const dedupKey = `cs_netjets_tail_nudge_${pilotKey}_${tourStart}_${todayStr}`;
             try { if (localStorage.getItem(dedupKey)) return; } catch (_) {}
             _netjetsReminderTourStart = tourStart;
             const titleEl = document.getElementById('netjets-tail-reminder-title');
-            if (titleEl) titleEl.textContent = (tourStart === todayStr) ? 'Tour Starts Today' : 'Tour Starts Tomorrow';
+            if (titleEl) titleEl.textContent = (tourStart === todayStr) ? 'Tour Starts Today'
+                : (tourStart === tomorrowStr) ? 'Tour Starts Tomorrow' : 'No Tail Set — Not Tracking';
             const modal = document.getElementById('netjets-tail-reminder-modal');
             if (modal) modal.classList.remove('hidden');
             try { localStorage.setItem(dedupKey, '1'); } catch (_) {}
@@ -3462,6 +3465,81 @@
             if (!days || !days.length) return null;
             const row = days.find(d => d.date === dateStr);
             return row ? (row.status === 'X' ? 1 : 0) : null;
+        }
+
+        // NetJets pilots are home-based and airline home on the last day of every tour, a commute
+        // they rarely log -- so the airline rule ("no later flight logged: still at the last arrival
+        // airport") parked them at their last tour airport for the whole week off (false Crossings
+        // there, missed Home Turf ones at home). Auto-commute, same 3h rule as an airline commuter
+        // landing at base: home starts 3h after the last leg lands on the tour's last day (midnight
+        // if that day has no legs), through the end of the off-duty run. Real instants (flagged
+        // absolute so adjustedPeriod leaves them alone). Used by Crossings and the here-now pin.
+        function _netjetsOffDutyDates(pilotKey, fromDateStr, days) {
+            const data = pilotsCache[pilotKey];
+            const flown = new Set((data?.segments || [])
+                .filter(s => s.type === 'flight' && s.departure_time && !s.auto_leg_cancelled)
+                .map(s => flightLocalDate(s.departure_time, s.departure_airport) || s.departure_time.slice(0, 10)));
+            const out = [];
+            const d = new Date(fromDateStr + 'T12:00:00');
+            for (let i = 0; i < days; i++, d.setDate(d.getDate() + 1)) {
+                const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                if (!_isNetJetsOnDuty(pilotKey, ds) && !flown.has(ds)) out.push(ds);
+            }
+            return out;
+        }
+        function _netjetsHomeWindows(pilotKey) {
+            const data = pilotsCache[pilotKey];
+            if (data?.parser_type !== 'manual_netjets') return null;
+            const homeC = normApt(data.home_airport || PILOT_HOME[pilotKey] || data.base || '');
+            const tz = homeC && airportTz(homeC);
+            // No rotation/CC configured -> nothing says when they're off; leave the airline rules.
+            if (!tz || !((data.rotation_history || []).length || (data.cc_schedule_days || []).length)) return null;
+            const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const shift = (ds, n) => { const d = new Date(ds + 'T12:00:00'); d.setDate(d.getDate() + n); return ymd(d); };
+            const offDates = _netjetsOffDutyDates(pilotKey, ymd(new Date(Date.now() - 14 * 86400000)), 14 + 90);
+            const midnight = ds => localTimeToUTC(`${ds}T00:00:00`, tz);
+            const legs = (data.segments || []).filter(s => s.type === 'flight' && s.departure_time && s.arrival_time && !s.auto_leg_cancelled);
+            const windows = [];
+            for (const ds of offDates) {
+                const last = windows[windows.length - 1];
+                if (last && last.endDs === ds) { last.endDs = shift(ds, 1); continue; }
+                windows.push({ startDs: ds, endDs: shift(ds, 1) });
+            }
+            return {
+                homeC,
+                windows: windows.map(w => {
+                    // Auto-commute: 3h after the last leg landing on the tour's last day
+                    const lastDay = shift(w.startDs, -1);
+                    const lastArr = legs
+                        .filter(s => (flightLocalDate(s.departure_time, s.departure_airport) || s.departure_time.slice(0, 10)) === lastDay)
+                        .map(s => flightUTCTime(s.arrival_time, s.arrival_airport))
+                        .filter(d => d && !isNaN(d))
+                        .sort((a, b) => b - a)[0];
+                    const start = lastArr ? new Date(lastArr.getTime() + 3 * 3600000) : midnight(w.startDs);
+                    return { start, end: midnight(w.endDs) };
+                }),
+            };
+        }
+        function _netjetsHomeOnOffDays(pilotKey, periods) {
+            const hw = _netjetsHomeWindows(pilotKey);
+            if (!hw || !hw.windows.length) return periods;
+            let out = periods.map(p => ({ ...p }));
+            for (const w of hw.windows) {
+                out = out.filter(p => {
+                    if (p.airport === hw.homeC) return true;
+                    if (p.start < w.start && p.end > w.start) p.end = w.start; // away stay running into time off: cut at the commute
+                    return !(p.start >= w.start && p.start < w.end);           // nothing away starts during time off
+                });
+                out.push({ airport: hw.homeC, start: w.start, end: w.end, absolute: true });
+            }
+            return out;
+        }
+        // Here-now: home airport if right now falls in one of this NetJets pilot's home windows.
+        function _netjetsOffDutyHome(pilotKey) {
+            const hw = _netjetsHomeWindows(pilotKey);
+            if (!hw) return null;
+            const now = Date.now();
+            return hw.windows.some(w => w.start.getTime() <= now && now < w.end.getTime()) ? hw.homeC : null;
         }
 
         function _isNetJetsOnDuty(pilotKey, dateStr) {
@@ -3749,9 +3827,13 @@
                     // day (inclusive). This fixes one-night layovers where the old
                     // arrDate+1 start caused zero events to be generated.
                     const day = new Date(arrDate);
+                    // NetJets pilots airline home on a tour's last day -- the gap to the next tour's
+                    // first leg is days off at home, not an away layover at the last tour airport.
+                    const isNetjets = pilotsCache[currentPilot]?.parser_type === 'manual_netjets';
                     while (day <= depDate) {
                         const y = day.getFullYear(), m = String(day.getMonth() + 1).padStart(2, '0'), d = String(day.getDate()).padStart(2, '0');
-                        awayEvents.push({ type: 'away', departureTime: `${y}-${m}-${d}T00:00:00`, arrivalAirport: current.arrivalAirport });
+                        if (!(isNetjets && !_isNetJetsOnDuty(currentPilot, `${y}-${m}-${d}`)))
+                            awayEvents.push({ type: 'away', departureTime: `${y}-${m}-${d}T00:00:00`, arrivalAirport: current.arrivalAirport });
                         day.setDate(day.getDate() + 1);
                     }
                 } catch (err) {
@@ -4860,7 +4942,8 @@
             const overlapKeys = [...VALID_PILOTS];
             overlapKeys.forEach(key => {
                 const data = pilotsCache[key];
-                pilotPeriods[key] = data?.segments ? buildGroundPeriods(data.segments, data.base, data.home_airport || PILOT_HOME[key], data.base_history) : [];
+                const periods = data?.segments ? buildGroundPeriods(data.segments, data.base, data.home_airport || PILOT_HOME[key], data.base_history) : [];
+                pilotPeriods[key] = data?.parser_type === 'manual_netjets' ? _netjetsHomeOnOffDays(key, periods) : periods;
             });
 
             const getCoords = code => AIRPORTS[code] || AIRPORTS['K' + code] || null;
@@ -4960,7 +5043,7 @@
             // For non-UTC pilots, their times are stored as local airport time but parsed by the browser
             // as if they were in the browser's timezone. Shift by the difference so UTC comparisons are correct.
             const adjustedPeriod = (k, p) => {
-                if (pilotUsesUtc(k)) return p;
+                if (pilotUsesUtc(k) || p.absolute) return p;
                 const tz = airportTz(p.airport);
                 if (!tz) return p;
                 const ref = p.start;
@@ -6004,6 +6087,12 @@
                         isAtHome = false;
                         label = locationCode;
                         popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Overnight</div>`;
+                    } else if (_netjetsOffDutyHome(currentPilot)) {
+                        // NetJets off duty -- auto-commuted home after the tour's last leg
+                        locationCode = _netjetsOffDutyHome(currentPilot);
+                        isAtHome = true;
+                        label = 'Home';
+                        popupExtra = `<div style="font-size:12px;color:#c4b5fd">${locationCode} · Home</div>`;
                     } else {
                         // Only trust lastArrival if it landed within the last 36 hours; older = assume pilot went home
                         const recentEnough = lastFlight && (now - new Date(lastFlight.arrivalTime)) < 36 * 60 * 60 * 1000;
@@ -8024,6 +8113,10 @@
                         });
                     if (activeAway) { pushPin(activeAway.arrivalAirport, 'Overnight'); return; }
 
+                    // ── 4b. NetJets off duty — auto-commuted home after the tour's last leg ──
+                    const njHome = _netjetsOffDutyHome(pilotKey);
+                    if (njHome) { pushPin(njHome, 'Home'); return; }
+
                     // ── 5. Infer location from flight history ──
                     const completedFlights = pilotFlights.filter(f => {
                         const cs = deriveCallsign(f, pilotKey);
@@ -9284,10 +9377,16 @@
                     const ts = _tourStartDateFor(currentPilot, dateKey);
                     return ts ? `<button onclick="openNetjetsTourModal('${ts}')" class="text-[9px] font-black uppercase tracking-widest text-indigo-400 border border-indigo-900 rounded-full px-2.5 py-1 mt-1.5 hover:bg-indigo-950/40 transition-colors">✈️ Edit Tour</button>` : '';
                 })() : '';
+            // A tour day with no legs yet isn't missing data -- NetJets only files ~16-18h ahead
+            // (research log, 2026-10-30..11-03), so say when to expect them instead of looking empty.
+            const _tourLegsNote = (_pilotOnDutyDefault(currentPilot, dateKey) && _onDutyDefaultLabel(currentPilot) === 'ON TOUR'
+                && workFlights.length === 0 && dateKey >= _todayLocalDateStr())
+                ? `<div class="text-[10px] text-zinc-500 mt-1.5 max-w-[16rem] leading-snug">Legs show up once NetJets files them — usually the evening before.</div>` : '';
             let html = `<div class="flex items-start justify-between mb-4">
                 <div>
                     <div class="text-[10px] font-black uppercase tracking-widest ${labelColor}">${label}</div>
                     <div class="text-lg font-black text-white mt-0.5">${dateLabel}</div>
+                    ${_tourLegsNote}
                     ${_tourEditBtn}
                 </div>
                 <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden')" class="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 text-sm shrink-0">✕</button>
@@ -13530,11 +13629,15 @@ async function openAdminPanel(tab = 'users') {
         // ── End Wrapped ───────────────────────────────────────────────────────
 
         // Called after a successful schedule upload to notify the other pilot(s) in any new crossings
-        async function broadcastCrossingNotifications(overlaps) {
+        // maxAheadMs: only crossings starting within this window (the app-open check passes 48h --
+        // NetJets legs are filed ~18h ahead and airline lines can still change further out).
+        async function broadcastCrossingNotifications(overlaps, maxAheadMs = Infinity) {
             if (!myPilot || !myToken || isDemo || !Array.isArray(overlaps)) return;
             const now = Date.now();
             const crossings = overlaps
-                .filter(o => o.isDirect && o.directEnd && o.directEnd.getTime() > now)
+                // Only pairs involving me -- the title below names "the other pilot" relative to me
+                .filter(o => (o.kA === myPilot || o.kB === myPilot) && o.isDirect && o.directEnd && o.directEnd.getTime() > now
+                    && o.directStart && o.directStart.getTime() - now <= maxAheadMs)
                 .map(o => {
                     const otherKey = o.kA === myPilot ? o.kB : o.kA;
                     const otherName = (PILOT_NAMES[otherKey] || otherKey).split(' ')[0];
@@ -13586,7 +13689,14 @@ async function openAdminPanel(tab = 'users') {
             // Push notifications + badge
             // Background crossing check — populates badge and may show modal
             if (myPilot && !isDemo) {
-                computeOverlap().then(overlaps => updateCrossingAlert(overlaps)).catch(() => {});
+                // Also pushes any new crossing involving me within 48h. Uploads used to be the only
+                // trigger, so legs that appear on their own (NetJets legs filed the evening before,
+                // server-side ICS/Schedaero syncs) never alerted anyone. The server dedupes per
+                // crossing, so re-opening the app doesn't re-notify.
+                computeOverlap().then(overlaps => {
+                    updateCrossingAlert(overlaps);
+                    if (PUSH_ENABLED) broadcastCrossingNotifications(overlaps, 48 * 3600000);
+                }).catch(() => {});
                 loadIntelCounts().catch(() => {});
                 trackEvent('app:open');
             }
