@@ -3338,8 +3338,18 @@
         function normApt(code) {
             if (!code) return '';
             const u = code.toUpperCase().trim();
-            if (u.length === 4 && (u[0] === 'K' || u[0] === 'C')) return u.slice(1);
+            // Keep the prefix when the 3-letter remainder is a different airport (KCQF Fairhope AL
+            // vs CQF Calais, KBKV Brooksville FL vs BKV China) -- same rule as server.js's
+            // norm3Airport(); stripping it sent maps/Crossings to the wrong continent.
+            if (u.length === 4 && (u[0] === 'K' || u[0] === 'C')) return _prefixCollides(u) ? u : u.slice(1);
             return u;
+        }
+        function _prefixCollides(icao) {
+            if (typeof AIRPORTS === 'undefined') return false;
+            const full = AIRPORTS[icao], bare = AIRPORTS[icao.slice(1)];
+            if (!full || !bare) return false;
+            const dLat = full[0] - bare[0], dLon = (full[1] - bare[1]) * Math.cos(full[0] * Math.PI / 180);
+            return Math.sqrt(dLat * dLat + dLon * dLon) * 111 > 50;
         }
         function sameApt(a, b) { return !!a && !!b && normApt(a) === normApt(b); }
         function isHomeAirport(airport, pilotKey) {
@@ -3696,6 +3706,10 @@
                 return r.json();
             }).then(data => {
                 Object.assign(AIRPORTS, data);
+                // Renamed airports newer than airports.json (same list as server.js): KPBI -> KDJT.
+                for (const [neu, old] of Object.entries({ DJT: 'PBI', KDJT: 'KPBI' })) {
+                    if (!AIRPORTS[neu] && AIRPORTS[old]) { AIRPORTS[neu] = AIRPORTS[old]; data[neu] = AIRPORTS[old]; }
+                }
                 if (typeof tzlookup === 'function') {
                     Object.entries(data).forEach(([code, [lat, lon]]) => {
                         if (!_tzCache[code]) {

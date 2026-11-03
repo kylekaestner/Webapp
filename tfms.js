@@ -598,6 +598,29 @@ function processLegTimes(msgObj, cs, origin, dest, candidateMs, msgType) {
     // trackInformation only while it has a real radar track. Confirmed on EJA492 2026-11-02: every
     // leg it really flew got a departure/arrival pair, none of its stale alternate plans ever did --
     // which is what lets server.js trust a TFMS-only leg TFDM never saw (untowered 27K->LBE).
+    // A route's trailing "/HHMM" after the destination (KDJT/0145). Its meaning depends on when it
+    // was sent -- checked against 1,219 fleet legs with real times: in a plan sent before
+    // departure it's the elapsed time (572 fit, 1 didn't), in an amendment sent once airborne it's
+    // the clock arrival time in UTC (507 fit, 0 didn't). Either way ~96% land within 20 minutes
+    // of the real arrival, so it's an arrival time when TFMS sends no direct eta.
+    const routeSuffix = (messageRouteString(msgObj) || '').trim().match(/\/(\d{2})(\d{2})$/);
+    if (routeSuffix && +routeSuffix[1] < 24 && +routeSuffix[2] < 60) {
+        const hh = +routeSuffix[1], mm = +routeSuffix[2];
+        const airborne = leg.departedAt || leg.tracked || msgType === 'flightPlanAmendmentInformation' && leg.etdType === 'ACTUAL';
+        const depIso = leg.etd || leg.igtd || (candidateMs != null ? new Date(candidateMs).toISOString() : null);
+        const depMs = depIso ? Date.parse(depIso) : null;
+        if (depMs) {
+            let etaMs;
+            if (airborne) {
+                const d = new Date(depMs);
+                etaMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hh, mm);
+                if (etaMs < depMs) etaMs += 86400000;
+            } else {
+                etaMs = depMs + (hh * 60 + mm) * 60000;
+            }
+            if (etaMs > depMs && etaMs - depMs < 16 * 3600000) leg.routeEta = new Date(etaMs).toISOString();
+        }
+    }
     if (msgType === 'departureInformation' && !leg.departedAt) leg.departedAt = Date.now();
     else if (msgType === 'arrivalInformation' && !leg.arrivedAt) leg.arrivedAt = Date.now();
     else if (msgType === 'trackInformation') leg.tracked = true;
@@ -696,19 +719,7 @@ function processOneFiMessage(msgObj) {
     _airportConfig[key] = next;
 }
 
-// TEMPORARY one-off raw capture (added 2026-11-03, remove once read): EJA492's 21:00Z 11/3 plan
-// arrived as FlightCreate/FlightRoute with no airports we parse, so the per-leg store dropped it.
-// Captures the raw XML of its plan messages to see where the airports actually live.
-let _eja492CaptureCount = 0;
-const _EJA492_DEBUG_PATH = path.join(__dirname, '.eja492_debug_tfms.xml');
-function _captureEja492(xmlText) {
-    if (_eja492CaptureCount >= 10 || !xmlText.includes('EJA492') || !/msgType="(FlightCreate|FlightRoute|FlightSectors|FlightModify)"/.test(xmlText)) return;
-    _eja492CaptureCount++;
-    try { fs.appendFileSync(_EJA492_DEBUG_PATH, `\n\n==== CAPTURE ${_eja492CaptureCount} @ ${new Date().toISOString()} ====\n${xmlText}`); } catch (e) {}
-}
-
 function handleMessage(xmlText) {
-    _captureEja492(xmlText);
     // APTC messages carry no callsign at all, so they'd always fail the relevant-callsigns
     // substring check below and never reach the parser once that check applies — checked for
     // and parsed unconditionally, ahead of that gate, same cheap-substring-first approach as

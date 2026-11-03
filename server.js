@@ -1704,6 +1704,13 @@ try {
 } catch (e) {
     console.error('Could not load airports_raw.csv:', e.message);
 }
+// Renamed airports newer than the bundled data: new code -> old code, copied onto the new one.
+// KPBI (Palm Beach Intl) became KDJT -- EJA492 filed out of it on 11/3 with no coords/timezone.
+const _AIRPORT_RENAMES = { DJT: 'PBI', KDJT: 'KPBI' };
+for (const [neu, old] of Object.entries(_AIRPORT_RENAMES)) {
+    if (!_aptCoords[neu] && _aptCoords[old]) _aptCoords[neu] = _aptCoords[old];
+    if (!_aptTimezone[neu] && _aptTimezone[old]) _aptTimezone[neu] = _aptTimezone[old];
+}
 
 function iataToIcaoAirport(iata) {
     if (!iata) return null;
@@ -1723,10 +1730,24 @@ function icaoToIataAirport(icao) {
 // human-corrected segment stored "KBKV" (4-letter) while the poller always normalizes to "BKV"
 // (3-letter), so _findExistingNetjetsLeg() never recognized the two as the same airport and kept
 // creating fresh duplicate legs for a leg a human had already fixed.
+// Stripping the K is only safe when the 3-letter code means the same airport. KCQF (Fairhope AL)
+// -> "CQF" is Calais's IATA code; KBKV (Brooksville FL) -> "BKV" is in China. Back-to-back days
+// of wrong timezones/coordinates (BKV on 11/2, CQF's 593-minute estimate on 11/3) came from that,
+// so a colliding code keeps its K. Applies to bare 3-letter input too (TFMS's depArpt is the FAA
+// code without the K). A blanket "prefer K" lookup was rejected: HND, PVG, DUB, PUJ and GCM all
+// have US K-code namesakes, and airline pilots fly those.
+function _kCodeCollides(c3) {
+    const k = _aptCoords['K' + c3], bare = _aptCoords[c3];
+    if (!k || !bare) return false;
+    const dLat = k[0] - bare[0], dLon = (k[1] - bare[1]) * Math.cos(k[0] * Math.PI / 180);
+    return Math.sqrt(dLat * dLat + dLon * dLon) * 111 > 50; // km, approx
+}
 function norm3Airport(a) {
     if (!a) return null;
-    const up = String(a).toUpperCase().replace(/^K/, '');
-    return up.length === 3 ? up : (icaoToIataAirport(up.length === 4 ? up : 'K' + up) || up);
+    const raw = String(a).toUpperCase().trim();
+    if (/^[A-Z0-9]{3}$/.test(raw)) return _kCodeCollides(raw) ? 'K' + raw : raw;
+    if (/^K[A-Z0-9]{3}$/.test(raw)) { const bare = raw.slice(1); return _kCodeCollides(bare) ? raw : bare; }
+    return icaoToIataAirport(raw) || raw;
 }
 
 // TFDM only covers towered airports, so a leg into or out of an untowered field (confirmed on
@@ -1769,21 +1790,34 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
     // instead of one leg at a time. Capped at 8 steps; each step must be later than the last.
     // TFDM can keep a plan at SCHEDULED after TFMS cancels it (EJA492's APF->RDU 21:00Z) -- never
     // anchor the chain on one of those, or the in-advance legs follow a plan that isn't happening.
+    //
+    // Walked one airport at a time from the last leg that really moved, taking the next departure
+    // from wherever it's filed -- TFMS or TFDM. Anchoring on the latest TFDM leg instead jumped past
+    // TFMS-only legs in between: EJA492's chain started at HOT->CLT (TFDM, 23:18Z) and skipped
+    // LBE->DJT->CQF->HOT, so those legs never got their real times.
     const tfmsCancelled = l => tfmsLegTimes.some(t => norm(t.origin) === norm(l.origin) && norm(t.dest) === norm(l.dest) && _tfmsLegCancelled(t));
-    let anchor = [...tfdmLegs.filter(l => !tfmsCancelled(l)), ...out]
-        .filter(l => l.scheduledDepMs != null && l.dest)
-        .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs).pop();
-    for (let step = 0; anchor && step < 8; step++) {
-        const here = norm(anchor.dest);
-        const next = tfmsLegTimes
-            .filter(t => !t.cancelled && !_tfmsLegFlown(t)
-                && t.scheduledDepMs != null && t.scheduledDepMs > anchor.scheduledDepMs && t.scheduledDepMs >= minDepMs
-                && norm(t.origin) === here
-                && !tfdmLegs.some(l => norm(l.origin) === here && l.scheduledDepMs != null && Math.abs(l.scheduledDepMs - t.scheduledDepMs) <= 60 * 60 * 1000))
-            .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs)[0];
+    const MOVING_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
+    const byTime = (a, b) => a.scheduledDepMs - b.scheduledDepMs;
+    const pool = tfdmLegs.filter(l => !tfmsCancelled(l) && l.scheduledDepMs != null && l.dest);
+    let anchor = [...pool.filter(l => MOVING_RE.test(l.flightState || '')), ...out]
+        .filter(l => l.scheduledDepMs != null && l.dest).sort(byTime).pop()
+        || pool.slice().sort(byTime)[0]; // nothing has moved yet: start from the first filed leg
+    for (let step = 0; anchor && anchor.dest && step < 12; step++) {
+        const here = norm(anchor.dest), after = anchor.scheduledDepMs;
+        const fromTfms = tfmsLegTimes
+            .filter(t => !t.cancelled && !_tfmsLegFlown(t) && t.scheduledDepMs != null && t.scheduledDepMs > after
+                && t.scheduledDepMs >= minDepMs && norm(t.origin) === here && t.dest && !NETJETS_PLACEHOLDER_APT_RE.test(t.dest))
+            .map(t => ({ ms: t.scheduledDepMs, tfdm: null, t }));
+        const fromTfdm = pool.filter(l => norm(l.origin) === here && l.scheduledDepMs > after)
+            .map(l => ({ ms: l.scheduledDepMs, tfdm: l, t: null }));
+        // earliest next departure; on a tie TFDM's own leg wins (it's already a candidate)
+        const next = [...fromTfdm, ...fromTfms].sort((a, b) => (a.ms - b.ms) || (a.tfdm ? -1 : 1))[0];
         if (!next) break;
-        anchor = { origin: next.origin, dest: next.dest, scheduledDepMs: next.scheduledDepMs, flightState: 'SCHEDULED', tfmsOnly: true, inAdvance: true, cs: next.cs };
-        out.push(anchor);
+        if (next.tfdm) { anchor = next.tfdm; continue; }
+        const leg = { origin: next.t.origin, dest: next.t.dest, scheduledDepMs: next.ms, flightState: 'SCHEDULED', tfmsOnly: true, inAdvance: true, cs: next.t.cs };
+        // TFDM already has this departure (same origin, within 1h): it's the candidate, not a copy
+        if (!pool.some(l => norm(l.origin) === here && Math.abs(l.scheduledDepMs - next.ms) <= 60 * 60 * 1000)) out.push(leg);
+        anchor = leg;
     }
     return out;
 }
@@ -1841,7 +1875,7 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
 
         out.push({
             origin, dest, depTime, flightState, status: 'real', reason: null,
-            arrTime: legTimes.eta || legTimes.airlineInTime || legTimes.airlineOnTime || leg.estArrivalTime || null,
+            arrTime: legTimes.eta || legTimes.routeEta || legTimes.airlineInTime || legTimes.airlineOnTime || leg.estArrivalTime || null,
             // Raised directly: "resolved" (passed the chain-consistency filter) is not the same
             // claim as "actually confirmed flown" -- confirmed real tail-23 case: 3 legs resolved
             // for 11/1, FlightAware shows nothing flown since 10/31. A leg only ever gets this
@@ -4798,7 +4832,9 @@ app.get('/api/live-position', async (req, res) => {
         } catch (_) {} // best-effort -- the SWIM/STDDS-sourced response is still valid without this
     }
 
-    _liveCache[callsign] = { ts: Date.now(), data };
+    // A "not this leg" answer is specific to the leg asked about -- caching it per callsign made
+    // the real leg's next request read it back as its own (its origin is the real leg's).
+    if (!data?.notThisLeg) _liveCache[callsign] = { ts: Date.now(), data };
     res.json(data);
 });
 
@@ -4903,7 +4939,9 @@ function _crossOperatorRouteDurationMin(db, origin, dest) {
         const cached = _crossOpRouteCache[key];
         if (cached && Date.now() - cached.ts < CROSS_OP_CACHE_TTL_MS) return resolve(cached.minutes);
         db.all(
-            `SELECT block_minutes FROM segments WHERE departure_airport=? AND arrival_airport=? AND type='flight' AND block_minutes IS NOT NULL AND block_minutes > 0 LIMIT 50`,
+            // Real schedules only -- a NetJets auto leg's block time can itself have come from an
+            // estimate, and feeding it back in made a bad guess (EJA492 CQF->HOT 593min) self-reinforcing.
+            `SELECT block_minutes FROM segments WHERE departure_airport=? AND arrival_airport=? AND type='flight' AND block_minutes IS NOT NULL AND block_minutes > 0 AND block_minutes < 720 AND auto_leg_key IS NULL LIMIT 50`,
             [origin, dest],
             (err, rows) => {
                 const minutes = (!err && rows && rows.length) ? rows.reduce((s, r) => s + r.block_minutes, 0) / rows.length : null;
@@ -4930,15 +4968,18 @@ async function _estimatedRouteDurationMin(db, origin, dest) {
     if (rec && rec.count > 0) return rec.totalMinutes / rec.count;
     const crossOp = await _crossOperatorRouteDurationMin(db, origin, dest);
     if (crossOp) return crossOp;
-    const a = _aptCoords[origin] || _aptCoords['K' + origin];
-    const b = _aptCoords[dest] || _aptCoords['K' + dest];
+    // US K-code first for a 3-letter code: the bare IATA table collides (CQF Fairhope AL resolved
+    // to Calais, France -- a 593-minute "estimate" for a ~1h CQF->HOT leg on EJA492).
+    const coords = c => (c && c.length === 3 && _aptCoords['K' + c]) || _aptCoords[c] || _aptCoords['K' + c];
+    const a = coords(origin), b = coords(dest);
     if (!a || !b) return null;
     const toRad = d => d * Math.PI / 180;
     const R_NM = 3440.065; // Earth radius in nautical miles
     const dLat = toRad(b[0] - a[0]), dLon = toRad(b[1] - a[1]);
     const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
     const distNm = 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(h)));
-    return (distNm / NETJETS_CRUISE_KTS) * 60 + NETJETS_ROUTE_PAD_MIN;
+    const min = (distNm / NETJETS_CRUISE_KTS) * 60 + NETJETS_ROUTE_PAD_MIN;
+    return min > 12 * 60 ? null : min; // no NetJets leg is 12h+ -- a sign the coordinates are wrong
 }
 
 // NetJets manual-tracking: resolves every parser_type='manual_netjets' pilot currently on-duty
@@ -5080,8 +5121,10 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
         // the callsign it was filed under (its flight_number, and what live tracking polls).
         const csList = [cs, nj.tailCallsign].filter(Boolean);
         const tfmsLegTimes = csList.flatMap(c => tfms.getAllLegTimes(c).map(l => ({ ...l, cs: c })));
-        const tfdmLegs = csList.flatMap(c => tfdm.getAllLegs(c).map(l => ({ ...l, cs: c })))
-            .filter(l => (l.scheduledDepMs || 0) >= tourStartMs);
+        // Collapsed before the chain is built too -- otherwise it can start from a stale version of
+        // a departure (SAT->KPEQ / SAT->ZZZZ instead of SAT->E38) and find nothing filed from there.
+        const tfdmLegs = _collapseSameDepartureLegs(csList.flatMap(c => tfdm.getAllLegs(c).map(l => ({ ...l, cs: c })))
+            .filter(l => (l.scheduledDepMs || 0) >= tourStartMs), tfmsLegTimes);
         const allLegs = _collapseSameDepartureLegs([...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs)], tfmsLegTimes)
             .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
         if (!allLegs.length) continue; // nothing known yet for this tour -- wait for a real signal
@@ -5171,7 +5214,7 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             // Same fix as depTime above, same leg confirmed it: eta tracked the real ~2h push
             // (23:14:35Z estimated) while airlineInTime/airlineOnTime stayed frozen near the
             // original 22:12Z/22:06Z.
-            const arrTime = legTimes.eta || legTimes.airlineInTime || legTimes.airlineOnTime || leg.estArrivalTime || null;
+            const arrTime = legTimes.eta || legTimes.routeEta || legTimes.airlineInTime || legTimes.airlineOnTime || leg.estArrivalTime || null;
             // Last resort when NEITHER feed has anything at all -- confirmed live this is common,
             // not rare: TFDM only ever shows up within ~18h of departure (590-leg fleet-wide
             // check, 2026-10-31, zero exceptions beyond that), and its own estArrivalTime is
@@ -5282,7 +5325,9 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
             if (finalDepTime && finalArrTime) {
                 const block = Math.round((new Date(finalArrTime) - new Date(finalDepTime)) / 60000);
                 if (isFinite(block) && block > 0) {
-                    updates.push('block_minutes=?'); params.push(block);
+                    // Block time only from a real arrival time -- otherwise a placeholder estimate
+                    // became a precise-looking block time (EJA492 CQF->HOT showed 593 minutes).
+                    if (arrTime) { updates.push('block_minutes=?'); params.push(block); }
                     // Recorded into the NetJets-wide duration history ONLY from REAL evidence
                     // (arrTime) on a genuinely completed leg -- never from the estimate itself,
                     // so a guess can never compound into a worse guess for a later leg on this
@@ -5520,8 +5565,9 @@ async function runActiveFlightPoller() {
                     // ever polled for it.
                     const data = await fetchLivePosition(callsign, row.departure_airport);
                     processPositionUpdate(data, depUnixSec);
-                    // Update the live cache so the next client poll gets pre-built data
-                    _liveCache[callsign] = { ts: Date.now(), data };
+                    // Update the live cache so the next client poll gets pre-built data (never a
+                    // leg-specific "not this leg" answer -- see /api/live-position's own write)
+                    if (!data?.notThisLeg) _liveCache[callsign] = { ts: Date.now(), data };
                     if (data.found && !data.parked) console.log(`Poller: ${callsign} ${data.onGround ? (data.speedKts > 5 ? 'taxiing' : 'ground') : `${data.altFt ? Math.round(data.altFt) + 'ft' : 'airborne'}`} trail=${_posTrail[data.hex]?.length ?? 0}pts${data.source ? ` [${data.source}]` : ''}`);
                 } catch (_) {} // flight not yet airborne or no source available
             }
@@ -5858,7 +5904,7 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
         // "Resolved" -- the same chain-consistency filter _pollNetjetsLegCreation() actually
         // applies, run read-only against this window so leg-creation logic can be validated at
         // fleet scale without a real on-duty pilot tracking this tail.
-        const resolved = resolveNetjetsLegsForDisplay([...allLegs, ..._tfmsOnlyFlownLegs(allLegs, legTimes, -Infinity)].sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0)), legTimes);
+        const resolved = resolveNetjetsLegsForDisplay([...allLegs, ..._tfmsOnlyFlownLegs(_collapseSameDepartureLegs(allLegs, legTimes), legTimes, -Infinity)].sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0)), legTimes);
         const statusColor = { real: '#4ade80', filtered: '#f87171', cancelled: '#71717a', 'no-time': '#52525b' };
         const statusLabel = { real: 'REAL', filtered: 'FILTERED OUT', cancelled: 'CANCELLED', 'no-time': 'NO TIME YET' };
         // Raised directly: "resolved" (survived the chain-consistency filter) isn't the same claim
