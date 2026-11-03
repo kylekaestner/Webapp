@@ -5146,9 +5146,6 @@ function _netjetsRowTimes(row, legTimes, flown, depTime, arrTime) {
     const iso = ms => new Date(ms).toISOString();
     if (flown) {
         const dep = legTimes.etdType !== 'ACTUAL' && legTimes.departedAt ? iso(legTimes.departedAt) : depTime;
-        // etaType ACTUAL means eta is the real arrival, to the second. arrivedAt is only when the arrival
-        // message reached us, up to 6 minutes later (CQF->HOT: eta 22:50:20, message 22:56:00).
-        if (legTimes.etaType === 'ACTUAL' && legTimes.eta) return { dep, arr: legTimes.eta };
         const reported = legTimes.timeOfArrivalEstimated === false ? Date.parse(legTimes.timeOfArrival || '') : NaN;
         const arr = !isNaN(reported) ? iso(reported) : legTimes.arrivedAt ? iso(legTimes.arrivedAt) : arrTime;
         return { dep, arr };
