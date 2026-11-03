@@ -3737,23 +3737,21 @@
         }
 
         function loadAirportDB() {
+            window._perfAptAsked = performance.now();
             fetch('/airports.json').then(r => {
+                window._perfAptHeaders = performance.now();
                 if (!r.ok) throw new Error('Failed to load airports.json');
                 return r.json();
             }).then(data => {
+                window._perfAptParsed = performance.now();
                 Object.assign(AIRPORTS, data);
                 // Renamed airports newer than airports.json (same list as server.js): KPBI -> KDJT.
                 for (const [neu, old] of Object.entries({ DJT: 'PBI', KDJT: 'KPBI' })) {
                     if (!AIRPORTS[neu] && AIRPORTS[old]) { AIRPORTS[neu] = AIRPORTS[old]; data[neu] = AIRPORTS[old]; }
                 }
-                if (typeof tzlookup === 'function') {
-                    Object.entries(data).forEach(([code, [lat, lon]]) => {
-                        if (!_tzCache[code]) {
-                            try { _tzCache[code] = tzlookup(lat, lon); } catch (e) { /* ignore */ }
-                        }
-                    });
-                    if (typeof render === 'function') render();
-                }
+                // Timezones are looked up per airport as needed (airportTz()), not for all 111k up front.
+                // Redraw so times that had no airport data yet pick up their zone.
+                if (typeof render === 'function') render();
                 window._perfAptMs = performance.now();
                 airportDbReady = true;
                 if (currentView === 'map') renderMap();
@@ -5761,7 +5759,7 @@
             }
             const sec = ms => (ms / 1000).toFixed(2) + 's';
             const lines = [`${run.view} · opened ${sec(run.t0)} after launch`];
-            if (window._perfAptMs) lines.push(`airport file ready at ${sec(window._perfAptMs)}`);
+            if (window._perfAptMs) lines.push(`airport file: asked ${sec(window._perfAptAsked)}, reply ${sec(window._perfAptHeaders)}`, `  parsed ${sec(window._perfAptParsed)}, ready ${sec(window._perfAptMs)}`);
             run.marks.forEach(m => lines.push(`${sec(m.ms).padStart(7)}  ${m.label}`));
             if (run.total != null) lines.push(`${sec(run.total).padStart(7)}  TOTAL · ${run.layers} layers`);
             if (run.restarts) lines.push(`restarted ${run.restarts}x`);
