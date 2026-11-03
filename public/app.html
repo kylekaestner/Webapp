@@ -4864,6 +4864,8 @@
             // buildGroundPeriods/cross-pairing/render work below runs, and switching
             // to Overlap can feel like it hangs before the view even appears.
             await new Promise(r => setTimeout(r, 0));
+            const _cx = currentView === 'overlap';
+            if (_cx) _perfStart('Crossings');
 
             const now = new Date();
             const bufferMs = 3 * 60 * 60 * 1000;
@@ -4876,6 +4878,7 @@
                     catch (e) { return; }
                 }
             }));
+            if (_cx) _perfMark('pilot data');
 
             function buildGroundPeriods(segments, homeBase, homeCity, baseHistory) {
                 // Normalize all airport codes so KLGA === LGA, CYYZ === YYZ, etc.
@@ -5037,6 +5040,7 @@
                 pilotPeriods[key] = data?.parser_type === 'manual_netjets' ? _netjetsHomeOnOffDays(key, periods) : periods;
             });
 
+            if (_cx) _perfMark('ground periods');
             const getCoords = code => AIRPORTS[code] || AIRPORTS['K' + code] || null;
             const sameMetro = (a, b) => { const mA = METRO_GROUPS[a], mB = METRO_GROUPS[b]; return !!(mA && mA === mB); };
             const airportsNear = (a, b) => {
@@ -5140,7 +5144,12 @@
                 const ref = p.start;
                 const airportOff = (() => {
                     try {
-                        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' }).formatToParts(ref);
+                        let fmt = _tzOffsetFmts.get(tz);
+                        if (!fmt) {
+                            fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' });
+                            _tzOffsetFmts.set(tz, fmt);
+                        }
+                        const parts = fmt.formatToParts(ref);
                         const str = (parts.find(x => x.type === 'timeZoneName') || {}).value || '';
                         const m = str.match(/GMT([+-])(\d+):(\d{2})/);
                         if (!m) return null;
@@ -5155,11 +5164,30 @@
             };
 
             const overlaps = [];
+            // Each pilot's periods span their whole history, and any crossing that has ended is dropped
+            // below. A pair where both periods ended before this cutoff can't survive that, so it's
+            // skipped here. Two days of slack covers adjustedPeriod()'s shift.
+            const oldCutMs = now.getTime() - 2 * 86400000;
+            const recentPeriods = {};
+            overlapKeys.forEach(k => { recentPeriods[k] = pilotPeriods[k].filter(p => p.end.getTime() >= oldCutMs); });
+            const adjMemo = new Map();
+            const adjOf = (k, p) => {
+                let adj = adjMemo.get(p);
+                if (!adj) { adj = adjustedPeriod(k, p); adjMemo.set(p, adj); }
+                return adj;
+            };
             for (let i = 0; i < overlapKeys.length; i++) {
                 for (let j = i + 1; j < overlapKeys.length; j++) {
                     const kA = overlapKeys[i], kB = overlapKeys[j];
                     for (const pA of pilotPeriods[kA]) {
-                        for (const pB of pilotPeriods[kB]) {
+                        const adjA = adjOf(kA, pA);
+                        const candidates = pA.end.getTime() < oldCutMs ? recentPeriods[kB] : pilotPeriods[kB];
+                        for (const pB of candidates) {
+                            // Time check first: it's only arithmetic, and it rejects nearly every pair
+                            // before the distance math. Timezone-adjusted periods, for UTC comparisons.
+                            const adjB = adjOf(kB, pB);
+                            if (adjA.start.getTime() - bufferMs > adjB.end.getTime()) continue;
+                            if (adjB.start.getTime() - bufferMs > adjA.end.getTime()) continue;
                             if (!airportsNear(pA.airport, pB.airport)) continue;
                             const homeA = normApt(PILOT_HOME[kA] || ''), homeB = normApt(PILOT_HOME[kB] || '');
                             if (homeA && homeB && airportsNear(pA.airport, homeA) && airportsNear(pB.airport, homeB)) continue;
@@ -5167,11 +5195,6 @@
                             const distMi = (pA.airport !== pB.airport && _ca && _cb)
                                 ? Math.round(haversineMi(_ca[0], _ca[1], _cb[0], _cb[1]))
                                 : 0;
-                            // Use timezone-adjusted periods for UTC comparisons only
-                            const adjA = adjustedPeriod(kA, pA);
-                            const adjB = adjustedPeriod(kB, pB);
-                            if (adjA.start.getTime() - bufferMs > adjB.end.getTime()) continue;
-                            if (adjB.start.getTime() - bufferMs > adjA.end.getTime()) continue;
 
                             const directStart = new Date(Math.max(adjA.start.getTime(), adjB.start.getTime()));
                             const directEnd   = new Date(Math.min(adjA.end.getTime(),   adjB.end.getTime()));
@@ -5210,6 +5233,7 @@
             const filtered = byPilot.filter(o => visibleCrew.has(o.kA) && visibleCrew.has(o.kB));
 
             filtered.sort((a, b) => a.sortKey - b.sortKey);
+            if (_cx) _perfMark(`pair matching (${filtered.length} found)`);
 
             const _pad = n => String(n).padStart(2, '0');
             const localDateStr = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
@@ -5542,6 +5566,7 @@
                 requestAnimationFrame(() => scrollToOverlapCard(scrollTargetIdx));
             }
 
+            if (_cx) { _perfMark('cards built'); _perfDone(); }
             return filtered;
         }
 
@@ -5755,13 +5780,13 @@
                 _perfBox = document.createElement('div');
                 _perfBox.style.cssText = 'position:fixed;top:calc(env(safe-area-inset-top) + 110px);left:8px;z-index:99999;background:rgba(0,0,0,.85);color:#e4e4e7;border:1px solid #3f3f46;border-radius:8px;padding:6px 8px;font:11px/1.45 ui-monospace,Menlo,monospace;white-space:pre;pointer-events:none';
                 document.body.appendChild(_perfBox);
-                setInterval(() => { _perfBox.style.display = currentView === 'map' ? '' : 'none'; }, 500);
+                setInterval(() => { _perfBox.style.display = (currentView === 'map' || currentView === 'overlap') ? '' : 'none'; }, 500);
             }
             const sec = ms => (ms / 1000).toFixed(2) + 's';
             const lines = [`${run.view} · opened ${sec(run.t0)} after launch`];
             if (window._perfAptMs) lines.push(`airport file: asked ${sec(window._perfAptAsked)}, reply ${sec(window._perfAptHeaders)}`, `  parsed ${sec(window._perfAptParsed)}, ready ${sec(window._perfAptMs)}`);
             run.marks.forEach(m => lines.push(`${sec(m.ms).padStart(7)}  ${m.label}`));
-            if (run.total != null) lines.push(`${sec(run.total).padStart(7)}  TOTAL · ${run.layers} layers`);
+            if (run.total != null) lines.push(`${sec(run.total).padStart(7)}  TOTAL${run.view === 'Crossings' ? '' : ` · ${run.layers} layers`}`);
             if (run.restarts) lines.push(`restarted ${run.restarts}x`);
             if (run.live) lines.push(`${sec(run.liveAt).padStart(7)}  live routes drawn (${run.live})`);
             _perfBox.textContent = lines.join('\n');
