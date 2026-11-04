@@ -674,7 +674,6 @@
                         </div>
                         <div class="flex gap-1">
                             <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
-                            <button id="btn-basemap" onclick="toggleBasemap()" class="hidden map-ctrl-pill">🗺 CARTO+</button>
                             <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill" title="Toggle route detail (VOR/fix/waypoint symbols)">✦ RTE</button>
                             <button id="btn-show-sector" onclick="toggleShowSector()" class="map-ctrl-pill" title="Show the real ATC frequency currently controlling each live flight, when it resolves">📻 FREQ</button>
                         </div>
@@ -6571,7 +6570,7 @@
 
         // Base map detail, switchable (2026-11-03): CARTO restyled dark_all (fewer labels zoomed out,
         // lighter blue-grey water) and no longer serves the old look at any URL. Standard vs CARTO+
-        // (next zoom level at half size). A trial pick persists per device (cs_basemap); toggleBasemap()
+        // (next zoom level at half size). Choice persists per device (cs_basemap); toggleBasemap()
         // swaps it live on every open map.
         var BASEMAPS = { // var: addBasemap() can run before this line during startup
             carto: { label: 'CARTO', layers: [
@@ -6584,19 +6583,11 @@
                 { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
                   nolabels: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
                   opts: { className: 'cs-basemap', subdomains: 'abcd', tileSize: 128, zoomOffset: 1, maxNativeZoom: 18, maxZoom: 19 } } ] },
-            // Trial options, Kyle and admin only (the #btn-basemap pill). Both are drawn by MapLibre,
-            // loaded on first pick. Protomaps stays out of the cycle until PROTOMAPS_KEY is set.
-            ofm: { label: 'OpenFreeMap', style: () => 'https://tiles.openfreemap.org/styles/dark' },
-            protomaps: { label: 'Protomaps', style: () => `https://api.protomaps.com/styles/v5/dark/en.json?key=${PROTOMAPS_KEY}` },
         };
-        var PROTOMAPS_KEY = '';
         var _basemapChoice = 'detail'; // CARTO+ for everyone (picked 2026-11-03); 'carto' kept as the plain fallback
         var _basemapMaps = []; // [{ map, noLabels, layers }]
         function _basemapLayersFor(noLabels) {
-            const pick = BASEMAPS[_basemapChoice];
-            // Wrapped's no-labels map stays on CARTO during a trial.
-            if (pick.style && !noLabels && L.maplibreGL) return [L.maplibreGL({ style: pick.style() })];
-            return (pick.style ? BASEMAPS.detail : pick).layers
+            return BASEMAPS[_basemapChoice].layers
                 .filter(l => !(noLabels && l.labels))
                 .map(l => L.tileLayer(noLabels && l.nolabels ? l.nolabels : l.url, l.opts));
         }
@@ -6607,49 +6598,19 @@
             _basemapMaps.push(entry);
             _refreshBasemapButton();
         }
-        function _loadBasemapAsset(url) {
-            return new Promise((ok, fail) => {
-                const css = url.endsWith('.css');
-                const el = document.createElement(css ? 'link' : 'script');
-                if (css) { el.rel = 'stylesheet'; el.href = url; } else { el.src = url; }
-                el.onload = ok; el.onerror = () => fail(new Error('Could not load ' + url));
-                document.head.appendChild(el);
-            });
-        }
-        async function _setBasemap(choice) {
-            try {
-                if (BASEMAPS[choice].style && !L.maplibreGL) {
-                    await _loadBasemapAsset('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css');
-                    await _loadBasemapAsset('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js');
-                    await _loadBasemapAsset('https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js');
-                }
-            } catch (e) { showToast('Could not load that map.', 'error'); choice = 'detail'; }
-            _basemapChoice = choice;
-            try { localStorage.setItem('cs_basemap', choice); } catch (_) {}
+        function toggleBasemap() {
+            _basemapChoice = _basemapChoice === 'carto' ? 'detail' : 'carto';
+            try { localStorage.setItem('cs_basemap', _basemapChoice); } catch (_) {}
             for (const e of _basemapMaps) {
                 e.layers.forEach(l => { try { e.map.removeLayer(l); } catch (_) {} });
                 e.layers = _basemapLayersFor(e.noLabels);
-                e.layers.forEach(l => { l.addTo(e.map); l.bringToBack?.(); });
+                e.layers.forEach(l => { l.addTo(e.map); l.bringToBack(); });
             }
             _refreshBasemapButton();
         }
-        function toggleBasemap() {
-            const order = PROTOMAPS_KEY ? ['detail', 'ofm', 'protomaps'] : ['detail', 'ofm'];
-            _setBasemap(order[(order.indexOf(_basemapChoice) + 1) % order.length]);
-        }
-        function _canTrialBasemap() { return !isDemo && !myViewer && (!myPilot || myPilot === 'kyle'); }
-        var _basemapRestored = false;
         function _refreshBasemapButton() {
             const b = document.getElementById('btn-basemap');
-            if (b) {
-                b.textContent = '🗺 ' + BASEMAPS[_basemapChoice].label;
-                b.classList.toggle('hidden', !_canTrialBasemap());
-            }
-            if (_basemapRestored) return;
-            _basemapRestored = true;
-            let saved = null;
-            try { saved = localStorage.getItem('cs_basemap'); } catch (_) {}
-            if (BASEMAPS[saved]?.style && _canTrialBasemap() && (saved !== 'protomaps' || PROTOMAPS_KEY)) _setBasemap(saved);
+            if (b) b.textContent = '🗺 ' + BASEMAPS[_basemapChoice].label;
         }
 
         function addRadarLayer() {
