@@ -7,16 +7,27 @@
 //
 // Now messages are queued and processed a small batch per event-loop turn (setImmediate between
 // batches, so HTTP requests interleave), and each one is acknowledged only after it's handled.
-// With CLIENT acknowledgement the broker keeps at most its window of unacked messages in flight,
-// so the backlog drains at the rate we actually process it instead of flooding memory.
+//
+// Acknowledging late does NOT slow the broker down. Its window is maxWindowSize minus what's waiting
+// inside the Solace library, and this queue takes every message the moment it arrives, so the window
+// stays wide open. An unbounded queue held 14,000+ messages after a restart: each kill left a bigger
+// backlog, so the next boot died sooner (2026-11-03, four kills in six minutes). So the consumer is
+// paused above HIGH_WATER. stop() keeps messages in the library, the window closes, and the backlog
+// waits at the broker instead of in this droplet's 1 GB.
 const BATCH = 20;
+const HIGH_WATER = 300;
+const LOW_WATER = 50;
 const _queues = {}; // label -> queue, for the server's memory log
 function getFeedDepths() { return Object.fromEntries(Object.entries(_queues).map(([k, q]) => [k, q.length])); }
 
-function createFeedQueue(label, handle, onError) {
+function createFeedQueue(label, handle, onError, consumer) {
     const queue = [];
     _queues[label] = queue;
     let scheduled = false;
+    let paused = false;
+    // Throws if the consumer has gone down. A reconnect makes a new consumer and a new queue.
+    const pause = () => { try { consumer?.stop(); paused = true; } catch (_) {} };
+    const resume = () => { try { consumer?.start(); } catch (_) {} paused = false; };
     function drain() {
         scheduled = false;
         for (let i = 0; i < BATCH && queue.length; i++) {
@@ -30,10 +41,12 @@ function createFeedQueue(label, handle, onError) {
                 try { message.acknowledge(); } catch (_) {}
             }
         }
+        if (paused && queue.length <= LOW_WATER) resume();
         if (queue.length) { scheduled = true; setImmediate(drain); }
     }
     return function enqueue(message) {
         queue.push(message);
+        if (!paused && queue.length >= HIGH_WATER) pause();
         if (!scheduled) { scheduled = true; setImmediate(drain); }
     };
 }

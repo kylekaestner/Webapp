@@ -480,7 +480,7 @@ function startConsumer() {
     // Paced + ack-after-processing (feed-queue.js) so a reconnect backlog can't starve HTTP.
     const enqueue = createFeedQueue('TFDM', handleMessage, e => {
         if (_unmappedWarnings++ < WARN_CAP) console.warn('[TFDM] message handling error:', e.message);
-    });
+    }, messageConsumer);
     messageConsumer.on(solace.MessageConsumerEventName.MESSAGE, enqueue);
 
     try {
