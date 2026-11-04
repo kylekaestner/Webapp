@@ -254,7 +254,7 @@ These live in the `pilots.color` DB column now (see "Pilot roster is fully DB-dr
 - Calendar-specific controls hidden via `style.display='none'` on `overlap`/`intel` views (`switchView()`'s `calView` check) — only avatar/bell/help remain.
 - Height: `calc(env(safe-area-inset-top) + 56px)`, `padding-top: calc(env(safe-area-inset-top) + 6px)`. Fully opaque `bg-black`, no `backdrop-blur-md`. Status bar style is solid `black` (`apple-mobile-web-app-status-bar-style`), not translucent. These values are empirically settled, not spec-derived — full iteration history (and the on-screen-readout diagnostic technique worth reusing for future iOS rendering reports) is in `CLAUDE_HISTORY.md § Mobile header padding`.
 - No light mode exists anywhere in the app (was built and fully removed).
-- `<body style="height: 100dvh" data-fullheight>` with a `100lvh` override under `@supports`, so the PWA reaches the true bottom edge.
+- `<body style="height: 100dvh" data-fullheight>`, with a `100lvh` override only under `html.is-pwa` so the installed app reaches the true bottom edge. In a browser, `lvh` ignores the bars and pushes the page off screen.
 - Bottom nav uses a flat `12px` bottom padding (not `env(safe-area-inset-bottom)`), with matching content-reservation padding below it (grid/list `70px`, map mode bar `68px`).
 - `#current-month-display-mobile` must stay `whitespace-nowrap overflow-hidden text-ellipsis` with `min-w-0` on its flex parent — a wrapped long month name pushes its block above the safe-area boundary (looks like a rendering glitch, isn't).
 
