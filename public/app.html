@@ -6900,6 +6900,12 @@
                         liveEl.style.color = txtColor;
                         liveEl.textContent = txt ? `✈ ${txt}` : '';
                         liveEl.style.display = txt ? '' : 'none';
+                        // The open day detail shows the same line (see showDayDetail's flight card).
+                        document.querySelectorAll(`[data-live-mirror="${cs}"]`).forEach(m => {
+                            m.style.color = txtColor;
+                            m.textContent = liveEl.textContent;
+                            m.style.display = liveEl.style.display;
+                        });
                         // Same wording/color as the day map's 'delayed'/'due' states.
                         if (delayEl) delayEl.textContent = notFoundDelayEtd
                             ? `DELAYED · ETD ${formatTimeISO(notFoundDelayEtd, depApt)}`
@@ -8072,10 +8078,14 @@
                 const nowMs = now.getTime();
                 // NetJets: this leg's own evidence (see parkedKey) instead of the callsign's
                 const ev = origin ? legEv[cs + '~' + origin] : null;
-                const T = ev ? (ev.times || {}) : (estTimes[cs] || {});
-                const isLive = ev ? !!ev.live : liveSeen.has(cs);
-                const isAirborne = ev ? !!ev.airborne : airborneSeen.has(cs);
-                const isParked = ev ? !!ev.parked : _confirmedParked.has(cs);
+                // Only legs near now get their own evidence. A later NetJets leg can't use the callsign's:
+                // it's the leg being flown, or a ramp with the APU on, and every later leg read as active
+                // and took over the tracker, so the last leg of the day held the plane.
+                const notYet = !ev && !!dMs && nowMs < dMs && _NJ_CS_RE.test(cs || '');
+                const T = ev ? (ev.times || {}) : notYet ? {} : (estTimes[cs] || {});
+                const isLive = ev ? !!ev.live : !notYet && liveSeen.has(cs);
+                const isAirborne = ev ? !!ev.airborne : !notYet && airborneSeen.has(cs);
+                const isParked = ev ? !!ev.parked : !notYet && _confirmedParked.has(cs);
                 const etaMs = T.eta ? new Date(T.eta).getTime() : 0;
                 const effA = Math.max(aMs || 0, etaMs);
                 const etdMs = T.etd ? new Date(T.etd).getTime() : null;
@@ -8204,7 +8214,7 @@
 
                 // TFMS estimates (display-only, the uploaded schedule above is never changed). Shown only
                 // when they differ from the scheduled time by at least 5 minutes.
-                const _est = _cs ? estTimes[_cs] : null;
+                const _est = _cs ? (legEv[_cs + '~' + f.departureAirport]?.times || (_NJ_CS_RE.test(_cs) ? null : estTimes[_cs])) : null;
                 const _estDep = _est?.etd && depTime && Math.abs(new Date(_est.etd) - depTime) >= 5 * 60000 ? _est.etd : null;
                 const _estArr = _est?.eta && arrTime && Math.abs(new Date(_est.eta) - arrTime) >= 5 * 60000 ? _est.eta : null;
                 const _arrDiffMin = _est?.eta && arrTime ? Math.round((new Date(_est.eta) - arrTime) / 60000) : null;
@@ -9836,6 +9846,11 @@
                 const depCity = _intelAreaLabel(dep) || '';
                 const arrCity = _intelAreaLabel(arr) || '';
                 const hasStub = (_dayFlLabel || f.flightNumber) || f.tail || groundBadgeTxt || isCompletedLeg;
+                // Speed and altitude for the live leg, starting from what the grid/list last polled.
+                const _liveNow = isActiveLeg && _dayCs ? document.getElementById(`live-${_dayCs}`) : null;
+                const _liveLine = isActiveLeg && _dayCs
+                    ? `<div data-live-mirror="${_dayCs}" class="px-4 pb-3 text-xs font-bold text-center" style="color:${_liveNow?.style.color || '#4ade80'};${_liveNow?.textContent ? '' : 'display:none'}">${_liveNow?.textContent || ''}</div>`
+                    : '';
                 html += `<div class="bp-card border mb-3 ${cardBg}" style="border-color:${accentColor}28">
                     <div class="bp-top-bar" style="background:linear-gradient(90deg,${accentColor},${accentColor}44,transparent)"></div>
                     <div class="flex items-center gap-2 px-4 pt-3 pb-0 flex-wrap">
@@ -9860,6 +9875,7 @@
                             <div class="text-xs text-zinc-500 mt-2">${arrTime}${arrTz ? `<span class="text-zinc-600 ml-1">${arrTz}</span>` : ''}</div>
                         </div>
                     </div>
+                    ${_liveLine}
                     ${hasStub ? `<div class="bp-stub">
                         ${_dayFlLabel || f.flightNumber ? `<div class="bp-stub-field"><div class="bp-stub-label">Flight</div><div class="bp-stub-value">${_dayFlLabel ? flightAwareLink(_dayFlLabel, _dayFlLabel, flightAwareEligible(dMs)) : f.flightNumber}</div></div>` : ''}
                         ${f.tail ? `<div class="bp-stub-field"><div class="bp-stub-label">Tail</div><div class="bp-stub-value">${displayTail(f.tail, currentPilot)}</div></div>` : ''}

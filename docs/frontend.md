@@ -121,6 +121,8 @@ Iterates every day in the month. Day header block with status badge. Flight rows
 
 Opens `#day-detail-sheet` (bottom sheet mobile, centered modal desktop). Built from the same `segments[]` slice as the grid: header status (HARD OFF / IN THE AIR / FLYING / ON CALL / DAY OFF) + date; flight cards (route, times, block, tail#, trip#, DH badge, layover to next leg); reserve cards; ground leg cards; manual flights get Edit/Delete (only if `canEdit()`); live flights show `▶ LIVE` + `deriveCallsign()`.
 
+The live leg's card also shows the speed and altitude line. It starts from the grid/list's `live-<callsign>` element, and `startCalListLivePolling()` keeps it updated through `data-live-mirror`.
+
 `canEdit()` → true if `myPilot === currentPilot` or admin.
 
 ## Pull-to-refresh (`setupMobileGestures()`)
