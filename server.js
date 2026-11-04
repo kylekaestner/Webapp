@@ -2900,19 +2900,22 @@ app.post('/api/pilots/:pilotKey/add-segment', (req, res) => {
     if (status) return res.status(status).json({ error: msg });
     if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized to add a segment for this pilot' });
 
-    db.get('SELECT id FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
+    db.get('SELECT id, parser_type FROM pilots WHERE pilot_key = ?', [pilotKey], (err, pilot) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
         const tripValue = is_personal ? 'PERSONAL' : is_commute ? 'COMMUTE' : null;
         const blockMin = (block_minutes != null && block_minutes > 0) ? Math.round(block_minutes) : null;
+        // A NetJets work leg typed as "CQF" must become KCQF, not Calais. Personal and commute
+        // flights are airline tickets with real IATA codes, so PUJ stays Punta Cana, not KPUJ.
+        const njWork = pilot.parser_type === 'manual_netjets' && !tripValue;
+        const cleanApt = a => !a ? null : njWork ? norm3Airport(a) : a.trim().toUpperCase();
 
         db.run(
             `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, flight_number, tail, trip, is_dh, is_manual, block_minutes)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
             [pilot.id, dbType, departure_time, arrival_time || null,
-             departure_airport ? departure_airport.trim().toUpperCase() : null,
-             arrival_airport   ? arrival_airport.trim().toUpperCase()   : null,
+             cleanApt(departure_airport), cleanApt(arrival_airport),
              flight_number || null, tail || null, tripValue, is_dh ? 1 : 0, blockMin],
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
@@ -2956,8 +2959,8 @@ app.put('/api/pilots/:pilotKey/segments/:id', (req, res) => {
         // recognizes the two as the same airport and keeps creating duplicate legs for one a
         // human already fixed. Scoped to NetJets only -- every other parser already stores its
         // own consistent convention, not worth touching app-wide.
-        const finalDepArpt = (pilot.parser_type === 'manual_netjets' && departure_airport) ? norm3Airport(departure_airport) : departure_airport;
-        const finalArrArpt = (pilot.parser_type === 'manual_netjets' && arrival_airport) ? norm3Airport(arrival_airport) : arrival_airport;
+        const finalDepArpt = (pilot.parser_type === 'manual_netjets' && !tripValue && departure_airport) ? norm3Airport(departure_airport) : departure_airport;
+        const finalArrArpt = (pilot.parser_type === 'manual_netjets' && !tripValue && arrival_airport) ? norm3Airport(arrival_airport) : arrival_airport;
 
         db.run(
             // auto_leg_edited=1 unconditionally -- a no-op for a normal segment that never had an

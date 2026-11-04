@@ -3076,7 +3076,7 @@
                 el.innerHTML = `<div class="rounded-xl px-3 py-2.5" style="background:${color}12;border:1px solid ${color}28">
                     <div class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:${color}99">Your Next Flight</div>
                     <div class="flex items-baseline gap-1.5">
-                        <span class="text-sm font-black text-white">${next.departureAirport} → ${next.arrivalAirport}</span>
+                        <span class="text-sm font-black text-white">${aptLabel(next.departureAirport, pilot)} → ${aptLabel(next.arrivalAirport, pilot)}</span>
                     </div>
                     <div class="text-[10px] mt-0.5" style="color:${color}cc">${dayLabel}</div>
                 </div>`;
@@ -3092,7 +3092,7 @@
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="color:${color};opacity:0.7;flex-shrink:0"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
                     <div class="flex flex-col min-w-0">
                         <span class="text-[8px] font-black uppercase tracking-widest leading-tight" style="color:${color};opacity:0.6">Next Flight</span>
-                        <span class="text-xs font-black text-white leading-tight">${next.departureAirport} → ${next.arrivalAirport}</span>
+                        <span class="text-xs font-black text-white leading-tight">${aptLabel(next.departureAirport, pilot)} → ${aptLabel(next.arrivalAirport, pilot)}</span>
                         <span class="text-[10px] leading-tight" style="color:${color};opacity:0.8">${dayLabel}${timeStr ? ' · ' + timeStr + (tzStr ? ' ' + tzStr : '') : ''}</span>
                     </div>
                 </div>`;
@@ -3379,6 +3379,16 @@
             // norm3Airport(); stripping it sent maps/Crossings to the wrong continent.
             if (u.length === 4 && (u[0] === 'K' || u[0] === 'C')) return _prefixCollides(u) ? u : u.slice(1);
             return u;
+        }
+        // Display only. NetJets legs show 3 letters, but a KSDL/KCQF/KBKV row keeps its K in the data
+        // because the bare code is another airport (Sundsvall, Calais, China): resolveAirport() and the
+        // timezone lookups must get the stored code, never this label. With no pilot (Crossings, shared
+        // map labels) codes are already normApt'd, so only a K kept for a collision is left to drop.
+        function aptLabel(code, pilotKey) {
+            const c = code || '';
+            if (!/^K[A-Z0-9]{3}$/.test(c)) return c;
+            if (pilotKey) return pilotsCache[pilotKey]?.parser_type === 'manual_netjets' ? c.slice(1) : c;
+            return _prefixCollides(c) ? c.slice(1) : c;
         }
         function _prefixCollides(icao) {
             if (typeof AIRPORTS === 'undefined') return false;
@@ -4769,8 +4779,8 @@
             const body  = document.getElementById('overlap-detail-body');
 
             const cls      = o.classification;
-            const locLabel = o.airport === o.airportB ? o.airport : (()=>{ const mA = METRO_GROUPS[o.airport], mB = METRO_GROUPS[o.airportB]; return (mA && mA === mB) ? (METRO_LABELS[mA] || `${o.airport} / ${o.airportB}`) : `${o.airport} / ${o.airportB}`; })();
-            const locSub   = o.airport !== o.airportB ? `${o.airport} · ${o.airportB}` : null;
+            const locLabel = o.airport === o.airportB ? aptLabel(o.airport) : (()=>{ const mA = METRO_GROUPS[o.airport], mB = METRO_GROUPS[o.airportB]; return (mA && mA === mB) ? (METRO_LABELS[mA] || `${aptLabel(o.airport)} / ${aptLabel(o.airportB)}`) : `${aptLabel(o.airport)} / ${aptLabel(o.airportB)}`; })();
+            const locSub   = o.airport !== o.airportB ? `${aptLabel(o.airport)} · ${aptLabel(o.airportB)}` : null;
             title.textContent = locLabel;
 
             const _detailTz = (pilotUsesUtc(o.kA) ? airportTz(o.airport) : null)
@@ -4805,7 +4815,7 @@
                         <span class="font-black text-white text-sm">${name}</span>
                         ${role ? `<span class="text-[10px] text-zinc-600 ml-1">${role}</span>` : ''}
                     </div>
-                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Airport</span><span class="text-zinc-300 font-mono font-bold">${p.airport} <span class="text-zinc-600 font-normal">${locCtx}</span></span></div>
+                    <div class="flex justify-between text-xs"><span class="text-zinc-500">Airport</span><span class="text-zinc-300 font-mono font-bold">${aptLabel(p.airport)} <span class="text-zinc-600 font-normal">${locCtx}</span></span></div>
                     <div class="flex justify-between text-xs"><span class="text-zinc-500">Arrives</span><span class="text-zinc-300 font-mono">${pFmtT(p.start)}${tzSpan}</span></div>
                     <div class="flex justify-between text-xs"><span class="text-zinc-500">Departs</span><span class="text-zinc-300 font-mono">${pFmtT(p.end)}${tzSpan}</span></div>
                     <div class="flex justify-between text-xs"><span class="text-zinc-500">Ground time</span><span class="text-zinc-300">${dur || '—'}</span></div>
@@ -5795,7 +5805,7 @@
                     lines.forEach(l => { l.addTo(map); mapLayers.future.push(l); });
                     const [line] = lines;
                     const monthHits = worldLines(arcU, { weight: 20, opacity: 0, className: 'map-hit' });
-                    const monthPopup = `<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${(PILOT_NAMES[key] || '').split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${dep} → ${arr}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`;
+                    const monthPopup = `<div style="font-weight:900;font-size:13px;color:${pilotColor};margin-bottom:3px">${(PILOT_NAMES[key] || '').split(' ')[0]}</div><div style="font-weight:900;font-size:14px;color:#f8fafc">${aptLabel(dep, key)} → ${aptLabel(arr, key)}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">${legs.length}× this month</div>`;
                     monthHits.forEach(h => { h.bindPopup(monthPopup, { className: 'dark-popup' }); h.addTo(map); mapLayers.future.push(h); });
 
                     if (hasActive) {
@@ -6031,7 +6041,7 @@
                 }).join('');
                 const countLabel = count === 1 ? '1 flight' : `${count} flights`;
                 const routePopup = `
-                    <div style="font-weight:900;font-size:14px;margin-bottom:3px;color:#f8fafc">${dep} → ${arr}</div>
+                    <div style="font-weight:900;font-size:14px;margin-bottom:3px;color:#f8fafc">${aptLabel(dep, currentPilot)} → ${aptLabel(arr, currentPilot)}</div>
                     <div style="font-size:10px;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">${countLabel} this month</div>
                     ${legRows}
                 `;
@@ -8149,7 +8159,7 @@
                     ? `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin-bottom:3px;white-space:nowrap">${_estDep ? `ETD ${formatTimeISO(_estDep, f.departureAirport)}${_depNote}` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `ETA ${formatTimeISO(_estArr, f.arrivalAirport)}${_arrNote}` : ''}</div>`
                     : '';
                 const dayPopup = `
-                    <div style="font-weight:900;font-size:13px;color:#f8fafc;line-height:1.2;white-space:nowrap">${f.departureAirport} → ${f.arrivalAirport}<span style="font-size:10px;font-weight:700;margin-left:6px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</span></div>
+                    <div style="font-weight:900;font-size:13px;color:#f8fafc;line-height:1.2;white-space:nowrap">${aptLabel(f.departureAirport, f.pilotKey)} → ${aptLabel(f.arrivalAirport, f.pilotKey)}<span style="font-size:10px;font-weight:700;margin-left:6px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</span></div>
                     <div style="font-size:10px;color:#94a3b8;margin-top:2px">${formatTimeISO(f.departureTime, f.departureAirport)} <span style="opacity:.5">${tzAbbr(f.departureAirport, f.departureTime)}</span> – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${displayTail(f.tail, f.pilotKey)}</span>` : ''}</div>
                     ${_statusLine}
                 `;
@@ -8197,11 +8207,11 @@
                 // Popup: which pilots, which flights (primary circle only)
                 const flightLines = data.flights.map(f =>
                     `<div style="font-size:11px;color:${PILOT_COLORS[f.pilotKey]};margin-top:3px">` +
-                    `${(PILOT_NAMES[f.pilotKey] || '').split(' ')[0]}: ${f.departureAirport}→${f.arrivalAirport} ${formatTimeISO(f.departureTime, f.departureAirport)}</div>`
+                    `${(PILOT_NAMES[f.pilotKey] || '').split(' ')[0]}: ${aptLabel(f.departureAirport, f.pilotKey)}→${aptLabel(f.arrivalAirport, f.pilotKey)} ${formatTimeISO(f.departureTime, f.departureAirport)}</div>`
                 ).join('');
-                circle.bindPopup(`<div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${apt}</div>${flightLines}`, { className: 'dark-popup' });
+                circle.bindPopup(`<div style="font-weight:900;font-size:14px;color:#f8fafc;margin-bottom:4px">${aptLabel(apt)}</div>${flightLines}`, { className: 'dark-popup' });
 
-                const aptLabelHtml = `<div style="color:#e2e8f0;font-size:9px;font-weight:900;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;margin-left:8px;margin-top:-4px">${apt}</div>`;
+                const aptLabelHtml = `<div style="color:#e2e8f0;font-size:9px;font-weight:900;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;margin-left:8px;margin-top:-4px">${aptLabel(apt)}</div>`;
                 worldLabels(coords, aptLabelHtml)
                     .forEach(l => { l.addTo(map); mapLayers.labels.push(l); });
             });
@@ -8628,7 +8638,7 @@
                         ? `<div style="font-size:11px;color:#93c5fd;font-weight:700;margin-bottom:4px">🌙 Overnight — arrives the next day</div>`
                         : '';
                     const flightLabel = deriveCallsign({ flightNumber: flightNum, tail }, currentPilot) || '';
-                    const html = `<div style="font-weight:800;margin-bottom:6px">${depApt} → ${arrApt} ${flightLabel ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">${flightLabel}</span>` : ''}</div>` +
+                    const html = `<div style="font-weight:800;margin-bottom:6px">${aptLabel(depApt, currentPilot)} → ${aptLabel(arrApt, currentPilot)} ${flightLabel ? `<span style=\"font-weight:600;color:#9fb8ff;margin-left:6px\">${flightLabel}</span>` : ''}</div>` +
                         dhLabel +
                         redeyeLabel +
                         `<div style="font-size:12px;color:#cbd5e1">Dep: ${formatTimeISO(dep, depApt)}<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${tzAbbr(depApt, dep)}</span> • Arr: ${formatTimeISO(arr, arrApt)}<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${tzAbbr(arrApt, arr)}</span></div>` +
@@ -8717,10 +8727,10 @@
                     const arrTz  = arrApt && arrTime ? tzAbbr(arrApt, arrTime) : '';
                     const tzTag  = (lbl) => lbl ? `<span style="font-size:9px;color:#52525b;font-weight:700;margin-left:3px">${lbl}</span>` : '';
                     const html = `<div style="font-weight:800;margin-bottom:6px;color:#71717a">Ground Transfer</div>` +
-                        `<div style="font-size:13px;font-weight:700;color:#e4e4e7">${depApt} → ${arrApt}</div>` +
+                        `<div style="font-size:13px;font-weight:700;color:#e4e4e7">${aptLabel(depApt, currentPilot)} → ${aptLabel(arrApt, currentPilot)}</div>` +
                         (code ? `<div style="font-size:11px;color:#52525b;margin-top:3px">${code}</div>` : '') +
                         (depFmt ? `<div style="font-size:12px;color:#cbd5e1;margin-top:6px">${depFmt}${tzTag(depTz)} → ${arrFmt}${tzTag(arrTz)}</div>` : '') +
-                        (layoverText ? `<div style="margin-top:8px;color:#ffd57a;font-weight:700">${layoverText} at ${arrApt}</div>` : '');
+                        (layoverText ? `<div style="margin-top:8px;color:#ffd57a;font-weight:700">${layoverText} at ${aptLabel(arrApt, currentPilot)}</div>` : '');
                     showTooltip(html, e.clientX, e.clientY);
                 }
                 function onMove(e) { moveTooltip(e.clientX, e.clientY); }
@@ -8873,14 +8883,14 @@
                     // always was.
                     let style = (_onDutyLabel === 'ON TOUR') ? "border-indigo-400/30 bg-indigo-400/5" : "border-zinc-800 bg-zinc-900/20";
                     let tag = _onDutyLabel || "OFF";
-                    if (isVacation) { style = "border-teal-500/50 bg-teal-900/30 text-teal-100"; tag = awayApt ? `VAC · AWAY - ${awayApt}` : "VAC"; }
-                    else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = awayApt ? `HARD OFF · AWAY - ${awayApt}` : "HARD OFF"; }
+                    if (isVacation) { style = "border-teal-500/50 bg-teal-900/30 text-teal-100"; tag = awayApt ? `VAC · AWAY - ${aptLabel(awayApt, currentPilot)}` : "VAC"; }
+                    else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = awayApt ? `HARD OFF · AWAY - ${aptLabel(awayApt, currentPilot)}` : "HARD OFF"; }
                     else if (isTraining && !isFlying) { style = "border-orange-500/40 bg-orange-900/25"; tag = "TRAINING"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
                     else if (isReserve) { style = "border-amber-400/30 bg-amber-400/5"; tag = "ON CALL"; }
                     else if (isPersonalFlight) { /* personal travel day — flight pill shows below; don't mark as AWAY */ }
-                    else if (awayApt) { style = "border-yellow-500/40 bg-yellow-900/20"; tag = `AWAY - ${awayApt}`; }
-                    else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${away.arrivalAirport}`; }
+                    else if (awayApt) { style = "border-yellow-500/40 bg-yellow-900/20"; tag = `AWAY - ${aptLabel(awayApt, currentPilot)}`; }
+                    else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${aptLabel(away.arrivalAirport, currentPilot)}`; }
                     else if (isAllCrewOff) { style = "border-amber-400/60 bg-amber-950/30"; tag = "✦ ALL OFF"; }
                     if (tag === 'FLYING' || tag === 'TRAINING') monthFlown++;
                     else if (tag === 'ON CALL' || tag === 'ON TOUR') monthOnCall++;
@@ -8908,7 +8918,7 @@
                                 gOvr = layoverLabel(gm, atHome, sameDay);
                             }
                             html += `<div class="rounded-lg px-2 py-[4px] ground-item" data-dep-apt="${f.departureAirport||''}" data-arr-apt="${f.arrivalAirport||''}" data-dep-time="${f.departureTime||''}" data-arr-time="${f.arrivalTime||''}" data-flight="${gCode}" style="font-size:9px;font-weight:700;color:#52525b;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
-                                <div>GND ${f.departureAirport}→${f.arrivalAirport}</div>
+                                <div>GND ${aptLabel(f.departureAirport, currentPilot)}→${aptLabel(f.arrivalAirport, currentPilot)}</div>
                                 <div style="font-weight:500;font-size:8.5px;margin-top:1px">${gDepFmt}${gCode ? ` · ${gCode}` : ''}</div>
                                 ${gOvr ? `<div style="color:#fcd34d;font-size:8.5px;font-weight:700;margin-top:2px">${gOvr}</div>` : ''}
                             </div>`;
@@ -9004,7 +9014,7 @@
                         const cellFlightLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
                         const flLabelSpan = cellFlightLabel ? flightAwareLink(cellFlightLabel, `<span style="font-size:9px;font-weight:700;color:#7dd3fc;margin-left:3px">${cellFlightLabel}</span>`, flightAwareEligible(depMs)) : '';
                         const completedCheck = isCompletedLeg ? `<span style="font-size:10px;font-weight:900;color:#4ade80;margin-left:2px" title="Completed">✓</span>` : '';
-                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${depApt} → ${arrApt}${dhDot}${personalDot}${commuteDot}${redEyeDot}${flLabelSpan}${completedCheck}</div>`;
+                        html += `<div style="font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px">${aptLabel(depApt, currentPilot)} → ${aptLabel(arrApt, currentPilot)}${dhDot}${personalDot}${commuteDot}${redEyeDot}${flLabelSpan}${completedCheck}</div>`;
                         html += `<div style="color:#94a3b8;font-size:10px;margin-top:1px">${depTimeFmt}${tzSpan(depTzLbl)} → ${arrTimeFmt}${tzSpan(arrTzLbl)}</div>`;
                         html += groundLine;
                         // Placed right after groundLine (the overnight/layover line) so it reads as
@@ -9141,9 +9151,9 @@
                     const _listOnDutyLabel = _pilotOnDutyDefault(currentPilot, dateKey) ? _onDutyDefaultLabel(currentPilot) : null;
                     let bgColor, labelColor, sidebarColor, sidebarBorder, label = _listOnDutyLabel || "OFF";
                     if (isVacation) {
-                        bgColor = "bg-teal-950/40 border-teal-500/40"; labelColor = "text-teal-300"; sidebarColor = "text-teal-300"; sidebarBorder = "border-teal-700/50"; label = awayApt ? `VAC · AWAY - ${awayApt}` : "VAC";
+                        bgColor = "bg-teal-950/40 border-teal-500/40"; labelColor = "text-teal-300"; sidebarColor = "text-teal-300"; sidebarBorder = "border-teal-700/50"; label = awayApt ? `VAC · AWAY - ${aptLabel(awayApt, currentPilot)}` : "VAC";
                     } else if (isHard) {
-                        bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = awayApt ? `HARD OFF · AWAY - ${awayApt}` : "HARD OFF";
+                        bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = awayApt ? `HARD OFF · AWAY - ${aptLabel(awayApt, currentPilot)}` : "HARD OFF";
                     } else if (isTraining && workFlights.length === 0) {
                         bgColor = "bg-orange-950/35 border-orange-600/50"; labelColor = "text-orange-300"; sidebarColor = "text-orange-300"; sidebarBorder = "border-orange-700/50"; label = "TRAINING";
                     } else if (reserves.length > 0 && workFlights.length === 0 && !awayApt) {
@@ -9155,9 +9165,9 @@
                     } else if (isPersonalFlight) {
                         bgColor = "bg-zinc-900/20 border-zinc-700/50"; labelColor = "text-zinc-500"; sidebarColor = "text-zinc-400"; sidebarBorder = "border-zinc-700/50"; label = "PERSONAL";
                     } else if (away) {
-                        bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${away.arrivalAirport}`;
+                        bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${aptLabel(away.arrivalAirport, currentPilot)}`;
                     } else if (awayApt) {
-                        bgColor = "bg-yellow-900/20 border-yellow-600/40"; labelColor = "text-yellow-400"; sidebarColor = "text-yellow-400"; sidebarBorder = "border-yellow-700/40"; label = `AWAY - ${awayApt}`;
+                        bgColor = "bg-yellow-900/20 border-yellow-600/40"; labelColor = "text-yellow-400"; sidebarColor = "text-yellow-400"; sidebarBorder = "border-yellow-700/40"; label = `AWAY - ${aptLabel(awayApt, currentPilot)}`;
                     } else if (_listOnDutyLabel === 'ON TOUR') {
                         bgColor = "bg-indigo-950/30 border-indigo-500/30"; labelColor = "text-indigo-300"; sidebarColor = "text-indigo-300"; sidebarBorder = "border-indigo-700/40";
                     } else {
@@ -9212,7 +9222,7 @@
                                 return `<div class="px-3 py-2 rounded-lg border border-zinc-700/25 bg-zinc-800/20 ground-item" data-dep-apt="${g.departureAirport||''}" data-arr-apt="${g.arrivalAirport||''}" data-dep-time="${g.departureTime||''}" data-arr-time="${g.arrivalTime||''}" data-flight="${g.flightNumber||''}">
                                     <div class="flex items-center gap-2">
                                         <span class="text-[9px] font-black uppercase tracking-widest text-zinc-500 shrink-0">Ground</span>
-                                        <span class="text-xs font-semibold text-zinc-400">${g.departureAirport} <span class="text-zinc-600">→</span> ${g.arrivalAirport}</span>
+                                        <span class="text-xs font-semibold text-zinc-400">${aptLabel(g.departureAirport, currentPilot)} <span class="text-zinc-600">→</span> ${aptLabel(g.arrivalAirport, currentPilot)}</span>
                                         <span class="text-[9px] text-zinc-600 ml-auto">${g.flightNumber || ''}</span>
                                         ${gEditBtns}
                                     </div>
@@ -9291,9 +9301,9 @@
                                     <div class="flex items-center gap-3 px-4 py-3">
                                         <div class="flex-1 min-w-0">
                                             <div class="flex items-center gap-2 flex-wrap">
-                                                <span class="text-base font-bold" style="color:rgba(255,255,255,0.9)">${depApt}</span>
+                                                <span class="text-base font-bold" style="color:rgba(255,255,255,0.9)">${aptLabel(depApt, currentPilot)}</span>
                                                 <svg width="11" height="11" viewBox="0 0 24 24" fill="${rowAccent2}" style="flex-shrink:0;opacity:0.4"><path d="M21 16l-4-8-4 3.9-5-1.9-1.5 1.5 4.5 3-1 4 2-1 1 2 1.5-1-.5-2.5 3.5-.5L21 16z"/></svg>
-                                                <span class="text-base font-bold" style="color:rgba(255,255,255,0.9)">${arrApt}</span>
+                                                <span class="text-base font-bold" style="color:rgba(255,255,255,0.9)">${aptLabel(arrApt, currentPilot)}</span>
                                                 ${badgeRow}
                                             </div>
                                             ${(_flLabel || tailAttr) ? `<div class="text-[10px] text-zinc-500 mt-0.5">${_flLabel ? flightAwareLink(_flLabel, _flLabel, flightAwareEligible(depMs2)) : tailAttr}</div>` : ''}
@@ -9588,14 +9598,14 @@
             const anyLive = flightMs.some(({dMs, aMs, cs, dep}) => isFlightStillActive(dMs, aMs, nowMs, cs, dep) && !_isLandedEarly(cs, aMs));
             let label = _pilotOnDutyDefault(currentPilot, dateKey) ? _onDutyDefaultLabel(currentPilot) : 'DAY OFF';
             let labelColor = 'text-zinc-400';
-            if (isVacation) { label = awayApt ? `VACATION · AWAY - ${awayApt}` : 'VACATION'; labelColor = 'text-teal-400'; }
-            else if (isHard) { label = awayApt ? `HARD OFF · AWAY - ${awayApt}` : 'HARD OFF'; labelColor = 'text-red-400'; }
+            if (isVacation) { label = awayApt ? `VACATION · AWAY - ${aptLabel(awayApt, currentPilot)}` : 'VACATION'; labelColor = 'text-teal-400'; }
+            else if (isHard) { label = awayApt ? `HARD OFF · AWAY - ${aptLabel(awayApt, currentPilot)}` : 'HARD OFF'; labelColor = 'text-red-400'; }
             else if (isTraining && workFlights.length === 0) { label = 'TRAINING'; labelColor = 'text-orange-400'; }
             else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
             else if (workFlights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
             else if (isPersonalFlight) { label = 'PERSONAL'; labelColor = 'text-violet-400'; }
-            else if (away) { label = `AWAY — ${away.arrivalAirport}`; labelColor = 'text-amber-400'; }
-            else if (awayApt) { label = `AWAY - ${awayApt}`; labelColor = 'text-yellow-400'; }
+            else if (away) { label = `AWAY — ${aptLabel(away.arrivalAirport, currentPilot)}`; labelColor = 'text-amber-400'; }
+            else if (awayApt) { label = `AWAY - ${aptLabel(awayApt, currentPilot)}`; labelColor = 'text-yellow-400'; }
             else if (reserves.length > 0) { label = 'ON CALL'; labelColor = 'text-amber-400'; }
 
             // "Edit Tour" entry point -- raised directly: "going into the my info each tour isn't
@@ -9630,7 +9640,7 @@
                 // live on Mack while on tour.
                 const _onDutyHere = _pilotOnDutyDefault(currentPilot, dateKey);
                 const icon = isVacation ? '🌴' : isHard ? '🔴' : isTraining ? '🎓' : away ? '🏨' : _onDutyHere ? '📟' : '😴';
-                const msg  = isVacation ? 'Vacation' : isHard ? 'Hard Day Off' : isTraining ? (trainingLoc ? `Training · ${trainingLoc}` : 'Training Day') : away ? `Away at ${away.arrivalAirport}` : _onDutyHere ? (_onDutyDefaultLabel(currentPilot) === 'ON TOUR' ? 'On Tour' : 'On Call') : 'Day Off';
+                const msg  = isVacation ? 'Vacation' : isHard ? 'Hard Day Off' : isTraining ? (trainingLoc ? `Training · ${trainingLoc}` : 'Training Day') : away ? `Away at ${aptLabel(away.arrivalAirport, currentPilot)}` : _onDutyHere ? (_onDutyDefaultLabel(currentPilot) === 'ON TOUR' ? 'On Tour' : 'On Call') : 'Day Off';
                 const specialSeg = isTraining ? dayEvents.find(e => e.type === 'training') : isVacation ? dayEvents.find(e => e.type === 'vacation') : null;
                 const specialEditActions = (specialSeg?.id && canEdit()) ? `<div class="flex gap-2 mt-4 pt-4 border-t border-white/10">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${specialSeg.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
@@ -9683,7 +9693,7 @@
                 html += `<div class="bg-zinc-800/40 border border-zinc-700/30 rounded-xl px-4 py-2.5 mb-2">
                     <div class="flex items-center gap-3">
                         <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Ground</div>
-                        <div class="text-sm font-bold text-zinc-300">${g.departureAirport} <span class="text-zinc-600">→</span> ${g.arrivalAirport}</div>
+                        <div class="text-sm font-bold text-zinc-300">${aptLabel(g.departureAirport, currentPilot)} <span class="text-zinc-600">→</span> ${aptLabel(g.arrivalAirport, currentPilot)}</div>
                         <div class="text-[10px] text-zinc-600 ml-auto">${g.flightNumber || ''}</div>
                     </div>
                     <div class="text-sm font-bold text-zinc-400 mt-1">${gDep}${gTzTag(gDepTz)} <span class="text-zinc-600">→</span> ${gArr}${gTzTag(gArrTz)}</div>
@@ -9750,7 +9760,7 @@
                     </div>
                     <div class="flex items-center px-4 py-3 gap-0">
                         <div class="flex-1 min-w-0">
-                            <div class="bp-apt-code" style="color:${aptColor}">${dep}</div>
+                            <div class="bp-apt-code" style="color:${aptColor}">${aptLabel(dep, currentPilot)}</div>
                             ${depCity ? `<div class="bp-city">${depCity}</div>` : ''}
                             <div class="text-xs text-zinc-500 mt-2">${depTime}${depTz ? `<span class="text-zinc-600 ml-1">${depTz}</span>` : ''}</div>
                         </div>
@@ -9759,7 +9769,7 @@
                             ${blockMins !== null ? `<div class="text-[9px] text-zinc-600 text-center whitespace-nowrap">${formatDurationMinutes(blockMins)}</div>` : ''}
                         </div>
                         <div class="flex-1 min-w-0 text-right">
-                            <div class="bp-apt-code" style="color:${aptColor}">${arr}</div>
+                            <div class="bp-apt-code" style="color:${aptColor}">${aptLabel(arr, currentPilot)}</div>
                             ${arrCity ? `<div class="bp-city">${arrCity}</div>` : ''}
                             <div class="text-xs text-zinc-500 mt-2">${arrTime}${arrTz ? `<span class="text-zinc-600 ml-1">${arrTz}</span>` : ''}</div>
                         </div>
@@ -9790,7 +9800,7 @@
                 const durMs = (r.departureTime && r.arrivalTime) ? new Date(r.arrivalTime) - new Date(r.departureTime) : 0;
                 html += `<div class="bg-amber-950/30 border border-amber-400/20 rounded-xl p-4 mb-3">
                     <div class="flex items-center justify-between mb-1">
-                        <div class="text-[10px] font-black uppercase tracking-widest text-amber-400">ON CALL${dep ? ` — ${dep}` : ''}</div>
+                        <div class="text-[10px] font-black uppercase tracking-widest text-amber-400">ON CALL${dep ? ` — ${aptLabel(dep, currentPilot)}` : ''}</div>
                         <div class="text-[10px] font-semibold text-amber-600">${resType}</div>
                     </div>
                     <div class="text-sm font-bold text-amber-200 mb-1">${typeLabel}</div>
@@ -12117,7 +12127,7 @@ async function openAdminPanel(tab = 'users') {
                 const eta       = hoursAway <= 0 ? 'Now' : hoursAway < 24 ? `in ${hoursAway}h` : dateStr;
                 return `<div class="rounded-xl bg-zinc-800/50 border border-zinc-700/40 px-4 py-3">
                     <div class="flex items-center justify-between mb-1">
-                        <span class="text-sm font-black text-white">${apt} · with ${otherName}</span>
+                        <span class="text-sm font-black text-white">${aptLabel(apt)} · with ${otherName}</span>
                         <span class="text-[10px] font-black text-amber-400 uppercase">${eta}</span>
                     </div>
                     <div class="text-xs text-zinc-400 font-mono">${fmtT(o.directStart)} – ${fmtT(o.directEnd)}${tzLbl}</div>
@@ -13372,9 +13382,9 @@ async function openAdminPanel(tab = 'users') {
                     <div class="wslide-eyebrow">Most Flown Route</div>
                     <span class="wslide-icon">🗺</span>
                     <div style="display:flex;align-items:center;justify-content:center;margin-top:4px;gap:4px">
-                        <span class="wslide-apt" style="opacity:0;animation:wrapped-slide-right 0.4s ease 0.1s forwards">${slide.dep}</span>
+                        <span class="wslide-apt" style="opacity:0;animation:wrapped-slide-right 0.4s ease 0.1s forwards">${aptLabel(slide.dep, _wrappedPilotKey)}</span>
                         <span class="wslide-arrow" style="opacity:0;animation:wrapped-in 0.3s ease 0.3s forwards">→</span>
-                        <span class="wslide-apt" style="opacity:0;animation:wrapped-slide-left 0.4s ease 0.1s forwards">${slide.arr}</span>
+                        <span class="wslide-apt" style="opacity:0;animation:wrapped-slide-left 0.4s ease 0.1s forwards">${aptLabel(slide.arr, _wrappedPilotKey)}</span>
                     </div>
                     <div class="wslide-count" style="margin-top:14px">${slide.count} ${slide.count === 1 ? 'time' : 'times'} this year</div>
                 </div>`;
@@ -13390,9 +13400,9 @@ async function openAdminPanel(tab = 'users') {
                     <div class="wslide-eyebrow">Longest Leg</div>
                     <span class="wslide-icon">🛫</span>
                     <div style="display:flex;align-items:center;justify-content:center;margin-top:4px;gap:4px">
-                        <span class="wslide-apt" style="opacity:0;animation:wrapped-slide-right 0.4s ease 0.1s forwards">${slide.dep}</span>
+                        <span class="wslide-apt" style="opacity:0;animation:wrapped-slide-right 0.4s ease 0.1s forwards">${aptLabel(slide.dep, _wrappedPilotKey)}</span>
                         <span class="wslide-arrow" style="opacity:0;animation:wrapped-in 0.3s ease 0.3s forwards">→</span>
-                        <span class="wslide-apt" style="opacity:0;animation:wrapped-slide-left 0.4s ease 0.1s forwards">${slide.arr}</span>
+                        <span class="wslide-apt" style="opacity:0;animation:wrapped-slide-left 0.4s ease 0.1s forwards">${aptLabel(slide.arr, _wrappedPilotKey)}</span>
                     </div>
                     <div class="wslide-label" style="margin-top:16px;font-size:28px;letter-spacing:-0.01em;color:#e2e8f0;font-weight:300">${slide.hrs}h ${String(slide.mins).padStart(2,'0')}m</div>
                 </div>`;
@@ -13626,7 +13636,7 @@ async function openAdminPanel(tab = 'users') {
                     const pct = Math.round((count / maxVal) * 100);
                     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
                         <span style="width:16px;font-size:10px;color:#334155;font-weight:700;text-align:right;flex-shrink:0">${i+1}</span>
-                        <span style="width:96px;font-size:13px;font-weight:700;color:#e2e8f0;letter-spacing:0.04em;flex-shrink:0">${dep} <span style="color:#3b82f6">→</span> ${arr}</span>
+                        <span style="width:96px;font-size:13px;font-weight:700;color:#e2e8f0;letter-spacing:0.04em;flex-shrink:0">${aptLabel(dep, _wrappedPilotKey)} <span style="color:#3b82f6">→</span> ${aptLabel(arr, _wrappedPilotKey)}</span>
                         <div style="flex:1;height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
                             <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#1d4ed8,#60a5fa);border-radius:3px"></div>
                         </div>
@@ -13744,7 +13754,7 @@ async function openAdminPanel(tab = 'users') {
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:28px">
                         <div>
                             <div class="wr-section-head">Top Airports</div>
-                            ${s.topAirports.slice(0,5).map(([code], i) => `<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:7px"><span style="font-size:9px;color:#334155;width:12px;text-align:right">${i+1}</span><span style="font-size:12px;font-weight:700;color:#e2e8f0;letter-spacing:0.05em">${code}</span></div>`).join('') || '<span style="color:#334155;font-size:11px">No data</span>'}
+                            ${s.topAirports.slice(0,5).map(([code], i) => `<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:7px"><span style="font-size:9px;color:#334155;width:12px;text-align:right">${i+1}</span><span style="font-size:12px;font-weight:700;color:#e2e8f0;letter-spacing:0.05em">${aptLabel(code, _wrappedPilotKey)}</span></div>`).join('') || '<span style="color:#334155;font-size:11px">No data</span>'}
                         </div>
                         <div>
                             <div class="wr-section-head">Aircraft</div>
@@ -13768,8 +13778,8 @@ async function openAdminPanel(tab = 'users') {
                         ${s.earlyCount > 0 ? `<div class="wr-mini-card"><div style="font-size:18px;margin-bottom:6px">🌙</div><div class="wr-mini-val">${s.earlyCount}</div><div class="wr-mini-lbl">Pre-Dawn Deps<br><span style="color:#334155">before 6 am</span></div></div>` : ''}
                         ${s.lateCount  > 0 ? `<div class="wr-mini-card"><div style="font-size:18px;margin-bottom:6px">🌃</div><div class="wr-mini-val">${s.lateCount}</div><div class="wr-mini-lbl">Late-Night Arrs<br><span style="color:#334155">after 10 pm</span></div></div>` : ''}
                         ${s.dhCount    > 0 ? `<div class="wr-mini-card"><div style="font-size:18px;margin-bottom:6px">💺</div><div class="wr-mini-val">${s.dhCount}</div><div class="wr-mini-lbl">Deadhead Legs<br><span style="color:#334155">paid to ride</span></div></div>` : ''}
-                        ${s.longest    ? `<div class="wr-mini-card"><div style="font-size:18px;margin-bottom:6px">🛫</div><div class="wr-mini-val">${blockFmt(s.longest.block_minutes)}</div><div class="wr-mini-lbl">Longest Leg<br><span style="color:#334155">${s.longest.departure_airport} → ${s.longest.arrival_airport}</span></div></div>` : ''}
-                        ${s.shortest   ? `<div class="wr-mini-card"><div style="font-size:18px;margin-bottom:6px">⚡</div><div class="wr-mini-val">${blockFmt(s.shortest.block_minutes)}</div><div class="wr-mini-lbl">Shortest Leg<br><span style="color:#334155">${s.shortest.departure_airport} → ${s.shortest.arrival_airport}</span></div></div>` : ''}
+                        ${s.longest    ? `<div class="wr-mini-card"><div style="font-size:18px;margin-bottom:6px">🛫</div><div class="wr-mini-val">${blockFmt(s.longest.block_minutes)}</div><div class="wr-mini-lbl">Longest Leg<br><span style="color:#334155">${aptLabel(s.longest.departure_airport, _wrappedPilotKey)} → ${aptLabel(s.longest.arrival_airport, _wrappedPilotKey)}</span></div></div>` : ''}
+                        ${s.shortest   ? `<div class="wr-mini-card"><div style="font-size:18px;margin-bottom:6px">⚡</div><div class="wr-mini-val">${blockFmt(s.shortest.block_minutes)}</div><div class="wr-mini-lbl">Shortest Leg<br><span style="color:#334155">${aptLabel(s.shortest.departure_airport, _wrappedPilotKey)} → ${aptLabel(s.shortest.arrival_airport, _wrappedPilotKey)}</span></div></div>` : ''}
                     </div>
 
                     <!-- Footer -->
@@ -13992,7 +14002,7 @@ async function openAdminPanel(tab = 'users') {
                         airport: apt,
                         directStart: o.directStart.toISOString(),
                         title: `Crossing with ${otherName}`,
-                        body: `${apt} · ${timeRange} · ${dateStr}`
+                        body: `${aptLabel(apt)} · ${timeRange} · ${dateStr}`
                     };
                 });
             if (!crossings.length) return;
