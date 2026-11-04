@@ -674,6 +674,7 @@
                         </div>
                         <div class="flex gap-1">
                             <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
+                            <button id="btn-basemap" onclick="toggleBasemap()" class="hidden map-ctrl-pill">🗺 CARTO+</button>
                             <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill" title="Toggle route detail (VOR/fix/waypoint symbols)">✦ RTE</button>
                             <button id="btn-show-sector" onclick="toggleShowSector()" class="map-ctrl-pill" title="Show the real ATC frequency currently controlling each live flight, when it resolves">📻 FREQ</button>
                         </div>
@@ -3409,6 +3410,34 @@
         }
         function isHomeOrBase(airport, pilotKey) {
             return isHomeAirport(airport, pilotKey) || isBaseAirport(airport, pilotKey);
+        }
+        // The base a pilot was on at a moment, using the same rule as buildGroundPeriods's baseAt():
+        // a trip keeps the base it left from, even if a base change takes effect while it's out
+        // (Sam's October LGA trip ended 11/1, the day ORD took over). Departure times from any known
+        // base are indexed once per segment list, so a lookup never rescans the pilot's history.
+        const _baseDepIndex = new WeakMap();
+        function pilotBaseAt(pilotKey, when) {
+            const data = pilotsCache[pilotKey];
+            if (!data) return null;
+            const hist = data.base_history;
+            if (!hist?.length || !data.segments) return data.base ? normApt(data.base) : null;
+            let times = _baseDepIndex.get(data.segments);
+            if (!times) {
+                const known = new Set(hist.filter(h => h.base).map(h => normApt(h.base)));
+                if (data.base) known.add(normApt(data.base));
+                times = data.segments
+                    .filter(x => x.departure_time && x.departure_airport && !x.auto_leg_cancelled && known.has(normApt(x.departure_airport)))
+                    .map(x => new Date(x.departure_time).getTime())
+                    .sort((a, b) => a - b);
+                _baseDepIndex.set(data.segments, times);
+            }
+            const at = new Date(when).getTime();
+            let lo = 0, hi = times.length;
+            while (lo < hi) { const mid = (lo + hi) >> 1; if (times[mid] <= at) lo = mid + 1; else hi = mid; }
+            return resolveBaseAt(data.base, hist, new Date(lo ? times[lo - 1] : at));
+        }
+        function isHomeOrBaseAt(airport, pilotKey, when) {
+            return isHomeAirport(airport, pilotKey) || sameApt(airport, pilotBaseAt(pilotKey, when));
         }
         // Resolves which airline base was actually in effect on a given date, for a pilot whose
         // base changed over time (e.g. a regional reassignment) -- baseHistory is the pilot's
@@ -6542,7 +6571,7 @@
 
         // Base map detail, switchable (2026-11-03): CARTO restyled dark_all (fewer labels zoomed out,
         // lighter blue-grey water) and no longer serves the old look at any URL. Standard vs CARTO+
-        // (next zoom level at half size). Choice persists per device (cs_basemap); toggleBasemap()
+        // (next zoom level at half size). A trial pick persists per device (cs_basemap); toggleBasemap()
         // swaps it live on every open map.
         var BASEMAPS = { // var: addBasemap() can run before this line during startup
             carto: { label: 'CARTO', layers: [
@@ -6555,11 +6584,19 @@
                 { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
                   nolabels: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
                   opts: { className: 'cs-basemap', subdomains: 'abcd', tileSize: 128, zoomOffset: 1, maxNativeZoom: 18, maxZoom: 19 } } ] },
+            // Trial options, Kyle and admin only (the #btn-basemap pill). Both are drawn by MapLibre,
+            // loaded on first pick. Protomaps stays out of the cycle until PROTOMAPS_KEY is set.
+            ofm: { label: 'OpenFreeMap', style: () => 'https://tiles.openfreemap.org/styles/dark' },
+            protomaps: { label: 'Protomaps', style: () => `https://api.protomaps.com/styles/v5/dark/en.json?key=${PROTOMAPS_KEY}` },
         };
+        var PROTOMAPS_KEY = '';
         var _basemapChoice = 'detail'; // CARTO+ for everyone (picked 2026-11-03); 'carto' kept as the plain fallback
         var _basemapMaps = []; // [{ map, noLabels, layers }]
         function _basemapLayersFor(noLabels) {
-            return BASEMAPS[_basemapChoice].layers
+            const pick = BASEMAPS[_basemapChoice];
+            // Wrapped's no-labels map stays on CARTO during a trial.
+            if (pick.style && !noLabels && L.maplibreGL) return [L.maplibreGL({ style: pick.style() })];
+            return (pick.style ? BASEMAPS.detail : pick).layers
                 .filter(l => !(noLabels && l.labels))
                 .map(l => L.tileLayer(noLabels && l.nolabels ? l.nolabels : l.url, l.opts));
         }
@@ -6570,19 +6607,49 @@
             _basemapMaps.push(entry);
             _refreshBasemapButton();
         }
-        function toggleBasemap() {
-            _basemapChoice = _basemapChoice === 'carto' ? 'detail' : 'carto';
-            try { localStorage.setItem('cs_basemap', _basemapChoice); } catch (_) {}
+        function _loadBasemapAsset(url) {
+            return new Promise((ok, fail) => {
+                const css = url.endsWith('.css');
+                const el = document.createElement(css ? 'link' : 'script');
+                if (css) { el.rel = 'stylesheet'; el.href = url; } else { el.src = url; }
+                el.onload = ok; el.onerror = () => fail(new Error('Could not load ' + url));
+                document.head.appendChild(el);
+            });
+        }
+        async function _setBasemap(choice) {
+            try {
+                if (BASEMAPS[choice].style && !L.maplibreGL) {
+                    await _loadBasemapAsset('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css');
+                    await _loadBasemapAsset('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js');
+                    await _loadBasemapAsset('https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js');
+                }
+            } catch (e) { showToast('Could not load that map.', 'error'); choice = 'detail'; }
+            _basemapChoice = choice;
+            try { localStorage.setItem('cs_basemap', choice); } catch (_) {}
             for (const e of _basemapMaps) {
                 e.layers.forEach(l => { try { e.map.removeLayer(l); } catch (_) {} });
                 e.layers = _basemapLayersFor(e.noLabels);
-                e.layers.forEach(l => { l.addTo(e.map); l.bringToBack(); });
+                e.layers.forEach(l => { l.addTo(e.map); l.bringToBack?.(); });
             }
             _refreshBasemapButton();
         }
+        function toggleBasemap() {
+            const order = PROTOMAPS_KEY ? ['detail', 'ofm', 'protomaps'] : ['detail', 'ofm'];
+            _setBasemap(order[(order.indexOf(_basemapChoice) + 1) % order.length]);
+        }
+        function _canTrialBasemap() { return !isDemo && !myViewer && (!myPilot || myPilot === 'kyle'); }
+        var _basemapRestored = false;
         function _refreshBasemapButton() {
             const b = document.getElementById('btn-basemap');
-            if (b) b.textContent = '🗺 ' + BASEMAPS[_basemapChoice].label;
+            if (b) {
+                b.textContent = '🗺 ' + BASEMAPS[_basemapChoice].label;
+                b.classList.toggle('hidden', !_canTrialBasemap());
+            }
+            if (_basemapRestored) return;
+            _basemapRestored = true;
+            let saved = null;
+            try { saved = localStorage.getItem('cs_basemap'); } catch (_) {}
+            if (BASEMAPS[saved]?.style && _canTrialBasemap() && (saved !== 'protomaps' || PROTOMAPS_KEY)) _setBasemap(saved);
         }
 
         function addRadarLayer() {
@@ -8383,13 +8450,15 @@
                     }
 
                     const atHome = isHomeAirport(lastArrival, pilotKey);
-                    const atBase = isBaseAirport(lastArrival, pilotKey);
+                    const atBase = !!lastArrival && (isBaseAirport(lastArrival, pilotKey) || sameApt(lastArrival, pilotBaseAt(pilotKey, lastArrivalTimeStr)));
 
-                    // Future departures from the last arrival airport
-                    const nextDepFromHere = lastArrival ? pilotFlights.find(f => {
+                    // The pilot's next flight, if it leaves the last arrival airport. One leaving anywhere
+                    // else means they aren't waiting here, however soon they next depart from here.
+                    const nextFlight = lastArrival ? pilotFlights.find(f => {
                         const dep = flightUTCTime(f.departureTime, f.departureAirport);
-                        return f.departureAirport?.toUpperCase() === lastArrival && dep && dep > now2;
+                        return dep && dep > now2;
                     }) : null;
+                    const nextDepFromHere = nextFlight?.departureAirport?.toUpperCase() === lastArrival ? nextFlight : null;
                     const nextDepUTC = nextDepFromHere ? flightUTCTime(nextDepFromHere.departureTime, nextDepFromHere.departureAirport) : null;
 
                     // Mid-trip overnight: pilot is at a non-home airport with a future departure from there.
@@ -8597,9 +8666,16 @@
             if (h > 0) return `${h}h ${m}m`;
             return `${m}m`;
         }
+        // The pilot's very next leg, only if it leaves this airport. A later departure from here with
+        // other flying in between isn't a layover: Sam's 11/1 LGA arrival used to pair with 11/24.
         function getNextLegFrom(airport, afterTimeStr) {
-            return segments.filter(s => (s.type === 'flight' || s.type === 'ground') && s.departureAirport === airport && s.departureTime > afterTimeStr)
-                .sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)))[0];
+            let next = null, nextMs = Infinity;
+            for (const s of segments) {
+                if ((s.type !== 'flight' && s.type !== 'ground') || !(s.departureTime > afterTimeStr)) continue;
+                const ms = (flightUTCTime(s.departureTime, s.departureAirport) || new Date(s.departureTime)).getTime();
+                if (ms < nextMs) { next = s; nextMs = ms; }
+            }
+            return next?.departureAirport === airport ? next : null;
         }
         function layoverLabel(groundMins, atHome, sameDay) {
             if (groundMins <= 0) return '';
@@ -8624,7 +8700,7 @@
                             const nextLeg = getNextLegFrom(arrApt, arr);
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arr)) / 60000;
-                                const atHome = isHomeOrBase(arrApt, currentPilot);
+                                const atHome = isHomeOrBaseAt(arrApt, currentPilot, arr);
                                 const sameDay = flightLocalDate(arr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
                                 layoverText = layoverLabel(groundMins, atHome, sameDay);
                             }
@@ -8715,7 +8791,7 @@
                             const nextLeg = getNextLegFrom(arrApt, arrTime);
                             if (nextLeg) {
                                 const gm = (new Date(nextLeg.departureTime) - new Date(arrTime)) / 60000;
-                                const atHome = isHomeOrBase(arrApt, currentPilot);
+                                const atHome = isHomeOrBaseAt(arrApt, currentPilot, arrTime);
                                 const sameDay = flightLocalDate(arrTime, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
                                 layoverText = layoverLabel(gm, atHome, sameDay);
                             }
@@ -8913,7 +8989,7 @@
                             let gOvr = '';
                             if (gNext) {
                                 const gm = (new Date(gNext.departureTime) - new Date(f.arrivalTime)) / 60000;
-                                const atHome = isHomeOrBase(f.arrivalAirport, currentPilot);
+                                const atHome = isHomeOrBaseAt(f.arrivalAirport, currentPilot, f.arrivalTime);
                                 const sameDay = flightLocalDate(f.arrivalTime, f.arrivalAirport) === flightLocalDate(gNext.departureTime, f.arrivalAirport);
                                 gOvr = layoverLabel(gm, atHome, sameDay);
                             }
@@ -8963,7 +9039,7 @@
                             const nextLeg = getNextLegFrom(arrApt, arrAttr);
                             if (nextLeg) {
                                 const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                const atHome = isHomeOrBase(arrApt, currentPilot);
+                                const atHome = isHomeOrBaseAt(arrApt, currentPilot, arrAttr);
                                 const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
                                 const lbl = layoverLabel(groundMins, atHome, sameDay);
                                 if (lbl) groundLine = `<div style="color:#fcd34d;font-size:10px;font-weight:700;margin-top:2px">${lbl}</div>`;
@@ -9208,7 +9284,7 @@
                                 let grndLayover = '';
                                 if (nextFromGrnd) {
                                     const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
-                                    const atHome = isHomeOrBase(g.arrivalAirport, currentPilot);
+                                    const atHome = isHomeOrBaseAt(g.arrivalAirport, currentPilot, g.arrivalTime);
                                     const sameDay = flightLocalDate(g.arrivalTime, g.arrivalAirport) === flightLocalDate(nextFromGrnd.departureTime, g.arrivalAirport);
                                     const lbl = layoverLabel(gm, atHome, sameDay);
                                     if (lbl) grndLayover = `<span class="text-amber-400 font-semibold ml-2 text-[10px]">${lbl}</span>`;
@@ -9258,7 +9334,7 @@
                                     const nextLeg = getNextLegFrom(arrApt, arrAttr);
                                     if (nextLeg) {
                                         const groundMins = (new Date(nextLeg.departureTime) - new Date(arrAttr)) / 60000;
-                                        const atHome = isHomeOrBase(arrApt, currentPilot);
+                                        const atHome = isHomeOrBaseAt(arrApt, currentPilot, arrAttr);
                                         const sameDay = flightLocalDate(arrAttr, arrApt) === flightLocalDate(nextLeg.departureTime, arrApt);
                                         layoverText = layoverLabel(groundMins, atHome, sameDay);
                                     }
@@ -9676,7 +9752,7 @@
                 let grndLayover = '';
                 if (nextFromGrnd) {
                     const gm = (new Date(nextFromGrnd.departureTime) - new Date(g.arrivalTime)) / 60000;
-                    const atHome = isHomeOrBase(g.arrivalAirport, currentPilot);
+                    const atHome = isHomeOrBaseAt(g.arrivalAirport, currentPilot, g.arrivalTime);
                     const sameDay = flightLocalDate(g.arrivalTime, g.arrivalAirport) === flightLocalDate(nextFromGrnd.departureTime, g.arrivalAirport);
                     const lbl = layoverLabel(gm, atHome, sameDay);
                     if (lbl) grndLayover = `<div class="text-amber-300 text-xs font-semibold mt-1">${lbl}</div>`;
@@ -9726,7 +9802,7 @@
                     const nextLeg = getNextLegFrom(arr, f.arrivalTime);
                     if (nextLeg) {
                         const gm = (new Date(nextLeg.departureTime) - new Date(f.arrivalTime)) / 60000;
-                        const atHome = isHomeOrBase(arr, currentPilot);
+                        const atHome = isHomeOrBaseAt(arr, currentPilot, f.arrivalTime);
                         const sameDay = flightLocalDate(f.arrivalTime, arr) === flightLocalDate(nextLeg.departureTime, arr);
                         const lbl = layoverLabel(gm, atHome, sameDay);
                         if (lbl) groundBadge = `<div class="text-amber-300 text-xs font-semibold mt-1">${lbl}</div>`;

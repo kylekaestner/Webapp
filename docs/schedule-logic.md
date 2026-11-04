@@ -68,7 +68,11 @@ Priority order (numbered comments `// ── N. ──` in the code, ~line 7085 
 5b. **Trip not yet started** — no completed flights at all; if a work flight departs within 24h, show at its departure airport.
 6. **Commute prediction** (`isCommuter = atBase && !atHome`) — once `commuteWindowPassed` (local date rolled over, or ≥3h since arrival), shows `Home`; before that, `Heading home` still at the base airport. A non-commuter with no later flight logged just stays `Overnight` at their last arrival indefinitely (the "stay until next logged flight" rule from Crossings above).
 
-**Mid-trip "quick turn" at base** is measured from the pilot's last arrival time, not from "now": if the last arrival was at a non-home airport with a future departure from there, and (not at base, OR the total ground time between that arrival and the next departure is under 18h), they're shown still there (`Layover` same local day, else `Overnight`) rather than sent home.
+**Mid-trip "quick turn" at base** is measured from the pilot's last arrival time, not from "now": if the last arrival was at a non-home airport and the pilot's very next flight leaves from there, and (not at base, OR the total ground time between that arrival and the next departure is under 18h), they're shown still there (`Layover` same local day, else `Overnight`) rather than sent home.
+
+**A layover needs the pilot's next leg to leave that airport.** `getNextLegFrom()` (grid, list, day detail, tooltips) and the here-now pin both look at the very next leg, so a later departure from the same airport with other flying in between is not a layover.
+
+**A base change doesn't move a trip already out.** `pilotBaseAt(pilotKey, when)` and `isHomeOrBaseAt()` apply `baseAt()`'s rule outside `buildGroundPeriods`: a trip keeps the base it left from. Layover labels and the here-now pin judge an arrival this way, so a commuter who finishes the old base's last trip after the change still commutes home. Plain `isHomeOrBase()` means today's base.
 
 **`completedFlights` guard**: both `renderMap` and `renderDayMap` require `departureTimeUTC <= now` in addition to `arrivalTimeUTC <= now` before counting a flight as completed — without this, a manually-added transpacific flight whose `arrivalTime` was stored one day too early (a known `inferArrDate` limitation for >12h timezone crossings) would appear completed before it even departs.
 
