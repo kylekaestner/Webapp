@@ -2023,14 +2023,20 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
     // have reached by then.
     const confirmedAirports = new Set();
     for (const r of realLegs) if (r.confirmed) { if (r.origin) confirmedAirports.add(r.origin); if (r.dest) confirmedAirports.add(r.dest); }
+    // Oldest first, and a leg that passes makes its own destination reachable: the second leg of a
+    // future day starts where the first one ends, not where the tail was last confirmed (165 PHL->FLL
+    // then FLL->TEB, with FLL->TEB flagged because the tail was last confirmed at PHL).
     for (const r of realLegs) {
-        if (r.confirmed || !r.origin || confirmedAirports.has(r.origin)) continue;
+        if (r.confirmed || !r.origin) continue;
+        if (confirmedAirports.has(r.origin)) { if (r.dest) confirmedAirports.add(r.dest); continue; }
         const priorConfirmed = realLegs
             .filter(c => c.confirmed && c.depTime && r.depTime && new Date(c.depTime).getTime() <= new Date(r.depTime).getTime())
             .sort((a, b) => new Date(b.depTime) - new Date(a.depTime))[0];
         if (priorConfirmed && priorConfirmed.dest !== r.origin) {
             r.status = 'filtered';
             r.reason = `origin ${r.origin} never confirmed -- tail was last confirmed at ${priorConfirmed.dest} by then`;
+        } else if (r.dest) {
+            confirmedAirports.add(r.dest);
         }
     }
 
