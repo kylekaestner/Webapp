@@ -5136,6 +5136,28 @@ const NETJETS_LEG_MATCH_TOLERANCE_MS = 6 * 60 * 60 * 1000;
 // against a real quick-turn -- a genuinely separate, later departure from the same airport sits
 // well outside this window and correctly becomes its own new leg instead of overwriting the row.
 const NETJETS_SAME_DEPARTURE_TOLERANCE_MS = 15 * 60 * 1000;
+// What a NetJets row's times should be. These legs have no fixed schedule, so unlike an airline's
+// uploaded times the row itself becomes what really happened. Before departure it keeps the plan, so
+// a slipping ETD reads as "DELAYED · ETD" rather than quietly rewriting the plan (a row following the
+// ETD could never look late). 3h+ off is a re-plan, not a delay. Once flown it takes the real
+// departure, then the real arrival. A null arr means leave the row's arrival as it is.
+const NETJETS_REPLAN_MS = 3 * 3600000;
+function _netjetsRowTimes(row, legTimes, flown, depTime, arrTime) {
+    const iso = ms => new Date(ms).toISOString();
+    if (flown) {
+        const dep = legTimes.etdType !== 'ACTUAL' && legTimes.departedAt ? iso(legTimes.departedAt) : depTime;
+        const reported = legTimes.timeOfArrivalEstimated === false ? Date.parse(legTimes.timeOfArrival || '') : NaN;
+        const arr = !isNaN(reported) ? iso(reported) : legTimes.arrivedAt ? iso(legTimes.arrivedAt) : arrTime;
+        return { dep, arr };
+    }
+    const rowDepMs = Date.parse(row.departure_time || ''), depMs = Date.parse(depTime || '');
+    const placeholder = row.arrival_time === row.departure_time;
+    if (placeholder || isNaN(rowDepMs) || isNaN(depMs) || Math.abs(depMs - rowDepMs) >= NETJETS_REPLAN_MS) return { dep: depTime, arr: arrTime };
+    // First real ETA for a row on an estimate: same flight time, from the planned departure.
+    const arrMs = Date.parse(arrTime || '');
+    return { dep: row.departure_time, arr: row.block_minutes == null && !isNaN(arrMs) ? iso(rowDepMs + (arrMs - depMs)) : null };
+}
+
 function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs) {
     let best = null, bestDiff = Infinity;
     for (const row of existingRows) {
@@ -5406,33 +5428,34 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
 
             // Refine whatever's newly known about an already-created leg.
             const updates = [], params = [];
+            const rowTimes = _netjetsRowTimes(row, legTimes, _tfmsLegFlown(legTimes) || REALLY_DEPARTED_RE.test(flightState), depTime, arrTime);
             if (finalDest && finalDest !== row.arrival_airport) { updates.push('arrival_airport=?'); params.push(finalDest); }
-            if (depTime && depTime !== row.departure_time) { updates.push('departure_time=?'); params.push(depTime); }
-            if (arrTime && arrTime !== row.arrival_time) { updates.push('arrival_time=?'); params.push(arrTime); }
+            if (rowTimes.dep && rowTimes.dep !== row.departure_time) { updates.push('departure_time=?'); params.push(rowTimes.dep); }
+            if (rowTimes.arr && rowTimes.arr !== row.arrival_time) { updates.push('arrival_time=?'); params.push(rowTimes.arr); }
             // No real evidence yet, but the row is still sitting on its original same-instant
             // placeholder (never refined with anything) -- fill it with the estimate instead of
             // leaving it looking like a zero-length flight. Only when the row is STILL the
             // placeholder, never overwriting a real value that happened to get set earlier --
             // this estimate must never regress something real back into a guess.
-            else if (!arrTime && estimatedArrTime && row.arrival_time === row.departure_time) {
+            else if (!rowTimes.arr && estimatedArrTime && row.arrival_time === row.departure_time) {
                 updates.push('arrival_time=?'); params.push(estimatedArrTime);
             }
             // Both times are always real UTC ISO strings (tfms.js's processFlightTimes() runs
             // every field through .toISOString()), so block time is a plain diff -- no airport-
             // timezone lookup needed the way other parsers require for local-time-stored segments.
-            const finalDepTime = depTime || row.departure_time;
-            const finalArrTime = arrTime || (!arrTime && row.arrival_time === row.departure_time ? estimatedArrTime : null) || row.arrival_time;
+            const finalDepTime = rowTimes.dep || row.departure_time;
+            const finalArrTime = rowTimes.arr || (row.arrival_time === row.departure_time ? estimatedArrTime : null) || row.arrival_time;
             if (finalDepTime && finalArrTime) {
                 const block = Math.round((new Date(finalArrTime) - new Date(finalDepTime)) / 60000);
                 if (isFinite(block) && block > 0) {
                     // Block time only from a real arrival time -- otherwise a placeholder estimate
                     // became a precise-looking block time (EJA492 CQF->HOT showed 593 minutes).
-                    if (arrTime) { updates.push('block_minutes=?'); params.push(block); }
+                    if (rowTimes.arr) { updates.push('block_minutes=?'); params.push(block); }
                     // Recorded into the NetJets-wide duration history ONLY from REAL evidence
                     // (arrTime) on a genuinely completed leg -- never from the estimate itself,
                     // so a guess can never compound into a worse guess for a later leg on this
                     // same city pair.
-                    if (landed && arrTime) _recordRouteDuration(origin, dest, block);
+                    if (landed && rowTimes.arr) _recordRouteDuration(origin, dest, block);
                 } else if (row.arrival_time || row.block_minutes != null) {
                     // finalArrTime is at or before finalDepTime -- physically impossible.
                     // Confirmed live 2026-10-30: a leg-blind pre-rewrite write left a stale
