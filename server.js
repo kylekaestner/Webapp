@@ -1422,6 +1422,9 @@ function parseCcScheduleText(text) {
             // The legend lines ("X - Regular duty assignment", etc.) and blank/header lines never
             // match the date pattern at all -- only warn on something that looks date-shaped but
             // still didn't parse, so the legend itself doesn't spam a false "unrecognized" report.
+            // The email's own "Date:" header and "subject to change ... 2015 CBA" footer have a
+            // year in them too, so they're skipped by name. Kept narrow so a garbled day still warns.
+            if (/^Date:\s/i.test(line) || /subject to change/i.test(line)) continue;
             if (/\d{4}/.test(line)) warnings.push(`Line looked like a schedule day but didn't match the expected format: "${line}"`);
             continue;
         }

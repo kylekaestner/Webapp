@@ -9599,10 +9599,10 @@
             else if (reserves.length > 0) { label = 'ON CALL'; labelColor = 'text-amber-400'; }
 
             // "Edit Tour" entry point -- raised directly: "going into the my info each tour isn't
-            // the best way to do it," wanting to click into the tour itself instead. Self-service
-            // only (own schedule), and only on an actual NetJets tour day, not Kyle's reserve
+            // the best way to do it," wanting to click into the tour itself instead. Own schedule,
+            // or admin on any pilot's, and only on an actual NetJets tour day, not Kyle's reserve
             // "ON CALL" system which shares the same _pilotOnDutyDefault() plumbing.
-            const _tourEditBtn = (currentPilot === myPilot && _pilotOnDutyDefault(currentPilot, dateKey) && _onDutyDefaultLabel(currentPilot) === 'ON TOUR')
+            const _tourEditBtn = (canEdit() && _pilotOnDutyDefault(currentPilot, dateKey) && _onDutyDefaultLabel(currentPilot) === 'ON TOUR')
                 ? (() => {
                     const ts = _tourStartDateFor(currentPilot, dateKey);
                     return ts ? `<button onclick="openNetjetsTourModal('${ts}')" class="text-[9px] font-black uppercase tracking-widest text-indigo-400 border border-indigo-900 rounded-full px-2.5 py-1 mt-1.5 hover:bg-indigo-950/40 transition-colors">✈️ Edit Tour</button>` : '';
@@ -11419,6 +11419,7 @@ async function openAdminPanel(tab = 'users') {
         }
 
         function _refreshMyInfoNetjetsStatus() {
+            if (!myPilot) return; // admin saving another pilot's tour has no My Info to refresh
             const todayStr = _todayLocalDateStr();
             const tourStart = _tourStartDateFor(myPilot, todayStr);
             const rotStatus = document.getElementById('my-info-rotation-status');
@@ -11648,15 +11649,18 @@ async function openAdminPanel(tab = 'users') {
         // callsign (see PUT /tour-tail's own comment) instead of silently abandoning it, a real gap
         // confirmed live twice this session before this existed.
         let _netjetsTourModalDate = null;
+        let _netjetsTourModalPilot = null; // the pilot being edited: self, or the viewed pilot for admin
         function openNetjetsTourModal(tourStartDate) {
-            if (!tourStartDate || !myPilot) return;
+            const pilot = myPilot || (canEdit() ? currentPilot : null);
+            if (!tourStartDate || !pilot) return;
+            _netjetsTourModalPilot = pilot;
             _netjetsTourModalDate = tourStartDate;
             _refreshNetjetsTourRange();
-            document.getElementById('netjets-tour-modal-tail').value = _tourTailFor(myPilot, tourStartDate) || '';
-            document.getElementById('netjets-tour-modal-start-airport').value = _tourStartAirportFor(myPilot, tourStartDate) || '';
+            document.getElementById('netjets-tour-modal-tail').value = _tourTailFor(_netjetsTourModalPilot, tourStartDate) || '';
+            document.getElementById('netjets-tour-modal-start-airport').value = _tourStartAirportFor(_netjetsTourModalPilot, tourStartDate) || '';
             document.getElementById('netjets-tour-modal-status').textContent = '';
             // Nothing saved for this tour yet -- no point offering to reset a blank.
-            document.getElementById('netjets-tour-modal-reset-btn').classList.toggle('hidden', !_tourTailFor(myPilot, tourStartDate));
+            document.getElementById('netjets-tour-modal-reset-btn').classList.toggle('hidden', !_tourTailFor(_netjetsTourModalPilot, tourStartDate));
             document.getElementById('netjets-tour-modal').classList.remove('hidden');
         }
         // Walks the actual tour (rotation, CC days, seam, and any extension days) rather than
@@ -11664,51 +11668,51 @@ async function openAdminPanel(tab = 'users') {
         function _refreshNetjetsTourRange() {
             const ts = _netjetsTourModalDate;
             if (!ts) return;
-            const end = _tourEndDateFor(myPilot, ts);
-            const ext = (pilotsCache[myPilot]?.tour_extensions || []).filter(e => e.tour_start_date === ts).length;
+            const end = _tourEndDateFor(_netjetsTourModalPilot, ts);
+            const ext = (pilotsCache[_netjetsTourModalPilot]?.tour_extensions || []).filter(e => e.tour_start_date === ts).length;
             const fmt = ds => new Date(ds + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             const days = Math.round((new Date(end + 'T12:00:00') - new Date(ts + 'T12:00:00')) / 86400000) + 1;
             document.getElementById('netjets-tour-modal-range').textContent =
-                `${fmt(ts)} – ${fmt(end)} (${days} day${days === 1 ? '' : 's'}${ext ? `, extended +${ext}` : ''})`;
+                `${_netjetsTourModalPilot !== myPilot ? `${PILOT_NAMES[_netjetsTourModalPilot] || _netjetsTourModalPilot} · ` : ''}${fmt(ts)} – ${fmt(end)} (${days} day${days === 1 ? '' : 's'}${ext ? `, extended +${ext}` : ''})`;
             document.getElementById('netjets-tour-modal-unextend-btn').classList.toggle('hidden', !ext);
         }
         async function extendNetjetsTour() {
             const ts = _netjetsTourModalDate;
             const statusEl = document.getElementById('netjets-tour-modal-status');
             if (!ts) return;
-            const end = new Date(_tourEndDateFor(myPilot, ts) + 'T12:00:00');
+            const end = new Date(_tourEndDateFor(_netjetsTourModalPilot, ts) + 'T12:00:00');
             end.setDate(end.getDate() + 1);
             const date = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
             statusEl.textContent = 'Saving…';
             try {
-                const r = await fetch(`${API_BASE}/pilots/${myPilot}/tour-extension`, {
+                const r = await fetch(`${API_BASE}/pilots/${_netjetsTourModalPilot}/tour-extension`, {
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token: myToken, tourStartDate: ts, date })
                 });
                 if (!r.ok) { statusEl.textContent = 'Extend failed — try again.'; return; }
-                const exts = (pilotsCache[myPilot].tour_extensions || []).filter(e => e.date !== date);
-                pilotsCache[myPilot].tour_extensions = [...exts, { date, tour_start_date: ts }];
+                const exts = (pilotsCache[_netjetsTourModalPilot].tour_extensions || []).filter(e => e.date !== date);
+                pilotsCache[_netjetsTourModalPilot].tour_extensions = [...exts, { date, tour_start_date: ts }];
                 statusEl.textContent = 'Extended — same tail, no commute home until the new last day.';
                 _refreshNetjetsTourRange();
-                if (currentPilot === myPilot) render();
+                if (currentPilot === _netjetsTourModalPilot) render();
             } catch { statusEl.textContent = 'Extend failed — try again.'; }
         }
         async function unextendNetjetsTour() {
             const ts = _netjetsTourModalDate;
             const statusEl = document.getElementById('netjets-tour-modal-status');
-            const last = (pilotsCache[myPilot]?.tour_extensions || []).filter(e => e.tour_start_date === ts).map(e => e.date).sort().pop();
+            const last = (pilotsCache[_netjetsTourModalPilot]?.tour_extensions || []).filter(e => e.tour_start_date === ts).map(e => e.date).sort().pop();
             if (!last) return;
             statusEl.textContent = 'Saving…';
             try {
-                const r = await fetch(`${API_BASE}/pilots/${myPilot}/tour-extension`, {
+                const r = await fetch(`${API_BASE}/pilots/${_netjetsTourModalPilot}/tour-extension`, {
                     method: 'DELETE', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token: myToken, date: last })
                 });
                 if (!r.ok) { statusEl.textContent = 'Undo failed — try again.'; return; }
-                pilotsCache[myPilot].tour_extensions = pilotsCache[myPilot].tour_extensions.filter(e => e.date !== last);
+                pilotsCache[_netjetsTourModalPilot].tour_extensions = pilotsCache[_netjetsTourModalPilot].tour_extensions.filter(e => e.date !== last);
                 statusEl.textContent = 'Extension removed.';
                 _refreshNetjetsTourRange();
-                if (currentPilot === myPilot) render();
+                if (currentPilot === _netjetsTourModalPilot) render();
             } catch { statusEl.textContent = 'Undo failed — try again.'; }
         }
         function dismissNetjetsTourModal() {
@@ -11721,20 +11725,20 @@ async function openAdminPanel(tab = 'users') {
             const tail = document.getElementById('netjets-tour-modal-tail').value.trim();
             const startAirport = document.getElementById('netjets-tour-modal-start-airport').value.trim();
             if (!tourStart) { statusEl.textContent = 'No tour selected.'; return; }
-            if (!tail) { statusEl.textContent = 'Enter the number off your tail first.'; return; }
-            const priorTail = _tourTailFor(myPilot, tourStart);
+            if (!tail) { statusEl.textContent = 'Enter the tail number first.'; return; }
+            const priorTail = _tourTailFor(_netjetsTourModalPilot, tourStart);
             const isSwap = priorTail && priorTail.toUpperCase() !== tail.toUpperCase();
             statusEl.textContent = 'Saving…';
             try {
-                const r = await fetch(`${API_BASE}/pilots/${myPilot}/tour-tail`, {
+                const r = await fetch(`${API_BASE}/pilots/${_netjetsTourModalPilot}/tour-tail`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token: myToken, tourStartDate: tourStart, tail, startAirport })
                 });
                 if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
-                if (!pilotsCache[myPilot]) pilotsCache[myPilot] = {};
-                const existing = (pilotsCache[myPilot].tour_tails || []).filter(t => t.tour_start_date !== tourStart);
-                pilotsCache[myPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || null }];
+                if (!pilotsCache[_netjetsTourModalPilot]) pilotsCache[_netjetsTourModalPilot] = {};
+                const existing = (pilotsCache[_netjetsTourModalPilot].tour_tails || []).filter(t => t.tour_start_date !== tourStart);
+                pilotsCache[_netjetsTourModalPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || null }];
                 _refreshMyInfoNetjetsStatus();
                 // Done -- close the tour modal and the day detail sheet it was opened from.
                 dismissNetjetsTourModal();
@@ -11748,18 +11752,18 @@ async function openAdminPanel(tab = 'users') {
             const tourStart = _netjetsTourModalDate;
             const statusEl = document.getElementById('netjets-tour-modal-status');
             if (!tourStart) return;
-            const ok = await showConfirm('Reset this tour?', 'This clears the saved tail and starting airport for this tour. Any leg already tracked stays on your schedule, just marked complete.', { label: 'Reset' });
+            const ok = await showConfirm('Reset this tour?', 'This clears the saved tail and starting airport for this tour. Any leg already tracked stays on the schedule, just marked complete.', { label: 'Reset' });
             if (!ok) return;
             statusEl.textContent = 'Resetting…';
             try {
-                const r = await fetch(`${API_BASE}/pilots/${myPilot}/tour-tail`, {
+                const r = await fetch(`${API_BASE}/pilots/${_netjetsTourModalPilot}/tour-tail`, {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token: myToken, tourStartDate: tourStart })
                 });
                 if (!r.ok) { statusEl.textContent = 'Reset failed — try again.'; return; }
-                if (pilotsCache[myPilot]?.tour_tails) {
-                    pilotsCache[myPilot].tour_tails = pilotsCache[myPilot].tour_tails.filter(t => t.tour_start_date !== tourStart);
+                if (pilotsCache[_netjetsTourModalPilot]?.tour_tails) {
+                    pilotsCache[_netjetsTourModalPilot].tour_tails = pilotsCache[_netjetsTourModalPilot].tour_tails.filter(t => t.tour_start_date !== tourStart);
                 }
                 document.getElementById('netjets-tour-modal-tail').value = '';
                 document.getElementById('netjets-tour-modal-start-airport').value = '';
@@ -11778,6 +11782,8 @@ async function openAdminPanel(tab = 'users') {
         function _openCommuteForTour() {
             const startAirport = document.getElementById('netjets-tour-modal-start-airport').value.trim().toUpperCase();
             dismissNetjetsTourModal();
+            // Same z-index as Add Flight and later in the DOM, so left open it covers the form.
+            document.getElementById('day-detail-sheet')?.classList.add('hidden');
             openAddFlight();
             setAddFlightType('commute');
             if (startAirport) document.getElementById('add-arr').value = startAirport;
