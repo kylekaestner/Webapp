@@ -2199,7 +2199,7 @@ app.get('/api/pilots/:pilotKey', (req, res) => {
                         // populated for parser_type 'manual_netjets', empty otherwise.
                         db.all('SELECT anchor_date, days_on, days_off, effective_from FROM pilot_duty_rotation WHERE pilot_id = ? ORDER BY effective_from ASC, id ASC', [pilot.id], (err3, rotationHistory) => {
                             if (err3) return res.status(500).json({ error: err3.message });
-                            db.all('SELECT tour_start_date, tail, start_airport FROM pilot_tour_tail WHERE pilot_id = ? ORDER BY tour_start_date ASC', [pilot.id], (err4, tourTails) => {
+                            db.all('SELECT tour_start_date, tail, start_airport, last_leg_id, next_tail FROM pilot_tour_tail WHERE pilot_id = ? ORDER BY tour_start_date ASC', [pilot.id], (err4, tourTails) => {
                                 if (err4) return res.status(500).json({ error: err4.message });
                                 db.all('SELECT window_start_date, from_key, to_key, table_letter FROM pilot_duty_rotation_seam WHERE pilot_id = ? ORDER BY window_start_date ASC', [pilot.id], (err5, rotationSeams) => {
                                     if (err5) return res.status(500).json({ error: err5.message });
@@ -3185,7 +3185,7 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
         db.get('SELECT id FROM pilots WHERE pilot_key=?', [pilotKey], (err, pilotRow) => {
             if (err) return res.status(500).json({ error: err.message });
             if (!pilotRow) return res.status(404).json({ error: 'Pilot not found' });
-            db.get('SELECT tail FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?', [pilotRow.id, tourStartDate], (err1a, priorRow) => {
+            db.get(`SELECT t.tail, t.last_leg_id, s.auto_leg_complete AS last_leg_done FROM pilot_tour_tail t LEFT JOIN segments s ON s.id=t.last_leg_id WHERE t.pilot_id=? AND t.tour_start_date=?`, [pilotRow.id, tourStartDate], (err1a, priorRow) => {
                 if (err1a) return res.status(500).json({ error: err1a.message });
                 // Mid-tour tail swap (raised directly: "there also should be able to tail swap it
                 // too") -- a real, known gap before this fix: switching the saved tail mid-tour
@@ -3197,15 +3197,19 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
                 // detected (not a same-tail re-save, which just refreshes start_airport).
                 const oldTail = (priorRow?.tail || '').toUpperCase().trim();
                 const isSwap = oldTail && oldTail !== cleanTail;
+                // Still flying the old tail toward a named last leg: a new tail waits for that leg
+                // to land (_netjetsLegCreationPass makes the switch), or swapping now would cancel it.
+                if (isSwap && priorRow.last_leg_id && !priorRow.last_leg_done) {
+                    return db.run(`UPDATE pilot_tour_tail SET next_tail=? WHERE pilot_id=? AND tour_start_date=?`, [cleanTail, pilotRow.id, tourStartDate], err1b => {
+                        if (err1b) return res.status(500).json({ error: err1b.message });
+                        res.json({ success: true, queued: true });
+                    });
+                }
                 const finalizeOldLeg = (cb) => {
                     if (!isSwap) return cb();
                     const oldCallsign = ejaFlightNumber(oldTail);
                     if (!oldCallsign) return cb();
-                    db.run(
-                        `UPDATE segments SET auto_leg_complete=1 WHERE pilot_id=? AND auto_leg_key LIKE ? AND auto_leg_complete=0`,
-                        [pilotRow.id, `${oldCallsign}|${tourStartDate}|%`],
-                        () => cb()
-                    );
+                    _closeOutTourLegs(db, pilotRow.id, `${oldCallsign}|${tourStartDate}|%`, cb);
                 };
                 finalizeOldLeg(() => {
                     // COALESCE(excluded.start_airport, start_airport) normally keeps a re-save that
@@ -3214,7 +3218,7 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
                     // "wherever this NEW aircraft is being met," not Day 1's original airport, so a
                     // swap always takes whatever start_airport the client supplies (even if blank,
                     // clearing the stale Day-1 value rather than silently keeping it).
-                    const startAirportSql = isSwap ? 'start_airport=excluded.start_airport' : 'start_airport=COALESCE(excluded.start_airport, start_airport)';
+                    const startAirportSql = isSwap ? 'start_airport=excluded.start_airport, last_leg_id=NULL, next_tail=NULL' : 'start_airport=COALESCE(excluded.start_airport, start_airport)';
                     db.run(`INSERT INTO pilot_tour_tail (pilot_id, tour_start_date, tail, start_airport) VALUES (?, ?, ?, ?)
                             ON CONFLICT(pilot_id, tour_start_date) DO UPDATE SET tail=excluded.tail, ${startAirportSql}`,
                         [pilotRow.id, tourStartDate, cleanTail, cleanStartAirport], function(err2) {
@@ -3222,6 +3226,48 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
                             res.json({ success: true, swapped: isSwap });
                         });
                 });
+            });
+        });
+    });
+});
+
+// The pilot is leaving this tail: a leg that hasn't departed comes off the schedule, the rest are done.
+function _closeOutTourLegs(db, pilotId, keyLike, cb) {
+    db.run(`UPDATE segments SET auto_leg_cancelled=1 WHERE pilot_id=? AND auto_leg_key LIKE ? AND auto_leg_complete=0 AND auto_leg_cancelled=0 AND departure_time>?`,
+        [pilotId, keyLike, new Date().toISOString()], () => {
+            db.run(`UPDATE segments SET auto_leg_complete=1 WHERE pilot_id=? AND auto_leg_key LIKE ? AND auto_leg_complete=0`, [pilotId, keyLike], () => cb());
+        });
+}
+
+// "Leaving this aircraft": the pilot names their last leg on this tail, ahead of time. Later legs
+// come off the schedule as auto_leg_cancelled=2, so a change of plans (segmentId null) restores
+// only those. The poller keeps skipping later legs until a new tail is saved.
+app.put('/api/pilots/:pilotKey/tour-tail/last-leg', (req, res) => {
+    const db = getDB();
+    const { pilotKey } = req.params;
+    const { token, tourStartDate, segmentId } = req.body;
+    _resolvePilotToken(token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin' && callerKey !== pilotKey) return res.status(403).json({ error: 'Not authorized' });
+        if (!tourStartDate) return res.status(400).json({ error: 'tourStartDate required' });
+        db.get(`SELECT t.tail, p.id AS pilot_id FROM pilot_tour_tail t JOIN pilots p ON p.id=t.pilot_id WHERE p.pilot_key=? AND t.tour_start_date=?`, [pilotKey, tourStartDate], (err, tailRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            const cs = tailRow ? ejaFlightNumber(String(tailRow.tail).toUpperCase().trim()) : null;
+            if (!cs) return res.status(404).json({ error: 'No tail saved for this tour' });
+            const keyLike = `${cs}|${tourStartDate}|%`;
+            const restore = cb => db.run(`UPDATE segments SET auto_leg_cancelled=0 WHERE pilot_id=? AND auto_leg_key LIKE ? AND auto_leg_cancelled=2`, [tailRow.pilot_id, keyLike], cb);
+            const setLastLeg = (id, cb) => db.run(`UPDATE pilot_tour_tail SET last_leg_id=?, next_tail=CASE WHEN ? IS NULL THEN NULL ELSE next_tail END WHERE pilot_id=? AND tour_start_date=?`, [id, id, tailRow.pilot_id, tourStartDate], cb);
+            if (!segmentId) return restore(() => setLastLeg(null, () => res.json({ success: true, removed: 0 })));
+            db.get(`SELECT id, departure_time FROM segments WHERE id=? AND pilot_id=? AND auto_leg_key LIKE ?`, [segmentId, tailRow.pilot_id, keyLike], (err2, leg) => {
+                if (err2) return res.status(500).json({ error: err2.message });
+                if (!leg) return res.status(404).json({ error: 'That leg is not on this tail' });
+                restore(() => setLastLeg(leg.id, () => {
+                    db.run(`UPDATE segments SET auto_leg_cancelled=2 WHERE pilot_id=? AND auto_leg_key LIKE ? AND id!=? AND auto_leg_cancelled=0 AND auto_leg_complete=0 AND departure_time>?`,
+                        [tailRow.pilot_id, keyLike, leg.id, leg.departure_time], function (err3) {
+                            if (err3) return res.status(500).json({ error: err3.message });
+                            res.json({ success: true, removed: this.changes });
+                        });
+                }));
             });
         });
     });
@@ -3246,8 +3292,7 @@ app.delete('/api/pilots/:pilotKey/tour-tail', (req, res) => {
                 const finalizeOpenLeg = (cb) => {
                     const cs = row?.tail ? ejaFlightNumber(String(row.tail).toUpperCase().trim()) : null;
                     if (!cs) return cb();
-                    db.run(`UPDATE segments SET auto_leg_complete=1 WHERE pilot_id=? AND auto_leg_key LIKE ? AND auto_leg_complete=0`,
-                        [pilotRow.id, `${cs}|${tourStartDate}|%`], () => cb());
+                    _closeOutTourLegs(db, pilotRow.id, `${cs}|${tourStartDate}|%`, cb);
                 };
                 finalizeOpenLeg(() => {
                     db.run('DELETE FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?', [pilotRow.id, tourStartDate], function (err2) {
@@ -5114,12 +5159,12 @@ function _getOnDutyNetjetsPilots(db, todayStr, cb) {
         pilots.forEach(p => {
             _netjetsTourStartServer(db, p.id, todayStr, (tourStart) => {
                 if (!tourStart) return done();
-                db.get(`SELECT tail, start_airport FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?`, [p.id, tourStart], (err3, tailRow) => {
+                db.get(`SELECT tail, start_airport, last_leg_id, next_tail FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?`, [p.id, tourStart], (err3, tailRow) => {
                     if (!err3 && tailRow && tailRow.tail) {
                         const callsign = ejaFlightNumber(tailRow.tail);
                         const tailDigits = String(tailRow.tail).replace(/D/g, '');
                         const tailCallsign = tailDigits ? `N${tailDigits}QS` : null; // outside lower 48 + Canada
-                        if (callsign) results.push({ pilotId: p.id, pilotKey: p.pilot_key, base: p.base || '', tail: tailRow.tail, callsign, tailCallsign, tourStart, startAirport: (tailRow.start_airport || '').toUpperCase().trim() || null });
+                        if (callsign) results.push({ pilotId: p.id, pilotKey: p.pilot_key, base: p.base || '', tail: tailRow.tail, callsign, tailCallsign, tourStart, lastLegId: tailRow.last_leg_id || null, nextTail: tailRow.next_tail || null, startAirport: (tailRow.start_airport || '').toUpperCase().trim() || null });
                     }
                     done();
                 });
@@ -5293,6 +5338,16 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             );
         });
 
+        // A new tail was waiting on the pilot's last leg, and it's landed: switch to it here.
+        const landedLastLeg = nj.nextTail && nj.lastLegId ? existingRows.find(r => r.id === nj.lastLegId && r.auto_leg_complete) : null;
+        if (landedLastLeg) {
+            await new Promise(done => _closeOutTourLegs(db, nj.pilotId, `${cs}|${nj.tourStart}|%`, done));
+            await new Promise(done => db.run(`UPDATE pilot_tour_tail SET tail=?, start_airport=?, last_leg_id=NULL, next_tail=NULL WHERE pilot_id=? AND tour_start_date=?`,
+                [nj.nextTail, norm3(landedLastLeg.arrival_airport) || null, nj.pilotId, nj.tourStart], done));
+            console.log(`[NetJets] ${nj.pilotKey}: switched to tail ${nj.nextTail} after their last leg on ${nj.tail}`);
+            continue;
+        }
+
         // Notes.md: "If there are a bunch of extra flight plans added for NJs that's fine ... but
         // once the aircraft departs their first flight we should be able to put the dots together
         // and filter out ones that make NO SENSE" -- e.g. once the plane really departs APF for
@@ -5379,6 +5434,16 @@ async function _netjetsLegCreationPass(db, onDutyList) {
 
             const row = _findExistingNetjetsLeg(existingRows, origin, dest, new Date(depTime).getTime());
             if (row) touchedRowIds.add(row.id);
+
+            // The pilot left this tail after their last leg: what the aircraft flies next is another crew's.
+            const lastLeg = nj.lastLegId ? existingRows.find(r => r.id === nj.lastLegId) : null;
+            if (lastLeg && row?.id !== lastLeg.id && Date.parse(depTime) > Date.parse(lastLeg.departure_time)) {
+                if (row && !row.auto_leg_cancelled && !row.auto_leg_complete) {
+                    row.auto_leg_cancelled = 2;
+                    db.run('UPDATE segments SET auto_leg_cancelled=2 WHERE id=?', [row.id], () => {});
+                }
+                continue;
+            }
 
             // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides they
             // aren't doing that flight -- need support for that." A cancelled leg that was never

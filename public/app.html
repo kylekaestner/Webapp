@@ -1845,6 +1845,11 @@
                 <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Starting Airport</label>
                 <input id="netjets-tour-modal-start-airport" type="text" maxlength="4" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white uppercase" placeholder="SGR">
             </div>
+            <div id="netjets-tour-modal-last-leg-wrap" class="hidden">
+                <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Leaving this aircraft?</label>
+                <select id="netjets-tour-modal-last-leg" onchange="saveNetjetsLastLeg()" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white"></select>
+                <p id="netjets-tour-modal-last-leg-note" class="text-[10px] text-zinc-500 mt-1 leading-snug"></p>
+            </div>
             <div class="flex items-center gap-2">
                 <button onclick="extendNetjetsTour()" class="flex-1 py-2 rounded-lg border border-zinc-700 text-[11px] font-black uppercase tracking-wide text-emerald-400 hover:bg-emerald-950/30 transition-colors">＋ Extend 1 day</button>
                 <button id="netjets-tour-modal-unextend-btn" onclick="unextendNetjetsTour()" class="hidden py-2 px-3 rounded-lg border border-zinc-700 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors">Undo</button>
@@ -8080,8 +8085,9 @@
                 const ev = origin ? legEv[cs + '~' + origin] : null;
                 // Only legs near now get their own evidence. A later NetJets leg can't use the callsign's:
                 // it's the leg being flown, or a ramp with the APU on, and every later leg read as active
-                // and took over the tracker, so the last leg of the day held the plane.
-                const notYet = !ev && !!dMs && nowMs < dMs && _NJ_CS_RE.test(cs || '');
+                // and took over the tracker, so the last leg of the day held the plane. An airline leg
+                // can leave a little early, but tomorrow's same flight number isn't today's (Logan's SKW3502).
+                const notYet = !ev && !!dMs && nowMs < dMs && (_NJ_CS_RE.test(cs || '') || dMs - nowMs > PREFLIGHT_ROUTE_MS);
                 const T = ev ? (ev.times || {}) : notYet ? {} : (estTimes[cs] || {});
                 const isLive = ev ? !!ev.live : !notYet && liveSeen.has(cs);
                 const isAirborne = ev ? !!ev.airborne : !notYet && airborneSeen.has(cs);
@@ -8214,7 +8220,7 @@
 
                 // TFMS estimates (display-only, the uploaded schedule above is never changed). Shown only
                 // when they differ from the scheduled time by at least 5 minutes.
-                const _est = _cs ? (legEv[_cs + '~' + f.departureAirport]?.times || (_NJ_CS_RE.test(_cs) ? null : estTimes[_cs])) : null;
+                const _est = _cs ? (legEv[_cs + '~' + f.departureAirport]?.times || (_NJ_CS_RE.test(_cs) || depTime - now > PREFLIGHT_ROUTE_MS ? null : estTimes[_cs])) : null;
                 const _estDep = _est?.etd && depTime && Math.abs(new Date(_est.etd) - depTime) >= 5 * 60000 ? _est.etd : null;
                 const _estArr = _est?.eta && arrTime && Math.abs(new Date(_est.eta) - arrTime) >= 5 * 60000 ? _est.eta : null;
                 const _arrDiffMin = _est?.eta && arrTime ? Math.round((new Date(_est.eta) - arrTime) / 60000) : null;
@@ -11815,9 +11821,54 @@ async function openAdminPanel(tab = 'users') {
             document.getElementById('netjets-tour-modal-tail').value = _tourTailFor(_netjetsTourModalPilot, tourStartDate) || '';
             document.getElementById('netjets-tour-modal-start-airport').value = _tourStartAirportFor(_netjetsTourModalPilot, tourStartDate) || '';
             document.getElementById('netjets-tour-modal-status').textContent = '';
+            _refreshNetjetsLastLegPicker();
             // Nothing saved for this tour yet -- no point offering to reset a blank.
             document.getElementById('netjets-tour-modal-reset-btn').classList.toggle('hidden', !_tourTailFor(_netjetsTourModalPilot, tourStartDate));
             document.getElementById('netjets-tour-modal').classList.remove('hidden');
+        }
+        // Legs on this tour's tail that aren't done, including ones a last-leg pick already took off.
+        function _refreshNetjetsLastLegPicker() {
+            const data = pilotsCache[_netjetsTourModalPilot];
+            const tourStart = _netjetsTourModalDate;
+            const tail = (_tourTailFor(_netjetsTourModalPilot, tourStart) || '').toUpperCase();
+            const saved = (data?.tour_tails || []).find(t => t.tour_start_date === tourStart)?.last_leg_id || null;
+            const legs = (data?.segments || []).filter(s => s.type === 'flight' && s.departure_time
+                && s.auto_leg_key?.split('|')[1] === tourStart && String(s.tail || '').toUpperCase() === tail
+                && (s.id === saved || (!s.auto_leg_complete && (!s.auto_leg_cancelled || s.auto_leg_cancelled === 2))))
+                .sort((a, b) => Date.parse(a.departure_time) - Date.parse(b.departure_time));
+            document.getElementById('netjets-tour-modal-last-leg-wrap').classList.toggle('hidden', !legs.length);
+            const label = s => {
+                const [, m, d] = flightLocalDate(s.departure_time, s.departure_airport).split('-');
+                return `Last leg: ${aptLabel(s.departure_airport, _netjetsTourModalPilot)} → ${aptLabel(s.arrival_airport, _netjetsTourModalPilot)} · ${+m}/${+d}`;
+            };
+            const select = document.getElementById('netjets-tour-modal-last-leg');
+            select.innerHTML = `<option value="">Staying on this aircraft</option>` + legs.map(s => `<option value="${s.id}">${label(s)}</option>`).join('');
+            select.value = saved ? String(saved) : '';
+            const next = (data?.tour_tails || []).find(t => t.tour_start_date === tourStart)?.next_tail;
+            document.getElementById('netjets-tour-modal-last-leg-note').textContent = next
+                ? `Tail ${next} starts after your last leg.`
+                : saved ? 'Later legs are off your schedule. Know your next tail? Enter it above, and it starts when this leg lands.'
+                : 'Pick your last leg on this plane. Later legs come off your schedule.';
+        }
+        async function saveNetjetsLastLeg() {
+            const pilot = _netjetsTourModalPilot, tourStart = _netjetsTourModalDate;
+            const statusEl = document.getElementById('netjets-tour-modal-status');
+            const segmentId = +document.getElementById('netjets-tour-modal-last-leg').value || null;
+            statusEl.textContent = 'Saving…';
+            try {
+                const r = await fetch(`${API_BASE}/pilots/${pilot}/tour-tail/last-leg`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, tourStartDate: tourStart, segmentId })
+                });
+                if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; _refreshNetjetsLastLegPicker(); return; }
+                const { removed } = await r.json();
+                const fresh = await fetchPilotData(pilot);
+                if (fresh) pilotsCache[pilot] = fresh;
+                if (pilot === currentPilot) loadPilot(pilot);
+                _refreshNetjetsLastLegPicker();
+                statusEl.textContent = !segmentId ? 'Staying on this aircraft.' : removed ? `Saved. ${removed} later leg${removed === 1 ? '' : 's'} off your schedule.` : 'Saved.';
+            } catch { statusEl.textContent = 'Save failed — try again.'; }
         }
         // Walks the actual tour (rotation, CC days, seam, and any extension days) rather than
         // assuming days_on, so an extended tour shows its real length.
@@ -11892,6 +11943,14 @@ async function openAdminPanel(tab = 'users') {
                     body: JSON.stringify({ token: myToken, tourStartDate: tourStart, tail, startAirport })
                 });
                 if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
+                if ((await r.json()).queued) {
+                    const row = (pilotsCache[_netjetsTourModalPilot]?.tour_tails || []).find(t => t.tour_start_date === tourStart);
+                    if (row) row.next_tail = tail.toUpperCase();
+                    dismissNetjetsTourModal();
+                    document.getElementById('day-detail-sheet')?.classList.add('hidden');
+                    showToast(`Tail ${tail.toUpperCase()} starts after your last leg.`, 'success');
+                    return;
+                }
                 if (!pilotsCache[_netjetsTourModalPilot]) pilotsCache[_netjetsTourModalPilot] = {};
                 const existing = (pilotsCache[_netjetsTourModalPilot].tour_tails || []).filter(t => t.tour_start_date !== tourStart);
                 pilotsCache[_netjetsTourModalPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || null }];

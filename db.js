@@ -208,6 +208,8 @@ function initDB() {
         // Covers a table that may have already been created (locally, pre-deploy) without this
         // column -- harmless no-op once the column already exists.
         db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN start_airport TEXT`, () => {});
+        db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN last_leg_id INTEGER`, () => {});
+        db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN next_tail TEXT`, () => {});
         db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_tour_tail_pilot ON pilot_tour_tail(pilot_id)`);
 
         // A line-to-line switch (7&7<->8&6 or within the same family) isn't a clean cutover --

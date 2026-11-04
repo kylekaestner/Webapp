@@ -83,6 +83,10 @@ Shows the planned/filed route up to `PREFLIGHT_ROUTE_MS` (30 minutes) before sch
 
 `vnas.js` fetches the full vNAS payload every 6h, builds a `facilityId → Map(sectorId → {frequency, callsign})` index, discards the raw payload. Two linkage shapes: **enroute** (ARTCC, numeric sectorId) via `eramConfiguration.sectorId`; **terminal** (TRACON/tower, lettered sectorId) via `starsConfiguration.tcps[]`/`tcpId`. `getFrequency()` returns `null` for anything unresolvable (not every small facility is in VATSIM's model). `swim.js` stores the raw handoff as `entry.sector = {unit, sectorId}`; `server.js`'s `withResolvedFrequency()` resolves it once per poll onto a new sector object. Frontend: `buildBaseTooltip()` shows the MHz next to the callsign, gated by `_showSectorOn` (persisted `cs_show_sector`, **default ON**), button `#btn-show-sector` ("📻 FREQ"). `_liveLabelRefreshers` (global `callsign → refresh()` registry) lets the toggle repaint every tracked label instantly from cached data instead of waiting for each flight's own next poll.
 
+### A later leg can't borrow its callsign's evidence
+
+On the day map, `_legState()` ignores callsign-level evidence for a leg more than `PREFLIGHT_ROUTE_MS` from departing, and for any NetJets leg still ahead of its departure. Otherwise today's live flight shows as live on tomorrow's same flight number (Logan's SKW3502).
+
 ### Base map
 
 **OpenFreeMap Dark** is the main map everywhere except Wrapped. It's drawn by MapLibre (`L.maplibreGL`), loaded with `defer` in the page head. `_watchBasemap()` falls back to CARTO+ for the session if the style fails to load within 15 seconds or five errors follow once loaded, and `_canDrawVectorMap()` falls back if the script or WebGL is missing. The `.cs-basemap` filter doesn't apply to it. There's no switch in the app. To go back to CARTO+ for everyone, set `_basemapChoice` to `'detail'`.
