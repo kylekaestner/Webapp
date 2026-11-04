@@ -66,7 +66,7 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 
 **ETA placeholder for a leg with no real timing data yet** (never written to `block_minutes`, which comes only from a real arrival time; the borrowed-block-time lookup only uses real schedule rows, `auto_leg_key IS NULL`; estimates over 12h are discarded as bad coordinates), priority order: NetJets' own real average duration for that exact city pair from genuinely completed legs → any other tracked pilot's real scheduled `block_minutes` for the same city pair (`idx_segments_route` keeps this off a full table scan) → great-circle distance at an assumed 420kt cruise. `block_minutes` is never written from the estimate itself, only from real evidence.
 
-**`start_airport` is informational, not a hard gate** — a mismatch between the saved starting airport and the aircraft's real position no longer silently blocks leg creation; it's just a signal, since the old hard-reject's failure mode was indistinguishable from "nothing's happening."
+**`start_airport` is informational, not a hard gate** — a mismatch between the saved starting airport and the aircraft's real position no longer silently blocks leg creation; nothing checks it, since the old hard-reject's failure mode was indistinguishable from "nothing's happening."
 
 **A human's manual correction is never silently overwritten.** `segments.auto_leg_edited` is set unconditionally by the existing segment-edit endpoint — once a human touches an auto-created row, `_pollNetjetsLegCreation()` goes permanently hands-off on that row's fields, only reading `arrival_airport` back out as the next leg's informational context.
 

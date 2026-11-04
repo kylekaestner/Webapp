@@ -5253,7 +5253,6 @@ function _collapseSameDepartureLegs(legs, tfmsLegTimes) {
     });
 }
 
-const _netjetsStartWarned = new Set();
 // One pass at a time. The poller fires every 15s whether or not the last pass finished, and two
 // overlapping passes each read the rows, saw no leg, and inserted it (EJA492 BHM->MSL, twice).
 let _netjetsLegPassRunning = false;
@@ -5281,20 +5280,6 @@ async function _netjetsLegCreationPass(db, onDutyList) {
         const allLegs = _collapseSameDepartureLegs([...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs)], tfmsLegTimes)
             .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
         if (!allLegs.length) continue; // nothing known yet for this tour -- wait for a real signal
-
-        // Informational only, not a gate -- see this function's header comment for why a hard
-        // reject on a mismatched origin no longer makes sense once every leg under this exact
-        // callsign is trusted by construction. Surfaces a stale/wrong start_airport entry instead
-        // of silently doing nothing with it (the old hard-reject's failure mode, confirmed live
-        // against the real MRY/SGR mixup).
-        const firstOrigin = norm3(allLegs[0].origin);
-        // Once per pilot/tour/mismatch -- this runs every poll, and logging it each time buried real
-        // errors in the error log.
-        const startWarnKey = `${nj.pilotKey}|${nj.tourStart}|${firstOrigin}|${nj.startAirport}`;
-        if (nj.startAirport && firstOrigin && firstOrigin !== nj.startAirport && !_netjetsStartWarned.has(startWarnKey)) {
-            _netjetsStartWarned.add(startWarnKey);
-            console.warn(`[NetJets] ${nj.pilotKey}: tour's earliest known leg starts at ${firstOrigin}, not the saved start airport ${nj.startAirport} -- continuing anyway, but start_airport may be stale`);
-        }
 
         const existingRows = await new Promise(resolve => {
             db.all(
