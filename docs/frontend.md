@@ -111,6 +111,8 @@ Use `<img src="/icon.svg">` with `border-radius` to match the rounded-square sty
 
 **Overnight/red-eye indicator (grid only).** A flight whose local dep/arr dates differ gets a 🌙 marker on both day cells, with `data-redeye="dep"`/`"arr"` feeding a custom tooltip explanation. **Never use a native `title=` on `.flight-item`** — it visibly collides with the custom tooltip. Extended to reserve shifts that cross midnight (same marker, worded for an on-call shift). Scoped to the monthly grid only.
 
+**Block totals (admin and Kyle).** A Block Hours toggle in the profile sheet (`cs_block_totals`, per device) adds the day's total to the top row of grid cells, between the date and the status tag, and to the day detail, plus `T` (tour total) on a NetJets tour's last day and on every tour day's detail. Worked legs only: no deadheads, commutes, personal or cancelled legs, and a leg counts on its local departure day. `_blockByDay()` runs once per render. Tour totals only count legs that exist so far, because NetJets legs appear about a day ahead. Airline trips have no tour total.
+
 ## List view rendering (`render()` → list branch)
 
 Iterates every day in the month. Day header block with status badge. Flight rows (`.flight-row`) sorted by departure time: route pair, local dep/arr times with tz abbreviation, block time, tail/flight#, layover duration between consecutive legs. Ground legs (type='ground') appear as subdued `VAN ORD→MDW` rows. Reserve slots appear as amber "ON CALL" rows. Past days get `.list-past` (grayscale + dimmed); today highlighted. `layoverLabel(gapMins, atHome, sameDay)` shows overnight duration if >30 min and not at home; suppresses label if >30h at home.

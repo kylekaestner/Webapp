@@ -29,6 +29,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+    <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script defer src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.Geodesic/2.5.5/leaflet.geodesic.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tz-lookup/tz.js"></script>
     <style>
@@ -1554,6 +1557,18 @@
                 </div>
             </div>
 
+            <!-- Block totals (admin + kyle only) -->
+            <div id="profile-block-section" class="hidden border-t border-zinc-800 pt-4">
+                <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Block Hours</label>
+                <div class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
+                    <div>
+                        <div class="text-xs font-black text-zinc-200">Show block totals</div>
+                        <div class="text-[10px] text-zinc-500 mt-0.5">Per day, and per NetJets tour</div>
+                    </div>
+                    <button id="profile-block-btn" onclick="toggleBlockTotals()" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors"></button>
+                </div>
+            </div>
+
             <!-- Year in Review (admin + kyle only) -->
             <div id="wrapped-profile-section" class="hidden border-t border-zinc-800 pt-4">
                 <button onclick="closeProfile();openWrapped()" class="w-full py-2.5 border border-blue-900/50 text-blue-400 hover:text-blue-300 hover:border-blue-700 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">✦ Year in Review</button>
@@ -2987,6 +3002,7 @@
             haptic('tap');
             _applyIdentityUI();
             _refreshNotifProfileRow();
+            _refreshBlockProfileRow();
             document.getElementById('profile-sheet').classList.remove('hidden');
             if (!_profileSwipeSetup) {
                 const panel = document.querySelector('#profile-sheet > div:not(.absolute)');
@@ -6570,8 +6586,8 @@
 
         // Base map detail, switchable (2026-11-03): CARTO restyled dark_all (fewer labels zoomed out,
         // lighter blue-grey water) and no longer serves the old look at any URL. Standard vs CARTO+
-        // (next zoom level at half size). Choice persists per device (cs_basemap); toggleBasemap()
-        // swaps it live on every open map.
+        // (next zoom level at half size). OpenFreeMap is the main map now, CARTO+ the automatic backup.
+        // To go back to CARTO+ for everyone, set _basemapChoice to 'detail'.
         var BASEMAPS = { // var: addBasemap() can run before this line during startup
             carto: { label: 'CARTO', layers: [
                 { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
@@ -6583,34 +6599,48 @@
                 { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
                   nolabels: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_2lne_1_90c175139aa497b3ce5034e5',
                   opts: { className: 'cs-basemap', subdomains: 'abcd', tileSize: 128, zoomOffset: 1, maxNativeZoom: 18, maxZoom: 19 } } ] },
+            // Main map, drawn by MapLibre. A fixed credit: the plugin's own is read from the live map,
+            // so it can't be removed on a switch.
+            ofm: { label: 'OpenFreeMap', style: () => 'https://tiles.openfreemap.org/styles/dark',
+                   credit: '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
         };
-        var _basemapChoice = 'detail'; // CARTO+ for everyone (picked 2026-11-03); 'carto' kept as the plain fallback
+        var _basemapChoice = 'ofm';
         var _basemapMaps = []; // [{ map, noLabels, layers }]
+        function _canDrawVectorMap() {
+            if (!L.maplibreGL) return false; // script didn't load
+            try { return !!document.createElement('canvas').getContext('webgl'); } catch (_) { return false; }
+        }
         function _basemapLayersFor(noLabels) {
-            return BASEMAPS[_basemapChoice].layers
+            const pick = BASEMAPS[_basemapChoice];
+            // Wrapped's no-labels map stays on CARTO.
+            if (pick.style && !noLabels && _canDrawVectorMap()) return [L.maplibreGL({ style: pick.style(), attributionControl: { customAttribution: pick.credit } })];
+            return (pick.style ? BASEMAPS.detail : pick).layers
                 .filter(l => !(noLabels && l.labels))
                 .map(l => L.tileLayer(noLabels && l.nolabels ? l.nolabels : l.url, l.opts));
+        }
+        // Falls back to CARTO+ for this session if the vector map fails to load, or keeps failing once loaded.
+        function _watchBasemap(layer) {
+            const gl = layer.getMaplibreMap?.();
+            if (!gl) return;
+            let loaded = false, errors = 0;
+            const backup = () => { if (_basemapChoice === 'ofm') _setBasemap('detail'); };
+            gl.once('load', () => { loaded = true; });
+            gl.on('error', () => { if (!loaded || ++errors >= 5) backup(); });
+            setTimeout(() => { if (!loaded && gl === layer.getMaplibreMap?.()) backup(); }, 15000);
         }
         function addBasemap(m, { noLabels = false } = {}) {
             if (!m) return;
             const entry = { map: m, noLabels, layers: _basemapLayersFor(noLabels) };
-            entry.layers.forEach(l => l.addTo(m));
+            entry.layers.forEach(l => { l.addTo(m); _watchBasemap(l); });
             _basemapMaps.push(entry);
-            _refreshBasemapButton();
         }
-        function toggleBasemap() {
-            _basemapChoice = _basemapChoice === 'carto' ? 'detail' : 'carto';
-            try { localStorage.setItem('cs_basemap', _basemapChoice); } catch (_) {}
+        function _setBasemap(choice) {
+            _basemapChoice = choice;
             for (const e of _basemapMaps) {
                 e.layers.forEach(l => { try { e.map.removeLayer(l); } catch (_) {} });
                 e.layers = _basemapLayersFor(e.noLabels);
-                e.layers.forEach(l => { l.addTo(e.map); l.bringToBack(); });
+                e.layers.forEach(l => { l.addTo(e.map); l.bringToBack?.(); _watchBasemap(l); });
             }
-            _refreshBasemapButton();
-        }
-        function _refreshBasemapButton() {
-            const b = document.getElementById('btn-basemap');
-            if (b) b.textContent = '🗺 ' + BASEMAPS[_basemapChoice].label;
         }
 
         function addRadarLayer() {
@@ -8843,6 +8873,8 @@
                 // `innerHTML +=` re-serializes and re-parses the whole grid on every
                 // iteration (O(n²)), which is what made month-swipe feel laggy on mobile.
                 let gridHtml = '';
+                const blockByDay = _showBlockTotals() ? _blockByDay() : null;
+                const tourEnds = {};
                 for (let i = 0; i < dayOffset; i++) gridHtml += `<div style="height:170px" class="opacity-0"></div>`;
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -8935,9 +8967,17 @@
                     const glowStyle = isAllCrewOff ? 'box-shadow:0 0 0 1px rgba(251,191,36,0.45),0 0 18px rgba(251,191,36,0.18);' : '';
                     // Cell: fixed height with scrollable inner flight list
                     let html = `<div class="border rounded-xl flex flex-col ${style} ${dayClasses.join(' ')}" style="height:170px;${glowStyle}" onclick="showDayDetail('${dateKey}')">`;
-                    // Header row: day number + status tag
+                    // Header row: day number, block totals (when on), status tag
                     const dayNumColor = isAllCrewOff ? 'color:#fbbf24;' : '';
-                    html += `<div class="flex items-start justify-between px-2.5 pt-2 pb-1 shrink-0"><span class="text-base font-black font-mono leading-none day-number" style="${dayNumColor}">${d}</span><span class="text-[7px] font-black px-1.5 py-[2px] rounded-full border border-current leading-none opacity-90">${tag}</span></div>`;
+                    let blockTop = '';
+                    if (blockByDay) {
+                        const bt = _blockTotalsFor(blockByDay, dateKey, tourEnds);
+                        const lines = [];
+                        if (bt.day > 0) lines.push(formatDurationMinutes(bt.day));
+                        if (bt.tourEnd === dateKey && bt.tour > 0) lines.push(`T ${formatDurationMinutes(bt.tour)}`);
+                        if (lines.length) blockTop = `<span class="block-total flex-1 text-center text-[9px] font-black text-sky-400 leading-tight whitespace-nowrap">${lines.map(l => `<div>${l}</div>`).join('')}</span>`;
+                    }
+                    html += `<div class="flex items-start justify-between px-2.5 pt-2 pb-1 shrink-0"><span class="text-base font-black font-mono leading-none day-number" style="${dayNumColor}">${d}</span>${blockTop}<span class="text-[7px] font-black px-1.5 py-[2px] rounded-full border border-current leading-none opacity-90">${tag}</span></div>`;
                     // Scrollable flight list
                     html += `<div class="overflow-y-auto flex-1 px-1.5 pb-1.5 space-y-1">`;
                     const cellFlights = dayEvents.filter(e => e.type === 'flight' || e.type === 'ground')
@@ -9659,11 +9699,20 @@
             const _tourLegsNote = (_pilotOnDutyDefault(currentPilot, dateKey) && _onDutyDefaultLabel(currentPilot) === 'ON TOUR'
                 && workFlights.length === 0 && dateKey >= _todayLocalDateStr())
                 ? `<div class="text-[10px] text-zinc-500 mt-1.5 max-w-[16rem] leading-snug">Legs show up once NetJets files them — usually the evening before.</div>` : '';
+            let _blockNote = '';
+            if (_showBlockTotals()) {
+                const bt = _blockTotalsFor(_blockByDay(), dateKey, {});
+                const parts = [];
+                if (bt.day > 0) parts.push(`Block ${formatDurationMinutes(bt.day)}`);
+                if (bt.tour > 0) parts.push(`Tour ${formatDurationMinutes(bt.tour)}`);
+                if (parts.length) _blockNote = `<div class="text-[10px] font-black text-sky-400 mt-1.5">${parts.join(' · ')}</div>`;
+            }
             let html = `<div class="flex items-start justify-between mb-4">
                 <div>
                     <div class="text-[10px] font-black uppercase tracking-widest ${labelColor}">${label}</div>
                     <div class="text-lg font-black text-white mt-0.5">${dateLabel}</div>
                     ${_tourLegsNote}
+                    ${_blockNote}
                     ${_tourEditBtn}
                 </div>
                 <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden')" class="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 text-sm shrink-0">✕</button>
@@ -9903,6 +9952,50 @@
         }
 
 let _blockUserEdited = false;
+
+        // Block totals (admin + Kyle, per device). Worked legs only: no deadheads, commutes, personal
+        // or cancelled legs. A leg counts on its departure day, so a red-eye isn't counted twice.
+        var _blockTotalsOn = false;
+        try { _blockTotalsOn = localStorage.getItem('cs_block_totals') === '1'; } catch (_) {}
+        function _canSeeBlockTotals() { return !isDemo && !myViewer && (!myPilot || myPilot === 'kyle'); }
+        function _showBlockTotals() { return _blockTotalsOn && _canSeeBlockTotals(); }
+        function _refreshBlockProfileRow() {
+            const btn = document.getElementById('profile-block-btn');
+            document.getElementById('profile-block-section')?.classList.toggle('hidden', !_canSeeBlockTotals());
+            if (!btn) return;
+            btn.textContent = _blockTotalsOn ? 'On' : 'Off';
+            btn.className = 'px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors ' +
+                (_blockTotalsOn ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'bg-zinc-700/40 text-zinc-400 border border-zinc-600/40');
+        }
+        function toggleBlockTotals() {
+            _blockTotalsOn = !_blockTotalsOn;
+            try { localStorage.setItem('cs_block_totals', _blockTotalsOn ? '1' : '0'); } catch (_) {}
+            _refreshBlockProfileRow();
+            render();
+        }
+        // One pass over the pilot's segments: { 'YYYY-MM-DD': minutes }. Built once per render, not per day.
+        function _blockByDay() {
+            const byDay = new Map();
+            for (const s of segments) {
+                if (s.type !== 'flight' || !s.departureTime || s.cancelled || s.dh || s.trip === 'PERSONAL' || s.trip === 'COMMUTE') continue;
+                const mins = calcBlockMins(s);
+                if (!(mins > 0)) continue;
+                const day = flightLocalDate(s.departureTime, s.departureAirport);
+                byDay.set(day, (byDay.get(day) || 0) + mins);
+            }
+            return byDay;
+        }
+        function _tourBlockMins(byDay, tourStart, tourEnd) {
+            let total = 0;
+            for (const [day, mins] of byDay) if (day >= tourStart && day <= tourEnd) total += mins;
+            return total;
+        }
+        // { day, tourStart, tourEnd, tour } for one calendar day. tourEnds memoizes across a render.
+        function _blockTotalsFor(byDay, dateKey, tourEnds) {
+            const tourStart = pilotsCache[currentPilot]?.parser_type === 'manual_netjets' ? _tourStartDateFor(currentPilot, dateKey) : null;
+            const tourEnd = tourStart ? (tourEnds[tourStart] ||= _tourEndDateFor(currentPilot, tourStart)) : null;
+            return { day: byDay.get(dateKey) || 0, tourEnd, tour: tourStart ? _tourBlockMins(byDay, tourStart, tourEnd) : 0 };
+        }
 
         function calcBlockMins(f) {
             if (f.blockMinutes != null) return f.blockMinutes;

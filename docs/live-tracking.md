@@ -85,7 +85,9 @@ Shows the planned/filed route up to `PREFLIGHT_ROUTE_MS` (30 minutes) before sch
 
 ### Base map
 
-CARTO `dark_all` shown as **CARTO+**: the next zoom level's tiles at half size (`tileSize: 128, zoomOffset: 1`), so more cities, roads and rivers show zoomed out. CARTO restyled the plain version, with fewer labels and lighter blue-grey water, and no longer serves the old look anywhere. `addBasemap(map)` sets it up for every map (route maps, Crew Intel, Wrapped). A `.cs-basemap` CSS filter (`brightness(0.8) saturate(0.3)`) evens out the land/water contrast and leaves the NEXRAD radar overlay untouched. `BASEMAPS.carto` (standard) is kept as a fallback. Leaflet stays 1.9.4; 2.0 is a beta and a breaking rewrite.
+**OpenFreeMap Dark** is the main map everywhere except Wrapped. It's drawn by MapLibre (`L.maplibreGL`), loaded with `defer` in the page head. `_watchBasemap()` falls back to CARTO+ for the session if the style fails to load within 15 seconds or five errors follow once loaded, and `_canDrawVectorMap()` falls back if the script or WebGL is missing. The `.cs-basemap` filter doesn't apply to it. There's no switch in the app. To go back to CARTO+ for everyone, set `_basemapChoice` to `'detail'`.
+
+The backup is CARTO `dark_all` shown as **CARTO+**: the next zoom level's tiles at half size (`tileSize: 128, zoomOffset: 1`), so more cities, roads and rivers show zoomed out. CARTO restyled the plain version, with fewer labels and lighter blue-grey water, and no longer serves the old look anywhere. `addBasemap(map)` sets up every map (route maps, Crew Intel, Wrapped; Wrapped's no-labels map stays on CARTO). A `.cs-basemap` CSS filter (`brightness(0.8) saturate(0.3)`) evens out the land/water contrast and leaves the NEXRAD radar overlay untouched. `BASEMAPS.carto` (standard) is kept as a fallback. Leaflet stays 1.9.4; 2.0 is a beta and a breaking rewrite.
 
 ### Debugging NetJets
 
