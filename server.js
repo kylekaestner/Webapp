@@ -6086,8 +6086,14 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
                 const dayLabel = localDay(s.dep, s.departure_airport);
                 const sep = dayLabel !== lastSchedDay ? dayRow(dayLabel, 5) : '';
                 lastSchedDay = dayLabel;
+                // Same leg logic as the app. auto_leg_complete is only set on landing, so it can't show airborne.
+                const nowMs = Date.now();
+                const tfmsLeg = _njLegFor(s.flight_number, s.departure_airport, s.arr?.getTime(), s.arrival_airport);
+                const legDone = tfmsLeg && _njLegDone(tfmsLeg, tfms.getAllLegTimes(s.flight_number), nowMs);
+                const legFlying = tfmsLeg && !legDone && _njFlyingLeg(s.flight_number, nowMs)?.key === tfmsLeg.key;
                 const state = s.auto_leg_cancelled ? '<span style="color:#71717a">hidden (cancelled/filtered)</span>'
-                    : s.auto_leg_complete ? '<span style="color:#4ade80;font-weight:700">✓ flown</span>'
+                    : s.auto_leg_complete || legDone ? '<span style="color:#4ade80;font-weight:700">✓ flown</span>'
+                    : legFlying ? '<span style="color:#22c55e;font-weight:700">✈ airborne</span>'
                     : '<span style="color:#60a5fa">scheduled</span>';
                 const origin = s.auto_leg_edited ? 'edited by pilot' : s.auto_leg_key ? 'auto' : 'manual';
                 return `${sep}<tr style="border-bottom:1px solid #27272a">
