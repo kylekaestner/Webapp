@@ -1847,7 +1847,7 @@
             </div>
             <div id="netjets-tour-modal-last-leg-wrap" class="hidden">
                 <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Leaving this aircraft?</label>
-                <select id="netjets-tour-modal-last-leg" onchange="saveNetjetsLastLeg()" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white"></select>
+                <select id="netjets-tour-modal-last-leg" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white"></select>
                 <p id="netjets-tour-modal-last-leg-note" class="text-[10px] text-zinc-500 mt-1 leading-snug"></p>
             </div>
             <div class="flex items-center gap-2">
@@ -9416,7 +9416,7 @@
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];
                     if (isPastDay) listClasses.push('list-past');
                     if (isToday) listClasses.push('day-today');
-                    listHtml += `<div class="${listClasses.join(' ')}"><div class="w-16 shrink-0 text-center border-r ${sidebarBorder} pr-4 flex flex-col justify-center"><div class="text-[9px] font-black uppercase ${sidebarColor} opacity-70">${dateLabel.split(' ')[0]}</div><div class="text-2xl font-black ${sidebarColor}">${d}</div><div class="text-[8px] font-bold uppercase ${labelColor} mt-1 tracking-widest">${label}</div></div><div class="flex-1 space-y-2 min-w-0">${contentHtml}</div></div>`;
+                    listHtml += `<div class="${listClasses.join(' ')}"><div class="w-16 shrink-0 text-center border-r ${sidebarBorder} pr-4 flex flex-col justify-center"><div class="text-[9px] font-black uppercase ${sidebarColor} opacity-70">${dateLabel.split(' ')[0]}</div><div class="text-2xl font-black ${sidebarColor}">${d}</div><div class="text-[8px] font-bold uppercase ${labelColor} mt-1 tracking-widest">${label}</div>${_tourEditButton(dateKey, 'Edit')}</div><div class="flex-1 space-y-2 min-w-0">${contentHtml}</div></div>`;
                 }
                 listContainer.innerHTML = listHtml;
                 const todayEl = listContainer.querySelector('.day-today');
@@ -9657,6 +9657,13 @@
             document.getElementById('sidebar').classList.toggle('sidebar-hidden');
         }
 
+        // Own schedule, or admin on any pilot's, and only on a NetJets tour day, not Kyle's "ON CALL".
+        function _tourEditButton(dateKey, text) {
+            if (!canEdit() || !_pilotOnDutyDefault(currentPilot, dateKey) || _onDutyDefaultLabel(currentPilot) !== 'ON TOUR') return '';
+            const ts = _tourStartDateFor(currentPilot, dateKey);
+            return ts ? `<button onclick="openNetjetsTourModal('${ts}')" class="text-[9px] font-black uppercase tracking-widest text-indigo-400 border border-indigo-900 rounded-full px-2.5 py-1 mt-1.5 hover:bg-indigo-950/40 transition-colors">${text}</button>` : '';
+        }
+
         function showDayDetail(dateKey) {
             const dayEvents = segments.filter(s => s.departureTime && !s.cancelled && flightLocalDate(s.departureTime, s.departureAirport) === dateKey);
             const [yr, mo, dy] = dateKey.split('-');
@@ -9705,11 +9712,7 @@
             // the best way to do it," wanting to click into the tour itself instead. Own schedule,
             // or admin on any pilot's, and only on an actual NetJets tour day, not Kyle's reserve
             // "ON CALL" system which shares the same _pilotOnDutyDefault() plumbing.
-            const _tourEditBtn = (canEdit() && _pilotOnDutyDefault(currentPilot, dateKey) && _onDutyDefaultLabel(currentPilot) === 'ON TOUR')
-                ? (() => {
-                    const ts = _tourStartDateFor(currentPilot, dateKey);
-                    return ts ? `<button onclick="openNetjetsTourModal('${ts}')" class="text-[9px] font-black uppercase tracking-widest text-indigo-400 border border-indigo-900 rounded-full px-2.5 py-1 mt-1.5 hover:bg-indigo-950/40 transition-colors">✈️ Edit Tour</button>` : '';
-                })() : '';
+            const _tourEditBtn = _tourEditButton(dateKey, '✈️ Edit Tour');
             // A tour day with no legs yet isn't missing data -- NetJets only files ~16-18h ahead
             // (research log, 2026-10-30..11-03), so say when to expect them instead of looking empty.
             const _tourLegsNote = (_pilotOnDutyDefault(currentPilot, dateKey) && _onDutyDefaultLabel(currentPilot) === 'ON TOUR'
@@ -11850,26 +11853,6 @@ async function openAdminPanel(tab = 'users') {
                 : saved ? 'Later legs are off your schedule. Know your next tail? Enter it above, and it starts when this leg lands.'
                 : 'Pick your last leg on this plane. Later legs come off your schedule.';
         }
-        async function saveNetjetsLastLeg() {
-            const pilot = _netjetsTourModalPilot, tourStart = _netjetsTourModalDate;
-            const statusEl = document.getElementById('netjets-tour-modal-status');
-            const segmentId = +document.getElementById('netjets-tour-modal-last-leg').value || null;
-            statusEl.textContent = 'Saving…';
-            try {
-                const r = await fetch(`${API_BASE}/pilots/${pilot}/tour-tail/last-leg`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: myToken, tourStartDate: tourStart, segmentId })
-                });
-                if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; _refreshNetjetsLastLegPicker(); return; }
-                const { removed } = await r.json();
-                const fresh = await fetchPilotData(pilot);
-                if (fresh) pilotsCache[pilot] = fresh;
-                if (pilot === currentPilot) loadPilot(pilot);
-                _refreshNetjetsLastLegPicker();
-                statusEl.textContent = !segmentId ? 'Staying on this aircraft.' : removed ? `Saved. ${removed} later leg${removed === 1 ? '' : 's'} off your schedule.` : 'Saved.';
-            } catch { statusEl.textContent = 'Save failed — try again.'; }
-        }
         // Walks the actual tour (rotation, CC days, seam, and any extension days) rather than
         // assuming days_on, so an extended tour shows its real length.
         function _refreshNetjetsTourRange() {
@@ -11927,38 +11910,54 @@ async function openAdminPanel(tab = 'users') {
             _netjetsTourModalDate = null;
         }
         async function saveNetjetsTourTail() {
-            const tourStart = _netjetsTourModalDate;
+            const pilot = _netjetsTourModalPilot, tourStart = _netjetsTourModalDate;
             const statusEl = document.getElementById('netjets-tour-modal-status');
             const tail = document.getElementById('netjets-tour-modal-tail').value.trim();
             const startAirport = document.getElementById('netjets-tour-modal-start-airport').value.trim();
             if (!tourStart) { statusEl.textContent = 'No tour selected.'; return; }
             if (!tail) { statusEl.textContent = 'Enter the tail number first.'; return; }
-            const priorTail = _tourTailFor(_netjetsTourModalPilot, tourStart);
+            const priorTail = _tourTailFor(pilot, tourStart);
             const isSwap = priorTail && priorTail.toUpperCase() !== tail.toUpperCase();
+            const priorRow = (pilotsCache[pilot]?.tour_tails || []).find(t => t.tour_start_date === tourStart);
+            const savedLast = priorRow?.last_leg_id || null;
+            const pickerShown = !document.getElementById('netjets-tour-modal-last-leg-wrap').classList.contains('hidden');
+            const pickedLast = pickerShown ? (+document.getElementById('netjets-tour-modal-last-leg').value || null) : savedLast;
+            const lastChanged = pickedLast !== savedLast;
+            const put = (path, body) => fetch(`${API_BASE}/pilots/${pilot}/${path}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: myToken, tourStartDate: tourStart, ...body })
+            });
             statusEl.textContent = 'Saving…';
             try {
-                const r = await fetch(`${API_BASE}/pilots/${_netjetsTourModalPilot}/tour-tail`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: myToken, tourStartDate: tourStart, tail, startAirport })
-                });
-                if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
-                if ((await r.json()).queued) {
-                    const row = (pilotsCache[_netjetsTourModalPilot]?.tour_tails || []).find(t => t.tour_start_date === tourStart);
-                    if (row) row.next_tail = tail.toUpperCase();
-                    dismissNetjetsTourModal();
-                    document.getElementById('day-detail-sheet')?.classList.add('hidden');
-                    showToast(`Tail ${tail.toUpperCase()} starts after your last leg.`, 'success');
-                    return;
+                // Last leg first: the server holds a new tail only once it knows there's a last leg to wait for.
+                let removed = 0;
+                if (lastChanged) {
+                    const r = await put('tour-tail/last-leg', { segmentId: pickedLast });
+                    if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
+                    removed = (await r.json()).removed;
                 }
-                if (!pilotsCache[_netjetsTourModalPilot]) pilotsCache[_netjetsTourModalPilot] = {};
-                const existing = (pilotsCache[_netjetsTourModalPilot].tour_tails || []).filter(t => t.tour_start_date !== tourStart);
-                pilotsCache[_netjetsTourModalPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || null }];
+                const r = await put('tour-tail', { tail, startAirport });
+                if (!r.ok) { statusEl.textContent = 'Save failed — try again.'; return; }
+                const { queued } = await r.json();
+                if (lastChanged || queued) {
+                    const fresh = await fetchPilotData(pilot);
+                    if (fresh) pilotsCache[pilot] = fresh;
+                    if (pilot === currentPilot) loadPilot(pilot);
+                } else {
+                    if (!pilotsCache[pilot]) pilotsCache[pilot] = {};
+                    const existing = (pilotsCache[pilot].tour_tails || []).filter(t => t.tour_start_date !== tourStart);
+                    pilotsCache[pilot].tour_tails = [...existing, { ...priorRow, tour_start_date: tourStart, tail, start_airport: startAirport || null }];
+                }
                 _refreshMyInfoNetjetsStatus();
                 // Done -- close the tour modal and the day detail sheet it was opened from.
                 dismissNetjetsTourModal();
                 document.getElementById('day-detail-sheet')?.classList.add('hidden');
-                showToast(isSwap ? 'Tail swapped — tracking switches to the new tail now.' : 'Tour saved.', 'success');
+                const legsOff = removed ? ` ${removed} later leg${removed === 1 ? '' : 's'} off your schedule.` : '';
+                showToast(queued ? `Tail ${tail.toUpperCase()} starts after your last leg.${legsOff}`
+                    : isSwap ? 'Tail swapped — tracking switches to the new tail now.'
+                    : lastChanged ? (pickedLast ? `Last leg saved.${legsOff}` : 'Staying on this aircraft.')
+                    : 'Tour saved.', 'success');
             } catch { statusEl.textContent = 'Save failed — try again.'; }
         }
 

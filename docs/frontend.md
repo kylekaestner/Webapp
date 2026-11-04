@@ -115,6 +115,8 @@ Use `<img src="/icon.svg">` with `border-radius` to match the rounded-square sty
 
 ## List view rendering (`render()` → list branch)
 
+Each NetJets tour day has an Edit button under its date, from the same `_tourEditButton()` as the day detail. List days have no tap action of their own.
+
 Iterates every day in the month. Day header block with status badge. Flight rows (`.flight-row`) sorted by departure time: route pair, local dep/arr times with tz abbreviation, block time, tail/flight#, layover duration between consecutive legs. Ground legs (type='ground') appear as subdued `VAN ORD→MDW` rows. Reserve slots appear as amber "ON CALL" rows. Past days get `.list-past` (grayscale + dimmed); today highlighted. `layoverLabel(gapMins, atHome, sameDay)` shows overnight duration if >30 min and not at home; suppresses label if >30h at home.
 
 ## Day detail sheet (`showDayDetail(dateKey)`)
