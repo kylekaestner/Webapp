@@ -48,6 +48,8 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 
 **A leg's route waits for the leg before it**: `_earlierLegOpen()` holds the preview at all three map sites. `startLiveTracking()` tears down whatever that callsign had, so only one leg per callsign can be on the map.
 
+**A next leg's scheduled time doesn't end a NetJets leg**: `_hasNewerLegStarted()` returns false for these callsigns. It only reads the schedule, and a cancelled or delayed next leg marked the flown leg completed mid-flight.
+
 **NetJets legs are never "landed early"**: airborne/trail evidence is per callsign, so a parked aircraft's next leg inherited it and no position read as signal lost after landing (EJA492 HOT→CLT flagged on the ramp, CQF→HOT mid-flight). `_isNetjetsLeg` in `startLiveTracking()` skips the miss-based endings, and stored flags for these callsigns are ignored. They end on `d.parked`, or past arrival.
 
 **TFMS leg key has no date** (`origin>dest`): `processLegTimes()` starts a fresh entry when a filing is 6h+ from the stored departure and the old flight is over, otherwise a repeat of a city pair inherits the old departed/arrived evidence.

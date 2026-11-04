@@ -6495,6 +6495,10 @@
         // exactly how leg 1 kept showing live/active using leg 2's genuinely-real position data.
         function _hasNewerLegStarted(pilotKey, callsign, ownDepMs) {
             if (!pilotKey || !callsign || !ownDepMs) return false;
+            // This only reads the schedule clock. NetJets legs have their own evidence, and a cancelled or
+            // late-running next leg isn't proof the last one ended (Mack's dropped AFW->MDW at 16:06Z
+            // marked AFW->VNY completed mid-flight).
+            if (_NJ_CS_RE.test(callsign)) return false;
             const segs = pilotsCache[pilotKey]?.segments;
             if (!segs || !segs.length) return false;
             // Cheap pre-filter before the real per-segment work below (flightUTCTime does a real
