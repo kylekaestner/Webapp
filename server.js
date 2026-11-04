@@ -5235,7 +5235,16 @@ function _collapseSameDepartureLegs(legs, tfmsLegTimes) {
 }
 
 const _netjetsStartWarned = new Set();
+// One pass at a time. The poller fires every 15s whether or not the last pass finished, and two
+// overlapping passes each read the rows, saw no leg, and inserted it (EJA492 BHM->MSL, twice).
+let _netjetsLegPassRunning = false;
 async function _pollNetjetsLegCreation(db, onDutyList) {
+    if (_netjetsLegPassRunning) return;
+    _netjetsLegPassRunning = true;
+    try { await _netjetsLegCreationPass(db, onDutyList); } finally { _netjetsLegPassRunning = false; }
+}
+
+async function _netjetsLegCreationPass(db, onDutyList) {
     const norm3 = norm3Airport;
     for (const nj of onDutyList) {
         const cs = nj.callsign;
@@ -5400,11 +5409,14 @@ async function _pollNetjetsLegCreation(db, onDutyList) {
                 try {
                     const newId = await new Promise((resolve, reject) => {
                         db.run(
-                            `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, flight_number, block_minutes, is_manual, auto_leg_key, auto_leg_complete) VALUES (?, 'flight', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-                            [nj.pilotId, depTime, finalArrTime, origin, finalDest || '', nj.tail, legCs, (block && block > 0) ? block : null, autoLegKey, landed ? 1 : 0],
-                            function (err) { err ? reject(err) : resolve(this.lastID); }
+                            // Refuses a key that's already there, so a duplicate can't be written even if passes ever overlap.
+                            `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, flight_number, block_minutes, is_manual, auto_leg_key, auto_leg_complete)
+                             SELECT ?, 'flight', ?, ?, ?, ?, ?, ?, ?, 0, ?, ? WHERE NOT EXISTS (SELECT 1 FROM segments WHERE pilot_id=? AND auto_leg_key=?)`,
+                            [nj.pilotId, depTime, finalArrTime, origin, finalDest || '', nj.tail, legCs, (block && block > 0) ? block : null, autoLegKey, landed ? 1 : 0, nj.pilotId, autoLegKey],
+                            function (err) { err ? reject(err) : resolve(this.changes ? this.lastID : null); }
                         );
                     });
+                    if (newId == null) continue; // already there
                     touchedRowIds.add(newId);
                     existingRows.push({ id: newId, auto_leg_key: autoLegKey, departure_airport: origin, arrival_airport: finalDest || '', departure_time: depTime, arrival_time: finalArrTime, auto_leg_complete: landed ? 1 : 0, auto_leg_edited: 0, auto_leg_cancelled: 0 });
                     console.log(`[NetJets] ${nj.pilotKey}: new leg ${autoLegKey} ${origin}->${finalDest || '?'}`);

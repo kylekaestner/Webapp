@@ -58,6 +58,8 @@ NetJets publishes no exportable schedule feed at all — a manual-entry pilot ty
 
 **Existing-row lookup spans every tour** (`auto_leg_key LIKE '<callsign>|%'`), so a changed tour start can't hide an already-created row and duplicate it.
 
+**One row per leg**: only one `_pollNetjetsLegCreation()` pass runs at a time (the 15s poller doesn't wait for the last pass), and the insert refuses an `auto_leg_key` that already exists.
+
 **Restart-safe by construction.** `auto_leg_key` (format `<callsign>|<tourStartDate>|<legNumber>`) on the `segments` row is the actual source of truth — `_pollNetjetsLegCreation()` queries fresh every call, no persisted in-memory cache.
 
 **Resolving timing data for a leg**, in priority order: TFDM's parsed per-flight origin/dest (most authoritative) → TFMS's filed route string (`routeDest()`, local mirror of `routeOrigin()`) → reverse-geocoding the last known ADS-B/STDDS position (`_findNearestAirportCode()`) once a leg looks landed with no SWIM destination ever reported. `block_minutes` is a plain UTC diff (TFMS's `processFlightTimes()` already normalizes every time field to real UTC-with-`Z` strings — `pilotUsesUtc()` auto-detects this, same convention as Kyle's segments). An inconsistent arrival-before-departure value is corrected to `arrival_time = departure_time` (a neutral placeholder), never left `NULL` — several places in app.html assume a `type='flight'` segment always has both times.
