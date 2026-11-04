@@ -38,9 +38,11 @@
     <style>
         html { background: #050505; } /* fills any gap below body in standalone PWA */
         /* iOS blurs the top of an installed web app, down over the header, unless a solid fixed bar sits at
-           the top edge. It has to be fixed: a normal header doesn't count. No layout space is used. */
-        #status-bar-band { display: none; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); background: #000; z-index: 10; }
-        html.is-pwa #status-bar-band { display: block; }
+           the top edge. A normal header doesn't count, so it's fixed here with the same space kept for it. */
+        @media (max-width: 767px) {
+            html.is-pwa #mobile-header { position: fixed; top: 0; left: 0; right: 0; z-index: 20; }
+            html.is-pwa div:has(> #mobile-header) { padding-top: calc(env(safe-area-inset-top) + 56px); }
+        }
         .view-section { display: none; height: 100%; }
         .view-active { display: block; }
         @media (max-width: 767px) {
@@ -413,7 +415,6 @@
     </style>
 </head>
 <body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;" data-fullheight>
-<div id="status-bar-band" aria-hidden="true"></div>
 <div id="toast-container"></div>
 <div id="upload-reminder" class="hidden fixed bottom-20 md:bottom-4 inset-x-0 z-[9000] px-3">
     <div class="max-w-lg mx-auto bg-zinc-900 border border-amber-500/40 rounded-2xl p-4 shadow-2xl flex gap-3 items-start">
@@ -580,7 +581,7 @@
         </header>
 
         <!-- Mobile header -->
-        <header class="md:hidden border-b border-zinc-800 flex items-end justify-between px-4 bg-black shrink-0" style="height: calc(env(safe-area-inset-top) + 56px); padding-top: calc(env(safe-area-inset-top) + 6px); padding-bottom: 10px;">
+        <header id="mobile-header" class="md:hidden border-b border-zinc-800 flex items-end justify-between px-4 bg-black shrink-0" style="height: calc(env(safe-area-inset-top) + 56px); padding-top: calc(env(safe-area-inset-top) + 6px); padding-bottom: 10px;">
             <div class="flex items-center gap-2.5">
                 <button id="identity-avatar" onclick="openProfile()" class="relative flex items-center gap-1.5 pl-2 pr-2.5 h-10 rounded-xl border-2 shrink-0 transition-all font-black text-xs" style="background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4);color:#818cf8">
                     <span id="identity-avatar-initials" class="text-xs font-black leading-none">?</span>
