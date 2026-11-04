@@ -123,6 +123,8 @@ NASR has no timezone column (checked against APT_BASE.csv), hence computing zone
 
 ## Resource usage (1 vCPU/1GB droplet)
 
+**Memory**: about 380 MB steady, peaking over 500 MB during boot, and roughly 300 MB goes to everything else on the box. A 2 GB `/swapfile` (swappiness 10) keeps a spike from getting the process killed. `[mem]` lines in the pm2 log show rss, heap, feed queue depth and event-loop lag: every 5 minutes, or every 15 seconds above 500 MB. After any restart you didn't do, check `dmesg -T | grep "Killed process"`.
+
 Indexes exist on `segments.pilot_id`, `segments.departure_time`, `pilots.token`, `notifications.pilot_key`, `friend_requests.requester_key`/`.recipient_key`, `segments.route` (NetJets historical-duration lookup) — all `CREATE INDEX IF NOT EXISTS`, purely additive. `runActiveFlightPoller()`'s 15s loop calls `fetchLivePosition()` (checks STDDS/SWIM first) rather than unconditionally hitting the real rate-limited ADS-B API.
 
 **Known, deliberately unbounded**: `GET /api/pilots/:key` returns a pilot's entire segment history with no date bound — the frontend assumes the full list is in `pilotsCache` for historical month navigation. Bounding this needs a paired client-side range-fetch change; not done.

@@ -10,9 +10,12 @@
 // With CLIENT acknowledgement the broker keeps at most its window of unacked messages in flight,
 // so the backlog drains at the rate we actually process it instead of flooding memory.
 const BATCH = 20;
+const _queues = {}; // label -> queue, for the server's memory log
+function getFeedDepths() { return Object.fromEntries(Object.entries(_queues).map(([k, q]) => [k, q.length])); }
 
 function createFeedQueue(label, handle, onError) {
     const queue = [];
+    _queues[label] = queue;
     let scheduled = false;
     function drain() {
         scheduled = false;
@@ -35,4 +38,4 @@ function createFeedQueue(label, handle, onError) {
     };
 }
 
-module.exports = { createFeedQueue };
+module.exports = { createFeedQueue, getFeedDepths };

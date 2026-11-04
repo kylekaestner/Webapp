@@ -7037,3 +7037,23 @@ setInterval(async () => {
         }
     });
 }, 20 * 60 * 1000);
+
+// Memory log. The droplet has 1 GB and the kernel kills this process with no trace of what filled it
+// (2026-11-03: four kills in six minutes, cause never proven). Every 5 minutes normally, every 15
+// seconds above 500 MB. heap vs ext/buf separates JS objects from Solace's buffers, feeds shows a
+// backlog, and lag shows the event loop being blocked.
+{
+    const { getFeedDepths } = require('./feed-queue');
+    const TICK_MS = 15000, HIGH_RSS_MB = 500;
+    const mb = n => Math.round(n / 1048576);
+    let ticks = 0, expected = Date.now() + TICK_MS;
+    setInterval(() => {
+        const lag = Date.now() - expected;
+        expected = Date.now() + TICK_MS;
+        const m = process.memoryUsage();
+        if (mb(m.rss) < HIGH_RSS_MB && ++ticks % 20 !== 0) return;
+        const feeds = Object.entries(getFeedDepths()).map(([k, v]) => `${k}:${v}`).join(' ');
+        const trailPts = Object.values(_posTrail).reduce((n, t) => n + t.length, 0);
+        console.log(`[mem] rss=${mb(m.rss)} heap=${mb(m.heapUsed)}/${mb(m.heapTotal)} ext=${mb(m.external)} buf=${mb(m.arrayBuffers)} lag=${lag}ms feeds=${feeds} live=${Object.keys(_liveCache).length} trailPts=${trailPts}`);
+    }, TICK_MS);
+}
