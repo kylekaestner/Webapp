@@ -7360,6 +7360,9 @@
                     // since this fetch never told the server which direction it actually meant.
                     const _originQs = (depAirportCode ? `&origin=${encodeURIComponent(depAirportCode)}` : '') + (scheduledArrUTC ? `&arrMs=${scheduledArrUTC.getTime()}` : '') + (arrAirportCode ? `&dest=${encodeURIComponent(arrAirportCode)}` : '');
                     const d = await fetch(`${API_BASE}/live-position?callsign=${encodeURIComponent(callsign)}${_depQs}${_originQs}`).then(r => r.json());
+                    // Another leg took this callsign over while we waited. Drawing now would leave this leg's
+                    // trail and last position on the map with nothing to clear them until a refresh.
+                    if (!_isCurrent()) { _pollerStopped = true; return; }
 
                     // Server confirmed the plane is parked — flight complete
                     if (d.parked) {
@@ -8035,6 +8038,7 @@
             // see server.js -- this arrival param is the defense-in-depth backstop for whenever
             // neither TFMS nor TFDM has anything cached for the current message at all).
             const _csArrival = new Map();
+            const _csOriginDep = new Map();
             // NetJets legs asked about one by one (callsign~origin~arrival) -- see parkedKey().
             const _njLegs = [];
             Object.entries(allPilotSegments).forEach(([key, segs]) => segs.forEach(f => {
@@ -8046,8 +8050,14 @@
                 const inWindow = (d && a) && now.getTime() >= d.getTime() - PREFLIGHT_ROUTE_MS && now.getTime() <= a.getTime() + 4 * 60 * 60 * 1000;
                 if (inWindow) {
                     _activeCs.add(cs);
-                    if (!_csOrigin.has(cs) && f.departureAirport) _csOrigin.set(cs, f.departureAirport);
-                    if (!_csArrival.has(cs) && a) _csArrival.set(cs, a.toISOString());
+                    // The latest leg that has started, else the next one. A round trip on one flight number
+                    // asked with the first leg's origin got nothing for the second (Logan's 3716 SAN-LAX).
+                    const started = d.getTime() <= now.getTime();
+                    if (f.departureAirport && (!_csOrigin.has(cs) || (started && d.getTime() > (_csOriginDep.get(cs) || 0)))) {
+                        _csOrigin.set(cs, f.departureAirport);
+                        _csArrival.set(cs, a.toISOString());
+                        if (started) _csOriginDep.set(cs, d.getTime());
+                    }
                     if (_NJ_CS_RE.test(cs) && f.departureAirport && a) _njLegs.push(cs + '~' + f.departureAirport + '~' + a.toISOString());
                 }
             }));
@@ -8091,11 +8101,15 @@
                 // it's the leg being flown, or a ramp with the APU on, and every later leg read as active
                 // and took over the tracker, so the last leg of the day held the plane. An airline leg
                 // can leave a little early, but tomorrow's same flight number isn't today's (Logan's SKW3502).
-                const notYet = !ev && !!dMs && nowMs < dMs && (_NJ_CS_RE.test(cs || '') || dMs - nowMs > PREFLIGHT_ROUTE_MS);
-                const T = ev ? (ev.times || {}) : notYet ? {} : (estTimes[cs] || {});
-                const isLive = ev ? !!ev.live : !notYet && liveSeen.has(cs);
-                const isAirborne = ev ? !!ev.airborne : !notYet && airborneSeen.has(cs);
-                const isParked = ev ? !!ev.parked : !notYet && _confirmedParked.has(cs);
+                // Same for a NetJets leg long finished: James's CLT-BHM read as live during MSL-MRF.
+                const isNj = _NJ_CS_RE.test(cs || '');
+                const notYet = !!dMs && nowMs < dMs && (isNj || dMs - nowMs > PREFLIGHT_ROUTE_MS);
+                const longDone = isNj && !!aMs && nowMs > aMs + 3 * 3600000;
+                const noCsEvidence = !ev && (notYet || longDone);
+                const T = ev ? (ev.times || {}) : noCsEvidence ? {} : (estTimes[cs] || {});
+                const isLive = ev ? !!ev.live : !noCsEvidence && liveSeen.has(cs);
+                const isAirborne = ev ? !!ev.airborne : !noCsEvidence && airborneSeen.has(cs);
+                const isParked = ev ? !!ev.parked : !noCsEvidence && _confirmedParked.has(cs);
                 const etaMs = T.eta ? new Date(T.eta).getTime() : 0;
                 const effA = Math.max(aMs || 0, etaMs);
                 const etdMs = T.etd ? new Date(T.etd).getTime() : null;

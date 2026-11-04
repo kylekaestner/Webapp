@@ -83,9 +83,15 @@ Shows the planned/filed route up to `PREFLIGHT_ROUTE_MS` (30 minutes) before sch
 
 `vnas.js` fetches the full vNAS payload every 6h, builds a `facilityId → Map(sectorId → {frequency, callsign})` index, discards the raw payload. Two linkage shapes: **enroute** (ARTCC, numeric sectorId) via `eramConfiguration.sectorId`; **terminal** (TRACON/tower, lettered sectorId) via `starsConfiguration.tcps[]`/`tcpId`. `getFrequency()` returns `null` for anything unresolvable (not every small facility is in VATSIM's model). `swim.js` stores the raw handoff as `entry.sector = {unit, sectorId}`; `server.js`'s `withResolvedFrequency()` resolves it once per poll onto a new sector object. Frontend: `buildBaseTooltip()` shows the MHz next to the callsign, gated by `_showSectorOn` (persisted `cs_show_sector`, **default ON**), button `#btn-show-sector` ("📻 FREQ"). `_liveLabelRefreshers` (global `callsign → refresh()` registry) lets the toggle repaint every tracked label instantly from cached data instead of waiting for each flight's own next poll.
 
+### One flight number, two legs in the same window
+
+`renderDayMap()` asks `/api/flight-status` with one origin per callsign: the latest leg that has started, or the next one. The server rejects evidence from another origin, so asking with the first leg's origin left a round trip's second leg at DEPARTURE DUE.
+
 ### A later leg can't borrow its callsign's evidence
 
-On the day map, `_legState()` ignores callsign-level evidence for a leg more than `PREFLIGHT_ROUTE_MS` from departing, and for any NetJets leg still ahead of its departure. Otherwise today's live flight shows as live on tomorrow's same flight number (Logan's SKW3502).
+`startLiveTracking()` re-checks `_isCurrent()` after each position fetch, because a poll already in flight when another leg takes over would otherwise draw a trail and position nothing clears.
+
+On the day map, `_legState()` ignores callsign-level evidence for a leg more than `PREFLIGHT_ROUTE_MS` from departing, for any NetJets leg still ahead of its departure, and for a NetJets leg more than 3 hours past arrival, which has dropped out of the `perLeg` request window. Otherwise today's live flight shows as live on tomorrow's same flight number (Logan's SKW3502).
 
 ### Base map
 
