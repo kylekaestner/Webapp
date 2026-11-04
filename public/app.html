@@ -8975,7 +8975,7 @@
                         const lines = [];
                         if (bt.day > 0) lines.push(formatDurationMinutes(bt.day));
                         if (bt.tourEnd === dateKey && bt.tour > 0) lines.push(`T ${formatDurationMinutes(bt.tour)}`);
-                        if (lines.length) blockTop = `<span class="block-total flex-1 text-center text-[9px] font-black text-sky-400 leading-tight whitespace-nowrap">${lines.map(l => `<div>${l}</div>`).join('')}</span>`;
+                        if (lines.length) blockTop = `<span class="block-total hidden md:block flex-1 text-center text-[9px] font-black text-sky-400 leading-tight whitespace-nowrap">${lines.map(l => `<div>${l}</div>`).join('')}</span>`;
                     }
                     html += `<div class="flex items-start justify-between px-2.5 pt-2 pb-1 shrink-0"><span class="text-base font-black font-mono leading-none day-number" style="${dayNumColor}">${d}</span>${blockTop}<span class="text-[7px] font-black px-1.5 py-[2px] rounded-full border border-current leading-none opacity-90">${tag}</span></div>`;
                     // Scrollable flight list

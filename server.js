@@ -5026,6 +5026,7 @@ try {
     Object.assign(_routeDurations, JSON.parse(fs.readFileSync(ROUTE_DURATIONS_PATH, 'utf8')));
 } catch (_) {}
 let _routeDurationsSaveTimer = null;
+const _routeDurationRecorded = new Set(); // segment ids already counted
 function _recordRouteDuration(origin, dest, minutes) {
     if (!origin || !dest || !isFinite(minutes) || minutes <= 0 || minutes > 12 * 60) return; // sanity bound -- no real NetJets leg runs 12+ hours
     const key = `${origin}>${dest}`;
@@ -5154,16 +5155,22 @@ const NETJETS_SAME_DEPARTURE_TOLERANCE_MS = 15 * 60 * 1000;
 // ETD could never look late). 3h+ off is a re-plan, not a delay. Once flown it takes the real
 // departure, then the real arrival. A null arr means leave the row's arrival as it is.
 const NETJETS_REPLAN_MS = 3 * 3600000;
-function _netjetsRowTimes(row, legTimes, flown, depTime, arrTime) {
+function _netjetsRowTimes(row, legTimes, flown, depTime, arrTime, nextDepMs = null) {
     const iso = ms => new Date(ms).toISOString();
     if (flown) {
         const dep = legTimes.etdType !== 'ACTUAL' && legTimes.departedAt ? iso(legTimes.departedAt) : depTime;
         // etaType ACTUAL means eta is the real arrival, to the second. arrivedAt is only when the arrival
         // message reached us, up to 6 minutes later (CQF->HOT: eta 22:50:20, message 22:56:00).
-        if (legTimes.etaType === 'ACTUAL' && legTimes.eta) return { dep, arr: legTimes.eta };
+        if (legTimes.etaType === 'ACTUAL' && legTimes.eta) return { dep, arr: legTimes.eta, real: true };
         const reported = legTimes.timeOfArrivalEstimated === false ? Date.parse(legTimes.timeOfArrival || '') : NaN;
-        const arr = !isNaN(reported) ? iso(reported) : legTimes.arrivedAt ? iso(legTimes.arrivedAt) : arrTime;
-        return { dep, arr };
+        const real = !isNaN(reported) ? iso(reported) : legTimes.arrivedAt ? iso(legTimes.arrivedAt) : null;
+        if (real) return { dep, arr: real, real: true };
+        // Only an estimate, the normal end of a leg into an untowered field. It can keep moving after
+        // landing, so it stops once the leg is finished, and can't land after the tail's next departure
+        // (EJA492 RDU->27K went to 00:30Z after the tail had left 27K at 23:28Z).
+        const hasArrival = row.arrival_time && row.arrival_time !== row.departure_time;
+        const tooLate = nextDepMs != null && Date.parse(arrTime || '') > nextDepMs;
+        return { dep, arr: hasArrival && (row.auto_leg_complete || tooLate) ? null : arrTime };
     }
     const rowDepMs = Date.parse(row.departure_time || ''), depMs = Date.parse(depTime || '');
     const placeholder = row.arrival_time === row.departure_time;
@@ -5455,7 +5462,12 @@ async function _netjetsLegCreationPass(db, onDutyList) {
 
             // Refine whatever's newly known about an already-created leg.
             const updates = [], params = [];
-            const rowTimes = _netjetsRowTimes(row, legTimes, _tfmsLegFlown(legTimes) || REALLY_DEPARTED_RE.test(flightState), depTime, arrTime);
+            const rowDepMs = Date.parse(row.departure_time);
+            const nextDepMs = existingRows.reduce((min, r) => {
+                const ms = Date.parse(r.departure_time);
+                return r.auto_leg_complete && !r.auto_leg_cancelled && ms > rowDepMs && norm3(r.departure_airport) === norm3(row.arrival_airport) && (min == null || ms < min) ? ms : min;
+            }, null);
+            const rowTimes = _netjetsRowTimes(row, legTimes, _tfmsLegFlown(legTimes) || REALLY_DEPARTED_RE.test(flightState), depTime, arrTime, nextDepMs);
             if (finalDest && finalDest !== row.arrival_airport) { updates.push('arrival_airport=?'); params.push(finalDest); }
             if (rowTimes.dep && rowTimes.dep !== row.departure_time) { updates.push('departure_time=?'); params.push(rowTimes.dep); }
             if (rowTimes.arr && rowTimes.arr !== row.arrival_time) { updates.push('arrival_time=?'); params.push(rowTimes.arr); }
@@ -5482,7 +5494,11 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                     // (arrTime) on a genuinely completed leg -- never from the estimate itself,
                     // so a guess can never compound into a worse guess for a later leg on this
                     // same city pair.
-                    if (landed && rowTimes.arr) _recordRouteDuration(origin, dest, block);
+                    // Once per leg: this runs every poll, which had pushed CHS>SDF to 6,794 counts.
+                    if (landed && rowTimes.real && !_routeDurationRecorded.has(row.id)) {
+                        _routeDurationRecorded.add(row.id);
+                        _recordRouteDuration(origin, dest, block);
+                    }
                 } else if (row.arrival_time || row.block_minutes != null) {
                     // finalArrTime is at or before finalDepTime -- physically impossible.
                     // Confirmed live 2026-10-30: a leg-blind pre-rewrite write left a stale
