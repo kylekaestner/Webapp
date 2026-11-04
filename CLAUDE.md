@@ -32,7 +32,7 @@ Kyle also runs a Tampermonkey userscript (`public/frat-autofill.user.js`) that a
 
 Prod server: `http://167.71.107.245:3000/` (managed via `pm2`, process name `dispatch`). **Deploy is git-based, not scp**: commit locally, `git push origin server`, then on the droplet `cd /var/www/Webapp && git pull origin server`, then `pm2 restart dispatch` after any `server.js`/`db.js` change (`public/app.html` changes don't need a restart, just a browser refresh). The droplet's `/var/www/Webapp` is itself a git clone of this same repo — `scp`-ing files directly onto it bypasses git and causes real drift between the droplet's git history and its running files. Always commit+push *before* deploying, never after — prod should never run code that isn't also on `origin/server`.
 
-Current version: `1.0.10-beta` (`package.json`/`package-lock.json`). Bump it for the next meaningfully-sized batch of fixes, not every commit — see `CLAUDE_HISTORY.md` for the version-bump log if you need to know what shipped when.
+Current version: `1.0.11-beta` (`package.json`/`package-lock.json`). Bump it for the next meaningfully-sized batch of fixes, not every commit — see `CLAUDE_HISTORY.md` for the version-bump log if you need to know what shipped when.
 
 ## File map
 

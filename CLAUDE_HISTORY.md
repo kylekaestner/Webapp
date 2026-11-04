@@ -289,3 +289,5 @@ Base map: Kyle compared CARTO+, OpenFreeMap, Protomaps Black, VersaTiles and CAR
 James's RDU→27K (11/2) showed 4h 30m block, arriving 00:30Z after the tail had already left 27K at 23:28Z. 27K has no tower, so no real arrival came, and an estimate overwrote a finished leg. An estimate now stops at a finished leg and can't land after the tail's next departure. The route history also re-counted a leg on every poll, and counted estimates, so it now takes one real arrival per leg.
 
 Mack gave up tail 23 in Vegas mid-day, with legs still filed after that. Swap and Reset only marked open legs complete, and a pilot might not remember to do it after landing. A pilot can now pick their last leg on the plane ahead of time, and a new tail entered early waits for that leg to land.
+
+Version 1.0.11-beta (2026-11-04): startup and Crossings speed work, OpenFreeMap base map, block totals, leaving a NetJets tail mid-tour, and NetJets leg, route and live map fixes.
