@@ -291,3 +291,5 @@ James's RDU→27K (11/2) showed 4h 30m block, arriving 00:30Z after the tail had
 Mack gave up tail 23 in Vegas mid-day, with legs still filed after that. Swap and Reset only marked open legs complete, and a pilot might not remember to do it after landing. A pilot can now pick their last leg on the plane ahead of time, and a new tail entered early waits for that leg to land.
 
 Version 1.0.11-beta (2026-11-04): startup and Crossings speed work, OpenFreeMap base map, block totals, leaving a NetJets tail mid-tour, and NetJets leg, route and live map fixes.
+
+The haze at the top of the installed app, chased in October, is an iOS blur over Home Screen web apps from iOS 26 on. A fixed black band behind the status bar was added on 2026-11-04 to make WebKit skip it. Whether it works has to be seen on a phone.

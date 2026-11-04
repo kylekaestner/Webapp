@@ -6617,7 +6617,7 @@ app.get('/manifest.json', (req, res) => {
         description: 'Flight crew scheduling and tracking',
         start_url: token ? `/app?u=${encodeURIComponent(token)}` : '/app',
         display: 'standalone',
-        background_color: '#09090b', theme_color: '#09090b',
+        background_color: '#000000', theme_color: '#000000',
         orientation: 'portrait-primary',
         icons: [
             { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
