@@ -74,6 +74,7 @@
         <option value="crew-intel">Crew Intel</option>
         <option value="upload">Uploading Schedules</option>
         <option value="manual-flight">Adding Flights Manually</option>
+        <option value="netjets">NetJets (Beta)</option>
         <option value="notifications">Notifications</option>
         <option value="identity">Your Personal Link</option>
         <option value="friends">Friends</option>
@@ -101,6 +102,7 @@
         <div class="nav-group-label">Managing Data</div>
         <a class="nav-link" onclick="jumpTo('upload')">Uploading Schedules</a>
         <a class="nav-link" onclick="jumpTo('manual-flight')">Adding Flights Manually</a>
+        <a class="nav-link" onclick="jumpTo('netjets')">NetJets (Beta)</a>
 
         <div class="nav-group-label">Account</div>
         <a class="nav-link" onclick="jumpTo('notifications')">Notifications</a>
@@ -122,7 +124,7 @@
             <div class="mb-8">
                 <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Overview</p>
                 <h2>What is CrewSync?</h2>
-                <p>CrewSync is a scheduling and coordination app for flight crews. It's built to handle pilots from any airline or flight operation — corporate, regional, charter, or mixed — all in one place. Each pilot uploads their own schedule, and the app handles the rest: tracking where everyone is, finding overlaps, and surfacing meetup opportunities automatically.</p>
+                <p>CrewSync is a scheduling and coordination app for flight crews. It's built to handle pilots from any airline or flight operation — corporate, regional, charter, or mixed — all in one place. Each pilot's schedule comes in from a file, a calendar link, or, for NetJets pilots, the flight plans filed on their aircraft. The app handles the rest: tracking where everyone is, finding overlaps, and surfacing meetup opportunities automatically.</p>
                 <p>The core idea: stop texting "hey, are you in ORD this week?" and let the app tell you. Every pilot's schedule — corporate flights, airline trips, reserve windows, days off — feeds into a shared picture that the whole crew can see.</p>
             </div>
 
@@ -133,12 +135,12 @@
                 <li><strong>Route Map</strong> — Your flight routes plotted on a live map, plus where the whole crew is today</li>
                 <li><strong>Location Overlap</strong> — Automatically finds when two pilots will be in the same city at the same time</li>
                 <li><strong>Crew Intel</strong> — A shared knowledge base of hotels, food, activities, and tips for airports the crew has visited</li>
-                <li><strong>Notifications</strong> — Push alerts when a crossing is detected after a schedule upload</li>
+                <li><strong>Notifications</strong> — Push alerts for new crossings, friend requests, and NetJets tour reminders</li>
             </ul>
 
             <h3>What it doesn't do</h3>
             <ul>
-                <li>It doesn't connect to airline systems directly — schedules are uploaded manually by each pilot</li>
+                <li>It only knows what your file, calendar link, or sync gives it — a trip swap shows up once your schedule updates</li>
                 <li>It doesn't replace your airline's scheduling app — it's a crew coordination layer on top</li>
                 <li>It's read-only for viewers (guests with view-only access)</li>
             </ul>
@@ -160,7 +162,7 @@
             </div>
 
             <h3>What you see on first load</h3>
-            <p>The Calendar Grid opens by default, showing the current month for the first pilot in the roster. If you're signed in as yourself, the app loads your schedule automatically. Use the pilot selector (sidebar on desktop, scroll bar on mobile) to switch between crew members.</p>
+            <p>The Calendar Grid opens by default on the current month. If you're signed in as yourself, the app loads your schedule automatically. Use the pilot selector (sidebar on desktop, scroll bar on mobile) to switch between crew members.</p>
 
             <h3>Navigating between views</h3>
             <p>On desktop, use the left sidebar. On mobile, use the bottom navigation bar:</p>
@@ -196,15 +198,22 @@
                 <li><span class="chip chip-amber">Amber</span> — Reserve / on call. Airline pilot has a reserve window on this day.</li>
                 <li><span class="chip" style="background:rgba(234,179,8,.15);color:#ca8a04">Yellow</span> — Away layover. Overnight at a non-home airport.</li>
                 <li><span class="chip chip-red">Red</span> — Hard day off. Scheduled unavailable day.</li>
+                <li><span class="chip" style="background:rgba(251,113,133,.15);color:#fda4af">Rose</span> — Soft Day. A tentative day off on a corporate schedule, usually around peak travel. It can still become a work day until 5 PM the day before. Off Days marks it as "soft".</li>
                 <li><span class="chip chip-teal">Teal</span> — Vacation block.</li>
-                <li><span class="chip chip-zinc">Gray</span> — Open day. No events scheduled. For corporate pilots this typically means available; for airline pilots it means a day off.</li>
+                <li><span class="chip" style="background:rgba(249,115,22,.15);color:#fb923c">Orange</span> — Training.</li>
+                <li><span class="chip" style="background:rgba(129,140,248,.15);color:#a5b4fc">Indigo</span> — On Tour. A NetJets duty day with no legs on it yet.</li>
+                <li><span class="chip chip-zinc">Gray</span> — Off. Nothing scheduled. Some corporate accounts show ON CALL instead, because an open day means they're available.</li>
             </ul>
+            <p>The totals below the calendar count the month's flown, off, and on-call days.</p>
 
             <h3>Tapping a day</h3>
             <p>Tap any day to open the detail sheet. It shows every event for that day: flight routes with city/state names, tail numbers and block times, reserve windows, hard-off reasons, and layover locations. City and state appear below each airport pair when the airport is in the database — useful for airports you don't recognize by code. Active flights (currently airborne) are highlighted.</p>
 
             <h3>Next flight banner</h3>
             <p>When you're viewing your own schedule, your next upcoming leg appears in the left sidebar on desktop and in a banner above the calendar on mobile. Cancelled legs are skipped. On mobile, tap the banner to hide it until you reopen the app.</p>
+
+            <h3>Block hours</h3>
+            <p>Turn on <strong>Show block totals</strong> in your Profile to see each day's block time in the day detail and, on desktop, on the calendar. NetJets pilots also get a tour total. Deadheads, commutes, personal flights, and cancelled legs aren't counted. The setting is saved per device.</p>
 
             <h3>Navigating months</h3>
             <p>Use the <span class="kbd">‹</span> and <span class="kbd">›</span> arrows to move between months. The app loads schedule data for whichever pilot is currently selected.</p>
@@ -227,7 +236,7 @@
                 <li><strong>Ground transport</strong> — Van or bus legs between airports (airline ops)</li>
                 <li><strong>Reserve</strong> — On-call windows with start and end times</li>
                 <li><strong>Hard off</strong> — Scheduled days off</li>
-                <li><strong>Vacation</strong> — Vacation blocks</li>
+                <li><strong>Vacation and training</strong> — Vacation and training days</li>
                 <li><strong>Away</strong> — Multi-day layovers away from base</li>
             </ul>
 
@@ -235,7 +244,12 @@
             <p>Deadhead (DH) flights are shown with a <span class="chip chip-zinc">DH</span> badge. These are positioning flights where the pilot is a passenger, not flying the aircraft.</p>
 
             <h3>Live flights</h3>
-            <p>Flights that are currently airborne are highlighted with a green pulse indicator. The app compares the current time against departure and arrival times to determine live status.</p>
+            <p>A flight turns green once live tracking confirms it's moving, not just because its scheduled time has arrived. On the calendar and list, you may also see:</p>
+            <ul>
+                <li><strong>DELAYED · ETD</strong> (orange) — The flight is late, with its new estimated departure time</li>
+                <li><strong>DEPARTURE DUE</strong> (yellow) — The departure time has passed and the flight hasn't been seen moving yet</li>
+                <li><strong>✓</strong> — The leg is complete</li>
+            </ul>
         </section>
 
         <hr class="section-divider">
@@ -253,7 +267,7 @@
             <p>Shows where every crew member is on a specific day. Use the date navigator to step forward or backward by day. This is the most useful mode for planning: you can quickly see who's in what city on any given day.</p>
             <p>Each pilot's pin location is resolved in priority order:</p>
             <ul>
-                <li><strong>Live ADS-B</strong> — real-time GPS position if the flight is being tracked</li>
+                <li><strong>Live position</strong> — real-time position from ADS-B or FAA data if the flight is being tracked</li>
                 <li><strong>Active flight</strong> — shown in-air if currently between departure and arrival</li>
                 <li><strong>Reserve window</strong> — shown at their reserve base if on call</li>
                 <li><strong>Away layover</strong> — shown at an overnight layover airport</li>
@@ -266,8 +280,11 @@
             <h3>All Crew — Month</h3>
             <p>Shows all flight routes for all pilots for the current month simultaneously. Good for getting a big-picture sense of where the crew is flying this month.</p>
 
+            <h3>Flown and Upcoming</h3>
+            <p>The <strong>Flown</strong> and <strong>Upcoming</strong> toggles show or hide past and future legs. Leave both on to see everything.</p>
+
             <h3>Weather Radar</h3>
-            <p>The radar toggle (top-right of the map) overlays live precipitation radar. Useful for checking weather along a route.</p>
+            <p>The <strong>⛈ Radar</strong> toggle overlays live precipitation radar. Useful for checking weather along a route.</p>
 
             <h3>Live route detail</h3>
             <p>While a flight is airborne and being live-tracked, the remaining route ahead of the aircraft is drawn in three pieces: <strong>dashed</strong> from the plane to the next fix, <strong>solid</strong> between each subsequent filed fix, and <strong>dashed</strong> again from the last fix to the destination airport.</p>
@@ -299,13 +316,18 @@
                 The overlap view is always computed fresh from the latest schedule data. Hit <strong>Refresh</strong> to recompute after an upload.
             </div>
 
-            <h3>Crossing tiers</h3>
-            <p>Not all crossings are equal. The app classifies them into tiers:</p>
+            <h3>Crossing types</h3>
+            <p>Each crossing is labeled by how realistic a meetup is:</p>
             <ul>
-                <li><strong>Tier 1 — City Meetup</strong> — Both pilots are in the same metro area. SFO, OAK, SJC, APC are all treated as "Bay Area." STL, SUS, CPS are all treated as "St. Louis." These are real, plannable meetups.</li>
-                <li><strong>Tier 2 — Same Region</strong> — Airports within roughly 50 miles. Still likely plannable with a short drive.</li>
-                <li><strong>Tier 3 — Also Nearby</strong> — Geographic coincidences. Shown in a collapsed section at the bottom. Worth knowing but less actionable.</li>
+                <li><strong>Same Flight</strong> — You're both on the same flight.</li>
+                <li><strong>Overnight</strong> — Same airport, with both of you there overnight or for 5+ hours together.</li>
+                <li><strong>Meetup</strong> — Same airport at the same time, with a shorter window.</li>
+                <li><strong>Passing Through</strong> — Same airport, but one pilot is connecting.</li>
+                <li><strong>City Meetup</strong> — Different airports in the same metro, and both pilots have 5+ hours there.</li>
+                <li><strong>Home Turf</strong> — One pilot has a layover of 5+ hours in the other pilot's home city.</li>
             </ul>
+            <p>Airports in the same metro count as one city: SFO, OAK, SJC, and APC are the Bay Area, and STL, SUS, and CPS are St. Louis.</p>
+            <p><strong>Also Nearby</strong>, at the bottom, lists coincidences that aren't realistic meetups: one pilot is only transiting the metro, or the airports are within about 50 miles but aren't in the same metro.</p>
 
             <h3>Reading a crossing card</h3>
             <p>Each card shows:</p>
@@ -321,7 +343,7 @@
             <p>Tap any crossing card to open the detail view. It shows a full breakdown: exactly when each pilot arrives and departs, the together window with timezone labels, and the distance between airports if they're at different locations in the same metro area.</p>
 
             <h3>Your crossings only</h3>
-            <p>The crossings view only shows crossings that involve you. You won't see crossings between two other pilots — the view is scoped to what's relevant to you.</p>
+            <p>The crossings view only shows crossings that involve you. You won't see crossings between two other pilots. Admins and view-only guests see crossings for everyone they can view.</p>
 
             <h3>Reserve days count</h3>
             <p>Reserve windows are included in the crossing computation. If a pilot is on reserve at SFO from 6 AM to 9 PM, they're considered present at SFO for that entire window — even though they might not be flying.</p>
@@ -399,11 +421,17 @@
         <section id="upload" class="prose">
             <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Managing Data</p>
             <h2>Uploading Schedules</h2>
-            <p>Each pilot is responsible for uploading their own schedule. The app supports several file formats depending on the airline or scheduling system.</p>
+            <p>How your schedule gets here depends on your airline. Some use a file you upload, and others use a calendar link that syncs on its own. NetJets pilots don't upload legs at all — see <a onclick="jumpTo('netjets')" href="#netjets">NetJets (Beta)</a>.</p>
 
             <h3>How to upload</h3>
             <p><strong>Desktop:</strong> Use the upload section at the bottom of the left sidebar. Select the pilot from the dropdown (if you're an admin), then click "Upload Schedule" and choose your file.</p>
             <p><strong>Mobile:</strong> Tap the Upload button in the bottom nav bar. A sheet slides up with your upload options.</p>
+
+            <h3>Schedule reminder</h3>
+            <p>If you upload files, including NetJets CC pilots, a Schedule Reminder appears in the app when a month is missing: next month's from the 23rd on, and the current month's if it was never uploaded. Pilots whose schedule syncs on its own don't get it.</p>
+
+            <h3>Calendar link sync</h3>
+            <p>If your airline uses a calendar link, tap <strong>Sync Schedule</strong> in the upload section and paste the link once. After that, your schedule updates automatically three times a day.</p>
 
             <h3>What happens after upload</h3>
             <ul>
@@ -414,7 +442,7 @@
             </ul>
 
             <div class="callout callout-zinc">
-                Re-uploading a file replaces all non-manual segments for the date range covered by that file. Flights you've added manually are never affected. Uploading one month won't change any other month's data.
+                Re-uploading a file replaces all non-manual segments for the date range covered by that file. Flights you've added or edited by hand are never affected. Uploading one month won't change any other month's data.
             </div>
 
             <h3>Direct sync (corporate ops)</h3>
@@ -434,20 +462,67 @@
 
             <h3>Flight types</h3>
             <ul>
-                <li><strong>Work</strong> — A scheduled work leg. Requires a pairing/trip number. Shows in blue.</li>
+                <li><strong>Work</strong> — A work leg. Shows in blue.</li>
                 <li><strong>Deadhead (DH)</strong> — Positioning flight where you ride as a passenger. Shown with a DH badge.</li>
                 <li><strong>Commute</strong> — A commute leg to or from base. Shows in amber. Does not count as a working day for off-day purposes.</li>
                 <li><strong>Personal</strong> — Personal or leisure travel. Shows in violet. Does not count as a working day and doesn't generate away layovers.</li>
+                <li><strong>Training</strong> — A training day, with an optional location.</li>
+                <li><strong>Vacation</strong> — A vacation day.</li>
             </ul>
 
             <h3>How to add</h3>
-            <p>Click or tap the <strong>+ Add Flight</strong> button (top-right on desktop, <span class="kbd">+</span> on mobile). Select the flight type, fill in the departure airport, arrival airport, date, and times. Block time is calculated automatically from airports and times — you can override it manually. Tail number and flight number are optional.</p>
+            <p>Click or tap the <strong>+ Add Flight</strong> button (top-right on desktop, <span class="kbd">+</span> on mobile). It opens on today. The <strong>+ Add Flight</strong> button in a day's detail sheet opens on that day. Select the flight type, fill in the departure airport, arrival airport, date, and times. Block time is calculated automatically from airports and times — you can override it manually. Tail number and flight number are optional. A flight number needs the 3-letter airline code, like SKW1234 or UAL442.</p>
 
             <h3>Manually added vs. uploaded</h3>
             <p>Manually added flights are stored separately from uploaded schedule data. They show up in the calendar, list view, map, and crossing computation just like any other flight. They won't be overwritten if you re-upload your schedule.</p>
 
             <h3>Editing or deleting</h3>
-            <p>Tap a manually added flight in the list view or day detail sheet to edit or delete it. Uploaded segments cannot be individually edited — re-upload the schedule to update them.</p>
+            <p>Use the edit and delete buttons in the list view or day detail sheet. This works for any flight on your own schedule, not just ones you added. A flight you edit becomes a manual flight, so a later upload or sync won't replace it. An uploaded flight you delete comes back the next time that schedule syncs.</p>
+        </section>
+
+        <hr class="section-divider">
+
+        <!-- NETJETS -->
+        <section id="netjets" class="prose">
+            <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Managing Data</p>
+            <h2>NetJets (Beta)</h2>
+            <p>NetJets has no schedule file to upload, so CrewSync works out your schedule another way. Your duty rotation sets your tour days, and your legs come from the flight plans filed on the aircraft you're flying.</p>
+
+            <div class="callout callout-amber">
+                NetJets tracking is in beta. A leg can show up late or wrong, and you can fix it by hand. Tell your admin if something looks off.
+            </div>
+
+            <h3>Setting up</h3>
+            <ul>
+                <li>Choose <strong>NetJets (Beta)</strong> when you join, then pick 7 &amp; 7 or 8 &amp; 6 and your line</li>
+                <li>On a CC schedule (52/60/72/76), pick <strong>CC</strong> and your program instead, and upload your monthly schedule email as a .pdf or .txt. A PDF can take up to a minute</li>
+                <li>After that, upload each new CC month with the Upload button</li>
+                <li>To change any of this later, or if you skipped it, open your Profile, then <strong>My Info → Edit</strong>. Your airline is under <strong>Airline / Operator</strong> and your schedule is under <strong>Duty Rotation</strong></li>
+            </ul>
+            <p>Your duty days then show as <span class="chip" style="background:rgba(129,140,248,.15);color:#a5b4fc">ON TOUR</span> on the calendar. A CC pilot's days only appear for months that have been uploaded. The app reminds you when a month is missing: next month's from the 23rd on, and the current month's if it was never uploaded.</p>
+
+            <h3>Starting a tour</h3>
+            <p>Tap any tour day, then <strong>Edit Tour</strong>. Enter your tail number (just the digits, like 742) and the airport where you're meeting the aircraft. Do this before your first leg, because a leg flown before the tail is saved can't be recovered. The app reminds you the evening before and on any tour day with no tail saved.</p>
+
+            <h3>How your legs appear</h3>
+            <ul>
+                <li>Legs usually show up the evening before, once NetJets files them</li>
+                <li>A leg shows its planned time until it flies, then takes the real departure and arrival times</li>
+                <li>A plan that's cancelled or never flown leaves your schedule, and it comes back if the aircraft really flies it</li>
+                <li>A leg you edit stays the way you left it, and a leg you delete stays off your schedule</li>
+            </ul>
+
+            <h3>Changing your tour</h3>
+            <p>These are all in <strong>Edit Tour</strong>:</p>
+            <ul>
+                <li><strong>New aircraft</strong> — Save the new tail and starting airport</li>
+                <li><strong>Leaving this aircraft?</strong> — Pick your last leg on the tail. Later legs leave your schedule. Choose <strong>Staying on this aircraft</strong> to undo it</li>
+                <li><strong>＋ Extend 1 day</strong> — Adds a day to the end of the tour. <strong>Undo</strong> removes it</li>
+                <li><strong>Log the commute/deadhead</strong> — Opens Add Flight as a Commute, with your starting airport filled in as the arrival</li>
+            </ul>
+
+            <h3>Getting to and from the jet</h3>
+            <p>Airline flights to and from your aircraft aren't tracked, so log them as Commute flights if you want them to show. If you don't log one, Crossings and the map assume you're home starting 3 hours after your last leg on the tour's final day.</p>
         </section>
 
         <hr class="section-divider">
@@ -456,7 +531,7 @@
         <section id="notifications" class="prose">
             <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Account</p>
             <h2>Notifications</h2>
-            <p>CrewSync can send push notifications when a new crossing is detected — so you find out about a potential meetup the moment a schedule is uploaded, without having to check the app.</p>
+            <p>CrewSync can send push notifications when a new crossing is detected, so you hear about a potential meetup without having to check the app. Friend requests and NetJets tour reminders come through the same way.</p>
 
             <h3>Enabling notifications</h3>
             <p>When you first open the app as a signed-in pilot, a prompt appears in the sidebar asking to enable crossing alerts. Click <strong>Enable</strong> and allow the browser permission dialog that appears.</p>
@@ -468,12 +543,15 @@
 
             <h3>What triggers a notification</h3>
             <ul>
-                <li>Any pilot uploads a schedule that creates a new crossing with you</li>
+                <li>A pilot uploads a schedule that creates a new crossing with you</li>
+                <li>You or a friend opens the app and a new crossing between you falls within the next 48 hours, which catches schedules that updated on their own</li>
+                <li>Someone sends or accepts a friend request, or an admin connects you with a pilot</li>
+                <li>A NetJets tour starts tomorrow and no tail is saved</li>
                 <li>The same crossing won't trigger a second notification — deduplication prevents repeat alerts for the same event</li>
             </ul>
 
             <h3>What the notification looks like</h3>
-            <p>The notification appears as a standard OS push notification with the app icon. It shows who you'll be crossing with, the airport or city, the time window, and the date. Tapping it opens the app directly to the Crossings view.</p>
+            <p>The notification appears as a standard OS push notification with the app icon. A crossing alert shows who you'll be crossing with, the airport or city, the time window, and the date. Tapping it opens the app directly to the Crossings view.</p>
 
             <h3>The bell icon</h3>
             <p>The bell icon in the top-right of the app header shows your unread notification count. Tapping it opens a panel with your recent notifications. Opening the Crossings view marks all notifications as read and clears the home screen badge.</p>
@@ -495,11 +573,14 @@
             <h3>Finding your link</h3>
             <p>Tap your name or avatar to open the Profile sheet. Your personal link is shown there with a Copy button.</p>
 
+            <h3>Updating your info</h3>
+            <p>Moved, changed base, or switched airlines? Open your Profile, then <strong>My Info → Edit</strong>. You can change your crew base, home airport, and airline. A base change takes an effective date, and any trip in progress on that date keeps counting as your old base.</p>
+
             <h3>iOS PWA and link persistence</h3>
             <p>When you install the app to your home screen on iOS, Safari strips the <code class="text-xs bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-300">?u=</code> token from the URL. The app handles this automatically — it saves your token to local storage on your first visit, so opening from the home screen still signs you in.</p>
 
             <h3>Sharing with viewers</h3>
-            <p>View-only guests have their own links with read-only access. They can see all schedules but can't upload or add flights. Admins can generate viewer links from the Manage Users panel.</p>
+            <p>View-only guests have their own links with read-only access. They can see the pilots an admin has connected them with, but can't upload or add flights. Admins create viewers in the Admin Panel.</p>
         </section>
 
         <hr class="section-divider">
@@ -517,11 +598,11 @@
             <p>Incoming requests appear at the top of the Friends section in your Profile sheet with <strong>Accept</strong> and <strong>Decline</strong> buttons. Any accepted friend can be removed later — tap <strong>Remove</strong> next to their name. Removing a friend is mutual: neither of you can see the other's schedule afterward until someone sends a new request.</p>
 
             <h3>Your Crew vs. Friends</h3>
-            <p>Friends controls actual access — it's the only way to see another pilot's schedule at all. The separate <strong>Your Crew</strong> toggle just controls which of your friends show up in your own calendar/map view at a time, for decluttering — you can only toggle visibility for someone you're already friends with.</p>
-            <p>New friends show up automatically — as soon as a friendship exists, that person appears in your crew with no extra step. If you'd rather not see someone's schedule cluttering your view, turn them off from the Your Crew section; this preference is saved to your account, so it stays the same no matter which device you open CrewSync on.</p>
+            <p>Friends controls actual access — it's the only way to see another pilot's schedule at all. The toggle next to each friend's name just controls whether they show up in your own calendar and map, for decluttering.</p>
+            <p>New friends show up automatically — as soon as a friendship exists, that person appears in your crew with no extra step. If you'd rather not see someone's schedule cluttering your view, turn off their toggle in the Friends list. This preference is saved to your account, so it stays the same no matter which device you open CrewSync on.</p>
 
             <div class="callout callout-zinc">
-                Admins and view-only guests aren't part of the friend system — they can always see every pilot, the same as before this existed.
+                Admins can always see every pilot. View-only guests don't use friend requests — an admin connects them to the pilots they can see.
             </div>
         </section>
 
@@ -535,14 +616,14 @@
 
             <h3>iPhone / iPad (Safari)</h3>
             <ul>
-                <li>Open your personal link in <strong>Safari</strong> (not Chrome or Firefox)</li>
+                <li>Open your personal link in <strong>Safari</strong></li>
                 <li>Tap the Share button <span class="kbd">⎙</span> at the bottom of the screen</li>
                 <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
                 <li>Tap <strong>Add</strong> in the top-right corner</li>
                 <li>Open the app from your home screen going forward</li>
             </ul>
             <div class="callout callout-amber">
-                Must use Safari. Chrome and Firefox on iOS cannot install PWAs to the home screen.
+                Use Safari if you can. Older iOS versions can't add the app to the home screen from Chrome or Firefox.
             </div>
 
             <h3>Mac (Safari or Chrome)</h3>
@@ -561,7 +642,7 @@
         <section id="formats" class="prose">
             <p class="text-[11px] font-black uppercase tracking-widest text-blue-500 mb-2">Reference</p>
             <h2>Schedule Formats</h2>
-            <p>CrewSync is built to handle schedules from virtually any airline or flight operation. Each pilot's format is detected automatically on first upload and remembered from then on. Pilots from different airlines with different scheduling systems can all coexist in the same crew.</p>
+            <p>CrewSync is built to handle schedules from virtually any airline or flight operation. Your format comes from the company you pick when you join, and for Other it's detected from your first upload. Pilots from different airlines with different scheduling systems can all coexist in the same crew.</p>
 
             <h3>Supported formats</h3>
 
@@ -611,6 +692,11 @@
                             <td class="py-2.5 text-zinc-400">Export from CrewPortal as CSV (Long format)</td>
                         </tr>
                         <tr>
+                            <td class="py-2.5 pr-4"><span class="chip chip-teal">Flight plans (Beta)</span></td>
+                            <td class="py-2.5 pr-4 text-zinc-400">NetJets</td>
+                            <td class="py-2.5 text-zinc-400">Nothing to export. See <a onclick="jumpTo('netjets')" href="#netjets">NetJets (Beta)</a>. CC pilots upload their monthly schedule email as .pdf or .txt</td>
+                        </tr>
+                        <tr>
                             <td class="py-2.5 pr-4"><span class="chip chip-zinc">Other / Auto-detect</span></td>
                             <td class="py-2.5 pr-4 text-zinc-400">Not listed above</td>
                             <td class="py-2.5 text-zinc-400">Upload any .ics, .vcs, or .csv export — the format is identified automatically on first upload</td>
@@ -618,7 +704,7 @@
                     </tbody>
                 </table>
             </div>
-            <p class="text-xs text-zinc-500 mb-6">Each of these (except Other, which auto-detects from the file itself) is selected as a company on the <a href="/join" target="_blank">join page</a> or from the admin panel — picking a company shows only the schedule-input field that airline actually needs.</p>
+            <p class="text-xs text-zinc-500 mb-6">Each of these (except Other, which auto-detects from the file itself) is selected as a company on the <a href="/join" target="_blank">join page</a>, in My Info, or from the admin panel — picking a company shows only the schedule-input field that airline actually needs.</p>
 
             <div class="callout callout-blue">
                 <strong>Adding a new airline?</strong> If your scheduling system isn't listed, contact the admin. The app is designed to be extended — new parsers can be added without changing anything for existing pilots.
@@ -660,7 +746,7 @@
                         <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                     </summary>
                     <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
-                        It depends on the pilot's schedule source. Pilots using ICS-based systems (RosterBuster, SunCountry, and similar) are synced automatically three times a day — roughly 6 AM, 2 PM, and 10 PM UTC. Corporate pilots using direct Schedaero sync follow the same schedule. For CSV/VCS uploads, data only updates when the pilot manually uploads a new file or triggers a sync. Direct sync can also be triggered on demand with one tap from the upload sheet.
+                        It depends on the pilot's schedule source. Pilots using ICS-based systems (RosterBuster, SunCountry, and similar) are synced automatically three times a day — roughly 6 AM, 2 PM, and 10 PM UTC. Corporate pilots using direct Schedaero sync follow the same schedule. For CSV/VCS uploads, data only updates when the pilot manually uploads a new file or triggers a sync. Direct sync can also be triggered on demand with one tap from the upload sheet. NetJets legs update on their own as flight plans come in.
                     </div>
                 </details>
 
@@ -678,7 +764,7 @@
                             <li><strong class="text-zinc-300">Los Angeles:</strong> LAX, BUR, LGB, SNA, ONT, VNY, SMO</li>
                             <li><strong class="text-zinc-300">Chicago:</strong> ORD, MDW, PWK, DPA</li>
                         </ul>
-                        Airports within ~50 miles of each other that aren't in the same metro group are treated as Tier 2 crossings.
+                        Airports within ~50 miles of each other that aren't in the same metro group show under Also Nearby.
                     </div>
                 </details>
 
@@ -688,7 +774,7 @@
                         <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                     </summary>
                     <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
-                        A few things to check: <strong class="text-zinc-300">(1)</strong> Make sure both pilots have uploaded their current schedule. <strong class="text-zinc-300">(2)</strong> Hit Refresh on the Crossings page to recompute. <strong class="text-zinc-300">(3)</strong> If one pilot's schedule doesn't include that trip yet (trip swap, open time pickup), the app won't know about it. <strong class="text-zinc-300">(4)</strong> Check that the airports involved are in the same metro group or within 50 miles.
+                        A few things to check: <strong class="text-zinc-300">(1)</strong> Make sure both pilots have uploaded their current schedule. <strong class="text-zinc-300">(2)</strong> Hit Refresh on the Crossings page to recompute. <strong class="text-zinc-300">(3)</strong> If one pilot's schedule doesn't include that trip yet (trip swap, open time pickup), the app won't know about it. <strong class="text-zinc-300">(4)</strong> Check that the airports involved are in the same metro group or within 50 miles, and look under Also Nearby at the bottom.
                     </div>
                 </details>
 
@@ -698,7 +784,7 @@
                         <svg class="w-4 h-4 text-zinc-600 shrink-0 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                     </summary>
                     <div class="px-4 pb-4 pt-1 text-sm text-zinc-400 leading-relaxed border-t border-zinc-800">
-                        Only if you're friends. Send a friend request from your Profile — once they accept, you can see each other's calendar, list view, and map, and you'll show up in each other's crossings. You can select any pilot from the pilot selector, but until you're mutually friends you'll see a prompt to send a request instead of their schedule. Admins and view-only guests see everyone regardless.
+                        Only if you're friends. Send a friend request from your Profile — once they accept, you can see each other's calendar, list view, and map, and you'll show up in each other's crossings. You can select any pilot from the pilot selector, but until you're mutually friends you'll see a prompt to send a request instead of their schedule. Admins see everyone. View-only guests see the pilots an admin has connected them with.
                     </div>
                 </details>
 

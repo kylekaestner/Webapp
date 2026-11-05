@@ -69,6 +69,7 @@ Current version: `1.0.11-beta` (`package.json`/`package-lock.json`). Bump it for
 - `'ground'` — van/bus transfer between airports (has both airports)
 - `'reserve'` — on-call reserve shift; `departure_airport` = base; `arrival_time` = end of window
 - `'hard'` — Kyle's hardcoded off days from ICS (departure_time only, no airports)
+- `'soft'` — Kyle's tentative off days from Schedaero (departure_time only). Off, but not certain
 - `'vacation'` / `'training'` — from parsers that detect these (e.g. Delta MiCrew)
 
 **Critical:** personal and commute flights are `type='flight'` with `trip='PERSONAL'` or `trip='COMMUTE'` and `is_manual=1`. They are **not** a separate type. This means they land in the `flights` array in `buildGroundPeriods`.

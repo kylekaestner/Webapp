@@ -1669,6 +1669,22 @@ function parseSchedaeroData(data, filterMonth, filterYear) {
                 const dateStr = d.toISOString().substring(0, 10);
                 events.push({ type: 'vacation', departureTime: `${dateStr}T00:00:00` });
             }
+        } else if (/^(OFD|OFFICE|FH|FHOL|FLOATING)\b/.test(text) || text.startsWith('SOFT')) {
+            // Office days count as training, and a floating holiday as vacation. A soft day is a tentative day off around peak travel:
+            // Schedaero itself turns it into HARD or a work day by 5PM the day before, so the next
+            // sync replaces it and nothing here has to convert it. Same end-exclusive span as VAC,
+            // but always at least the start day.
+            const type  = text.startsWith('SOFT') ? 'soft' : /^(FH|FHOL|FLOATING)\b/.test(text) ? 'vacation' : 'training';
+            const start = new Date((evt.startDate || '').substring(0, 10) + 'T12:00:00Z');
+            const end   = new Date((evt.endDate || evt.end || evt.startDate || '').substring(0, 10) + 'T12:00:00Z');
+            if (isNaN(start)) continue;
+            const d = new Date(start);
+            do {
+                if (!filterMonth || !filterYear || (d.getUTCMonth() + 1 === filterMonth && d.getUTCFullYear() === filterYear)) {
+                    events.push({ type, departureTime: `${d.toISOString().substring(0, 10)}T00:00:00` });
+                }
+                d.setUTCDate(d.getUTCDate() + 1);
+            } while (d < end);
         }
     }
 

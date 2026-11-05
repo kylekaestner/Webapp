@@ -196,7 +196,7 @@ UTC/local date skew is common: segments stored in local time, `new Date()` in br
 
 **Mobile upload**: `#mobile-upload-sheet` with its own pilot-select/file-input, handled by `handleMobileUpload()` (mirrors `handleUpload`).
 
-**Upload reminder**: `showUploadReminder()` (~line 7454) fires after `loadPilot()` if the pilot has no flights for the current month and hasn't seen the reminder for that month/pilot.
+**Upload reminder**: `checkScheduleUploadReminder()` runs after `loadPilot()` on your own schedule. From the 23rd it checks next month (once per device until the 28th, then every load), otherwise this month (every load). Synced pilots and NetJets 7&7/8&6 pilots are skipped. A NetJets CC pilot is checked against `cc_schedule_days` instead of flights, because their tour days only exist for uploaded months. A pilot counts as CC with `cc_variant` set, or with CC days and no rotation history, so old CC days left after switching to a rotation don't cause reminders.
 
 ## Add flight modal (`submitAddFlight()`, ~line 7024)
 
@@ -207,6 +207,8 @@ The header button opens on today. The day detail's **+ Add Flight** opens on tha
 ## Schedaero sync (Kyle)
 
 **Full sync** (`openSchedaeroSync()` → `syncSchedaero()` → `POST /api/pilots/kyle/sync-schedaero`): requires GetMonth URL, API token (x-avinode-apitoken header), full session cookie. Syncs a configurable month range (back 0–6, ahead 1–6 months). Credentials saved server-side in `settings` after success.
+
+**Event types** (`parseSchedaeroData()`): `HARD` → `hard`, `VAC…`/`FH`/`FHOL`/`FLOATING…` → `vacation`, `OFD`/`OFFICE` → `training`, `SOFT…` → `soft`. A soft day is a tentative day off around peak travel. Schedaero changes it to HARD or a work day by 5PM the day before, so the next sync replaces it and nothing here converts it. It shows as SOFT DAY, a flight that day takes priority, and Off Days counts Kyle as off but marks the chip "soft" (`certain: false`).
 
 **Quick sync** (`quickSyncSchedaero()` → `POST /api/pilots/kyle/quick-sync-schedaero`): uses saved credentials. Expired session (302/auth error) → opens `#schedaero-modal` in cookie-only mode. Auto-sync runs quick sync at 06:00/14:00/22:00 UTC daily (chained `setTimeout`, not cron); a keepalive ping every 20 minutes keeps the session alive between syncs.
 

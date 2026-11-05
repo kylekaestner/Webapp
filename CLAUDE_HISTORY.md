@@ -307,3 +307,13 @@ Intel speed: at 4x CPU throttle the rendering was only about 0.25s for 406 entri
 NetJets gaps pass (11/5 UTC): block_minutes now only from a real arrival, route history collapsed to one entry per route in a v2 file, and one plan picker for the creator and Lookup. Not done on purpose: storing several plans per airport pair (narrow gap, would touch most NetJets code) and restoring a refiled leg (only logged until real refiles are seen).
 
 James saw a cancelled O69->SNA in the next flight banner while the grid hid it: `_updateNextTripWidget()` never checked `cancelled`, so a cancelled leg could be the "next" flight. It now skips them like the grid does, and so do `getNextLegFrom()` (layover labels) and `computeWrappedStats()`. The banner is now in the calendar `?` help and the manual.
+
+Help pass (11/5): compared the manual and `?` panels with the app. Removed claims that had gone stale: crossing tiers (the labels replaced them), OpenSky flight number autofill, ADS-B Exchange, uploaded flights not being editable, and viewers seeing everyone. Added a NetJets section and opened NetJets (Beta) on `/join`.
+
+CC pilots now get the upload reminder, checked against uploaded CC days instead of flights. It used to skip all NetJets pilots, but a CC pilot with no upload has no tour days and no tail tracking.
+
+Join page schedules never saved: `/join` sent uploads and calendar links without the token those routes started requiring, and never checked the response, so a new pilot got "You're in" with no schedule. It now sends `data.token` and warns on the last screen if a schedule step fails. Same pass: NetJets picks schedule, line or CC program, and CC file at join, and list edit buttons only show with `canEdit()`.
+
+Schedaero added two day codes for Kyle: OFD/Office now import as training, and Soft Day is a new `soft` type. Off Days already had a `certain` flag that nothing displayed, so soft days now use it and show on the chip.
+
+FHOL/FH/Floating Holiday imports as vacation. The Off Days list also ignored Kyle's vacation days while its calendar counted them, so both now count them as off.

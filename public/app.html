@@ -1150,11 +1150,15 @@
                 <button onclick="document.getElementById('overlap-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
             </div>
             <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
-                <p>Location Overlap shows your crossings with the rest of the crew — switch pilots at the top to see a different person's view. Only crossings involving the selected pilot are shown.</p>
+                <p>Location Overlap shows your crossings with the rest of the crew. Only crossings involving you are shown. Admins and view-only guests see everyone they can view.</p>
 
                 <div class="space-y-3">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Overlap Types</p>
                     <div class="space-y-2.5">
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-violet-950/60 text-violet-400 uppercase tracking-wide shrink-0 mt-0.5">Same Flight</span>
+                            <span>You're both on the same flight.</span>
+                        </div>
                         <div class="flex items-start gap-3">
                             <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-violet-950/60 text-violet-400 uppercase tracking-wide shrink-0 mt-0.5">Overnight</span>
                             <span>Both pilots at the same airport for 5+ hours or overnight — plenty of time to meet up.</span>
@@ -1304,12 +1308,36 @@
                             <span><strong class="text-zinc-300">Personal</strong> — personal or leisure flight</span>
                         </div>
                         <div class="flex items-start gap-3">
-                            <span class="w-3 h-3 rounded-sm bg-zinc-600 shrink-0 mt-0.5"></span>
-                            <span><strong class="text-zinc-300">Hard Off / Away</strong> — scheduled day off or away block</span>
+                            <span class="w-3 h-3 rounded-sm bg-red-600 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Hard Off</strong> — scheduled unavailable day</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm border border-rose-400 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Soft Day</strong> — tentative day off that can still become a work day</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-yellow-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Away</strong> — overnight away from home</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm border border-amber-400 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">On Call</strong> — reserve window</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm border border-indigo-400 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">On Tour</strong> — NetJets duty day with no legs yet</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-orange-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Training</strong> — training day</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-teal-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Vacation</strong> — vacation day</span>
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="w-3 h-3 rounded-sm border border-green-500 shrink-0 mt-0.5"></span>
-                            <span><strong class="text-zinc-300">Green outline</strong> — flight is currently live (airborne)</span>
+                            <span><strong class="text-zinc-300">Green outline</strong> — flight is confirmed live</span>
                         </div>
                         <div class="flex items-start gap-3">
                             <span class="w-3 h-3 rounded-sm bg-zinc-500/40 shrink-0 mt-0.5"></span>
@@ -1329,13 +1357,18 @@
                 </div>
 
                 <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">NetJets Tours</p>
+                    <p>Tour days come from your duty rotation in My Info. On a CC schedule, they come from the monthly schedule you upload, and the app reminds you when a month is missing. On a tour day, tap the day and use <strong class="text-zinc-300">Edit Tour</strong> to save your tail. Legs appear once NetJets files them, usually the evening before.</p>
+                </div>
+
+                <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Adding Flights</p>
-                    <p>Use the <strong class="text-zinc-300">+ Add Flight</strong> button to manually add Work, Deadhead, Commute, or Personal flights. For DH, commute, and personal flights, entering a flight number auto-fills times from OpenSky.</p>
+                    <p>Use the <strong class="text-zinc-300">+ Add Flight</strong> button to add Work, Deadhead, Commute, or Personal flights, plus Training and Vacation days. The button in a day's detail sheet opens on that day.</p>
                 </div>
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Syncing Schedules</p>
-                    <p>Schedules can be synced automatically or uploaded manually from your scheduling app. Use the <strong class="text-zinc-300">Upload</strong> tab to import a new file. Re-uploading a file <strong class="text-zinc-300">replaces all non-manual data for the dates it covers</strong> — only that date range is affected, so uploading one month won't touch any other month. Manually added flights are never overwritten.</p>
+                    <p>Schedules can be synced automatically or uploaded manually from your scheduling app. Use the <strong class="text-zinc-300">Upload</strong> tab to import a new file. Re-uploading a file <strong class="text-zinc-300">replaces all non-manual data for the dates it covers</strong> — only that date range is affected, so uploading one month won't touch any other month. Flights you've added or edited by hand are never overwritten. If you upload files, a Schedule Reminder appears when a month is missing.</p>
                 </div>
             </div>
             <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
@@ -1359,7 +1392,7 @@
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Reading Each Row</p>
                     <div class="space-y-2">
                         <p><strong class="text-zinc-300">Airport pair</strong> — departure → arrival with local times shown. City and state appear in smaller text below when both airports resolve to a known city.</p>
-                        <p><strong class="text-zinc-300">Block time</strong> — actual block-to-block flight duration in hours and minutes</p>
+                        <p><strong class="text-zinc-300">Block time</strong> — flight duration in hours and minutes</p>
                         <p><strong class="text-zinc-300">Overnight badge</strong> — shown between legs when ground time exceeds a few hours, includes duration</p>
                         <p><strong class="text-zinc-300">Flight number / tail</strong> — shown when available from the schedule file</p>
                     </div>
@@ -1367,12 +1400,12 @@
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Color Coding</p>
-                    <p>Same colors as the calendar: blue for work flights, amber for commutes, violet for personal, gray for off/away, with a green pulse on any live flight.</p>
+                    <p>Same colors as the calendar: blue for work flights, amber for commutes, violet for personal, gray for off/away, and green on a flight confirmed live. Orange means delayed, with the new departure time. Yellow means the departure is due and the flight hasn't been seen moving yet.</p>
                 </div>
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Editing Flights</p>
-                    <p>Manually added flights show an <strong class="text-zinc-300">Edit</strong> and <strong class="text-zinc-300">Delete</strong> button on each row. Synced schedule flights cannot be edited individually — re-sync to update them.</p>
+                    <p>Use the <strong class="text-zinc-300">Edit</strong> and <strong class="text-zinc-300">Delete</strong> buttons on each row of your own schedule. A flight you edit won't be replaced by a later upload or sync. An uploaded flight you delete comes back at the next sync.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -1395,7 +1428,7 @@
                 <button onclick="document.getElementById('map-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
             </div>
             <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
-                <p>The map plots flight routes as great-circle arcs and shows live ADS-B positions when aircraft are airborne. Switch modes using the tabs at the top.</p>
+                <p>The map plots flight routes as great-circle arcs and shows live positions when aircraft are airborne. Switch modes using the tabs at the top.</p>
 
                 <div class="space-y-3">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Map Modes</p>
@@ -1421,13 +1454,18 @@
                 </div>
 
                 <div class="space-y-1.5">
-                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Live ADS-B</p>
-                    <p>When a flight is airborne, the map polls ADS-B Exchange every 8 seconds. A <strong class="text-zinc-300">dashed arc</strong> shows the remaining path to destination; the solid colored trail behind is the actual GPS track. The route arc and its tap target stay aligned with the live position, so popups always work mid-flight.</p>
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Live Tracking</p>
+                    <p>While a flight is airborne, its position updates every few seconds from ADS-B and FAA data. A <strong class="text-zinc-300">dashed arc</strong> shows the remaining path to destination; the solid colored trail behind is the actual GPS track. The route arc and its tap target stay aligned with the live position, so popups always work mid-flight.</p>
                 </div>
 
                 <div class="space-y-1.5">
                     <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Legend & Filters</p>
-                    <p>In All Crew modes, the legend shows each pilot's color — <strong class="text-zinc-300">only pilots you've enabled under Your Crew</strong> appear here. <strong class="text-zinc-300">Tap a legend entry</strong> to temporarily toggle that pilot's routes on or off without changing your crew settings. Use the <strong class="text-zinc-300">Flown / Upcoming</strong> filter to show only past or future legs.</p>
+                    <p>In All Crew modes, the legend shows each pilot's color — <strong class="text-zinc-300">only pilots you've left on in your Profile</strong> appear here. <strong class="text-zinc-300">Tap a legend entry</strong> to temporarily toggle that pilot's routes on or off without changing your crew settings. Use the <strong class="text-zinc-300">Flown / Upcoming</strong> filter to show only past or future legs.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Map Toggles</p>
+                    <p><strong class="text-zinc-300">⛈ Radar</strong> overlays live precipitation. <strong class="text-zinc-300">✦ RTE</strong> shows the named points along a live flight's route. <strong class="text-zinc-300">📻 FREQ</strong> shows the ATC frequency controlling a live flight, when it's known.</p>
                 </div>
 
                 <div class="space-y-1.5">
@@ -1697,7 +1735,7 @@
                     <option value="SWA">Southwest Airlines (CrewHub)</option>
                     <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
                     <option value="SCX">Sun Country Airlines</option>
-                    <option value="EJA">NetJets (Manual — Beta)</option>
+                    <option value="EJA">NetJets (Beta)</option>
                     <option value="OTHER">Other / Auto-detect</option>
                 </select>
             </div>
@@ -1771,7 +1809,7 @@
                 <option value="SWA">Southwest Airlines (CrewHub)</option>
                 <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
                 <option value="SCX">Sun Country Airlines</option>
-                <option value="EJA">NetJets (Manual — Beta)</option>
+                <option value="EJA">NetJets (Beta)</option>
                 <option value="OTHER">Other / Auto-detect</option>
             </select>
         </div>
@@ -4304,6 +4342,8 @@
             const pilotFlyingDates = {};
             const pilotMaxDate = {};
             const kyleHardOffDates = new Set();
+            const kyleSoftDates = new Set();
+            const kyleVacationDates = new Set();
             let allDatesMax = null;
             PILOT_KEYS.forEach(k => {
                 const flying = new Set();
@@ -4311,6 +4351,14 @@
                     if (s.auto_leg_cancelled) return;
                     if (k === 'kyle' && s.type === 'hard' && s.departure_time) {
                         kyleHardOffDates.add(s.departure_time.slice(0, 10));
+                        return;
+                    }
+                    if (k === 'kyle' && s.type === 'soft' && s.departure_time) {
+                        kyleSoftDates.add(s.departure_time.slice(0, 10));
+                        return;
+                    }
+                    if (k === 'kyle' && s.type === 'vacation' && s.departure_time) {
+                        kyleVacationDates.add(s.departure_time.slice(0, 10));
                         return;
                     }
                     if (s.type !== 'flight' && s.type !== 'reserve' && s.type !== 'ground' && s.type !== 'training') return;
@@ -4357,7 +4405,7 @@
                   })
                 : [];
 
-            const kyleAvail = dateStr => kyleHardOffDates.has(dateStr) ? 'certain' : 'no';
+            const kyleAvail = dateStr => (kyleHardOffDates.has(dateStr) || kyleVacationDates.has(dateStr)) ? 'certain' : kyleSoftDates.has(dateStr) ? 'soft' : 'no';
 
             const commonOffDays = [];
             const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -4399,8 +4447,8 @@
                     ? `<span class="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/60 text-sky-400 border border-sky-800/50">${pilots.length} of ${filterCount}</span>`
                     : '';
                 const dayLabelStyle = isAllOff ? 'color:#fbbf24;' : '';
-                const chips = pilots.map(({ key: k }) =>
-                    `<span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black whitespace-nowrap" style="background:${PILOT_COLORS[k]}22;color:${PILOT_COLORS[k]};border:1px solid ${PILOT_COLORS[k]}44"><span class="w-1.5 h-1.5 rounded-full" style="background:${PILOT_COLORS[k]}"></span>${PILOT_NAMES[k].split(' ')[0]}</span>`
+                const chips = pilots.map(({ key: k, certain }) =>
+                    `<span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black whitespace-nowrap" style="background:${PILOT_COLORS[k]}22;color:${PILOT_COLORS[k]};border:1px solid ${PILOT_COLORS[k]}44"><span class="w-1.5 h-1.5 rounded-full" style="background:${PILOT_COLORS[k]}"></span>${PILOT_NAMES[k].split(' ')[0]}${certain ? '' : ' · soft'}</span>`
                 ).join('');
                 return `<div class="flex items-center gap-2 px-4 min-w-0" style="padding-top:10px;padding-bottom:10px;${rowStyle}">
                     <div class="offday-row-chips flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x;padding:4px 0">${chips}</div>
@@ -4622,16 +4670,19 @@
 
             const kyleHardOff = new Set();
             const kyleVac     = new Set();
+            const kyleSoft    = new Set();
             (pilotsCache['kyle']?.segments || []).forEach(s => {
                 if (s.type === 'hard'     && s.departure_time) kyleHardOff.add(s.departure_time.slice(0, 10));
                 if (s.type === 'vacation' && s.departure_time) kyleVac.add(s.departure_time.slice(0, 10));
+                if (s.type === 'soft'     && s.departure_time) kyleSoft.add(s.departure_time.slice(0, 10));
             });
 
             const rows = activeKeys.map(k => {
-                const off   = k === 'kyle' ? (kyleHardOff.has(dateStr) || kyleVac.has(dateStr)) : _isOffDutyGeneric(k, dateStr, pilotFlyingDates);
+                const soft  = k === 'kyle' && kyleSoft.has(dateStr) && !kyleHardOff.has(dateStr);
+                const off   = k === 'kyle' ? (kyleHardOff.has(dateStr) || kyleVac.has(dateStr) || soft) : _isOffDutyGeneric(k, dateStr, pilotFlyingDates);
                 const pc    = PILOT_COLORS[k];
-                const statusLabel = off ? 'Off' : 'Working';
-                const statusColor = off ? '#22c55e' : '#52525b';
+                const statusLabel = soft ? 'Soft Day' : off ? 'Off' : 'Working';
+                const statusColor = soft ? '#fda4af' : off ? '#22c55e' : '#52525b';
                 return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #1c1c21">
                     <span style="width:8px;height:8px;border-radius:50%;background:${pc};flex-shrink:0"></span>
                     <span style="font-size:14px;font-weight:700;color:#e4e4e7;flex:1">${(PILOT_NAMES[k]||k).split(' ')[0]}</span>
@@ -4699,6 +4750,7 @@
             // Build flying-date sets for each pilot
             const pilotFlyingDates = {};
             const kyleHardOffDates = new Set();
+            const kyleSoftDates = new Set();
             const kyleVacDates     = new Set();
             PILOT_KEYS.forEach(k => {
                 const flying = new Set();
@@ -4709,6 +4761,9 @@
                     }
                     if (k === 'kyle' && s.type === 'vacation' && s.departure_time) {
                         kyleVacDates.add(s.departure_time.slice(0, 10)); return;
+                    }
+                    if (k === 'kyle' && s.type === 'soft' && s.departure_time) {
+                        kyleSoftDates.add(s.departure_time.slice(0, 10)); return;
                     }
                     if (s.type !== 'flight' && s.type !== 'reserve' && s.type !== 'ground' && s.type !== 'training') return;
                     if (s.type === 'flight' && s.trip === 'PERSONAL') return;
@@ -4725,7 +4780,7 @@
                 pilotFlyingDates[k] = flying;
             });
 
-            const isOff = (k, ds) => k === 'kyle' ? (kyleHardOffDates.has(ds) || kyleVacDates.has(ds)) : _isOffDutyGeneric(k, ds, pilotFlyingDates);
+            const isOff = (k, ds) => k === 'kyle' ? (kyleHardOffDates.has(ds) || kyleVacDates.has(ds) || kyleSoftDates.has(ds)) : _isOffDutyGeneric(k, ds, pilotFlyingDates);
 
             // Responsive sizing
             const mob = window.innerWidth < 600;
@@ -4775,7 +4830,7 @@
                 const chips = offPilots.map(k => {
                     const name = (PILOT_NAMES[k]||k).split(' ')[0];
                     const pc   = PILOT_COLORS[k];
-                    return `<span style="background:${pc}22;color:${pc};border:1px solid ${pc}44;border-radius:${pillRadius};font-size:${pillFs};font-weight:900;padding:${pillPad};line-height:1.4;flex-shrink:0">${name}</span>`;
+                    return `<span style="background:${pc}22;color:${pc};border:1px solid ${pc}44;border-radius:${pillRadius};font-size:${pillFs};font-weight:900;padding:${pillPad};line-height:1.4;flex-shrink:0">${name}${k === 'kyle' && kyleSoftDates.has(dateStr) && !kyleHardOffDates.has(dateStr) ? ' · soft' : ''}</span>`;
                 }).join('');
                 const allBadge = allOff ? `<span style="font-size:7px;font-weight:900;color:#fbbf24;line-height:1;margin-left:auto;margin-top:1px">ALL</span>` : '';
 
@@ -8964,6 +9019,7 @@
                         return s.type === 'flight' && arrLocal === dateKey && arrLocal !== depLocal;
                     });
                     const isHard = dayEvents.some(e => e.type === 'hard');
+                    const isSoft = dayEvents.some(e => e.type === 'soft');
                     const isVacation = dayEvents.some(e => e.type === 'vacation');
                     const isTraining = dayEvents.some(e => e.type === 'training');
                     const isPersonalFlight = dayEvents.some(e => e.type === 'flight' && e.trip === 'PERSONAL');
@@ -9006,6 +9062,7 @@
                     else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = awayApt ? `HARD OFF · AWAY - ${aptLabel(awayApt, currentPilot)}` : "HARD OFF"; }
                     else if (isTraining && !isFlying) { style = "border-orange-500/40 bg-orange-900/25"; tag = "TRAINING"; }
                     else if (isFlying) { style = "border-blue-500/30 bg-blue-500/10"; tag = "FLYING"; }
+                    else if (isSoft) { style = "border-rose-400/40 bg-rose-900/20"; tag = awayApt ? `SOFT DAY · AWAY - ${aptLabel(awayApt, currentPilot)}` : "SOFT DAY"; }
                     else if (isReserve) { style = "border-amber-400/30 bg-amber-400/5"; tag = "ON CALL"; }
                     else if (isPersonalFlight) { /* personal travel day — flight pill shows below; don't mark as AWAY */ }
                     else if (awayApt) { style = "border-yellow-500/40 bg-yellow-900/20"; tag = `AWAY - ${aptLabel(awayApt, currentPilot)}`; }
@@ -9253,6 +9310,7 @@
                     const isPastDay = dateObj < today;
                     const isToday = dateObj.getTime() === today.getTime();
                     const isHard = dayEvents.some(e => e.type === 'hard');
+                    const isSoft = dayEvents.some(e => e.type === 'soft');
                     const isVacation = dayEvents.some(e => e.type === 'vacation');
                     const isTraining = dayEvents.some(e => e.type === 'training');
                     let away = dayEvents.find(e => e.type === 'away');
@@ -9281,6 +9339,8 @@
                         bgColor = "bg-teal-950/40 border-teal-500/40"; labelColor = "text-teal-300"; sidebarColor = "text-teal-300"; sidebarBorder = "border-teal-700/50"; label = awayApt ? `VAC · AWAY - ${aptLabel(awayApt, currentPilot)}` : "VAC";
                     } else if (isHard) {
                         bgColor = "bg-red-900/60 border-red-600/70"; labelColor = "text-red-300"; sidebarColor = "text-red-300"; sidebarBorder = "border-red-700/60"; label = awayApt ? `HARD OFF · AWAY - ${aptLabel(awayApt, currentPilot)}` : "HARD OFF";
+                    } else if (isSoft && workFlights.length === 0) {
+                        bgColor = "bg-rose-950/30 border-rose-500/40"; labelColor = "text-rose-300"; sidebarColor = "text-rose-300"; sidebarBorder = "border-rose-700/50"; label = awayApt ? `SOFT DAY · AWAY - ${aptLabel(awayApt, currentPilot)}` : "SOFT DAY";
                     } else if (isTraining && workFlights.length === 0) {
                         bgColor = "bg-orange-950/35 border-orange-600/50"; labelColor = "text-orange-300"; sidebarColor = "text-orange-300"; sidebarBorder = "border-orange-700/50"; label = "TRAINING";
                     } else if (reserves.length > 0 && workFlights.length === 0 && !awayApt) {
@@ -9406,7 +9466,7 @@
                                 const showActiveGlow2 = confirmedLive2;
                                 const rowAccent2 = showActiveGlow2 ? '#22c55e' : confirmedDelayEtd2 ? '#f97316' : confirmedDue2 ? '#eab308' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
                                 const rowBg = isPersonal ? 'bg-violet-950/15' : isCommute ? 'bg-amber-950/15' : showActiveGlow2 ? 'bg-emerald-950/10' : (confirmedDelayEtd2 || confirmedDue2) ? 'bg-orange-950/10' : 'bg-black/30';
-                                const editBtns = f.id ? `<div class="flex items-center gap-0.5 ml-1 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
+                                const editBtns = (f.id && canEdit()) ? `<div class="flex items-center gap-0.5 ml-1 shrink-0"><button onclick="openEditFlight(${f.id})" title="Edit" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors text-xs">✏️</button><button onclick="deleteManualFlight(${f.id})" title="Delete" class="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">🗑️</button></div>` : '';
                                 const _liveSlotBorder = 'rgba(34,197,94,0.15)';
                                 const liveSlot = isActiveLeg2 && csig2 ? `<div id="live-${csig2}" style="font-size:11px;color:#4ade80;font-weight:700;margin-top:6px;padding-top:5px;border-top:1px solid ${_liveSlotBorder};display:none"></div>` : '';
                                 // Same id convention as the grid's note -- startCalListLivePolling()'s
@@ -9705,6 +9765,7 @@
             const dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
             const isHard = dayEvents.some(e => e.type === 'hard');
+                    const isSoft = dayEvents.some(e => e.type === 'soft');
             const isVacation = dayEvents.some(e => e.type === 'vacation');
             const isTraining = dayEvents.some(e => e.type === 'training');
             const trainingLoc = isTraining ? (dayEvents.find(e => e.type === 'training')?.departureAirport || null) : null;
@@ -9734,6 +9795,7 @@
             let labelColor = 'text-zinc-400';
             if (isVacation) { label = awayApt ? `VACATION · AWAY - ${aptLabel(awayApt, currentPilot)}` : 'VACATION'; labelColor = 'text-teal-400'; }
             else if (isHard) { label = awayApt ? `HARD OFF · AWAY - ${aptLabel(awayApt, currentPilot)}` : 'HARD OFF'; labelColor = 'text-red-400'; }
+            else if (isSoft && workFlights.length === 0) { label = awayApt ? `SOFT DAY · AWAY - ${aptLabel(awayApt, currentPilot)}` : 'SOFT DAY'; labelColor = 'text-rose-300'; }
             else if (isTraining && workFlights.length === 0) { label = 'TRAINING'; labelColor = 'text-orange-400'; }
             else if (anyLive) { label = '▶ IN THE AIR'; labelColor = 'text-emerald-400'; }
             else if (workFlights.length > 0) { label = 'FLYING'; labelColor = 'text-blue-400'; }
@@ -9780,8 +9842,8 @@
                 // showed "ON CALL" in the header and "Day Off" in the body simultaneously. Found
                 // live on Mack while on tour.
                 const _onDutyHere = _pilotOnDutyDefault(currentPilot, dateKey);
-                const icon = isVacation ? '🌴' : isHard ? '🔴' : isTraining ? '🎓' : away ? '🏨' : _onDutyHere ? '📟' : '😴';
-                const msg  = isVacation ? 'Vacation' : isHard ? 'Hard Day Off' : isTraining ? (trainingLoc ? `Training · ${trainingLoc}` : 'Training Day') : away ? `Away at ${aptLabel(away.arrivalAirport, currentPilot)}` : _onDutyHere ? (_onDutyDefaultLabel(currentPilot) === 'ON TOUR' ? 'On Tour' : 'On Call') : 'Day Off';
+                const icon = isVacation ? '🌴' : isHard ? '🔴' : isSoft ? '🌸' : isTraining ? '🎓' : away ? '🏨' : _onDutyHere ? '📟' : '😴';
+                const msg  = isVacation ? 'Vacation' : isHard ? 'Hard Day Off' : isSoft ? 'Soft Day' : isTraining ? (trainingLoc ? `Training · ${trainingLoc}` : 'Training Day') : away ? `Away at ${aptLabel(away.arrivalAirport, currentPilot)}` : _onDutyHere ? (_onDutyDefaultLabel(currentPilot) === 'ON TOUR' ? 'On Tour' : 'On Call') : 'Day Off';
                 const specialSeg = isTraining ? dayEvents.find(e => e.type === 'training') : isVacation ? dayEvents.find(e => e.type === 'vacation') : null;
                 const specialEditActions = (specialSeg?.id && canEdit()) ? `<div class="flex gap-2 mt-4 pt-4 border-t border-white/10">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${specialSeg.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
@@ -10801,12 +10863,15 @@ let _blockUserEdited = false;
         // ── Schedule upload reminder ─────────────────────────────────────
         function checkScheduleUploadReminder(pilot) {
             if (!myPilot || pilot !== myPilot || isDemo) return;
-            // Only remind pilots who manually upload files (Schedaero and ICS pilots auto-sync;
-            // NetJets has no feed to upload or sync at all -- legs come from auto-leg-creation or
-            // the Add Flight modal, so "no flights found, upload your schedule" would be a
-            // standing, permanent false alarm for this pilot type).
-            const parser = pilotsCache[pilot]?.parser_type || '';
-            if (parser === 'schedaero' || parser === 'ics_rosterbuster' || parser.startsWith('ics') || parser === 'manual_netjets') return;
+            // Only remind pilots who manually upload files (Schedaero and ICS pilots auto-sync).
+            // A NetJets pilot's legs come from the tail, so a 7&7 or 8&6 pilot has nothing to upload.
+            // A CC pilot does: their tour days only exist for months they've uploaded. Old CC days
+            // left behind by a switch to a rotation don't count, hence the rotation check.
+            const pilotData = pilotsCache[pilot];
+            const parser = pilotData?.parser_type || '';
+            const ccDays = pilotData?.cc_schedule_days || [];
+            const isCc = parser === 'manual_netjets' && !!(pilotData?.cc_variant || (ccDays.length && !(pilotData?.rotation_history || []).length));
+            if (parser === 'schedaero' || parser === 'ics_rosterbuster' || parser.startsWith('ics') || (parser === 'manual_netjets' && !isCc)) return;
 
             const now = new Date();
             const day = now.getDate();
@@ -10844,7 +10909,7 @@ let _blockUserEdited = false;
 
             // "Real" target-month data: a work flight departing in the target month
             // that does NOT belong to a carry-over trip from the previous month
-            const hasData = workFlights.some(s =>
+            const hasData = isCc ? ccDays.some(d => d.date.startsWith(targetStr)) : workFlights.some(s =>
                 (s.departure_time || s.departureTime || '').startsWith(targetStr) &&
                 (!s.trip || !carryOverTrips.has(s.trip))
             );
@@ -10860,7 +10925,11 @@ let _blockUserEdited = false;
 
             const monthLabel = MONTHS[targetMonth] + (targetYear !== year ? ` ${targetYear}` : '');
             const isCurrent  = targetMonth === month && targetYear === year;
-            const msg = isCurrent
+            const msg = isCc
+                ? (isCurrent
+                    ? `No CC schedule for ${monthLabel}. Your tour days won't show until you upload it.`
+                    : `No ${monthLabel} CC schedule yet. Upload your monthly schedule when you have it.`)
+                : isCurrent
                 ? `No flights found for ${monthLabel}. Upload or sync your schedule to stay current.`
                 : `No ${monthLabel} flights yet. If bid results are out, add your schedule when you're ready.`;
 
@@ -11247,13 +11316,9 @@ async function openAdminPanel(tab = 'users') {
             { icao: 'SJJ',   dbCode: 'SJJ', parser: 'schedaero', needsIcs: false },
             { icao: 'SCX',   dbCode: 'SCX', parser: 'ics_scx',     needsIcs: true,
               icsLabel: 'eCrew ICS URL', icsHint: 'The calendar subscription link from eCrew.' },
-            // Beta/internal only -- NetJets has no exportable schedule feed at all, so this is
-            // pure manual entry (needsIcs: false, no sync button -- see updateUploadSyncButtons(),
-            // isSyncPilot only matches 'schedaero'/'ics*'). See the netjets_tracking_plan memory
-            // for the fuller design (rotation cadence, tour tail, ADS-B-derived auto-legs) -- none
-            // of that is built yet; this option alone just lets a NetJets pilot's row exist with
-            // the right parser_type/airline_code so live tracking's EJA-callsign derivation
-            // (deriveCallsign() here, ejaFlightNumber() server-side) works once legs are entered.
+            // NetJets has no schedule feed, so no upload or sync (needsIcs: false; see
+            // updateUploadSyncButtons(), isSyncPilot only matches 'schedaero'/'ics*'). Legs come from
+            // the saved tail, tour days from the rotation. Public on /join, labelled Beta.
             { icao: 'EJA',   dbCode: 'EJA', parser: 'manual_netjets', needsIcs: false },
             { icao: 'OTHER', dbCode: '',    parser: 'other', needsIcs: false },
         ];

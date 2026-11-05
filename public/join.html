@@ -159,6 +159,7 @@
                         <option value="ics_ecrew">Atlas Air</option>
                         <option value="ics_delta_micrew">Delta Air Lines</option>
                         <option value="ics_rosterbuster">GoJet Airlines</option>
+                        <option value="manual_netjets">NetJets (Beta)</option>
                         <option value="csv_republic">Republic Airways</option>
                         <option value="vcs_skywest">SkyWest Airlines</option>
                         <option value="ics_southwest">Southwest Airlines</option>
@@ -189,6 +190,22 @@
             <p class="text-zinc-500 text-sm mb-7" id="step2-subtitle">Upload a schedule file or paste an ICS link. You can skip this and do it later.</p>
 
             <div class="space-y-4">
+                <div id="sched-netjets-section" class="space-y-4" style="display:none">
+                    <div>
+                        <label class="field-label">Schedule</label>
+                        <select class="field-input" id="njFamily" onchange="onNjFamilyChange()">
+                            <option value="">— Select your schedule —</option>
+                            <option value="7">7 &amp; 7</option>
+                            <option value="8">8 &amp; 6</option>
+                            <option value="CC">CC (52/60/72/76)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="field-label" id="njLineLabel">Line</label>
+                        <select class="field-input" id="njLine"></select>
+                    </div>
+                </div>
+
                 <div id="sched-file-section">
                     <label class="field-label" id="sched-file-label">Schedule File</label>
                     <input class="field-input" type="file" id="scheduleFile" accept=".csv,.ics,.vcs">
@@ -221,7 +238,7 @@
 
             <div class="mt-7 space-y-2">
                 <button class="btn-primary" id="join-btn" onclick="submitJoin()">Create Account →</button>
-                <button class="btn-ghost" onclick="submitJoin(true)">Skip — do this later</button>
+                <button class="btn-ghost" id="skip-btn" onclick="submitJoin(true)">Skip — do this later</button>
                 <button class="btn-ghost" onclick="goStep(1)">← Back</button>
             </div>
         </div>
@@ -233,6 +250,8 @@
             </div>
             <h1 class="text-2xl font-black text-white uppercase tracking-tight leading-none mb-1">You're in.</h1>
             <p class="text-zinc-500 text-sm mb-7">Your personal link is below. Add it to your Home Screen — it signs you in every time.</p>
+
+            <p id="schedule-warning" class="hidden text-xs leading-relaxed rounded-xl p-3 mb-4" style="color:#fcd34d;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);"></p>
 
             <div class="rounded-2xl p-4 mb-4 space-y-3" style="background:#111113;border:1.5px solid #27272a;">
                 <label class="field-label">Your Personal Link</label>
@@ -281,6 +300,11 @@
             'vcs_skywest':      { airline: 'SkyWest Airlines',     code: 'SKW', method: 'file',
                                    fileLabel: 'Schedule File', fileAccept: '.vcs',
                                    fileHint: 'SkedPlus+ VCS export.' },
+            // No schedule file for most: legs come from the saved tail, tour days from the rotation.
+            // Only a CC pilot uploads, so the file field appears once CC is picked.
+            'manual_netjets':   { airline: 'NetJets',              code: 'EJA', method: 'netjets',
+                                   fileLabel: 'Monthly CC Schedule (optional)', fileAccept: '.pdf,.txt',
+                                   fileHint: 'Your monthly schedule email as a .pdf or .txt. A PDF can take up to a minute. You can also upload it later.' },
         };
 
         function selectCompany(type) {
@@ -323,6 +347,7 @@
             const icsSection  = document.getElementById('sched-ics-section');
             const divider     = document.getElementById('sched-or-divider');
 
+            document.getElementById('sched-netjets-section').style.display = (method === 'netjets') ? 'block' : 'none';
             fileSection.style.display = (method === 'file' || method === 'both') ? 'block' : 'none';
             icsSection.style.display  = (method === 'ics'  || method === 'both') ? 'block' : 'none';
             divider.style.display     = (method === 'both') ? 'flex' : 'none';
@@ -345,9 +370,48 @@
             document.getElementById('ics-help-panel').style.display = 'none'; // collapse on every company change
 
             document.getElementById('step2-subtitle').textContent =
-                method === 'file' ? 'Upload your schedule file below. You can skip this and do it later.'
+                method === 'netjets' ? 'Pick your schedule and line so your tour days show up. You can skip this and do it later in My Info.'
+                : method === 'file' ? 'Upload your schedule file below. You can skip this and do it later.'
                 : method === 'ics'  ? 'Paste your ICS calendar link below. You can skip this and do it later.'
                 : 'Upload a schedule file or paste an ICS link. You can skip this and do it later.';
+            if (method === 'netjets') onNjFamilyChange();
+        }
+
+        // Same choices as My Info's Duty Rotation picker in app.html.
+        const NJ_LINES = Array.from({ length: 14 }, (_, i) => [String(i + 1), `Line ${i + 1}`]);
+        const NJ_CC_PROGRAMS = [['52', 'CC52'], ['60', 'CC60'], ['72', 'CC72'], ['76', 'CC76']];
+        function onNjFamilyChange() {
+            const isCc = document.getElementById('njFamily').value === 'CC';
+            const lineSel = document.getElementById('njLine');
+            const prev = lineSel.value;
+            const opts = isCc ? NJ_CC_PROGRAMS : NJ_LINES;
+            lineSel.innerHTML = `<option value="">${isCc ? '— Program —' : '— Line —'}</option>`
+                + opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+            if (opts.some(([v]) => v === prev)) lineSel.value = prev;
+            document.getElementById('njLineLabel').textContent = isCc ? 'CC Program' : 'Line';
+            document.getElementById('sched-file-section').style.display = isCc ? 'block' : 'none';
+        }
+
+        // Same math as _lineToAnchorDate() in app.html: Line N's first duty day is this date + N-1.
+        function njLineToAnchorDate(lineNum) {
+            const d = new Date('2021-12-24T12:00:00');
+            d.setDate(d.getDate() + lineNum - 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
+        // First-time setup has no old rotation to switch from, so it backfills like My Info does.
+        function saveNjRotation(pilotKey, token, family, line) {
+            const now = new Date();
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const body = family === 'CC'
+                ? { token, ccVariant: line, effectiveFrom: today }
+                : { token, anchorDate: njLineToAnchorDate(parseInt(line, 10)), daysOn: family === '8' ? 8 : 7, daysOff: family === '8' ? 6 : 7,
+                    effectiveFrom: '2000-01-01', family, lineNum: parseInt(line, 10) };
+            return fetch(`/api/pilots/${pilotKey}/rotation`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
         }
 
         function toggleIcsHelp() {
@@ -384,6 +448,14 @@
             const btn   = document.getElementById('join-btn');
             const errEl = document.getElementById('step2-error');
             errEl.classList.add('hidden');
+            const isNj     = document.getElementById('parserType').value === 'manual_netjets';
+            const njFamily = document.getElementById('njFamily').value;
+            const njLine   = document.getElementById('njLine').value;
+            if (isNj && !skipSchedule && (!njFamily || !njLine)) {
+                errEl.textContent = njFamily === 'CC' ? 'Pick your CC program, or skip this for now.' : 'Pick your schedule and line, or skip this for now.';
+                errEl.classList.remove('hidden');
+                return;
+            }
             btn.disabled = true;
             btn.textContent = 'Creating…';
 
@@ -404,24 +476,41 @@
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || 'Failed to create account');
 
+                // The account exists from here on, so a failed schedule step warns on the last
+                // screen instead of blocking it. A retry would create a second account.
+                const scheduleProblems = [];
                 if (!skipSchedule) {
-                    const file = document.getElementById('scheduleFile').files[0];
+                    if (isNj) {
+                        const saved = await saveNjRotation(data.pilotKey, data.token, njFamily, njLine).catch(() => null);
+                        if (!saved?.ok) scheduleProblems.push('your duty rotation');
+                    }
+                    // A file or link left over from a company choice the pilot changed doesn't count.
+                    const file = (!isNj || njFamily === 'CC') ? document.getElementById('scheduleFile').files[0] : null;
                     // iCloud (Delta MiCrew) publishes subscription links as webcal:// -- same
                     // protocol as https, just a different scheme name for "subscribe to this
                     // calendar." The server already normalizes this in syncPilotICS(), but do
                     // it here too so the request is explicit rather than relying on that alone.
-                    const icsUrl = document.getElementById('icsUrl').value.trim().replace(/^webcal:\/\//i, 'https://');
+                    const icsUrl = isNj ? '' : document.getElementById('icsUrl').value.trim().replace(/^webcal:\/\//i, 'https://');
                     if (file) {
+                        btn.textContent = 'Uploading…';
                         const fd = new FormData();
+                        fd.append('token', data.token); // before the file: multer fills req.body in field order
                         fd.append('file', file);
-                        await fetch(`/api/pilots/${data.pilotKey}/upload`, { method: 'POST', body: fd });
+                        const uploaded = await fetch(`/api/pilots/${data.pilotKey}/upload`, { method: 'POST', body: fd }).catch(() => null);
+                        if (!uploaded?.ok) scheduleProblems.push('your schedule file');
                     } else if (icsUrl) {
-                        await fetch(`/api/pilots/${data.pilotKey}/sync-ics`, {
+                        const synced = await fetch(`/api/pilots/${data.pilotKey}/sync-ics`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: icsUrl })
-                        });
+                            body: JSON.stringify({ url: icsUrl, token: data.token })
+                        }).catch(() => null);
+                        if (!synced?.ok) scheduleProblems.push('your calendar link');
                     }
+                }
+                if (scheduleProblems.length) {
+                    const warn = document.getElementById('schedule-warning');
+                    warn.textContent = `Your account is ready, but ${scheduleProblems.join(' and ')} didn't save. You can add it in the app.`;
+                    warn.classList.remove('hidden');
                 }
 
                 const link = `${location.origin}/app?u=${data.token}`;
