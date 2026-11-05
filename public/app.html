@@ -5829,7 +5829,7 @@
                 if (!data?.segments) continue;
                 const pilotColor = PILOT_COLORS[key];
 
-                const allFlights = data.segments.filter(s => s.type === 'flight' && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport);
+                const allFlights = data.segments.filter(s => s.type === 'flight' && !s.auto_leg_cancelled && s.departure_time && s.arrival_time && s.departure_airport && s.arrival_airport);
                 const monthFlights = allFlights.filter(f => f.departure_time.startsWith(monthPrefix));
 
                 // Group by exact route direction
