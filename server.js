@@ -1832,6 +1832,15 @@ function _tfmsLegArrived(t) { return !!(t && (t.arrivedAt || (t.timeOfArrival &&
 function _tfmsLegFlown(t) { return !!(t && (t.departedAt || t.tracked || _tfmsLegArrived(t))); }
 function _tfmsLegCancelled(t) { return !!(t && t.cancelled && !_tfmsLegFlown(t)); }
 
+// The TFMS plan for a leg: same airports, closest departure. A tail can hold one under its EJA
+// callsign and one under its N-number. Shared by the leg creator and the Lookup so they agree.
+function _tfmsPlanFor(plans, origin, dest, depMs) {
+    const same = plans.filter(l => norm3Airport(l.origin) === norm3Airport(origin) && norm3Airport(l.dest) === norm3Airport(dest));
+    if (same.length < 2 || depMs == null) return same[0] || null;
+    const gap = l => l.scheduledDepMs == null ? Infinity : Math.abs(l.scheduledDepMs - depMs);
+    return same.reduce((best, l) => gap(l) < gap(best) ? l : best);
+}
+
 // NetJets legs: one callsign flies every leg of the day, so "is it live", "is it parked" and "which
 // route" only mean anything per leg. Everything that answers those for a NetJets leg goes through
 // these three functions.
@@ -1990,7 +1999,7 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
             && Math.abs(l.scheduledDepMs - leg.scheduledDepMs) <= NETJETS_DISPLAY_SAME_DEPARTURE_TOLERANCE_MS);
         const legTimes = candidateLegTimes.length
             ? candidateLegTimes.reduce((best, l) => (l.lastMsg || 0) > (best.lastMsg || 0) ? l : best)
-            : (tfmsLegTimes.find(l => norm(l.origin) === origin && norm(l.dest) === norm(leg.dest)) || {});
+            : (_tfmsPlanFor(tfmsLegTimes, origin, leg.dest, leg.scheduledDepMs) || {});
         const dest = norm(legTimes.dest) || norm(leg.dest);
         const depTime = legTimes.etd || legTimes.airlineOutTime || legTimes.igtd || leg.offBlockTime || null;
         if (!depTime) { out.push({ origin, dest, depTime: null, flightState, status: 'no-time', reason: 'nothing usable to anchor this leg by yet' }); continue; }
@@ -5101,11 +5110,20 @@ const POLLER_LOOKBACK_MS = 8 * 60 * 60 * 1000; // both feeds: how long after dep
 // compound guesses on guesses), so a later leg on the same city pair gets a genuine duration
 // instead of the same-instant placeholder sitting there indefinitely. Persisted to disk, same
 // debounced-write pattern as the other caches in this file.
-const ROUTE_DURATIONS_PATH = path.join(__dirname, '.netjets_route_durations.json');
+const ROUTE_DURATIONS_PATH = path.join(__dirname, '.netjets_route_durations_v2.json');
 const _routeDurations = {}; // "origin>dest" -> { count, totalMinutes }
 try {
     Object.assign(_routeDurations, JSON.parse(fs.readFileSync(ROUTE_DURATIONS_PATH, 'utf8')));
-} catch (_) {}
+} catch (_) {
+    // First run on this file. The old one counted a leg on every poll, so a count meant nothing:
+    // keep each route's average as one entry. The old file is left in place.
+    try {
+        const old = JSON.parse(fs.readFileSync(path.join(__dirname, '.netjets_route_durations.json'), 'utf8'));
+        for (const [route, r] of Object.entries(old)) {
+            if (r.count > 0) _routeDurations[route] = { count: 1, totalMinutes: r.totalMinutes / r.count };
+        }
+    } catch (_) {}
+}
 let _routeDurationsSaveTimer = null;
 const _routeDurationRecorded = new Set(); // segment ids already counted
 function _recordRouteDuration(origin, dest, minutes) {
@@ -5409,7 +5427,7 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             const dest = norm3(leg.dest);
             const flightState = leg.flightState || '';
 
-            const legTimes = tfmsLegTimes.find(l => norm3(l.origin) === origin && norm3(l.dest) === dest) || {};
+            const legTimes = _tfmsPlanFor(tfmsLegTimes, origin, dest, leg.scheduledDepMs) || {};
             // etd/eta preferred over airlineOutTime/airlineInTime -- confirmed real and backwards
             // before this fix: James's RDU->27K leg pushed ~2h (etd went ACTUAL 20:00Z -> 22:03Z),
             // but airlineOutTime stayed frozen at the original 20:00Z the whole time (NetJets
@@ -5509,7 +5527,6 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 // would overstate how certain it is; block_minutes stays unset until a real ETA
                 // arrives and overwrites this via the normal refine path.
                 const finalArrTime = arrTime || estimatedArrTime || depTime;
-                const block = (depTime && arrTime) ? Math.round((new Date(arrTime) - new Date(depTime)) / 60000) : null;
                 const autoLegKey = `${cs}|${nj.tourStart}|${origin}>${finalDest || '?'}@${depTime}`;
                 try {
                     const newId = await new Promise((resolve, reject) => {
@@ -5517,7 +5534,7 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                             // Refuses a key that's already there, so a duplicate can't be written even if passes ever overlap.
                             `INSERT INTO segments (pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, flight_number, block_minutes, is_manual, auto_leg_key, auto_leg_complete)
                              SELECT ?, 'flight', ?, ?, ?, ?, ?, ?, ?, 0, ?, ? WHERE NOT EXISTS (SELECT 1 FROM segments WHERE pilot_id=? AND auto_leg_key=?)`,
-                            [nj.pilotId, depTime, finalArrTime, origin, finalDest || '', nj.tail, legCs, (block && block > 0) ? block : null, autoLegKey, landed ? 1 : 0, nj.pilotId, autoLegKey],
+                            [nj.pilotId, depTime, finalArrTime, origin, finalDest || '', nj.tail, legCs, null, autoLegKey, landed ? 1 : 0, nj.pilotId, autoLegKey],
                             function (err) { err ? reject(err) : resolve(this.changes ? this.lastID : null); }
                         );
                     });
@@ -5582,7 +5599,9 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 if (isFinite(block) && block > 0) {
                     // Block time only from a real arrival time -- otherwise a placeholder estimate
                     // became a precise-looking block time (EJA492 CQF->HOT showed 593 minutes).
-                    if (rowTimes.arr) { updates.push('block_minutes=?'); params.push(block); }
+                    // Clearing it on an estimate is safe to read: the app works block out from the times.
+                    if (rowTimes.real) { updates.push('block_minutes=?'); params.push(block); }
+                    else if (rowTimes.arr && rowTimes.arr !== row.arrival_time) updates.push('block_minutes=NULL');
                     // Recorded into the NetJets-wide duration history ONLY from REAL evidence
                     // (arrTime) on a genuinely completed leg -- never from the estimate itself,
                     // so a guess can never compound into a worse guess for a later leg on this

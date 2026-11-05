@@ -303,3 +303,5 @@ Mack got off tail 23 for one leg and deleted the legs another crew would fly, bu
 James kept MAF->FTW on his schedule after it was cancelled, because a plan that left the feeds was never checked. Open rows are now checked against TFMS each poll, and a cancelled leg that really moves comes back. Before that, a cancelled leg stayed hidden even if it flew.
 
 Intel speed: at 4x CPU throttle the rendering was only about 0.25s for 406 entries. The cost was blanking to a spinner, refetching and rebuilding the map on every tab open, so it now draws cached data at once and keeps the map.
+
+NetJets gaps pass (11/5 UTC): block_minutes now only from a real arrival, route history collapsed to one entry per route in a v2 file, and one plan picker for the creator and Lookup. Not done on purpose: storing several plans per airport pair (narrow gap, would touch most NetJets code) and restoring a refiled leg (only logged until real refiles are seen).

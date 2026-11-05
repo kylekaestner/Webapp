@@ -557,6 +557,12 @@ function processLegTimes(msgObj, cs, origin, dest, candidateMs, msgType) {
     if (candidateMs != null && leg.scheduledDepMs != null && Math.abs(candidateMs - leg.scheduledDepMs) > 6 * 3600000 && oldFlightOver) {
         leg = { origin, dest };
     }
+    // Watching only: a new flight plan ID on a cancelled leg may be a real refile. Logged to learn what
+    // real refiles look like before anything acts on it.
+    if (leg.cancelled && !leg.refileSeen && times.gufi && leg.gufi && times.gufi !== leg.gufi) {
+        leg.refileSeen = true;
+        console.log(`[TFMS] new GUFI after cancellation: ${cs} ${key} ${leg.gufi} -> ${times.gufi} (${msgType})`);
+    }
     Object.assign(leg, times);
     if (candidateMs != null) leg.scheduledDepMs = candidateMs;
     // Real-movement evidence, distinct from a plan merely being filed: TFMS only sends
