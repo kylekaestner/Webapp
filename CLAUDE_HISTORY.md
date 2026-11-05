@@ -292,4 +292,6 @@ Mack gave up tail 23 in Vegas mid-day, with legs still filed after that. Swap an
 
 Version 1.0.11-beta (2026-11-04): startup and Crossings speed work, OpenFreeMap base map, block totals, leaving a NetJets tail mid-tour, and NetJets leg, route and live map fixes.
 
+Mark's 11/5 reserve showed 5:00 AM when Delta had him at 6:00 AM Atlanta. The parser dropped the feed's TZID, and that zone follows the phone at import, so one Long Call was stored at 03:41, 04:41 and 05:41. Reserve windows now convert to the base's time.
+
 The haze at the top of the installed app, chased in October, is an iOS blur over Home Screen web apps from iOS 26 on. A fixed black band behind the status bar was added on 2026-11-04 to make WebKit skip it. Whether it works has to be seen on a phone.

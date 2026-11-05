@@ -126,7 +126,7 @@ Parser tracks a current calendar date that advances on each `Rpt-` line and roll
 
 **Non-flying days**: `SUMMARY` codes (`XX`, `PVAC`, `IOE`, `20TR`, etc.) are undocumented and vary — classification goes by keyword match on the *last line* of `DESCRIPTION` instead. Only `VACATION`- and `TRAINING`/`SIMULATOR`/`OPERATING EXPERIENCE`-keyword matches produce a segment (`vacation`/`training`); everything else (including `RESERVE DAY OFF`, `SICK`, `REST` variants, `SCC`, `OK TO RETURN TO FLYING`, `P/DR`, `ADJ`, `FULL`) is deliberately skipped, letting the day default to off.
 
-**Reserve** (`SUMMARY` exactly `LC` or `SC`) — identified by the clean code, not keyword match; `DTSTART`/`DTEND` directly *are* the on-call window. No airport given — falls back to `pilot.base` (same fallback the VCS parser's bare `RE` blocks use).
+**Reserve** (`SUMMARY` exactly `LC` or `SC`) — identified by the clean code, not keyword match; `DTSTART`/`DTEND` directly *are* the on-call window. Their `TZID` follows the phone that imported the schedule, not the base, so `_reservesToBaseTime()` converts them to the base's local time. No airport given — falls back to `pilot.base` (same fallback the VCS parser's bare `RE` blocks use).
 
 iCloud publishes these as `webcal://` — `syncPilotICS()` normalizes to `https://` before fetching. Dispatches via `AIRLINE_OPTIONS`'s `icao: 'DAL'` entry. History: `CLAUDE_HISTORY.md § Delta "MiCrew" ICS parser`.
 

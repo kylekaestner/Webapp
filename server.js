@@ -379,6 +379,7 @@ function parseDeltaMiCrewICS(text) {
                 arrivalTime: /^\d{8}/.test(dtendVal) ? toLocalIso(dtendVal) : null,
                 departureAirport: '', arrivalAirport: '',
                 flightNumber: summary, tail: '', trip: null, dh: false, blockMinutes: null,
+                windowTz: dtstartRaw.match(/TZID=([^:;]+)/i)?.[1] || (/Z$/i.test(dtstartVal) ? 'UTC' : null),
             });
             continue;
         }
@@ -694,16 +695,42 @@ function formatICSDatetime(s) {
     return s;
 }
 
+const _tzFormatters = new Map();
+function _tzFormatter(tzid) {
+    if (!_tzFormatters.has(tzid)) _tzFormatters.set(tzid, new Intl.DateTimeFormat('en-US', {
+        timeZone: tzid, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }));
+    return _tzFormatters.get(tzid);
+}
+
+// Delta's feed writes a reserve window in whatever zone the phone was in when the schedule imported
+// (Mark's 6:00 AM Atlanta short call arrived as 5:00 Central). Segments are stored in airport-local
+// time, so bring each window to the base's clock.
+function _reservesToBaseTime(events, baseAirport) {
+    const baseTz = _aptTimezone[baseAirport] || _aptTimezone['K' + baseAirport];
+    for (const ev of events) {
+        const zone = ev.windowTz;
+        delete ev.windowTz;
+        if (!zone || !baseTz || zone === baseTz) continue;
+        const toBase = iso => {
+            const p = {};
+            _tzFormatter(baseTz).formatToParts(new Date(localTZToUTC(iso.replace(/[-:]/g, ''), zone)))
+                .forEach(pt => { if (pt.type !== 'literal') p[pt.type] = pt.value; });
+            return `${p.year}-${p.month}-${p.day}T${p.hour === '24' ? '00' : p.hour}:${p.minute}:${p.second}`;
+        };
+        ev.departureTime = toBase(ev.departureTime);
+        if (ev.arrivalTime) ev.arrivalTime = toBase(ev.arrivalTime);
+    }
+}
+
 // Convert local datetime (YYYYMMDDTHHMMSS) in a named timezone to UTC ISO string.
 // Works via the Intl.DateTimeFormat "TZ-as-display" offset trick — no DST tables needed.
 function localTZToUTC(dtStr, tzid) {
     const y = dtStr.slice(0, 4), mo = dtStr.slice(4, 6), d = dtStr.slice(6, 8);
     const h = dtStr.slice(9, 11), mi = dtStr.slice(11, 13), s = dtStr.slice(13, 15) || '00';
     const asUTC = new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`); // treat local as UTC first
-    const fmt = new Intl.DateTimeFormat('en-US', {
-        timeZone: tzid, year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-    });
+    const fmt = _tzFormatter(tzid);
     // UTC-minus-local offset at a given instant
     const offsetAt = inst => {
         const p = {};
@@ -2797,6 +2824,7 @@ async function _handlePilotUpload(req, res, db, pilotKey) {
         // Fill reserve location from pilot's airline base (where they report for duty)
         const pilotBase = pilot.base || pilot.home_airport || '';
         if (pilotBase) {
+            _reservesToBaseTime(events, pilotBase);
             events.forEach(ev => {
                 if (ev.type === 'reserve' && !ev.departureAirport) {
                     ev.departureAirport = pilotBase;
@@ -3497,6 +3525,7 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
 
     const pilotBase = pilot.base || '';
     if (pilotBase) {
+        _reservesToBaseTime(events, pilotBase);
         events.forEach(ev => {
             if (ev.type === 'reserve' && !ev.departureAirport) {
                 ev.departureAirport = pilotBase;
@@ -3509,7 +3538,7 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
 
     const existing = await new Promise((resolve, reject) => {
         db.all(
-            'SELECT id, type, departure_time, departure_airport, flight_number FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)',
+            'SELECT id, type, departure_time, arrival_time, departure_airport, flight_number FROM segments WHERE pilot_id = ? AND (is_manual IS NULL OR is_manual = 0)',
             [pilot.id],
             (err, rows) => { if (err) return reject(err); resolve(rows); }
         );
@@ -3548,7 +3577,8 @@ async function syncPilotICS(pilotKey, urlOverride = null) {
     });
 
     const staleIds = existing
-        .filter(s => !matchedIds.has(s.id) && (s.departure_time || '') >= nowIso)
+        // A reserve window that has started but not ended can still be replaced by the feed.
+        .filter(s => !matchedIds.has(s.id) && ((s.departure_time || '') >= nowIso || (s.type === 'reserve' && (s.arrival_time || '') >= nowIso)))
         .map(s => s.id);
 
     if (staleIds.length > 0) {
