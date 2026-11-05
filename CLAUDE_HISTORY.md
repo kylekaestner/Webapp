@@ -295,3 +295,5 @@ Version 1.0.11-beta (2026-11-04): startup and Crossings speed work, OpenFreeMap 
 Mark's 11/5 reserve showed 5:00 AM when Delta had him at 6:00 AM Atlanta. The parser dropped the feed's TZID, and that zone follows the phone at import, so one Long Call was stored at 03:41, 04:41 and 05:41. Reserve windows now convert to the base's time.
 
 The haze at the top of the installed app, chased in October, is an iOS blur over Home Screen web apps from iOS 26 on. A fixed black band behind the status bar was added on 2026-11-04 to make WebKit skip it. Whether it works has to be seen on a phone.
+
+Frozen planes after landing: `finishTracking()` still called `_departureDelays.delete()` after the Map was removed on 2026-05-30, so it threw before clearing the plane, trail and label. Any flight that ended left them on the map until the next redraw. Found 2026-11-04 from a console error during an unrelated check.

@@ -217,11 +217,9 @@
         .toast-error   { background:rgba(69,10,10,0.95);  border:1px solid rgba(239,68,68,0.45);  color:#fecaca; }
         .toast-info    { background:rgba(15,23,42,0.95);  border:1px solid rgba(99,102,241,0.45); color:#c7d2fe; }
         @keyframes dash-flow { to { stroke-dashoffset: -18; } }
-        /* The map credit has to stay visible (OpenStreetMap license), so on phones it's one small dark line. */
-        @media (max-width: 767px) {
-            .leaflet-container .leaflet-control-attribution { background: rgba(9, 9, 11, 0.55); color: #71717a; font-size: 8px; line-height: 1.3; padding: 0 4px; }
-            .leaflet-container .leaflet-control-attribution a { color: #71717a; }
-        }
+        /* The map credit has to stay visible (OpenStreetMap license), so it's one small dark line. */
+        .leaflet-container .leaflet-control-attribution { background: rgba(9, 9, 11, 0.55); color: #71717a; font-size: 8px; line-height: 1.3; padding: 0 4px; }
+        .leaflet-container .leaflet-control-attribution a { color: #71717a; }
         .active-route { stroke-dasharray: 10, 5; stroke-dashoffset: 0; animation: dash-flow 0.5s linear infinite; }
         @keyframes active-leg-pulse { 0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.15); } 50% { box-shadow: 0 0 14px rgba(34,197,94,0.65); } }
         .active-leg { animation: active-leg-pulse 1.8s ease-in-out infinite; }
@@ -5659,7 +5657,7 @@
             if (map) return;
             map = L.map('map', { zoomControl: false, doubleClickZoom: true, bounceAtZoomLimits: false }).setView([39.8283, -98.5795], 4);
             addBasemap(map);
-            if (window.innerWidth < 768) map.attributionControl.setPrefix(false); // less to fit on a phone
+            map.attributionControl.setPrefix(false);
             // Scrolling/swiping the pilot legend shouldn't pan or zoom the map underneath it
             const _legendScroll = document.getElementById('legend-day-pilots');
             if (_legendScroll) { L.DomEvent.disableScrollPropagation(_legendScroll); L.DomEvent.disableClickPropagation(_legendScroll); }
@@ -7315,7 +7313,6 @@
                 _liveLabels.delete(callsign);
                 _liveLabelRefreshers.delete(callsign);
                 delete _liveLayersByCallsign[callsign];
-                _departureDelays.delete(callsign);
                 markers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
                 removeArc();
                 if (flownLines) { flownLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} }); flownLines = null; }
