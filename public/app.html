@@ -11861,15 +11861,19 @@ async function openAdminPanel(tab = 'users') {
             document.getElementById('netjets-tour-modal-reset-btn').classList.toggle('hidden', !_tourTailFor(_netjetsTourModalPilot, tourStartDate));
             document.getElementById('netjets-tour-modal').classList.remove('hidden');
         }
-        // Legs on this tour's tail that aren't done, including ones a last-leg pick already took off.
+        // Legs on this tour's tail from yesterday on, flown or not, so a pilot already off the plane can
+        // still pick the leg they left on. Includes legs a last-leg pick already took off.
         function _refreshNetjetsLastLegPicker() {
             const data = pilotsCache[_netjetsTourModalPilot];
             const tourStart = _netjetsTourModalDate;
             const tail = (_tourTailFor(_netjetsTourModalPilot, tourStart) || '').toUpperCase();
             const saved = (data?.tour_tails || []).find(t => t.tour_start_date === tourStart)?.last_leg_id || null;
+            const yesterday = new Date(Date.now() - 86400000);
+            const fromDay = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
             const legs = (data?.segments || []).filter(s => s.type === 'flight' && s.departure_time
                 && s.auto_leg_key?.split('|')[1] === tourStart && String(s.tail || '').toUpperCase() === tail
-                && (s.id === saved || (!s.auto_leg_complete && (!s.auto_leg_cancelled || s.auto_leg_cancelled === 2))))
+                && (s.id === saved || ((!s.auto_leg_cancelled || s.auto_leg_cancelled === 2)
+                    && (!s.auto_leg_complete || flightLocalDate(s.departure_time, s.departure_airport) >= fromDay))))
                 .sort((a, b) => Date.parse(a.departure_time) - Date.parse(b.departure_time));
             document.getElementById('netjets-tour-modal-last-leg-wrap').classList.toggle('hidden', !legs.length);
             const label = s => {
