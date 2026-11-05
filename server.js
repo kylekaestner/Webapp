@@ -5533,6 +5533,13 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 console.log(`[NetJets] ${nj.pilotKey}: leg ${row.auto_leg_key} cancelled (${origin}->${dest || '?'})`);
                 continue;
             }
+            // A cancelled plan can still fly: real movement brings the leg back. A leg the pilot gave up
+            // with "Leaving this aircraft" (2) stays off.
+            if (row.auto_leg_cancelled === 1 && _tfmsLegFlown(legTimes)) {
+                row.auto_leg_cancelled = 0;
+                db.run('UPDATE segments SET auto_leg_cancelled=0 WHERE id=?', [row.id], () => {});
+                console.log(`[NetJets] ${nj.pilotKey}: leg ${row.auto_leg_key} restored, it flew after being cancelled`);
+            }
             if (row.auto_leg_cancelled) continue;
             if (staleInAdvance && !row.auto_leg_complete) {
                 db.run('UPDATE segments SET auto_leg_cancelled=1 WHERE id=?', [row.id], () => {});
@@ -5609,6 +5616,20 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 params.push(row.id, row.auto_leg_key);
                 db.run(`UPDATE segments SET ${updates.join(', ')} WHERE id=? AND auto_leg_key=?`, params, () => {});
                 if (landed && !row.auto_leg_complete) console.log(`[NetJets] ${nj.pilotKey}: leg ${row.auto_leg_key} complete (${origin}->${finalDest || '?'})`);
+            }
+        }
+
+        // A cancelled plan can drop out of the feeds above while its row is still on the schedule, so
+        // the check in the loop never reaches it (James's MAF->FTW, cancelled 15h before departure).
+        for (const r of existingRows) {
+            if (touchedRowIds.has(r.id) || r.auto_leg_complete || r.auto_leg_cancelled || r.auto_leg_edited) continue;
+            const rMs = Date.parse(r.departure_time);
+            const plan = tfmsLegTimes.find(t => norm3(t.origin) === norm3(r.departure_airport) && norm3(t.dest) === norm3(r.arrival_airport)
+                && t.scheduledDepMs != null && Math.abs(t.scheduledDepMs - rMs) <= NETJETS_LEG_MATCH_TOLERANCE_MS);
+            if (plan && _tfmsLegCancelled(plan)) {
+                r.auto_leg_cancelled = 1;
+                db.run('UPDATE segments SET auto_leg_cancelled=1 WHERE id=? AND auto_leg_cancelled=0', [r.id], () => {});
+                console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} cancelled (plan cancelled, no longer filed)`);
             }
         }
 
