@@ -13,7 +13,7 @@ Polls `/api/live-position?callsign=XX&origin=DEP` — **adaptive cadence**: `_po
 - Called from `renderMap()`/`renderDayMap()` for any active-window flight.
 - Draws a real-time GPS trail (solid polyline) + remaining-arc (dashed geodesic to destination).
 - Plane icon hidden until ADS-B/SWIM confirms airborne (`hasBeenAirborne` — strictly poller-local, set only by a real `found:true` fix from *this* poller; a separate `serverConfirmedAirborne` absorbs the server's historical hint for miss-handling heuristics only, never near the first-confirmation cleanup path).
-- `deoverlapLiveLabels()` runs every 300ms to prevent label collisions; also handles waypoint-tag collisions when Route Detail is on, and biases the plane's own label away from whichever screen axis is perpendicular to its heading, away from the route line.
+- `deoverlapLiveLabels()` runs every 300ms to prevent label collisions; also handles waypoint-tag collisions when Route Detail is on, and puts the plane's own label on the side covering the least of its route near the plane (the line ahead counts double, the flown trail single). Heading only sets the preference order between sides that are about equally clear, and with no route yet it decides alone.
 - Parked (`{parked:true}`) → `finishTracking()`; sustained misses (threshold scales with proximity to scheduled arrival: ~5min required while >15min from scheduled arrival, ~40s once close) → `finishTracking()`.
 - `_liveLayersByCallsign` (object, keyed by callsign) is the real source of truth for "is something tracking this callsign" — not `_livePollers`, which is cleared on every render.
 - World-copy support: markers placed at `lon`, `lon±360`.

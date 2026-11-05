@@ -1,6 +1,6 @@
 {
   "name": "crewsync",
-  "version": "1.0.11-beta",
+  "version": "1.0.12-beta",
   "description": "Flight crew scheduling and tracking",
   "main": "server.js",
   "scripts": {

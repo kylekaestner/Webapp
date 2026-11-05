@@ -7033,13 +7033,44 @@
             };
             const overlaps = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
 
-            // Picks which pair of screen directions (left/right vs top/bottom) sits most
-            // PERPENDICULAR to the aircraft's current heading, so the label lands off to the
-            // side of the flight path rather than sitting ahead of (or behind) the plane --
-            // exactly where the remaining-route line and its fix labels are. A heading near
-            // due north/south means the line runs roughly vertically on screen, so the label
-            // should go left/right (and vice versa for a roughly east/west heading). Falls back
-            // to the old fixed order when heading isn't known yet (first poll).
+            // Pixels of segment a->b inside rect r (Liang-Barsky clip).
+            const clipLen = (a, b, r) => {
+                const dx = b.x - a.x, dy = b.y - a.y;
+                let t0 = 0, t1 = 1;
+                for (const [p, q] of [[-dx, a.x - r.l], [dx, r.r - a.x], [-dy, a.y - r.t], [dy, r.b - a.y]]) {
+                    if (p === 0) { if (q < 0) return 0; continue; }
+                    const t = q / p;
+                    if (p < 0) { if (t > t1) return 0; if (t > t0) t0 = t; }
+                    else       { if (t < t0) return 0; if (t < t1) t1 = t; }
+                }
+                return t1 > t0 ? (t1 - t0) * Math.hypot(dx, dy) : 0;
+            };
+            // The stretch of a route within label reach of the plane, in screen points, walking
+            // outward from the plane and stopping at the first point past reach.
+            const LABEL_REACH_PX = 220;
+            const nearbyRoute = (path, pt, fromEnd) => {
+                const out = [pt];
+                if (!path) return out;
+                for (let i = 0; i < path.length; i++) {
+                    const p = map.latLngToContainerPoint(path[fromEnd ? path.length - 1 - i : i]);
+                    out.push(p);
+                    if (Math.hypot(p.x - pt.x, p.y - pt.y) > LABEL_REACH_PX) break;
+                }
+                return out;
+            };
+            const lineInRect = (pts, r) => {
+                let len = 0;
+                for (let i = 1; i < pts.length; i++) len += clipLen(pts[i - 1], pts[i], r);
+                return len;
+            };
+            // A side covering this little of the line (the trail clipping a corner, say) counts
+            // as clear, so the label doesn't jump to a slightly cleaner side on every poll.
+            const ROUTE_COST_SLACK_PX = 16;
+
+            // Preference order only: the side of the flight path rather than ahead or behind.
+            // Near a diagonal heading both screen axes run close to the path, so this can't
+            // choose on its own; the route cost below does that. Falls back to the old fixed
+            // order when heading isn't known yet (first poll).
             const perpendicularDirs = (heading) => {
                 if (heading == null) return DIRS;
                 const h = ((heading % 180) + 180) % 180; // collapse to 0..180 (N/S vs E/W axis)
@@ -7056,19 +7087,27 @@
                 try { pt = map.latLngToContainerPoint(primary.getLatLng()); } catch (_) { continue; }
 
                 // Estimate label size: two-line (with alt/speed) is taller
-                const W = 160;
+                const W = primary.getTooltip()?.getElement()?.offsetWidth || 160;
                 const H = entry.html.includes('<br>') ? 44 : 26;
 
-                // Always re-derive from the current heading (not "keep current direction if it
-                // still avoids other labels") -- the label needs to stay off the route line/fix
-                // labels ahead of and behind the plane, not just avoid colliding with other
-                // placed tooltips, and the route line itself isn't tracked in `placed`.
-                let chosen = null, chosenRect = null;
-                for (const dir of perpendicularDirs(entry.heading)) {
-                    const est = estimateRect(dir, pt, W, H, PLANE_OFFSETS);
-                    if (!placed.some(p => overlaps(est, p))) { chosen = dir; chosenRect = est; break; }
-                }
-                if (!chosen) { chosen = perpendicularDirs(entry.heading)[0]; chosenRect = estimateRect(chosen, pt, W, H, PLANE_OFFSETS); }
+                // Score each side by how much route it would cover, so the label lands on the
+                // clear side of the real line (which can turn right after the plane) instead of
+                // guessing from heading alone. The line ahead counts double: it's the part being
+                // read, and the flown trail is thinner and dimmer. The current side goes first so
+                // the label only moves when it has a real reason to.
+                const prefs = perpendicularDirs(entry.heading);
+                const hasRoute = !!(entry.routeAhead || entry.routeBehind);
+                const ahead = hasRoute ? nearbyRoute(entry.routeAhead, pt, false) : [];
+                const behind = hasRoute ? nearbyRoute(entry.routeBehind, pt, true) : [];
+                const order = hasRoute ? [entry.direction, ...prefs.filter(d => d !== entry.direction)] : prefs;
+                const options = order
+                    .map(dir => ({ dir, rect: estimateRect(dir, pt, W, H, PLANE_OFFSETS) }))
+                    .filter(o => !placed.some(p => overlaps(o.rect, p)))
+                    .map(o => ({ ...o, cost: 2 * lineInRect(ahead, o.rect) + lineInRect(behind, o.rect) }));
+                const bestCost = Math.min(...options.map(o => o.cost));
+                const pick = options.find(o => o.cost <= bestCost + ROUTE_COST_SLACK_PX);
+                const chosen = pick ? pick.dir : prefs[0];
+                const chosenRect = pick ? pick.rect : estimateRect(chosen, pt, W, H, PLANE_OFFSETS);
                 placed.push(chosenRect);
 
                 if (entry.direction !== chosen) {
@@ -7782,6 +7821,9 @@
                         legBounds.push([startIdx, remainPath.length - 1]);
                     }
                     const remainSegs = unwrapLongitudes(remainPath);
+                    // Lets deoverlapLiveLabels() keep the tag off this flight's own line.
+                    labelEntry.routeAhead = remainSegs;
+                    labelEntry.routeBehind = flownPath;
 
                     // Requested directly: dashed from the live position to the next fix, solid
                     // between subsequent known fixes, dashed again from the last fix to the
