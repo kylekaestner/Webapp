@@ -11,6 +11,6 @@ KCQF → HOTJames · EJA492
 ~~If the day is active on grid and the next/current flight requires the grid cell to be scrolled...auto scroll it to the relevant leg.~~ (done 11/3)
 ~~James HOT-CLT doesn't show any route~~ (fixed 11/3: ADS-B failure was dropping the filed route)
 
-When clicking on a day on grid (detail) speed/altitude are on the live leg when it's airborne like in list or just looking at the grid on desktop
+~~When clicking on a day on grid (detail) speed/altitude are on the live leg when it's airborne like in list or just looking at the grid on desktop~~ (done 11/4: live leg card shows speed and altitude)
 
-The map tracking is still messed up for NJ right now. Mack is doing AFW-VNY and it doesn't show his airplane on the map. It does show a trail and a route for AFW-VNY. There is also an "active flight" for LAS-VNY on the map. The grid looks like its working for live flights though. 
+~~The map tracking is still messed up for NJ right now. Mack is doing AFW-VNY and it doesn't show his airplane on the map. It does show a trail and a route for AFW-VNY. There is also an "active flight" for LAS-VNY on the map. The grid looks like its working for live flights though.~~ (fixed 11/4: later and cancelled legs no longer take over the live plane)
