@@ -305,3 +305,5 @@ James kept MAF->FTW on his schedule after it was cancelled, because a plan that 
 Intel speed: at 4x CPU throttle the rendering was only about 0.25s for 406 entries. The cost was blanking to a spinner, refetching and rebuilding the map on every tab open, so it now draws cached data at once and keeps the map.
 
 NetJets gaps pass (11/5 UTC): block_minutes now only from a real arrival, route history collapsed to one entry per route in a v2 file, and one plan picker for the creator and Lookup. Not done on purpose: storing several plans per airport pair (narrow gap, would touch most NetJets code) and restoring a refiled leg (only logged until real refiles are seen).
+
+James saw a cancelled O69->SNA in the next flight banner while the grid hid it: `_updateNextTripWidget()` never checked `cancelled`, so a cancelled leg could be the "next" flight. It now skips them like the grid does, and so do `getNextLegFrom()` (layover labels) and `computeWrappedStats()`. The banner is now in the calendar `?` help and the manual.
