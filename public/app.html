@@ -1570,7 +1570,7 @@
                 </div>
             </div>
 
-            <!-- Block totals (admin + kyle only) -->
+            <!-- Block totals -->
             <div id="profile-block-section" class="hidden border-t border-zinc-800 pt-4">
                 <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Block Hours</label>
                 <div class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
@@ -10010,11 +10010,11 @@
 
 let _blockUserEdited = false;
 
-        // Block totals (admin + Kyle, per device). Worked legs only: no deadheads, commutes, personal
+        // Block totals (anyone's choice, per device). Worked legs only: no deadheads, commutes, personal
         // or cancelled legs. A leg counts on its departure day, so a red-eye isn't counted twice.
         var _blockTotalsOn = false;
         try { _blockTotalsOn = localStorage.getItem('cs_block_totals') === '1'; } catch (_) {}
-        function _canSeeBlockTotals() { return !isDemo && !myViewer && (!myPilot || myPilot === 'kyle'); }
+        function _canSeeBlockTotals() { return !isDemo; }
         function _showBlockTotals() { return _blockTotalsOn && _canSeeBlockTotals(); }
         function _refreshBlockProfileRow() {
             const btn = document.getElementById('profile-block-btn');
