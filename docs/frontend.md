@@ -148,6 +148,8 @@ Bell icon → `loadNotifications()` (`/api/notifications?token=…`). Clicking a
 
 **Views**: airports list (`renderIntelAirports()`, alphabetical cards, color-accented border), intel map (`renderIntelMap()`, Leaflet thumbtack pins, red = mixed category), detail view (`renderIntelDetail()`, per-airport tip cards with category filter pills).
 
+**Speed**: `loadIntel()` renders what's already in `_intelAll` (startup fills it, city names included), then refetches and redraws only if the data changed. `renderIntelMap()` keeps the live map when `_intelMapKey` matches and its element is still on the page.
+
 **Data flow**: `loadIntelCounts()` → `_intelAll`; `saveIntelTip()` POST/PUT `/api/intel`; `deleteIntelTip()`; `voteIntel(id, vote)`.
 
 **Category colors**: hotel=`#60a5fa`, food=`#fbbf24`, activity=`#4ade80`, tip=`#c4b5fd`; mixed pin=`#ef4444`.

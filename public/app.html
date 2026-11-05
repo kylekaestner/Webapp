@@ -12697,18 +12697,24 @@ async function openAdminPanel(tab = 'users') {
             _intelVisible().forEach(x => { _intelCounts[x.airport_code] = (_intelCounts[x.airport_code] || 0) + 1; });
         }
 
+        // Opens on what's already loaded (startup fetches it), then refreshes quietly and only redraws
+        // if something changed. It used to blank to a spinner and rebuild the map on every visit.
         async function loadIntel() {
             renderIntelHeader();
             const el = document.getElementById('intel-content');
             if (!el) return;
-            el.innerHTML = `<div class="flex items-center justify-center gap-2.5 py-10 text-zinc-500 text-sm"><div class="spinner"></div><span>Loading intel…</span></div>`;
+            const hadData = Array.isArray(_intelAll) && _intelAll.length > 0;
+            if (hadData) renderIntel();
+            else el.innerHTML = `<div class="flex items-center justify-center gap-2.5 py-10 text-zinc-500 text-sm"><div class="spinner"></div><span>Loading intel…</span></div>`;
             try {
-                _intelAll = await fetch(_intelFetchUrl()).then(r => r.json());
+                const rows = await fetch(_intelFetchUrl()).then(r => r.json());
+                const changed = JSON.stringify(rows) !== JSON.stringify(_intelAll);
+                _intelAll = rows;
                 _rebuildIntelCounts();
                 await _prefetchCities((_intelAll || []).map(x => x.airport_code).filter(Boolean));
-                renderIntel();
+                if (changed || !hadData) renderIntel();
             } catch {
-                el.innerHTML = `<div class="text-center py-10 text-zinc-600 text-sm">Failed to load intel.</div>`;
+                if (!hadData) el.innerHTML = `<div class="text-center py-10 text-zinc-600 text-sm">Failed to load intel.</div>`;
             }
         }
 
@@ -12718,6 +12724,7 @@ async function openAdminPanel(tab = 'users') {
                 if (!Array.isArray(rows)) return;
                 _intelAll = rows;
                 _rebuildIntelCounts();
+                await _prefetchCities(rows.map(x => x.airport_code).filter(Boolean));
             } catch {}
         }
 
@@ -12807,12 +12814,20 @@ async function openAdminPanel(tab = 'users') {
             }
         }
 
+        let _intelMapKey = null;
         function renderIntelMap() {
             const el = document.getElementById('intel-content');
             if (!el) return;
             const items = _intelVisible();
 
             document.getElementById('view-intel').classList.add('intel-map-mode');
+            // Same pins and the map is still on the page: keep it, tiles and position included.
+            const mapKey = items.map(x => `${x.id}:${x.category}:${x.airport_code}`).join();
+            if (_intelMap && mapKey === _intelMapKey && el.querySelector('#intel-map-el')) {
+                requestAnimationFrame(() => _intelMap?.invalidateSize());
+                return;
+            }
+            _intelMapKey = mapKey;
             el.innerHTML = `<div id="intel-map-el"></div>`;
 
             if (items.length === 0) return;
@@ -12824,6 +12839,7 @@ async function openAdminPanel(tab = 'users') {
             if (_intelMap) {
                 _savedCenter = _intelMap.getCenter();
                 _savedZoom   = _intelMap.getZoom();
+                _basemapMaps = _basemapMaps.filter(e => e.map !== _intelMap);
                 _intelMap.remove(); _intelMap = null;
             }
             _intelMap = L.map('intel-map-el', { zoomControl: false, attributionControl: false, worldCopyJump: true, doubleClickZoom: true, bounceAtZoomLimits: false });
