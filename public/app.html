@@ -9745,6 +9745,8 @@
             // or admin on any pilot's, and only on an actual NetJets tour day, not Kyle's reserve
             // "ON CALL" system which shares the same _pilotOnDutyDefault() plumbing.
             const _tourEditBtn = _tourEditButton(dateKey, '✈️ Edit Tour');
+            // Opens on this day, not today: James's old flights kept landing on the current date.
+            const _addFlightBtn = canEdit() ? `<button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openAddFlight('${dateKey}')" class="text-[9px] font-black uppercase tracking-widest text-blue-400 border border-blue-900 rounded-full px-2.5 py-1 mt-1.5 hover:bg-blue-950/40 transition-colors">+ Add Flight</button>` : '';
             // A tour day with no legs yet isn't missing data -- NetJets only files ~16-18h ahead
             // (research log, 2026-10-30..11-03), so say when to expect them instead of looking empty.
             const _tourLegsNote = (_pilotOnDutyDefault(currentPilot, dateKey) && _onDutyDefaultLabel(currentPilot) === 'ON TOUR'
@@ -9764,7 +9766,7 @@
                     <div class="text-lg font-black text-white mt-0.5">${dateLabel}</div>
                     ${_tourLegsNote}
                     ${_blockNote}
-                    ${_tourEditBtn}
+                    <div class="flex flex-wrap gap-1.5">${_tourEditBtn}${_addFlightBtn}</div>
                 </div>
                 <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden')" class="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 text-sm shrink-0">✕</button>
             </div>`;
@@ -10197,13 +10199,13 @@ let _blockUserEdited = false;
             }
         }
 
-        function openAddFlight() {
+        function openAddFlight(dateKey) {
             if (!canEdit()) { showToast('You can only add flights to your own schedule.', 'error'); return; }
             _editSegmentId = null;
             _blockUserEdited = false;
             document.getElementById('add-flight-title').textContent = 'Add Flight';
             document.getElementById('add-flight-submit-btn').textContent = 'Add Flight';
-            document.getElementById('add-date').value = _localToday();
+            document.getElementById('add-date').value = dateKey || _localToday();
             document.getElementById('add-pilot').value = myPilot || currentPilot || PILOT_KEYS[0];
             ['add-dep','add-arr','add-dep-time','add-arr-time','add-flight-num','add-tail-num','add-block-time','add-training-location'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
             document.getElementById('add-block-auto-label').textContent = '(auto-calculated)';
@@ -10471,7 +10473,9 @@ let _blockUserEdited = false;
                 if (data.success) {
                     closeAddFlight();
                     if (pilot === currentPilot) loadPilot(currentPilot);
-                    showToast(isEdit ? 'Flight updated' : 'Flight added');
+                    // Say where it went: a flight saved on the wrong day looks like it never saved.
+                    const addedOn = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                    showToast(`${isEdit ? 'Flight updated' : 'Flight added'} for ${addedOn}`);
                 } else {
                     errEl.textContent = data.error || (isEdit ? 'Failed to save changes.' : 'Failed to add flight.');
                     errEl.classList.remove('hidden');

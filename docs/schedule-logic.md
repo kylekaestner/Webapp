@@ -200,6 +200,8 @@ UTC/local date skew is common: segments stored in local time, `new Date()` in br
 
 ## Add flight modal (`submitAddFlight()`, ~line 7024)
 
+The header button opens on today. The day detail's **+ Add Flight** opens on that day. The confirmation names the date, because a flight saved on the wrong day looks like it never saved.
+
 4 flight types: **Work** (`trip` = pairing #), **DH** (`is_dh=true`), **Commute** (`trip='COMMUTE'`, `is_manual=1`), **Personal** (`trip='PERSONAL'`, `is_manual=1`). Fields: pilot selector (admin only), date, DEP/ARR airports (auto-uppercased), dep/arr times, block time (auto-calculated via `autoComputeBlockTime()` unless manually edited), flight #, tail #. POSTs to `/api/pilots/:key/add-segment`; edit mode PUTs to `/segments/:id`. The form is always local airport time. When editing a UTC-stored row (NetJets auto legs, Schedaero), `openEditFlight()` converts the `Z` time to airport-local before pre-filling. Slicing the raw string used to shift the leg by the UTC offset on any save. On save, a row that was stored in UTC is converted back to UTC, so a pilot's rows never end up mixed: Crossings reads a UTC pilot's rows as UTC. Separate `#edit-ground-modal` for ground legs.
 
 ## Schedaero sync (Kyle)
