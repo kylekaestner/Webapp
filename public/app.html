@@ -9810,7 +9810,6 @@
                     const isSoft = dayEvents.some(e => e.type === 'soft');
             const isVacation = dayEvents.some(e => e.type === 'vacation');
             const isTraining = dayEvents.some(e => e.type === 'training');
-            const trainingLoc = isTraining ? (dayEvents.find(e => e.type === 'training')?.departureAirport || null) : null;
             let away = dayEvents.find(e => e.type === 'away');
             if (away && isHomeAirport(away.arrivalAirport, currentPilot)) away = null;
             const flights = dayEvents.filter(e => e.type === 'flight').sort((a, b) => (flightUTCTime(a.departureTime, a.departureAirport) || new Date(a.departureTime)) - (flightUTCTime(b.departureTime, b.departureAirport) || new Date(b.departureTime)));
@@ -9884,14 +9883,12 @@
                 // showed "ON CALL" in the header and "Day Off" in the body simultaneously. Found
                 // live on Mack while on tour.
                 const _onDutyHere = _pilotOnDutyDefault(currentPilot, dateKey);
-                const icon = isVacation ? '🌴' : isHard ? '🔴' : isSoft ? '🌸' : isTraining ? '🎓' : away ? '🏨' : _onDutyHere ? '📟' : '😴';
-                const msg  = isVacation ? 'Vacation' : isHard ? 'Hard Day Off' : isSoft ? 'Soft Day' : isTraining ? (trainingLoc ? `Training · ${trainingLoc}` : 'Training Day') : away ? `Away at ${aptLabel(away.arrivalAirport, currentPilot)}` : _onDutyHere ? (_onDutyDefaultLabel(currentPilot) === 'ON TOUR' ? 'On Tour' : 'On Call') : 'Day Off';
-                const specialSeg = isTraining ? dayEvents.find(e => e.type === 'training') : isVacation ? dayEvents.find(e => e.type === 'vacation') : null;
-                const specialEditActions = (specialSeg?.id && canEdit()) ? `<div class="flex gap-2 mt-4 pt-4 border-t border-white/10">
-                    <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${specialSeg.id})" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
-                    <button onclick="deleteManualFlight(${specialSeg.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
-                </div>` : '';
-                html += `<div class="py-8"><div class="text-center"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div>${specialEditActions}</div>`;
+                const icon = isHard ? '🔴' : isSoft ? '🌸' : away ? '🏨' : _onDutyHere ? '📟' : '😴';
+                const msg  = isHard ? 'Hard Day Off' : isSoft ? 'Soft Day' : away ? `Away at ${aptLabel(away.arrivalAirport, currentPilot)}` : _onDutyHere ? (_onDutyDefaultLabel(currentPilot) === 'ON TOUR' ? 'On Tour' : 'On Call') : 'Day Off';
+                // A vacation or training day is already its own card below, with the Edit/Delete
+                // buttons. A hard or soft day still needs saying here, since no card covers it.
+                const cardCoversDay = isVacation || (isTraining && !isHard && !isSoft);
+                if (!cardCoversDay) html += `<div class="py-8"><div class="text-center"><div class="text-3xl mb-2">${icon}</div><div class="text-sm font-bold text-zinc-400">${msg}</div></div></div>`;
             }
 
             // Training/vacation card — shown whenever the segment exists, even alongside flights

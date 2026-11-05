@@ -321,3 +321,5 @@ FHOL/FH/Floating Holiday imports as vacation. The Off Days list also ignored Kyl
 Live map tag sat on the route (11/5): on EJA23 heading southwest into San Diego, the tag covered the line to HNAHH/LUCKI. `perpendicularDirs()` only knew N/S vs E/W, so a diagonal heading counted as N/S and went left, along the path, and heading can't see a route turning right after the plane anyway. `deoverlapLiveLabels()` now scores each side by how much nearby route it covers, using the paths `update()` hands to the label entry.
 
 Version 1.0.12-beta (2026-11-05): cancelled and deleted NetJets legs stay off the schedule, map and banner, block time only from real arrivals, NetJets on the join page with join uploads fixed, new Schedaero day codes, faster Intel, iOS and Safari layout fixes, and the live map tag stays off the route.
+
+Day detail showed two Edit/Delete pairs on a training or vacation day (11/5): the empty-day placeholder had its own pair, and the card added for days with flights too had another. The card now owns the buttons, and the placeholder is skipped when the card covers the day.
