@@ -3027,13 +3027,19 @@ app.delete('/api/pilots/:pilotKey/segments/:id', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!pilot) return res.status(404).json({ error: 'Pilot not found' });
 
+        // A deleted NetJets leg still filed on the tail would be rebuilt on the next poll, so it's kept
+        // as auto_leg_cancelled=3: hidden, not restored by flying (1) or by "Staying" (2).
         db.run(
-            'DELETE FROM segments WHERE id=? AND pilot_id=?',
+            'UPDATE segments SET auto_leg_cancelled=3 WHERE id=? AND pilot_id=? AND auto_leg_key IS NOT NULL',
             [id, pilot.id],
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
-                if (this.changes === 0) return res.status(404).json({ error: 'Segment not found' });
-                res.json({ success: true });
+                if (this.changes > 0) return res.json({ success: true });
+                db.run('DELETE FROM segments WHERE id=? AND pilot_id=?', [id, pilot.id], function (err2) {
+                    if (err2) return res.status(500).json({ error: err2.message });
+                    if (this.changes === 0) return res.status(404).json({ error: 'Segment not found' });
+                    res.json({ success: true });
+                });
             }
         );
     });

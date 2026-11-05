@@ -298,4 +298,6 @@ The haze at the top of the installed app, chased in October, is an iOS blur over
 
 Frozen planes after landing: `finishTracking()` still called `_departureDelays.delete()` after the Map was removed on 2026-05-30, so it threw before clearing the plane, trail and label. Any flight that ended left them on the map until the next redraw. Found 2026-11-04 from a console error during an unrelated check.
 
+Mack got off tail 23 for one leg and deleted the legs another crew would fly, but deleted legs were rebuilt on the next poll while still filed. Deleting an auto leg now keeps a hidden row.
+
 James kept MAF->FTW on his schedule after it was cancelled, because a plan that left the feeds was never checked. Open rows are now checked against TFMS each poll, and a cancelled leg that really moves comes back. Before that, a cancelled leg stayed hidden even if it flew.
