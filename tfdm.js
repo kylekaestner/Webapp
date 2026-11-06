@@ -336,6 +336,10 @@ function processOneMessage(msgObj) {
         const legsMap = _legs[cs] || (_legs[cs] = new Map());
         const leg = legsMap.get(lk) || { origin, dest };
         leg.lastMsg = Date.now();
+        // The key has no date: a later flight of the same city pair mustn't inherit the old runways.
+        if (offBlockIso && leg.scheduledDepMs != null && Math.abs(scheduledDepMs - leg.scheduledDepMs) > 6 * 3600000) {
+            leg.depRunway = null; leg.arrRunway = null;
+        }
         if (offBlockIso) { leg.offBlockTime = offBlockIso; leg.scheduledDepMs = scheduledDepMs; }
         if (depRunway) leg.depRunway = depRunway;
         if (arrRunway) leg.arrRunway = arrRunway;

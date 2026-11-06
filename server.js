@@ -4346,8 +4346,18 @@ function resolveRouteWaypoints(routeParsed, callsign) {
     // instead of its old "always bodies[0]" guess — see navdata.js's pickBody(). `null` fields
     // (TFDM hasn't reported a runway for this flight yet) are handled there as "no preference,
     // fall back to the old deterministic guess", not an error.
+    //
+    // A NetJets tail's own leg record comes first. The flat record loses its runways whenever a
+    // message for another leg arrives, and a tail always has several legs updating at once, so
+    // EJA23's TRM->LAS drew the RNDRZ4 19/26 branch while TFDM had the leg on 01L. Airlines have no
+    // per-leg records, so they stay on the flat one. A leg record gone quiet for 6h is an earlier
+    // flight of the same city pair.
+    const originApt = norm3Airport(originWp?.name), destApt = norm3Airport(destWp?.name);
+    const legInfo = callsign && originApt && destApt ? tfdm.getAllLegs(callsign).find(l =>
+        norm3Airport(l.origin) === originApt && norm3Airport(l.dest) === destApt
+        && Date.now() - (l.lastMsg || 0) <= 6 * 3600000) : null;
     const tfdmInfo = callsign ? tfdm.getFlightInfo(callsign) : null;
-    const runwayInfo = sameLeg(tfdmInfo) ? tfdmInfo : null;
+    const runwayInfo = legInfo || (sameLeg(tfdmInfo) ? tfdmInfo : null);
 
     // When TFDM has nothing for this flight yet, fall back to TFMS's airport-configuration feed
     // (tfms.js's getAirportConfig(), msgType="APTC") — the airport's actual current runway flow,

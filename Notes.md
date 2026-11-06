@@ -1,7 +1,7 @@
 ~~Leaflet has 2 tone map. Dark and grey blue~~ (CARTO restyle, basemap tinted 11/3)
 ~~app is still a bit laggy. refresh page can't click on anything for a few seconds.~~ (fixed 11/3: Crossings startup work 64x faster, one request per pilot)
 ~~Map takes a few seconds to respond/load data.~~ (fixed 11/3: 0.53s on phone, admin)
-MAcks e38-okc flight had wrong transition data in for runway in use -- STILL OPEN 11/3: removed a runway borrowed from another leg, not confirmed. Check the next arrival against the runway in use.
+MAcks e38-okc flight had wrong transition data in for runway in use -- STILL OPEN 11/3: removed a runway borrowed from another leg, not confirmed. 11/5: EJA23 TRM-LAS drew the RNDRZ4 19/26 branch with TFDM on 01L; runway now comes from the leg's own TFDM record. Check the next arrival against the runway in use.
 ~~Mack and James were showing the live green on the grid/list after landing. James had 200ft, 117 knots. Mack had no data. Potenital park flag not working. Mack on the map said "on ground" e38-okc was dashed like it was live. James was thinking his next flight was live CQF-HOT and also had the route for HOT-CLT showing. Still haven't fixed the bug if the 2nd leg down the line FP comes in to store and and not display it until its relevant. James actually had 2 dashed lines coming out one for the HOT route and one for CLT route~~ (fixed 11/3: per-leg state and routes, watch the next few landings)
 
 KCQF → HOTJames · EJA492

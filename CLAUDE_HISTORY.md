@@ -323,3 +323,7 @@ Live map tag sat on the route (11/5): on EJA23 heading southwest into San Diego,
 Version 1.0.12-beta (2026-11-05): cancelled and deleted NetJets legs stay off the schedule, map and banner, block time only from real arrivals, NetJets on the join page with join uploads fixed, new Schedaero day codes, faster Intel, iOS and Safari layout fixes, and the live map tag stays off the route.
 
 Day detail showed two Edit/Delete pairs on a training or vacation day (11/5): the empty-day placeholder had its own pair, and the card added for days with flights too had another. The card now owns the buttons, and the placeholder is skipped when the card covers the day.
+
+## 2026-11-05 — NetJets STAR branch from the leg's own runway
+
+EJA23's TRM→LAS drew the RNDRZ4 branch for 19/26 (GRMMA, BUETY, ENNVY) while TFDM had the leg on 01L and the aircraft was flying the 01L branch (past ROAMN). `resolveRouteWaypoints()` read TFDM's flat per-callsign record, which clears its runways whenever a message for another leg arrives. A tail always has several legs updating, so the runway was usually missing or belonged to another leg, and the 11/3 `sameLeg` guard then sent it to the fallbacks. Mack's E38→OKC wrong transition (Notes.md) was probably the same thing. It now uses the leg's own record, and a re-filed city pair clears the old runways since TFDM's leg key has no date.
