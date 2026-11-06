@@ -173,7 +173,8 @@ function parseRosterBusterICS(text) {
         // Flight number: last space-separated token after the closing paren in LOCATION
         // e.g. "(2010Z-2148Z) G74536"  or  "(2125Z-2341Z) UA5618"
         const flightNumM = location.match(/\)\s+([A-Z0-9]{3,7})\s*$/i);
-        const flightNumber = flightNumM ? flightNumM[1].toUpperCase() : '';
+        // Some feed rows end in Z ("G74519Z"), which can't become a callsign, so the leg never tracks.
+        const flightNumber = flightNumM ? flightNumM[1].toUpperCase().replace(/(\d)Z$/, '$1') : '';
 
         // Aircraft type: first token after local time parens in DESCRIPTION (skip for DH)
         // e.g. "(1510L-1648L) CR7 cockpit ..."
@@ -5911,9 +5912,12 @@ async function runActiveFlightPoller() {
                 let inAdsbWindow = true, inSwimWindow = true, depUTC = null;
                 if (row.departure_time && row.departure_airport) {
                     const tz = _aptTimezone[row.departure_airport];
-                    if (tz) {
-                        const compact = row.departure_time.replace(/[-:]/g, '');
-                        depUTC = new Date(localTZToUTC(compact, tz));
+                    // A Z time is already UTC (RosterBuster, Schedaero, SCX, NetJets auto legs).
+                    // localTZToUTC ignores the Z and shifts it again, which opened the feeds' window
+                    // up to 6h late: a short leg had landed before anything started listening for it.
+                    const isUtc = /Z$/.test(row.departure_time);
+                    if (tz || isUtc) {
+                        depUTC = isUtc ? new Date(row.departure_time) : new Date(localTZToUTC(row.departure_time.replace(/[-:]/g, ''), tz));
                         const diffMs = now.getTime() - depUTC.getTime();
                         inAdsbWindow = diffMs <= POLLER_LOOKBACK_MS && diffMs >= -ADSB_LOOKAHEAD_MS;
                         inSwimWindow = diffMs <= POLLER_LOOKBACK_MS && diffMs >= -SWIM_LOOKAHEAD_MS;

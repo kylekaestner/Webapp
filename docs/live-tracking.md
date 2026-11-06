@@ -87,6 +87,10 @@ Shows the planned/filed route up to `PREFLIGHT_ROUTE_MS` (30 minutes) before sch
 
 `renderDayMap()` asks `/api/flight-status` with one origin per callsign: the latest leg that has started, or the next one. The server rejects evidence from another origin, so asking with the first leg's origin left a round trip's second leg at DEPARTURE DUE.
 
+### The poller's windows run on true UTC
+
+`runActiveFlightPoller()` decides which callsigns the feeds keep: SWIM/STDDS/TFMS/TFDM from 4 hours before departure, ADS-B from 30 minutes before, both until 8 hours after. A `departure_time` ending in `Z` is already UTC and is used as is. Only a time with no `Z` goes through `localTZToUTC`, which ignores a `Z` and would shift it by the airport's offset. A callsign outside the window gets no feed data at all, so `/api/flight-status` returns empty `times` and the leg shows DEPARTURE DUE.
+
 ### A later leg can't borrow its callsign's evidence
 
 `startLiveTracking()` re-checks `_isCurrent()` after each position fetch, because a poll already in flight when another leg takes over would otherwise draw a trail and position nothing clears.

@@ -337,3 +337,11 @@ Then the schedule against FlightAware. EJA492 diverted NUQ→TRK to RNO in fligh
 A readiness audit found routes with no login check, so friend-gating only held on the main schedule route. `/api/settings/:key`, `/api/segments`, `here-now`, `/api/admin/stats` and `POST /api/early-landing` are now gated, and a pilot can only send crossing alerts for their own crossings. Kyle chose to leave Schedaero alone rather than get a fresh session: `schedaero-creds`, the Schedaero sync routes and `/api/kyle/company-crew` are still open. `/api/live-position` and `/api/flight-status` are also still open.
 
 Crossing alerts only reached one pilot: `crossing_key` is UNIQUE and both pilots shared one key, so the second insert was ignored and no push went out. The key now names the pilot, and a pilot who already has the old bare key isn't alerted again.
+
+## Poller windows and UTC-stored legs (2026-11-06)
+
+Drew's STL-ORD-STL legs on 11/6 (GJS4439, GJS4613, GJS4601) sat at DEPARTURE DUE with no live data. From 10/31 to 11/6, `flight_log` matched 2 of his 9 legs, while other airline pilots matched almost all of theirs. `runActiveFlightPoller()` passed every `departure_time` through `localTZToUTC`, which ignores a trailing `Z`, so a UTC time was shifted again by the airport's offset. At STL in CST the poller thought each leg left 6 hours late. The 4-hour feed window opened 2 hours after the real departure, and the 30-minute ADS-B window, the only one where the poller itself calls `fetchLivePosition()` and records a flight as airborne, opened 5.5 hours after. Between those two, feed data was only read if a client happened to be polling.
+
+The bug dates from at least 10/2. The 11/1 clock change added an hour to the offset, so the feed window now opens 1 hour after departure at Eastern airports and 2 at Central, up from 0 and 1. That's enough to miss most of Drew's 1.5 to 2 hour legs. `flight_log` keeps 7 days, so the rate before 11/1 can't be measured. The 11/3 DST fix (`fa0b851`) was a separate change to local-time conversion and didn't cause or cover this. NetJets legs are also tracked by the on-duty path, so they kept working. SkyWest, Republic and Delta store local times and were never affected.
+
+The same day, three RosterBuster flight numbers ending in Z (`G74519Z`) turned out not to convert to a callsign, so `parseRosterBusterICS` now strips that Z.
