@@ -5412,6 +5412,14 @@ function _njHiddenReason(row, plans, rowDepMs) {
     return `hidden: NetJets cancelled the plan${refiled ? ` · refiled as ${origin} → ${norm3Airport(refiled.dest)}` : ''}`;
 }
 
+// NetJets cancelled the leg a pilot picked as their last on this aircraft and refiled that departure
+// somewhere else (Mack's XNA->DAL, then XNA->ADS). The refile is their last leg now, not another crew's.
+function _isLastLegRefile(lastLeg, row, origin, depTime, plan) {
+    return !!lastLeg && !row && lastLeg.auto_leg_cancelled === 1 && !_tfmsLegCancelled(plan)
+        && norm3Airport(lastLeg.departure_airport) === origin
+        && Math.abs(Date.parse(lastLeg.departure_time) - Date.parse(depTime)) <= NETJETS_SAME_DEPARTURE_TOLERANCE_MS;
+}
+
 function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs) {
     let best = null, bestDiff = Infinity;
     for (const row of existingRows) {
@@ -5634,7 +5642,8 @@ async function _netjetsLegCreationPass(db, onDutyList) {
 
             // The pilot left this tail after their last leg: what the aircraft flies next is another crew's.
             const lastLeg = nj.lastLegId ? existingRows.find(r => r.id === nj.lastLegId) : null;
-            if (lastLeg && row?.id !== lastLeg.id && Date.parse(depTime) > Date.parse(lastLeg.departure_time)) {
+            const lastLegRefile = _isLastLegRefile(lastLeg, row, origin, depTime, legTimes);
+            if (lastLeg && !lastLegRefile && row?.id !== lastLeg.id && Date.parse(depTime) > Date.parse(lastLeg.departure_time)) {
                 if (row && !row.auto_leg_cancelled && !row.auto_leg_complete) {
                     row.auto_leg_cancelled = 2;
                     db.run('UPDATE segments SET auto_leg_cancelled=2 WHERE id=?', [row.id], () => {});
@@ -5685,6 +5694,11 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                     touchedRowIds.add(newId);
                     existingRows.push({ id: newId, auto_leg_key: autoLegKey, departure_airport: origin, arrival_airport: finalDest || '', departure_time: depTime, arrival_time: finalArrTime, auto_leg_complete: landed ? 1 : 0, auto_leg_edited: 0, auto_leg_cancelled: 0 });
                     console.log(`[NetJets] ${nj.pilotKey}: new leg ${autoLegKey} ${origin}->${finalDest || '?'}`);
+                    if (lastLegRefile) {
+                        db.run('UPDATE pilot_tour_tail SET last_leg_id=? WHERE pilot_id=? AND tour_start_date=? AND last_leg_id=?', [newId, nj.pilotId, nj.tourStart, lastLeg.id], () => {});
+                        nj.lastLegId = newId;
+                        console.log(`[NetJets] ${nj.pilotKey}: last leg moved to the refile ${autoLegKey}`);
+                    }
                 } catch (e) { console.error('[NetJets] insert failed:', e.message); }
                 continue;
             }
