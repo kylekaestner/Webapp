@@ -1879,6 +1879,21 @@
     </div>
 </div>
 
+<!-- NetJets last leg gone: the pilot's picked last leg was cancelled or deleted before it flew -->
+<div id="netjets-last-leg-modal" class="hidden fixed inset-0 z-[1010] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)dismissNetjetsLastLegAlert()">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-xs bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+        <div class="px-6 pt-6 pb-5 space-y-2">
+            <p id="netjets-last-leg-title" class="text-sm font-black uppercase tracking-wide text-white">Last Leg Cancelled</p>
+            <p id="netjets-last-leg-body" class="text-xs text-zinc-400 leading-relaxed"></p>
+        </div>
+        <div class="flex border-t border-zinc-800">
+            <button onclick="dismissNetjetsLastLegAlert()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Not Now</button>
+            <button onclick="_openTourFromLastLegAlert()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30 transition-colors">Pick Leg</button>
+        </div>
+    </div>
+</div>
+
 <!-- NetJets Tour Tail Modal -- dedicated, scoped to ONE tour (not routed through My Info) --
      opened from the day-detail sheet's "Edit Tour" button on any on-duty day, or from the
      reminder popup below. -->
@@ -3612,6 +3627,38 @@
             try { localStorage.setItem(dedupKey, '1'); } catch (_) {}
         }
         let _netjetsReminderTourStart = null;
+        // A pilot's last leg can't be replaced automatically unless it was refiled (_isLastLegRefile() in
+        // server.js), and until it is, every later leg stays off their schedule as another crew's.
+        // Only they know if they're still on the aircraft. Once a day per leg until they pick.
+        let _netjetsLastLegTourStart = null;
+        function _netjetsDeadLastLeg(pilotKey, data, tourStart) {
+            const lastLegId = (data?.tour_tails || []).find(t => t.tour_start_date === tourStart)?.last_leg_id;
+            const leg = lastLegId ? (data?.segments || []).find(s => s.id === lastLegId) : null;
+            return leg && !leg.auto_leg_complete && [1, 3].includes(leg.auto_leg_cancelled) ? leg : null;
+        }
+        function _maybeShowNetjetsLastLegAlert(pilotKey, data) {
+            if (data?.parser_type !== 'manual_netjets') return;
+            const todayStr = _todayLocalDateStr();
+            const tourStart = _tourStartDateFor(pilotKey, todayStr);
+            const leg = tourStart ? _netjetsDeadLastLeg(pilotKey, data, tourStart) : null;
+            if (!leg) return;
+            const dedupKey = `cs_netjets_last_leg_${pilotKey}_${leg.id}_${todayStr}`;
+            try { if (localStorage.getItem(dedupKey)) return; } catch (_) {}
+            _netjetsLastLegTourStart = tourStart;
+            const deleted = leg.auto_leg_cancelled === 3;
+            const route = `${aptLabel(leg.departure_airport, pilotKey)} → ${aptLabel(leg.arrival_airport, pilotKey)}`;
+            document.getElementById('netjets-last-leg-title').textContent = deleted ? 'Last Leg Deleted' : 'Last Leg Cancelled';
+            document.getElementById('netjets-last-leg-body').textContent = `${route} was your last leg on this aircraft and it ${deleted ? 'was deleted' : 'was cancelled'}. Legs after it stay off your schedule until you pick a new last leg.`;
+            document.getElementById('netjets-last-leg-modal')?.classList.remove('hidden');
+            try { localStorage.setItem(dedupKey, '1'); } catch (_) {}
+        }
+        function dismissNetjetsLastLegAlert() {
+            document.getElementById('netjets-last-leg-modal')?.classList.add('hidden');
+        }
+        function _openTourFromLastLegAlert() {
+            dismissNetjetsLastLegAlert();
+            if (_netjetsLastLegTourStart) openNetjetsTourModal(_netjetsLastLegTourStart);
+        }
         function dismissNetjetsTailReminder() {
             document.getElementById('netjets-tail-reminder-modal')?.classList.add('hidden');
         }
@@ -4161,7 +4208,7 @@
 
                 // Cache pilot data for use in render()
                 pilotsCache[pilot] = data;
-                if (pilot === myPilot) _maybeShowNetjetsTailReminder(pilot, data);
+                if (pilot === myPilot) { _maybeShowNetjetsTailReminder(pilot, data); _maybeShowNetjetsLastLegAlert(pilot, data); }
 
                 // Sync dynamic pilot metadata from DB (role, name) — handles newly joined pilots
                 if (data.name)  PILOT_NAMES[pilot] = data.name;
@@ -7016,7 +7063,10 @@
                         // so it simply never matches any future leg's lookup again.
                         if (d.found && d.onGround && d.speedKts > 5) {
                             const _tfdmIn = /TAXI_IN|ARRIVAL/.test(d.tfdmState || '') ? 'in' : /TAXI_OUT/.test(d.tfdmState || '') ? 'for departure' : null;
-                            txt = `Taxiing${_tfdmIn ? ' ' + _tfdmIn : ''} · ${Math.round(d.speedKts)} kts`;
+                            // Too fast to be taxiing: on the runway.
+                            const _landing = _tfdmIn ? _tfdmIn === 'in' : !!d.hasBeenAirborne;
+                            txt = d.speedKts >= 50 ? `${_landing ? 'Landing' : 'Taking off'} · ${Math.round(d.speedKts)} kts`
+                                : `Taxiing${_tfdmIn ? ' ' + _tfdmIn : ''} · ${Math.round(d.speedKts)} kts`;
                         } else if (d.found && !d.onGround && d.altFt != null) {
                             const alt = d.altFt >= 18000 ? `FL${Math.round(d.altFt / 100)}` : `${Math.round(d.altFt).toLocaleString()} ft`;
                             const kts = d.speedKts ? ` · ${Math.round(d.speedKts)} kts` : '';
@@ -7684,6 +7734,7 @@
                         const _arriving = _taxiIn;
                         const kts = d.speedKts ? Math.round(d.speedKts) : null;
                         const isTaxiing = kts && kts > 5;
+                        const onRunway = kts && kts >= 50; // too fast to be taxiing
 
                         // Remove the departure dot once we have a real position
                         if (hereNowMarkers.length) {
@@ -7704,10 +7755,10 @@
                         showIcon();
                         let groundLabel, groundLabelColor;
                         if (_arriving) {
-                            groundLabel = isTaxiing ? `Taxiing in · ${kts} kts` : 'Arrived';
+                            groundLabel = onRunway ? `Landing · ${kts} kts` : isTaxiing ? `Taxiing in · ${kts} kts` : 'Arrived';
                             groundLabelColor = '#22c55e';
                         } else {
-                            groundLabel = isTaxiing ? `Taxiing for departure` : 'On ground';
+                            groundLabel = onRunway ? 'Taking off' : isTaxiing ? `Taxiing for departure` : 'On ground';
                             groundLabelColor = '#71717a';
                             // Real TFDM departure-delay insight (uploaded schedule stays the
                             // source of truth, never overwritten) -- only shown pre-departure,
@@ -7722,8 +7773,8 @@
                         // "IN THE AIR" even though ADS-B shows this aircraft hasn't lifted off
                         // (or has already landed) — overwrite it with the real ground state.
                         const popupGroundLabel = _arriving
-                            ? (isTaxiing ? `TAXIING IN · ${kts} KTS` : '✓ ARRIVED')
-                            : (isTaxiing ? 'TAXIING FOR DEPARTURE' : 'ON GROUND');
+                            ? (onRunway ? `LANDING · ${kts} KTS` : isTaxiing ? `TAXIING IN · ${kts} KTS` : '✓ ARRIVED')
+                            : (onRunway ? 'TAKING OFF' : isTaxiing ? 'TAXIING FOR DEPARTURE' : 'ON GROUND');
                         updateHitPopupStatus(popupGroundLabel, groundLabelColor);
                         // Draw the taxi breadcrumb trail whenever the aircraft is on the ground with history,
                         // not only while it's moving -- taxiing stops and starts, and the trail shouldn't drop out at a stop.

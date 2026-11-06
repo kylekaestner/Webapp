@@ -206,3 +206,11 @@ A callsign does not uniquely identify one leg — Kyle's corporate flights deriv
 - The `origin-state` debug endpoint from this investigation was removed 2026-11-03.
 
 Full bug-by-bug discovery narrative (8 distinct findings across 2026-10-09 through 2026-10-20): `CLAUDE_HISTORY.md § Same-day round trip sharing one callsign`.
+
+## Field elevation and leg history
+
+**Altitude is above sea level**, so it can't say a plane is at a field. `nearAirport()` (server.js, 5 nm) does: a SWIM fix under 50 kts near the leg's origin or destination is on the ground, and the NetJets frozen-landing rule accepts a fix near the destination as well as one under 1,500 ft. The airport data has no elevations.
+
+**Labels**: on the ground at 50 kts or more reads "Landing" or "Taking off", not taxiing. STDDS already calls under 50 kts surface.
+
+**Per-leg history** (`flight_leg_log`, `_legHistory`, one entry per callsign and origin): the airborne and parked state holds one leg per callsign, and the next leg clears it. `/api/flight-status` answers a leg from this history (`flewThenMovedOn`) only when the feeds say the number now departs elsewhere and `legFlewFrom()` finds this leg airborne within 8h before to 12h after its arrival. NetJets legs use TFMS's per-leg store instead.

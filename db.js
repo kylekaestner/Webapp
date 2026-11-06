@@ -118,6 +118,17 @@ function initDB() {
             updated_at INTEGER NOT NULL,
             PRIMARY KEY (callsign, day)
         )`);
+        // One row per callsign, origin and UTC day. flight_log's single row per callsign can't hold two
+        // legs, so a flight number reused for a later leg lost the earlier leg's history.
+        db.run(`CREATE TABLE IF NOT EXISTS flight_leg_log (
+            callsign TEXT NOT NULL,
+            origin TEXT NOT NULL,
+            day TEXT NOT NULL,
+            airborne_at INTEGER,
+            parked_at INTEGER,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (callsign, origin, day)
+        )`);
         db.run(`CREATE TABLE IF NOT EXISTS intel_votes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             intel_id INTEGER NOT NULL,
@@ -476,6 +487,7 @@ function initDB() {
 
 function pruneFlightLog() {
     getDB().run('DELETE FROM flight_log WHERE updated_at < ?', [Date.now() - 7 * 24 * 60 * 60 * 1000]);
+    getDB().run('DELETE FROM flight_leg_log WHERE updated_at < ?', [Date.now() - 7 * 24 * 60 * 60 * 1000]);
 }
 
 module.exports = { getDB, DB_PATH, generateToken, pruneFlightLog };

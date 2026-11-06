@@ -4136,6 +4136,45 @@ function markParked(cs, origin) {
     if (origin) _parkedOrigin[cs] = origin;
     scheduleParkedSave();
     logFlightEvent(cs, 'parked_at');
+    noteLegEvent(cs, origin || _everAirborneOrigin[cs], 'parked_at');
+}
+// What each leg of a flight number did, by origin. The airborne and parked state above holds one leg
+// per callsign and the next leg clears it, so a finished leg lost its history once the number moved on
+// (Drew's GJS4601 STL-ORD read "departure due" once it was filed ORD-COU).
+const _legHistory = {}; // callsign -> origin -> { airborneAt, parkedAt }
+const LEG_REPEAT_MS = 6 * 60 * 60 * 1000; // a later airborne sighting from one origin is the same flight within this
+function noteLegEvent(cs, origin, field) {
+    const o = norm3Airport(origin);
+    if (!cs || !o) return;
+    const now = Date.now();
+    const leg = (_legHistory[cs] = _legHistory[cs] || {})[o] = _legHistory[cs]?.[o] || {};
+    if (field === 'airborne_at') {
+        if (leg.airborneAt && now - leg.airborneAt < LEG_REPEAT_MS) return;
+        leg.airborneAt = now;
+    } else leg.parkedAt = now;
+    getDB().run(`INSERT INTO flight_leg_log (callsign, origin, day, airborne_at, parked_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(callsign, origin, day) DO UPDATE SET
+            airborne_at = COALESCE(excluded.airborne_at, airborne_at),
+            parked_at = COALESCE(excluded.parked_at, parked_at),
+            updated_at = excluded.updated_at`,
+        [cs, o, new Date(now).toISOString().slice(0, 10), field === 'airborne_at' ? now : null, field === 'parked_at' ? now : null, now], () => {});
+}
+// Did the leg from this origin, due in at arrMs, really fly? arrMs is what separates it from the same
+// flight number from the same airport on another day.
+function legFlewFrom(cs, origin, arrMs) {
+    const at = _legHistory[cs]?.[norm3Airport(origin)]?.airborneAt;
+    return !!(at && arrMs && at >= arrMs - 8 * 60 * 60 * 1000 && at <= arrMs + 12 * 60 * 60 * 1000);
+}
+function restoreLegHistory() {
+    getDB().all('SELECT callsign, origin, airborne_at, parked_at FROM flight_leg_log WHERE updated_at >= ? ORDER BY updated_at ASC',
+        [Date.now() - 2 * 24 * 60 * 60 * 1000], (err, rows) => {
+            if (err || !rows) return;
+            for (const r of rows) {
+                const leg = (_legHistory[r.callsign] = _legHistory[r.callsign] || {})[r.origin] = _legHistory[r.callsign]?.[r.origin] || {};
+                if (r.airborne_at) leg.airborneAt = r.airborne_at;
+                if (r.parked_at) leg.parkedAt = r.parked_at;
+            }
+        });
 }
 // On startup, restore recent airborne and parked events from the flight log, so a missing or damaged
 // state file doesn't reset a flight that already landed.
@@ -4167,7 +4206,7 @@ function restoreFromFlightLog() {
             }
         });
 }
-setTimeout(() => { restoreFromFlightLog(); pruneFlightLog(); }, 1500);
+setTimeout(() => { restoreFromFlightLog(); restoreLegHistory(); pruneFlightLog(); }, 1500);
 setInterval(pruneFlightLog, 6 * 60 * 60 * 1000);
 function unpark(cs) {
     _parkedCallsigns.delete(cs); delete _parkedAt[cs]; delete _parkedOrigin[cs];
@@ -4558,6 +4597,12 @@ const _groundStillSince = {};
 function isClearlyAirborne(data) {
     return data?.found && data.onGround === false && ((data.altFt ?? 0) > 2000 || (data.speedKts ?? 0) > 100);
 }
+// At the field by position. Altitude can't say so: it's above sea level, and a field can sit at 8,000 ft.
+function nearAirport(lat, lon, code) {
+    const at = code ? _aptCoords[String(code).toUpperCase()] || _aptCoords[norm3Airport(code)] : null;
+    if (!at || lat == null || lon == null) return false;
+    return Math.hypot(at[0] - lat, (at[1] - lon) * Math.cos(lat * Math.PI / 180)) * 60 <= 5; // nm
+}
 function applyCallsignGroundState(data, callsign, source) {
     if (!data?.found || !callsign) return data;
     const cs = String(callsign).toUpperCase().trim();
@@ -4567,7 +4612,10 @@ function applyCallsignGroundState(data, callsign, source) {
     // applies — harmless to (re)stamp it here for every source, since it's always this call's own
     // `source` argument restating what the data already carries for swim/stdds anyway.
     data.source = source;
-    if (source === 'swim' && data.altFt != null) data.onGround = data.altFt < 200;
+    if (source === 'swim' && data.altFt != null) {
+        const slowAtField = data.speedKts != null && data.speedKts < 50 && (nearAirport(data.lat, data.lon, data.origin) || nearAirport(data.lat, data.lon, data.dest));
+        data.onGround = data.altFt < 200 || slowAtField;
+    }
     if (!data.onGround || !_everAirborneCallsigns.has(cs) || (data.speedKts ?? 0) > 5) {
         delete _groundStillSince[cs];
         return data;
@@ -4601,7 +4649,7 @@ function withEverAirborne(data, callsign) {
     }
     if (isClearlyAirborne(data)) {
         markAirborne(cs);
-        if (data.origin) _everAirborneOrigin[cs] = data.origin;
+        if (data.origin) { _everAirborneOrigin[cs] = data.origin; noteLegEvent(cs, data.origin, 'airborne_at'); }
     }
     if (_everAirborneCallsigns.has(cs)) data.hasBeenAirborne = true;
     return data;
@@ -4667,7 +4715,8 @@ async function fetchLivePosition(callsign, expectedOrigin, arrMs, expectedDest) 
     if (data.found && _tfmsLegFlown(leg)) {
         const fixMs = data.positionMs || data.trail?.[data.trail.length - 1]?.[2] || 0;
         const etaMs = Date.parse(leg.eta || leg.routeEta || '') || 0;
-        if (fixMs && nowMs - fixMs > 120000 && (data.altFt ?? 0) < 1500 && etaMs && nowMs >= etaMs - 20 * 60000) {
+        const lowOrAtField = (data.altFt ?? 0) < 1500 || nearAirport(data.lat, data.lon, dest);
+        if (fixMs && nowMs - fixMs > 120000 && lowOrAtField && etaMs && nowMs >= etaMs - 20 * 60000) {
             return { found: false, parked: true, notThisLeg: true };
         }
     }
@@ -4991,11 +5040,16 @@ app.get('/api/flight-status', (req, res) => {
     // whether HIS leg ever flew); (2) applying notStale to the historical fact too then left NO
     // evidence available at all until the separate 3-hour-never-seen-flying fallback caught up --
     // nearly an hour of showing "DEPARTURE DUE" for a flight that had already landed on schedule.
+    // This leg flew, and the number has since been filed from somewhere else: the leg is over. Only
+    // when the feeds say the number moved on, the one case the checks here otherwise answer with nothing.
+    const flewThenMovedOn = cs => !njLegOf[cs] && !NJ_CALLSIGN_RE.test(cs) && !!expectedOrigin[cs]
+        && !originCheckOk(cs) && legFlewFrom(cs, expectedOrigin[cs], expectedArrival[cs]);
     const airborne = [...new Set(list)].filter(cs => {
         const nl = njLegOf[cs];
         // "Ever flew" (historical), not "in the air now" -- the grid marks a leg done on airborne +
         // past arrival, and excluding arrived legs left LBE->DJT stuck on "departure due".
         if (nl) return _tfmsLegFlown(nl);
+        if (flewThenMovedOn(cs)) return true;
         return !isParked(cs) && (
             (_everAirborneCallsigns.has(cs) && originOk(cs, _everAirborneOrigin[cs])) ||
             (notStale(cs) && originCheckOk(cs) && /DEPARTED|EN_ROUTE|ON_FINAL/.test(tfdm.getFlightInfo(cs)?.flightState || ''))
@@ -5006,7 +5060,7 @@ app.get('/api/flight-status', (req, res) => {
     // taxiing in but not yet confirmed parked, instead of calling both "IN THE AIR".
     const onGround = {};
     for (const cs of live) { if (_liveCache[cs]?.data?.onGround) onGround[cs] = true; }
-    const parked = [...new Set(list)].filter(cs => njLegOf[cs] ? _njLegDone(njLegOf[cs], tfms.getAllLegTimes(cs), now) : (isParked(cs) && originCheckOk(cs)));
+    const parked = [...new Set(list)].filter(cs => njLegOf[cs] ? _njLegDone(njLegOf[cs], tfms.getAllLegTimes(cs), now) : ((isParked(cs) && originCheckOk(cs)) || flewThenMovedOn(cs)));
     // Per-leg answers for NetJets legs (njlegs=callsign~origin~arrival,...), keyed the same way --
     // the day map asks about every leg of the day separately, since one callsign flies them all.
     // "live" belongs only to the leg actually being flown (most recently departed / on radar, not
