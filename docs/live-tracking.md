@@ -91,6 +91,8 @@ Shows the planned/filed route up to `PREFLIGHT_ROUTE_MS` (30 minutes) before sch
 
 `runActiveFlightPoller()` decides which callsigns the feeds keep: SWIM/STDDS/TFMS/TFDM from 4 hours before departure, ADS-B from 30 minutes before, both until 8 hours after. A `departure_time` ending in `Z` is already UTC and is used as is. Only a time with no `Z` goes through `localTZToUTC`, which ignores a `Z` and would shift it by the airport's offset. A callsign outside the window gets no feed data at all, so `/api/flight-status` returns empty `times` and the leg shows DEPARTURE DUE.
 
+**The feed filters are set before any lookups run.** A `null` relevant-callsign list means no filter, so each feed parses all nationwide traffic until the first pass sets it. Slow position lookups must stay after those calls.
+
 ### A later leg can't borrow its callsign's evidence
 
 `startLiveTracking()` re-checks `_isCurrent()` after each position fetch, because a poll already in flight when another leg takes over would otherwise draw a trail and position nothing clears.
@@ -158,6 +160,8 @@ Real TFDM fields: `departureDelay.{predictedDelay,currentDelay,actualDelay}` (IS
 ## Durable flight-tracking evidence + the day map's `_legState()`
 
 **Server-side evidence survives restarts.** `_everAirborneCallsigns`/`_parkedCallsigns` (with `_everAirborneOrigin`/`_parkedOrigin` per-leg origin tracking so a reused flight number's next leg doesn't inherit stale evidence), TTLs 12h/6h respectively. Persisted to SQLite via `logFlightEvent()` into `flight_log` (`callsign, day, origin, dest, airborne_at, parked_at, updated_at`, one row per callsign per UTC day, 7-day retention). `restoreFromFlightLog()` rehydrates both Sets 1.5s after server startup.
+
+**A spot-in only parks a flight that could have arrived.** STDDS `spotin` is ignored at the leg's own origin when the callsign has no airborne evidence, because a delayed flight returning to a gate sends the same event.
 
 **Parked detection is time-based** (`PARK_STILL_MS = 3 min` continuous stationary on the ground, tracked via `_groundStillSince`), not count-based. `isClearlyAirborne()` requires `onGround===false` AND (`altFt>2000` OR `speedKts>100`) — altitude alone misfires at elevated airports (PIT ~1200ft, DEN ~5400ft).
 

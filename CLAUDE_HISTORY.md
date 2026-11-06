@@ -345,3 +345,11 @@ Drew's STL-ORD-STL legs on 11/6 (GJS4439, GJS4613, GJS4601) sat at DEPARTURE DUE
 The bug dates from at least 10/2. The 11/1 clock change added an hour to the offset, so the feed window now opens 1 hour after departure at Eastern airports and 2 at Central, up from 0 and 1. That's enough to miss most of Drew's 1.5 to 2 hour legs. `flight_log` keeps 7 days, so the rate before 11/1 can't be measured. The 11/3 DST fix (`fa0b851`) was a separate change to local-time conversion and didn't cause or cover this. NetJets legs are also tracked by the on-duty path, so they kept working. SkyWest, Republic and Delta store local times and were never affected.
 
 The same day, three RosterBuster flight numbers ending in Z (`G74519Z`) turned out not to convert to a callsign, so `parseRosterBusterICS` now strips that Z.
+
+## CPU spike after every restart (2026-11-06)
+
+Each restart pinned the droplet's CPU for about 5 minutes, with `/api/health` taking up to 11 seconds. The feeds filter by the relevant-callsign list, which is `null` at boot, meaning no filter. `runActiveFlightPoller()` only set that list at the end of its pass, after awaiting a position lookup for each callsign in turn. With ADS-B timing out and returning 429s, the first pass took minutes, and during that time all four feeds fully parsed nationwide traffic. `.tfms_times_cache.json` held 6,685 callsigns, mostly unrelated airline flights. The poller now builds and sets the lists first, then runs the lookups.
+
+## Delayed flight marked parked before departure (2026-11-06)
+
+GJS4601 was delayed at STL and got a parked flag at 16:42Z with no airborne record, which the app treats as finished. The STDDS `spotin` path was the only parked path with no airborne check. RPA4517 showed the same pattern that morning, parked at 12:24Z and airborne at 12:27Z, so this predates the poller UTC fix, though that fix exposes GoJet legs to it. A spot-in at the leg's origin with no airborne evidence is now ignored.

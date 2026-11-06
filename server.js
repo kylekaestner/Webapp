@@ -4732,9 +4732,12 @@ async function _fetchLivePositionRaw(callsign, expectedOrigin, expectedDest, arr
         // uses. Feed it into the same _parkedCallsigns mechanism so the frontend's existing
         // completion/cleanup handling (built for the ADS-B parked signal) fires identically
         // regardless of which source actually detected the arrival.
-        if (stddsHit.event === 'spotin') {
+        // At the leg's own origin with no sign of flight, it's a delayed flight at a gate, not an arrival.
+        const cs = String(callsign).toUpperCase().trim();
+        const atOriginUnflown = expectedOrigin && stddsHit.airport && !_everAirborneCallsigns.has(cs)
+            && norm3Airport(stddsHit.airport) === norm3Airport(expectedOrigin);
+        if (stddsHit.event === 'spotin' && !atOriginUnflown) {
             stddsHit.parked = true;
-            const cs = String(callsign).toUpperCase().trim();
             markParked(cs, stddsHit.origin || null);
             _swimTrailBackfilled.delete(cs);
             clearAirborne(cs);
@@ -5904,6 +5907,8 @@ async function runActiveFlightPoller() {
             // checks each incoming message's own filed-route origin (when present) against this set
             // via setRelevantOrigins()/isExpectedOrigin() before merging anything from it.
             const swimOrigins = new Map();
+            const toPoll = [];   // position lookups, run once the feed filters below are set
+            const njToPoll = [];
             for (const row of (rows || [])) {
                 // Real, timezone-correct relevance check, now actually measured in true elapsed
                 // time rather than a same-looking-but-different-timezone string comparison.
@@ -5987,6 +5992,51 @@ async function runActiveFlightPoller() {
                 }
                 if (!inAdsbWindow || polled.has(callsign)) continue;
                 polled.add(callsign);
+                toPoll.push({ callsign, row });
+            }
+            // NetJets manual-tracking: merge in whoever's currently on-duty with a tour tail set.
+            // These have no scheduled departure_time at all (the whole point -- nothing's logged
+            // ahead of time), so they're kept out of the main query/loop above entirely and
+            // layered in here instead, right before the one call site that actually sets
+            // relevance -- merging anywhere else would risk the per-row loop's scheduled-flight
+            // assumptions (unparkIfNewLeg/matchesExpectedOrigin using a known departure_airport,
+            // which isn't meaningful for a tour that's already past its first leg). An empty
+            // swimDepTimes entry is deliberately permissive (see that Map's own header comment
+            // above) -- there's no "day" to check a NetJets leg against either.
+            let onDutyNetjets = [];
+            try {
+                onDutyNetjets = await new Promise(resolve => _getOnDutyNetjetsPilots(db, now.toISOString().slice(0, 10), resolve));
+            } catch (_) {}
+            for (const nj of onDutyNetjets) {
+                swimRelevant.add(nj.callsign);
+                if (nj.tailCallsign) { // international legs, see _pollNetjetsLegCreation
+                    swimRelevant.add(nj.tailCallsign);
+                    if (!swimDepTimes.has(nj.tailCallsign)) swimDepTimes.set(nj.tailCallsign, new Set());
+                }
+                if (!swimDepTimes.has(nj.callsign)) swimDepTimes.set(nj.callsign, new Set());
+                if (!polled.has(nj.callsign)) {
+                    polled.add(nj.callsign);
+                    njToPoll.push(nj.callsign);
+                }
+            }
+            // Wider swimRelevant set, refreshed every 15s — SWIM only needs to retain state for
+            // these, not every callsign nationwide. Deliberately NOT the same set `polled` drives
+            // (see ADSB_LOOKAHEAD_MS/SWIM_LOOKAHEAD_MS above).
+            swim.setRelevantCallsigns(swimRelevant);
+            stdds.setRelevantCallsigns(swimRelevant);
+            // tfms.js/tfdm.js get the richer Map (callsign -> known departure times) so they can
+            // reject a different calendar day's recurrence of the same flight number — see
+            // swimDepTimes's own header comment above for why swim.js/stdds.js don't need this.
+            tfms.setRelevantCallsigns(swimDepTimes);
+            tfdm.setRelevantCallsigns(swimDepTimes);
+            // tfms.js-only: real per-leg origin check for its estimated/airline times cache — see
+            // swimOrigins's own header comment above for why this isn't shared with tfdm.js (its
+            // existing per-message origin/dest reset already covers its own exposure to this bug).
+            tfms.setRelevantOrigins(swimOrigins);
+            // Lookups come after the filters are set. Until then every feed parses all of its
+            // nationwide traffic, and one slow ADS-B lookup at a time held that open for minutes
+            // after each restart, pinning the CPU.
+            for (const { callsign, row } of toPoll) {
                 const depUnixSec = row.departure_time ? Math.floor(new Date(row.departure_time).getTime() / 1000) : null;
                 try {
                     // fetchLivePosition() (not fetchAdsbPosition() directly) -- checks STDDS/SWIM
@@ -6013,49 +6063,13 @@ async function runActiveFlightPoller() {
                     if (data.found && !data.parked) console.log(`Poller: ${callsign} ${data.onGround ? (data.speedKts > 5 ? 'taxiing' : 'ground') : `${data.altFt ? Math.round(data.altFt) + 'ft' : 'airborne'}`} trail=${_posTrail[data.hex]?.length ?? 0}pts${data.source ? ` [${data.source}]` : ''}`);
                 } catch (_) {} // flight not yet airborne or no source available
             }
-            // NetJets manual-tracking: merge in whoever's currently on-duty with a tour tail set.
-            // These have no scheduled departure_time at all (the whole point -- nothing's logged
-            // ahead of time), so they're kept out of the main query/loop above entirely and
-            // layered in here instead, right before the one call site that actually sets
-            // relevance -- merging anywhere else would risk the per-row loop's scheduled-flight
-            // assumptions (unparkIfNewLeg/matchesExpectedOrigin using a known departure_airport,
-            // which isn't meaningful for a tour that's already past its first leg). An empty
-            // swimDepTimes entry is deliberately permissive (see that Map's own header comment
-            // above) -- there's no "day" to check a NetJets leg against either.
-            let onDutyNetjets = [];
-            try {
-                onDutyNetjets = await new Promise(resolve => _getOnDutyNetjetsPilots(db, now.toISOString().slice(0, 10), resolve));
-            } catch (_) {}
-            for (const nj of onDutyNetjets) {
-                swimRelevant.add(nj.callsign);
-                if (nj.tailCallsign) { // international legs, see _pollNetjetsLegCreation
-                    swimRelevant.add(nj.tailCallsign);
-                    if (!swimDepTimes.has(nj.tailCallsign)) swimDepTimes.set(nj.tailCallsign, new Set());
-                }
-                if (!swimDepTimes.has(nj.callsign)) swimDepTimes.set(nj.callsign, new Set());
-                if (!polled.has(nj.callsign)) {
-                    polled.add(nj.callsign);
-                    try {
-                        const data = await fetchLivePosition(nj.callsign); // answers for the leg being flown, see fetchLivePosition()
-                        processPositionUpdate(data);
-                        if (!data?.notThisLeg) _liveCache[nj.callsign] = { ts: Date.now(), data };
-                    } catch (_) {}
-                }
+            for (const callsign of njToPoll) {
+                try {
+                    const data = await fetchLivePosition(callsign); // answers for the leg being flown, see fetchLivePosition()
+                    processPositionUpdate(data);
+                    if (!data?.notThisLeg) _liveCache[callsign] = { ts: Date.now(), data };
+                } catch (_) {}
             }
-            // Wider swimRelevant set, refreshed every 15s — SWIM only needs to retain state for
-            // these, not every callsign nationwide. Deliberately NOT the same set `polled` drives
-            // (see ADSB_LOOKAHEAD_MS/SWIM_LOOKAHEAD_MS above).
-            swim.setRelevantCallsigns(swimRelevant);
-            stdds.setRelevantCallsigns(swimRelevant);
-            // tfms.js/tfdm.js get the richer Map (callsign -> known departure times) so they can
-            // reject a different calendar day's recurrence of the same flight number — see
-            // swimDepTimes's own header comment above for why swim.js/stdds.js don't need this.
-            tfms.setRelevantCallsigns(swimDepTimes);
-            tfdm.setRelevantCallsigns(swimDepTimes);
-            // tfms.js-only: real per-leg origin check for its estimated/airline times cache — see
-            // swimOrigins's own header comment above for why this isn't shared with tfdm.js (its
-            // existing per-message origin/dest reset already covers its own exposure to this bug).
-            tfms.setRelevantOrigins(swimOrigins);
             if (onDutyNetjets.length) {
                 try { await _pollNetjetsLegCreation(db, onDutyNetjets); } catch (e) { console.error('[NetJets] leg-creation poll failed:', e.message); }
             }
