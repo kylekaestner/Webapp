@@ -93,7 +93,7 @@ function getRouteForLeg(callsign, origin, dest, arrMs) {
 // for flights no CrewSync pilot is on. null (the startup default, before the first refresh)
 // means "no filter yet" — fail open to tracking everything rather than silently tracking
 // nothing if this is ever misconfigured.
-let _relevantCallsigns = null;
+let _relevantCallsigns = new Set(); // never null: no filter means parsing all nationwide traffic
 function setRelevantCallsigns(set) {
     _relevantCallsigns = set instanceof Set ? set : new Set(set || []);
     // Actively prune, don't just gate future entries. Messages can (and do, in a brief window

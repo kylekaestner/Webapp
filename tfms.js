@@ -50,7 +50,7 @@ const TFMS_QUEUE = process.env.TFMS_QUEUE;
 const TFMS_ENABLED = !!(TFMS_HOST && TFMS_VPN && TFMS_USER && TFMS_PASS && TFMS_QUEUE);
 
 let _connected = false;
-let _relevantCallsigns = null; // same pattern as swim.js/stdds.js
+let _relevantCallsigns = new Set(); // same pattern as swim.js/stdds.js
 // callsign -> Set<scheduledDepUTCms> -- see setRelevantCallsigns()/isExpectedDay() below. Unlike
 // swim.js/stdds.js (live position only, self-evidently "right now"), TFMS carries pre-departure
 // flight-plan/schedule data, which is exactly what let a recurring flight number's NEXT calendar

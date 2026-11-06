@@ -22,7 +22,7 @@ const STDDS_QUEUE = process.env.SCDSCONNECTION__QUEUENAME;
 const STDDS_ENABLED = !!(STDDS_HOST && STDDS_VPN && STDDS_USER && STDDS_PASS && STDDS_QUEUE);
 
 let _connected = false;
-let _relevantCallsigns = null; // same pattern as swim.js — set from CrewSync's own scheduled flights
+let _relevantCallsigns = new Set(); // same pattern as swim.js — set from CrewSync's own scheduled flights
 
 const _latest = {}; // callsign -> { airport, lat, lon, altFt, speedKts, heading, lastMsg, trail }
 const _watched = new Set(); // same lazy-trail-start pattern as swim.js

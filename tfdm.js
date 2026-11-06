@@ -38,7 +38,7 @@ const TFDM_QUEUE = process.env.TFDM_QUEUE;
 const TFDM_ENABLED = !!(TFDM_HOST && TFDM_VPN && TFDM_USER && TFDM_PASS && TFDM_QUEUE);
 
 let _connected = false;
-let _relevantCallsigns = null; // same pattern as swim.js/stdds.js/tfms.js
+let _relevantCallsigns = new Set(); // same pattern as swim.js/stdds.js/tfms.js
 // callsign -> Set<scheduledDepUTCms> -- see setRelevantCallsigns()/isExpectedDay() below, same
 // mechanism and same reason as tfms.js's own copy of this (see its header comment for the real
 // incident: a recurring flight number's NEXT calendar day's pre-departure record overwriting

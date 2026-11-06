@@ -91,7 +91,7 @@ Shows the planned/filed route up to `PREFLIGHT_ROUTE_MS` (30 minutes) before sch
 
 `runActiveFlightPoller()` decides which callsigns the feeds keep: SWIM/STDDS/TFMS/TFDM from 4 hours before departure, ADS-B from 30 minutes before, both until 8 hours after. A `departure_time` ending in `Z` is already UTC and is used as is. Only a time with no `Z` goes through `localTZToUTC`, which ignores a `Z` and would shift it by the airport's offset. A callsign outside the window gets no feed data at all, so `/api/flight-status` returns empty `times` and the leg shows DEPARTURE DUE.
 
-**The feed filters are set before any lookups run.** A `null` relevant-callsign list means no filter, so each feed parses all nationwide traffic until the first pass sets it. Slow position lookups must stay after those calls.
+**The feeds never run unfiltered.** Each feed's relevant-callsign list starts as an empty Set, never `null`, because no filter means parsing all nationwide traffic, which starves the event loop and delays the poller that sets the list. Until the first pass sets it, only NetJets research traffic gets through. The poller still sets the lists before its slow position lookups.
 
 ### A later leg can't borrow its callsign's evidence
 
