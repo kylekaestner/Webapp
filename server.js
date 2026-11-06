@@ -1922,7 +1922,16 @@ function _njRouteOnly(callsign, origin, dest, arrMs) {
     return { found: false, hasRoute: true, route: r.route, routeParsed: r.routeParsed, sid: r.sid, star: r.star, origin: r.origin || origin, dest: r.dest || null, source: 'swim' };
 }
 
-function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
+// Where a pilot corrected a leg's arrival, that's where the tail went, whatever the feeds say. The
+// leg key keeps the original departure, since a pilot's edit can rewrite the row's time.
+function _pilotArrival(rows, leg) {
+    const row = rows.find(r => r.auto_leg_edited && !r.auto_leg_cancelled && r.arrival_airport
+        && norm3Airport(r.departure_airport) === norm3Airport(leg.origin)
+        && Math.abs(Date.parse(String(r.auto_leg_key || '').split('@')[1]) - leg.scheduledDepMs) <= NETJETS_LEG_MATCH_TOLERANCE_MS);
+    return row ? row.arrival_airport : null;
+}
+
+function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs, rows = []) {
     const norm = norm3Airport;
     const out = [];
     for (const t of tfmsLegTimes) {
@@ -1956,11 +1965,11 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
     const MOVING_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
     const byTime = (a, b) => a.scheduledDepMs - b.scheduledDepMs;
     const pool = tfdmLegs.filter(l => !tfmsCancelled(l) && l.scheduledDepMs != null && l.dest);
-    let anchor = [...pool.filter(l => MOVING_RE.test(l.flightState || '')), ...out]
+    let anchor = [...pool.filter(l => MOVING_RE.test(l.flightState || '')), ..._collapseSameDepartureLegs(out, tfmsLegTimes)]
         .filter(l => l.scheduledDepMs != null && l.dest).sort(byTime).pop()
         || pool.slice().sort(byTime)[0]; // nothing has moved yet: start from the first filed leg
     for (let step = 0; anchor && anchor.dest && step < 12; step++) {
-        const here = norm(anchor.dest), after = anchor.scheduledDepMs;
+        const here = norm(_pilotArrival(rows, anchor) || anchor.dest), after = anchor.scheduledDepMs;
         const fromTfms = tfmsLegTimes
             .filter(t => !t.cancelled && !_tfmsLegFlown(t) && t.scheduledDepMs != null && t.scheduledDepMs > after
                 && t.scheduledDepMs >= minDepMs && norm(t.origin) === here && t.dest && !NETJETS_PLACEHOLDER_APT_RE.test(t.dest))
@@ -1983,7 +1992,8 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
 // earliest uncancelled departure from each airport in turn. The chain-consistency filter leaves
 // these alone, because a tail often goes back through an airport it left earlier in the tour
 // (EJA23 LAS->LAX->LAS). A stale plan from somewhere the tail isn't headed (RSW->APF) isn't on it.
-function _netjetsUpcomingChain(legs, tfmsLegTimes, movedRe) {
+// A leg 3h past departure that never moved is a dropped plan, so the chain doesn't follow it.
+function _netjetsUpcomingChain(legs, tfmsLegTimes, movedRe, rows = [], now = Date.now()) {
     const norm = norm3Airport;
     const planFor = l => {
         const p = _tfmsPlanFor(tfmsLegTimes, l.origin, l.dest, l.scheduledDepMs);
@@ -1993,18 +2003,32 @@ function _netjetsUpcomingChain(legs, tfmsLegTimes, movedRe) {
     const byTime = (a, b) => a.scheduledDepMs - b.scheduledDepMs;
     const usable = legs.filter(l => l.scheduledDepMs != null && l.dest);
     const last = usable.filter(moved).sort(byTime).pop();
-    const chain = new Set();
+    const chain = { legs: new Set(), stops: [] };
     if (!last) return chain;
-    let here = norm(last.dest), after = last.scheduledDepMs;
+    let here = norm(_pilotArrival(rows, last) || last.dest), after = last.scheduledDepMs;
+    chain.stops.push({ airport: here, fromMs: after });
     for (let step = 0; step < 12; step++) {
-        const next = usable.filter(l => norm(l.origin) === here && l.scheduledDepMs > after
+        const next = usable.filter(l => norm(l.origin) === here && l.scheduledDepMs > after && l.scheduledDepMs > now - 3 * 3600000
             && !moved(l) && !_tfmsLegCancelled(planFor(l))).sort(byTime)[0];
         if (!next) break;
-        chain.add(next);
+        chain.legs.add(next);
         here = norm(next.dest);
         after = next.scheduledDepMs;
+        chain.stops.push({ airport: here, fromMs: after });
     }
     return chain;
+}
+
+// Where the chain puts the tail when this leg departs, if that isn't the leg's origin. Null when the
+// chain can't say: before it starts, or once its last leg has left, since nothing is filed past
+// that. So a gap in the chain never hides anything. Row times run a few minutes after a plan's
+// scheduled time, hence the same-departure tolerance.
+function _netjetsTailElsewhere(chain, origin, depMs) {
+    const stops = chain.stops;
+    if (stops.length < 2 || depMs < stops[0].fromMs || depMs >= stops[stops.length - 1].fromMs) return null;
+    const at = ms => [...stops].reverse().find(s => s.fromMs <= ms)?.airport;
+    const where = at(depMs);
+    return where === origin || at(depMs - NETJETS_SAME_DEPARTURE_TOLERANCE_MS) === origin ? null : where;
 }
 
 // Research/validation tool for /crew-roster/netjets-lookup: a read-only simulation of
@@ -2052,12 +2076,14 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
 
         if (dest) {
             const destDepartedMs = confirmedDepartureByOrigin.get(dest);
-            if (destDepartedMs != null && depMs >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState) && !upcomingChain.has(leg)) {
+            if (destDepartedMs != null && depMs >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState) && !upcomingChain.legs.has(leg)) {
                 out.push({ origin, dest, depTime, flightState, status: 'filtered', reason: `tail already really left ${dest} before this` });
                 continue;
             }
         }
         if (_tfmsLegCancelled(legTimes)) { out.push({ origin, dest, depTime, flightState, status: 'cancelled', reason: 'NetJets flightPlanCancellation' }); continue; }
+        const tailAt = !upcomingChain.legs.has(leg) && !REALLY_DEPARTED_RE.test(flightState) && !_tfmsLegFlown(legTimes) ? _netjetsTailElsewhere(upcomingChain, origin, depMs) : null;
+        if (tailAt) { out.push({ origin, dest, depTime, flightState, status: 'filtered', reason: `hidden: its chain has the tail at ${tailAt} then` }); continue; }
 
         out.push({
             origin, dest, depTime, flightState, status: 'real', reason: null,
@@ -5400,8 +5426,11 @@ function _collapseSameDepartureLegs(legs, tfmsLegTimes) {
         const base = g.find(l => MOVING_RE.test(l.flightState || '')) || g.find(l => l.dest) || g[0];
         const candidates = tfmsLegTimes.filter(t => norm(t.origin) === norm(base.origin) && t.scheduledDepMs != null && base.scheduledDepMs != null
             && Math.abs(t.scheduledDepMs - base.scheduledDepMs) <= NETJETS_SAME_DEPARTURE_TOLERANCE_MS && t.dest && !NETJETS_PLACEHOLDER_APT_RE.test(t.dest));
-        const best = candidates.find(_tfmsLegFlown)
-            || candidates.reduce((b, t) => (!b || (t.lastMsg || 0) > (b.lastMsg || 0)) ? t : b, null);
+        // A diversion leaves two flown versions of one departure (EJA492 NUQ->TRK filed, NUQ->RNO
+        // landed, same GUFI): the one that arrived is where the tail is.
+        const latest = list => list.reduce((b, t) => (!b || (t.lastMsg || 0) > (b.lastMsg || 0)) ? t : b, null);
+        const flown = candidates.filter(_tfmsLegFlown);
+        const best = flown.find(_tfmsLegArrived) || latest(flown) || latest(candidates);
         // TFMS's best telling wins over TFDM's (possibly stale) dest; the more advanced phase is kept
         return best && norm(best.dest) !== norm(base.dest) ? { ...base, dest: best.dest } : base;
     });
@@ -5432,10 +5461,6 @@ async function _netjetsLegCreationPass(db, onDutyList) {
         // a departure (SAT->KPEQ / SAT->ZZZZ instead of SAT->E38) and find nothing filed from there.
         const tfdmLegs = _collapseSameDepartureLegs(csList.flatMap(c => tfdm.getAllLegs(c).map(l => ({ ...l, cs: c })))
             .filter(l => (l.scheduledDepMs || 0) >= tourStartMs), tfmsLegTimes);
-        const allLegs = _collapseSameDepartureLegs([...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs)], tfmsLegTimes)
-            .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
-        if (!allLegs.length) continue; // nothing known yet for this tour -- wait for a real signal
-
         const existingRows = await new Promise(resolve => {
             db.all(
                 `SELECT id, auto_leg_key, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_cancelled
@@ -5447,6 +5472,9 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 (err, rows) => resolve(err ? [] : (rows || []))
             );
         });
+        const allLegs = _collapseSameDepartureLegs([...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs, existingRows)], tfmsLegTimes)
+            .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
+        if (!allLegs.length) continue; // nothing known yet for this tour -- wait for a real signal
 
         // A new tail was waiting on the pilot's last leg, and it's landed: switch to it here.
         const landedLastLeg = nj.nextTail && nj.lastLegId ? existingRows.find(r => r.id === nj.lastLegId && r.auto_leg_complete) : null;
@@ -5475,7 +5503,7 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             const existing = confirmedDepartureByOrigin.get(o);
             if (existing == null || l.scheduledDepMs < existing) confirmedDepartureByOrigin.set(o, l.scheduledDepMs);
         }
-        const upcomingChain = _netjetsUpcomingChain(allLegs, tfmsLegTimes, REALLY_DEPARTED_RE);
+        const upcomingChain = _netjetsUpcomingChain(allLegs, tfmsLegTimes, REALLY_DEPARTED_RE, existingRows);
 
         const touchedRowIds = new Set(); // rows some current candidate matched/created this poll
         for (const leg of allLegs) {
@@ -5500,7 +5528,7 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             // this candidate itself shows no real movement of its own -- it can't be a real leg.
             if (dest) {
                 const destDepartedMs = confirmedDepartureByOrigin.get(dest);
-                if (destDepartedMs != null && new Date(depTime).getTime() >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState) && !upcomingChain.has(leg)) {
+                if (destDepartedMs != null && new Date(depTime).getTime() >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState) && !upcomingChain.legs.has(leg)) {
                     const skipKey = `${cs}|${origin}>${dest}@${depTime}`;
                     if (!_njFilterLogged.has(skipKey)) {
                         _njFilterLogged.add(skipKey);
@@ -5737,6 +5765,31 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             if (!supersededBy) continue;
             db.run('UPDATE segments SET auto_leg_cancelled=1 WHERE id=? AND auto_leg_cancelled=0', [r.id], () => {});
             console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} filtered out -- tail really left ${r.departure_airport} on a different leg`);
+        }
+
+        // Hidden, not cancelled (auto_leg_cancelled=4): a filed leg that can't happen because the
+        // chain has the tail somewhere else then (EJA23's EGE->SBA while it flies LAS->XNA). Decided
+        // again every poll, so it comes back if the chain reaches it or it moves. Nothing here
+        // needs the aircraft to move, or NetJets to cancel the plan.
+        for (const r of existingRows) {
+            if (r.auto_leg_complete || r.auto_leg_edited || ![0, 4].includes(r.auto_leg_cancelled || 0)) continue;
+            const rMs = Date.parse(r.departure_time);
+            if (Number.isNaN(rMs)) continue;
+            const o = norm3(r.departure_airport), d = norm3(r.arrival_airport);
+            const sameLeg = l => norm3(l.origin) === o && norm3(l.dest) === d && l.scheduledDepMs != null
+                && Math.abs(l.scheduledDepMs - rMs) <= NETJETS_LEG_MATCH_TOLERANCE_MS;
+            const plan = tfmsLegTimes.find(sameLeg);
+            const moved = _tfmsLegFlown(plan) || allLegs.some(l => sameLeg(l) && REALLY_DEPARTED_RE.test(l.flightState || ''));
+            const tailAt = moved || [...upcomingChain.legs].some(sameLeg) ? null : _netjetsTailElsewhere(upcomingChain, o, rMs);
+            if (tailAt && !r.auto_leg_cancelled) {
+                r.auto_leg_cancelled = 4;
+                db.run('UPDATE segments SET auto_leg_cancelled=4 WHERE id=? AND auto_leg_cancelled=0', [r.id], () => {});
+                console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} hidden -- its chain has the tail at ${tailAt} then`);
+            } else if (!tailAt && r.auto_leg_cancelled === 4) {
+                r.auto_leg_cancelled = _tfmsLegCancelled(plan) ? 1 : 0;
+                db.run('UPDATE segments SET auto_leg_cancelled=? WHERE id=? AND auto_leg_cancelled=4', [r.auto_leg_cancelled, r.id], () => {});
+                console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} ${r.auto_leg_cancelled ? 'cancelled' : 'back on the schedule'}`);
+            }
         }
     }
 }
@@ -6307,7 +6360,8 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
                 const tfmsLeg = _njLegFor(s.flight_number, s.departure_airport, s.arr?.getTime(), s.arrival_airport);
                 const legDone = tfmsLeg && _njLegDone(tfmsLeg, tfms.getAllLegTimes(s.flight_number), nowMs);
                 const legFlying = tfmsLeg && !legDone && _njFlyingLeg(s.flight_number, nowMs)?.key === tfmsLeg.key;
-                const state = s.auto_leg_cancelled ? '<span style="color:#71717a">hidden (cancelled/filtered)</span>'
+                const state = s.auto_leg_cancelled === 4 ? '<span style="color:#71717a">hidden (tail elsewhere on its chain)</span>'
+                    : s.auto_leg_cancelled ? '<span style="color:#71717a">hidden (cancelled/filtered)</span>'
                     : s.auto_leg_complete || legDone ? '<span style="color:#4ade80;font-weight:700">✓ flown</span>'
                     : legFlying ? '<span style="color:#22c55e;font-weight:700">✈ airborne</span>'
                     : '<span style="color:#60a5fa">scheduled</span>';
