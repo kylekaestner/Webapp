@@ -56,6 +56,11 @@ There's also a NetJets-specific lookup sub-page, `/crew-roster/netjets-lookup` �
 GET  /api/pilots                          all pilots — admin-gated (token required, pilot_key==='admin')
 GET  /api/pilots/:key                     pilot + all segments — token required, friend-gated
 GET  /api/pilots-directory                non-admin-gated directory listing (no token column)
+GET  /api/pilots/:key/here-now             token required, friend-gated (`requireCanViewPilot`)
+GET  /api/segments                         admin only (`requireAdmin`)
+GET/POST /api/settings/:key                admin only, except `schedaero-creds`, left open for now at Kyle's request
+GET  /api/admin/stats                      admin only
+POST /api/early-landing                    token required in the body
 POST /api/pilots/:key/upload              upload schedule file — token required, admin-or-self
 DELETE /api/pilots/:key/segments          clear all non-manual segments — token required, admin-or-self
 POST /api/pilots/:key/add-segment         add manual segment — token required, admin-or-self

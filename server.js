@@ -2218,6 +2218,34 @@ function _resolvePilotToken(token, db, cb) {
 // now has to be explicitly friended, same as a real pilot, via the admin-only friend toggle (see
 // db.js's one-time viewerFriendsSeeded migration for how existing viewers' current access was
 // preserved when this changed).
+// Route guards. The token comes from the query string, like every other gated read here.
+function requireAdmin(req, res, next) {
+    _resolvePilotToken(req.query.token, getDB(), (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        next();
+    });
+}
+
+function requireCanViewPilot(req, res, next) {
+    const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg, viewerKey, viewerRole) => {
+        if (status) return res.status(status).json({ error: msg });
+        _canViewPilot(db, viewerKey, viewerRole, req.params.pilotKey, allowed => {
+            if (!allowed) return res.status(403).json({ error: 'not_friends' });
+            next();
+        });
+    });
+}
+
+// Settings hold other services' keys and pilots' calendar URLs, so they're admin only.
+// schedaero-creds is left open for now, at Kyle's request: the sync form reads and saves it with no
+// token. Closing it means sending a token from that form.
+function requireSettingsAccess(req, res, next) {
+    if (req.params.key === 'schedaero-creds') return next();
+    requireAdmin(req, res, next);
+}
+
 function _canViewPilot(db, viewerKey, viewerRole, targetKey, cb) {
     if (viewerKey === 'admin' || viewerKey === targetKey) return cb(true);
     db.get(
@@ -2655,7 +2683,7 @@ app.put('/api/crew-visibility', (req, res) => {
 });
 
 // GET /api/pilots/:pilotKey/here-now — debug endpoint showing where the HERE-NOW pin resolves to and why
-app.get('/api/pilots/:pilotKey/here-now', (req, res) => {
+app.get('/api/pilots/:pilotKey/here-now', requireCanViewPilot, (req, res) => {
     const db = getDB();
     const { pilotKey } = req.params;
 
@@ -3528,7 +3556,7 @@ app.post('/api/pilots/:pilotKey/regenerate-token', (req, res) => {
 });
 
 // GET segments by date range (optional filter)
-app.get('/api/segments', (req, res) => {
+app.get('/api/segments', requireAdmin, (req, res) => {
     const db = getDB();
     const { pilotKey, startDate, endDate } = req.query;
 
@@ -4762,12 +4790,15 @@ async function _fetchLivePositionRaw(callsign, expectedOrigin, expectedDest, arr
 // number both directions (confirmed live: Delta's DL2417 both ATL-MDW and MDW-ATL), and a
 // bare-callsign key let one leg landing early mark BOTH legs early-landed.
 app.post('/api/early-landing', express.json(), (req, res) => {
-    const { callsign, date, arrMs } = req.body || {};
+    const { callsign, date, arrMs, token } = req.body || {};
     if (!callsign || !date) return res.status(400).json({ error: 'missing fields' });
-    const cs = callsign.toUpperCase().trim();
-    if (!_earlyLandings[date]) _earlyLandings[date] = new Set();
-    _earlyLandings[date].add(`${cs}|${arrMs || ''}`);
-    res.json({ ok: true });
+    _resolvePilotToken(token, getDB(), status => {
+        if (status) return res.status(status).json({ error: 'Authentication required' });
+        const cs = callsign.toUpperCase().trim();
+        if (!_earlyLandings[date]) _earlyLandings[date] = new Set();
+        _earlyLandings[date].add(`${cs}|${arrMs || ''}`);
+        res.json({ ok: true });
+    });
 });
 
 app.get('/api/early-landings', (req, res) => {
@@ -6784,11 +6815,16 @@ app.post('/api/notifications/crossing', (req, res) => {
         if (err || !sender) return res.status(401).json({ error: 'Invalid token' });
         res.json({ ok: true }); // respond immediately, push in background
         crossings.forEach(c => {
+            // A pilot can only send alerts for their own crossings.
+            if (sender.pilot_key !== 'admin' && c.kA !== sender.pilot_key && c.kB !== sender.pilot_key) return;
             const key = [c.kA, c.kB, c.airport, (c.directStart || '').slice(0, 10)].sort().join('|');
             [c.kA, c.kB].forEach(pilotKey => {
+                // crossing_key is UNIQUE, so it has to name the pilot or only the first of the two gets
+                // the alert. Alerts stored before that used the bare key, and those pilots aren't re-alerted.
                 db.run(
-                    `INSERT OR IGNORE INTO notifications (pilot_key, title, body, url, crossing_key) VALUES (?, ?, ?, '/app?view=overlap', ?)`,
-                    [pilotKey, c.title, c.body, key],
+                    `INSERT OR IGNORE INTO notifications (pilot_key, title, body, url, crossing_key)
+                     SELECT ?, ?, ?, '/app?view=overlap', ? WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE crossing_key=? AND pilot_key=?)`,
+                    [pilotKey, c.title, c.body, `${key}|${pilotKey}`, key, pilotKey],
                     function() {
                         if (this.changes === 0) return; // duplicate — already notified
                         db.get('SELECT COUNT(*) as cnt FROM notifications WHERE pilot_key=? AND is_read=0', [pilotKey], (__, row) => {
@@ -6925,7 +6961,7 @@ process.on('uncaughtException', (err) => {
 });
 
 // Settings — generic key/value store for persisting app config across devices
-app.get('/api/settings/:key', (req, res) => {
+app.get('/api/settings/:key', requireSettingsAccess, (req, res) => {
     const db = getDB();
     db.get(`SELECT value FROM settings WHERE key=?`, [req.params.key], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -6933,7 +6969,7 @@ app.get('/api/settings/:key', (req, res) => {
     });
 });
 
-app.post('/api/settings/:key', (req, res) => {
+app.post('/api/settings/:key', requireSettingsAccess, (req, res) => {
     const db = getDB();
     db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
     db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`,
@@ -7171,7 +7207,7 @@ function logEvent(pilotKey, event) {
 }
 
 // Admin dashboard stats
-app.get('/api/admin/stats', (req, res) => {
+app.get('/api/admin/stats', requireAdmin, (req, res) => {
     const db = getDB();
     const q  = (sql, p = []) => new Promise((ok, fail) => db.all(sql, p, (e, r) => e ? fail(e) : ok(r)));
     const q1 = (sql, p = []) => new Promise((ok, fail) => db.get(sql, p,  (e, r) => e ? fail(e) : ok(r)));

@@ -6749,7 +6749,7 @@
             fetch(`${API_BASE}/early-landing`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ callsign, date: today, arrMs: arrMs || null })
+                body: JSON.stringify({ callsign, date: today, arrMs: arrMs || null, token: myToken })
             }).catch(() => {});
         }
         async function _reloadLandedEarly() {
@@ -11122,7 +11122,7 @@ async function openAdminPanel(tab = 'users') {
             const pane = document.getElementById('admin-dashboard-pane');
             pane.innerHTML = '<div class="flex items-center justify-center gap-2 py-8 text-zinc-500 text-xs font-bold"><div class="spinner"></div><span>Loading…</span></div>';
             try {
-                const s = await fetch(`${API_BASE}/admin/stats`).then(r => r.json());
+                const s = await fetch(`${API_BASE}/admin/stats?token=${encodeURIComponent(myToken)}`).then(r => r.json());
                 renderAdminDashboard(s);
             } catch (e) {
                 pane.innerHTML = '<div class="text-red-400 text-xs font-bold py-6 text-center">Failed to load stats</div>';
