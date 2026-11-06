@@ -2274,6 +2274,51 @@
         // the actual source of truth, independent of render timing: at most one set of layers may
         // exist per callsign, enforced directly in startLiveTracking() itself.
         const _liveLayersByCallsign = {};
+        // pilot key -> the pin _pinLandedPilot() dropped at a landed flight's arrival airport. Lasts until
+        // the next full redraw (it sits in mapLayers.active) or that pilot's next flight is in the air.
+        const _landedPins = {};
+        function _clearLandedPin(pilotKey) {
+            (_landedPins[pilotKey] || []).forEach(l => { try { map.removeLayer(l); } catch (_) {} });
+            delete _landedPins[pilotKey];
+        }
+        // The two below show a landed leg the way a redraw would, without one: a redraw restarts every
+        // other live flight and refits the map. lines are the tracker's scheduled arc, already off the map.
+        function _showLegAsFlown(lines, hits) {
+            const style = mapDayMode ? { opacity: 0.25, weight: 2.5 } : mapAllMode ? { opacity: 0.35 } : { opacity: 0.45, color: '#6b7280' };
+            lines.forEach((l, i) => {
+                Object.assign(l.options, style, { className: '' });
+                mapLayers.past.push(l);
+                if (mapDayMode || mapAllMode || showPast) l.addTo(map);
+                // The click target may have been reshaped to the filed route, and has to stay above the line.
+                const h = hits.length === lines.length ? hits[i] : null;
+                if (h) { h.setLatLngs(l.getLatLngs()); if (map.hasLayer(h)) h.bringToFront(); }
+            });
+        }
+        function _pinLandedPilot(pilotKey, airport, coords) {
+            if (!pilotKey || !airport || !coords || mapAllMode || hiddenPilots.has(pilotKey)) return;
+            if (mapDayMode && mapDayDate !== _localToday()) return;
+            _clearLandedPin(pilotKey);
+            const name = (PILOT_NAMES[pilotKey] || pilotKey).split(' ')[0];
+            const color = PILOT_COLORS[pilotKey] || '#94a3b8';
+            const dotHtml = mapDayMode
+                ? `<div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid #fff;--pc:${hexToRgba(color, 0.7)};--pc0:${hexToRgba(color, 0)};animation:here-pulse-plane 2s ease-out infinite"></div>`
+                : `<div class="here-dot"></div>`;
+            const labelHtml = mapDayMode
+                ? `<div style="color:${color};font-size:11px;font-weight:800;text-shadow:0 1px 6px rgba(0,0,0,1),0 1px 6px rgba(0,0,0,1);background:rgba(0,0,0,0.45);border-radius:4px;padding:0 3px;transform:translate(-50%,10px);white-space:nowrap">${name}</div>`
+                : `<div style="color:#d8b4fe;font-size:10px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,0.9);transform:translate(-50%,8px);white-space:nowrap">${airport}</div>`;
+            const popup = `<div style="font-weight:900;font-size:13px;color:#f8fafc;margin-bottom:4px">${name} is here</div><div style="font-size:12px;color:#c4b5fd">${airport} · Landed</div>`;
+            const layers = [];
+            WORLD_OFFSETS.forEach(w => {
+                const at = [coords[0], coords[1] + w * 360];
+                const pin = L.marker(at, { icon: L.divIcon({ className: '', html: dotHtml, iconSize: [16, 16], iconAnchor: [8, 8] }), zIndexOffset: 2000 });
+                pin.bindPopup(popup, { className: 'dark-popup' });
+                pin.addTo(map);
+                const label = L.marker(at, { icon: L.divIcon({ className: '', html: labelHtml, iconAnchor: [0, 0] }), interactive: false }).addTo(map);
+                layers.push(pin, label);
+            });
+            mapLayers.active.push(...layers);
+            _landedPins[pilotKey] = layers;
+        }
         // Two DIFFERENT real-world legs can share one callsign on the same day (confirmed live:
         // Delta's DL2417, both ATL-MDW and MDW-ATL) -- meaning two SEPARATE startLiveTracking()
         // closures can both be alive for the same callsign key. Each call gets its own instance
@@ -7302,6 +7347,10 @@
             // getting removed once the plane actually appeared, because a miss response had already
             // flipped the combined flag true before any real position was ever seen).
             let serverConfirmedAirborne = false;
+            // This tracker itself saw the plane moving at flying speed. Speed, not altitude: altitude is
+            // above sea level, so a plane parked at Aspen reads ~7,800 ft. Taxi and server history don't
+            // count either, both can be an earlier leg's.
+            let _sawAirborne = false;
             let iconShown = false;
 
             // Hide the plane icon until ADS-B confirms the aircraft is actually moving
@@ -7390,7 +7439,7 @@
             // an earlier leg. No position then means parked on the ramp, not landed, and arrival times are
             // only estimates, so "early" means nothing. These legs end on real arrival evidence only.
             const _isNetjetsLeg = _NJ_CS_RE.test(callsign || '');
-            const finishTracking = (savedEarly) => {
+            const finishTracking = (savedEarly, landed = false) => {
                 _pollerStopped = true;
                 // A newer leg's own startLiveTracking() call already superseded this instance (see
                 // _liveTrackingInstanceSeq's declaration comment) -- our own markers/lines were
@@ -7419,6 +7468,13 @@
                 clearWaypointMarkers();
                 if (hereNowMarkers.length) { hereNowMarkers.forEach(m => { try { map.removeLayer(m); } catch (_) {} }); hereNowMarkers.length = 0; }
                 updateHitPopupStatus(savedEarly ? '✓ LANDED EARLY' : '✓ COMPLETED', '#3f3f46');
+                // Last, and guarded: everything above must finish even if this fails.
+                if (landed && _sawAirborne) {
+                    try {
+                        _showLegAsFlown(_arcLines(), newHitLines);
+                        _pinLandedPilot(pilotKey, arrAirportCode, arrCoords);
+                    } catch (e) { console.warn('Landed leg redraw failed:', e); }
+                }
             };
 
             // Adaptive poll cadence -- requested directly: taxiing and landing both involve rapid
@@ -7478,7 +7534,7 @@
                     if (d.parked) {
                         const early = !_isNetjetsLeg && scheduledArrUTC && new Date() < scheduledArrUTC;
                         if (early) _saveLandedEarly(callsign, scheduledArrUTC?.getTime());
-                        finishTracking(early);
+                        finishTracking(early, true);
                         return;
                     }
 
@@ -7586,7 +7642,7 @@
                         if (!_isNetjetsLeg && confirmedAirborne && !d.hadTrail && missCount >= 3) {
                             const early = !_isNetjetsLeg && scheduledArrUTC && new Date() < scheduledArrUTC;
                             if (early) _saveLandedEarly(callsign, scheduledArrUTC?.getTime());
-                            finishTracking(early);
+                            finishTracking(early, true);
                             return;
                         }
                         // Was airborne, lost signal — treat as probably landed and stop tracking.
@@ -7601,7 +7657,7 @@
                         if (!_isNetjetsLeg && confirmedAirborne && missCount >= probablyLandedThreshold) {
                             const early = !_isNetjetsLeg && scheduledArrUTC && new Date() < scheduledArrUTC;
                             if (early) _saveLandedEarly(callsign, scheduledArrUTC?.getTime());
-                            finishTracking(early);
+                            finishTracking(early, true);
                             return;
                         }
                         if (scheduledArrUTC) {
@@ -7693,6 +7749,10 @@
                         return;
                     }
 
+                    if ((d.speedKts ?? 0) > 100) {
+                        _sawAirborne = true;
+                        _clearLandedPin(pilotKey);
+                    }
                     // Airborne — first airborne fix removes the static arc, departure dot, and delay state
                     if (!hasBeenAirborne) {
                         hasBeenAirborne = true;
