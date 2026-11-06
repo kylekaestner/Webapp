@@ -5395,6 +5395,23 @@ function _netjetsRowTimes(row, legTimes, flown, depTime, arrTime, nextDepMs = nu
     return { dep: row.departure_time, arr: row.block_minutes == null && !isNaN(arrMs) ? iso(rowDepMs + (arrMs - depMs)) : null };
 }
 
+// The Lookup's note on why a hidden auto leg is off the schedule. Value 1 has several causes and the
+// row doesn't record which, so a cancellation is read from TFMS. Values: docs/netjets.md.
+function _njHiddenReason(row, plans, rowDepMs) {
+    if (row.auto_leg_cancelled === 4) return 'hidden: CrewSync, tail elsewhere on its chain';
+    if (row.auto_leg_cancelled === 3) return 'hidden: deleted by the pilot';
+    if (row.auto_leg_cancelled === 2) return 'hidden: pilot left this aircraft before this leg';
+    const origin = norm3Airport(row.departure_airport), dest = norm3Airport(row.arrival_airport);
+    const near = (t, ms) => t.scheduledDepMs != null && rowDepMs != null && Math.abs(t.scheduledDepMs - rowDepMs) <= ms;
+    const plan = plans.find(t => norm3Airport(t.origin) === origin && norm3Airport(t.dest) === dest
+        && near(t, NETJETS_LEG_MATCH_TOLERANCE_MS) && _tfmsLegCancelled(t));
+    if (!plan) return 'hidden: filtered by CrewSync or a tail swap, no NetJets cancellation on file';
+    const refiled = plans.find(t => norm3Airport(t.origin) === origin && norm3Airport(t.dest) !== dest
+        && near(t, 60 * 60 * 1000) && !_tfmsLegCancelled(t) && /^[A-Z0-9]{3,4}$/.test(norm3Airport(t.dest) || '')
+        && !NETJETS_PLACEHOLDER_APT_RE.test(t.dest));
+    return `hidden: NetJets cancelled the plan${refiled ? ` · refiled as ${origin} → ${norm3Airport(refiled.dest)}` : ''}`;
+}
+
 function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs) {
     let best = null, bestDiff = Infinity;
     for (const row of existingRows) {
@@ -5406,7 +5423,8 @@ function _findExistingNetjetsLeg(existingRows, origin, dest, depTimeMs) {
         if (destAgrees) {
             if (diff > NETJETS_LEG_MATCH_TOLERANCE_MS) continue;
         } else {
-            if (row.auto_leg_complete || diff > NETJETS_SAME_DEPARTURE_TOLERANCE_MS) continue;
+            // A cancelled row isn't this leg: NetJets refiled the departure somewhere else (EJA23 XNA->DAL, then XNA->ADS).
+            if (row.auto_leg_complete || row.auto_leg_cancelled === 1 || diff > NETJETS_SAME_DEPARTURE_TOLERANCE_MS) continue;
         }
         if (diff < bestDiff) { best = row; bestDiff = diff; }
     }
@@ -6409,8 +6427,8 @@ app.get('/crew-roster/netjets-lookup', rosterAuth, async (req, res) => {
                 const tfmsLeg = _njLegFor(s.flight_number, s.departure_airport, s.arr?.getTime(), s.arrival_airport);
                 const legDone = tfmsLeg && _njLegDone(tfmsLeg, tfms.getAllLegTimes(s.flight_number), nowMs);
                 const legFlying = tfmsLeg && !legDone && _njFlyingLeg(s.flight_number, nowMs)?.key === tfmsLeg.key;
-                const state = s.auto_leg_cancelled === 4 ? '<span style="color:#71717a">hidden (tail elsewhere on its chain)</span>'
-                    : s.auto_leg_cancelled ? '<span style="color:#71717a">hidden (cancelled/filtered)</span>'
+                const state = s.auto_leg_cancelled
+                    ? `<span style="color:#71717a">${_njHiddenReason(s, [...tfms.getAllLegTimes(cs), ...tfms.getAllLegTimes(tailCs)], s.dep?.getTime())}</span>`
                     : s.auto_leg_complete || legDone ? '<span style="color:#4ade80;font-weight:700">✓ flown</span>'
                     : legFlying ? '<span style="color:#22c55e;font-weight:700">✈ airborne</span>'
                     : '<span style="color:#60a5fa">scheduled</span>';
