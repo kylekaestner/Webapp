@@ -5901,12 +5901,15 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 && Math.abs(l.scheduledDepMs - rMs) <= NETJETS_LEG_MATCH_TOLERANCE_MS;
             const plan = tfmsLegTimes.find(sameLeg);
             const moved = _tfmsLegFlown(plan) || allLegs.some(l => sameLeg(l) && REALLY_DEPARTED_RE.test(l.flightState || ''));
-            const tailAt = moved || [...upcomingChain.legs].some(sameLeg) ? null : _netjetsTailElsewhere(upcomingChain, o, rMs);
+            const onChain = [...upcomingChain.legs].some(sameLeg);
+            const tailAt = moved || onChain ? null : _netjetsTailElsewhere(upcomingChain, o, rMs);
             if (tailAt && !r.auto_leg_cancelled) {
                 r.auto_leg_cancelled = 4;
                 db.run('UPDATE segments SET auto_leg_cancelled=4 WHERE id=? AND auto_leg_cancelled=0', [r.id], () => {});
                 console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} hidden -- its chain has the tail at ${tailAt} then`);
-            } else if (!tailAt && r.auto_leg_cancelled === 4) {
+            } else if (!tailAt && r.auto_leg_cancelled === 4 && (moved || onChain || rMs > Date.now())) {
+                // Not just "no stop says otherwise": a leg left behind before the chain starts has no
+                // stop either, and EJA492's SNA->LAS came back once the tail had flown past it.
                 r.auto_leg_cancelled = _tfmsLegCancelled(plan) ? 1 : 0;
                 db.run('UPDATE segments SET auto_leg_cancelled=? WHERE id=? AND auto_leg_cancelled=4', [r.auto_leg_cancelled, r.id], () => {});
                 console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} ${r.auto_leg_cancelled ? 'cancelled' : 'back on the schedule'}`);
@@ -7381,10 +7384,16 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     _bootMark('listening');
-    swim.connect();
-    stdds.connect();
-    tfms.connect();
-    tfdm.connect();
+    // Only the droplet connects. These logins are shared, so a local server on the same .env would
+    // take the sessions from prod. Off unless the droplet's .env says otherwise.
+    if (process.env.LIVE_FEEDS === '1') {
+        swim.connect();
+        stdds.connect();
+        tfms.connect();
+        tfdm.connect();
+    } else {
+        console.log('[feeds] LIVE_FEEDS not set: SWIM, STDDS, TFMS and TFDM stay off');
+    }
     vnas.connect(); // unrelated to the SFDPS/STDDS/TFMS/TFDM Solace sessions above -- a plain
     // HTTPS poll against VATSIM's own public vNAS API, used only to resolve a real frequency
     // for the sector SFDPS hands us (see vnas.js, fetchLivePosition())

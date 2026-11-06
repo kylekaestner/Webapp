@@ -214,3 +214,5 @@ Full bug-by-bug discovery narrative (8 distinct findings across 2026-10-09 throu
 **Labels**: on the ground at 50 kts or more reads "Landing" or "Taking off", not taxiing. STDDS already calls under 50 kts surface.
 
 **Per-leg history** (`flight_leg_log`, `_legHistory`, one entry per callsign and origin): the airborne and parked state holds one leg per callsign, and the next leg clears it. `/api/flight-status` answers a leg from this history (`flewThenMovedOn`) only when the feeds say the number now departs elsewhere and `legFlewFrom()` finds this leg airborne within 8h before to 12h after its arrival. NetJets legs use TFMS's per-leg store instead.
+
+**Feeds only run on the droplet**: SWIM, STDDS, TFMS and TFDM connect only with `LIVE_FEEDS=1` in `.env`, set on the droplet and nowhere else. The logins are shared, so a local server would take the sessions from prod. Without it the app falls back to ADS-B.
