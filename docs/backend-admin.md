@@ -140,3 +140,7 @@ Tampermonkey userscript (Kyle only) that autofills PRISM SMS (`prismsms.argus.ae
 **Sends Kyle's real CrewSync login token** (hardcoded `const TOKEN`) since `GET /api/pilots/:key` requires `?token=`. **Known, accepted exposure**: the file is both committed to the public GitHub remote and served unauthenticated, so the token is effectively public — anyone who finds it can act as Kyle through the API, though not as admin or any other pilot. Regenerating the token via the admin panel both revokes this and requires updating this constant to match. Don't paste the literal token value anywhere else committed to the repo — reference it by name/location instead.
 
 A non-200 schedule-fetch response logs the actual HTTP status + a response snippet (`@version 3.11`+) rather than failing silently.
+
+## Malformed JSON requests
+
+A request with an unparseable JSON body gets `400 {"error":"Invalid JSON"}` and one `[bad-json]` line in the error log with the time, IP, method, path, user agent and first 200 characters of the body. Token values in that body are masked.

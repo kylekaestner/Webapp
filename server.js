@@ -7269,6 +7269,15 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
 });
 
 // Start server
+// Malformed JSON: log who sent it, since the default handler prints only a stack with no request
+// details, and it sends that stack back to the caller. Token values are masked in the logged body.
+app.use((err, req, res, next) => {
+    if (err.type !== 'entity.parse.failed') return next(err);
+    const body = String(err.body || '').slice(0, 200).replace(/(token"?\s*[:=]\s*"?)[^"&\s,}]+/gi, '$1***');
+    console.error(`[bad-json] ${new Date().toISOString()} ${req.ip} ${req.method} ${req.path} ua=${String(req.get('user-agent') || '').slice(0, 80)} body=${JSON.stringify(body)}`);
+    res.status(400).json({ error: 'Invalid JSON' });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     _bootMark('listening');
