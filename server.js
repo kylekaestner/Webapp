@@ -1979,6 +1979,34 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs) {
     return out;
 }
 
+// The legs the tail is set to fly next: from the dest of the last leg that really moved, the
+// earliest uncancelled departure from each airport in turn. The chain-consistency filter leaves
+// these alone, because a tail often goes back through an airport it left earlier in the tour
+// (EJA23 LAS->LAX->LAS). A stale plan from somewhere the tail isn't headed (RSW->APF) isn't on it.
+function _netjetsUpcomingChain(legs, tfmsLegTimes, movedRe) {
+    const norm = norm3Airport;
+    const planFor = l => {
+        const p = _tfmsPlanFor(tfmsLegTimes, l.origin, l.dest, l.scheduledDepMs);
+        return p && Math.abs((p.scheduledDepMs ?? Infinity) - l.scheduledDepMs) <= 6 * 3600000 ? p : null;
+    };
+    const moved = l => movedRe.test(l.flightState || '') || _tfmsLegFlown(planFor(l));
+    const byTime = (a, b) => a.scheduledDepMs - b.scheduledDepMs;
+    const usable = legs.filter(l => l.scheduledDepMs != null && l.dest);
+    const last = usable.filter(moved).sort(byTime).pop();
+    const chain = new Set();
+    if (!last) return chain;
+    let here = norm(last.dest), after = last.scheduledDepMs;
+    for (let step = 0; step < 12; step++) {
+        const next = usable.filter(l => norm(l.origin) === here && l.scheduledDepMs > after
+            && !moved(l) && !_tfmsLegCancelled(planFor(l))).sort(byTime)[0];
+        if (!next) break;
+        chain.add(next);
+        here = norm(next.dest);
+        after = next.scheduledDepMs;
+    }
+    return chain;
+}
+
 // Research/validation tool for /crew-roster/netjets-lookup: a read-only simulation of
 // _pollNetjetsLegCreation()'s own chain-consistency filter (same REALLY_DEPARTED_RE /
 // confirmedDepartureByOrigin logic, same same-origin/same-departure-instant dest-conflict
@@ -1996,6 +2024,7 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
         const existing = confirmedDepartureByOrigin.get(o);
         if (existing == null || l.scheduledDepMs < existing) confirmedDepartureByOrigin.set(o, l.scheduledDepMs);
     }
+    const upcomingChain = _netjetsUpcomingChain(allLegs, tfmsLegTimes, REALLY_DEPARTED_RE);
 
     const out = [];
     for (const leg of allLegs) {
@@ -2023,7 +2052,7 @@ function resolveNetjetsLegsForDisplay(allLegs, tfmsLegTimes) {
 
         if (dest) {
             const destDepartedMs = confirmedDepartureByOrigin.get(dest);
-            if (destDepartedMs != null && depMs >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState)) {
+            if (destDepartedMs != null && depMs >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState) && !upcomingChain.has(leg)) {
                 out.push({ origin, dest, depTime, flightState, status: 'filtered', reason: `tail already really left ${dest} before this` });
                 continue;
             }
@@ -5381,6 +5410,7 @@ function _collapseSameDepartureLegs(legs, tfmsLegTimes) {
 // One pass at a time. The poller fires every 15s whether or not the last pass finished, and two
 // overlapping passes each read the rows, saw no leg, and inserted it (EJA492 BHM->MSL, twice).
 let _netjetsLegPassRunning = false;
+const _njFilterLogged = new Set(); // one log line per skipped plan, not one per 15s poll
 async function _pollNetjetsLegCreation(db, onDutyList) {
     if (_netjetsLegPassRunning) return;
     _netjetsLegPassRunning = true;
@@ -5445,6 +5475,7 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             const existing = confirmedDepartureByOrigin.get(o);
             if (existing == null || l.scheduledDepMs < existing) confirmedDepartureByOrigin.set(o, l.scheduledDepMs);
         }
+        const upcomingChain = _netjetsUpcomingChain(allLegs, tfmsLegTimes, REALLY_DEPARTED_RE);
 
         const touchedRowIds = new Set(); // rows some current candidate matched/created this poll
         for (const leg of allLegs) {
@@ -5469,7 +5500,12 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             // this candidate itself shows no real movement of its own -- it can't be a real leg.
             if (dest) {
                 const destDepartedMs = confirmedDepartureByOrigin.get(dest);
-                if (destDepartedMs != null && new Date(depTime).getTime() >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState)) {
+                if (destDepartedMs != null && new Date(depTime).getTime() >= destDepartedMs && !REALLY_DEPARTED_RE.test(flightState) && !upcomingChain.has(leg)) {
+                    const skipKey = `${cs}|${origin}>${dest}@${depTime}`;
+                    if (!_njFilterLogged.has(skipKey)) {
+                        _njFilterLogged.add(skipKey);
+                        console.log(`[NetJets] ${nj.pilotKey}: skipped ${skipKey} -- tail already left ${dest}, not on its chain`);
+                    }
                     const staleRow = _findExistingNetjetsLeg(existingRows, origin, dest, new Date(depTime).getTime());
                     if (staleRow && !staleRow.auto_leg_edited && !staleRow.auto_leg_cancelled && !staleRow.auto_leg_complete) {
                         db.run('UPDATE segments SET auto_leg_cancelled=1 WHERE id=?', [staleRow.id], () => {});
