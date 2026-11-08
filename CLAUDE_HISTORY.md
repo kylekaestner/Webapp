@@ -369,3 +369,5 @@ Stuck "departure due" after landing (2026-11-08): `unparkIfNewLeg()` compared th
 SCE vs UNV (2026-11-08): Drew's GJS4509 SCE-ORD read "departure due" while in the air. The schedule uses the airline code SCE and the feeds the FAA code UNV, so every origin check rejected the real data. Found from the first `stuck_due_log` snapshot (TFDM origin KUNV, EN_ROUTE). Added `sameAirport()`. Changing the stored code was rejected: the ICS sync writes it back.
 
 No fixes on TFMS routes (2026-11-08): Drew's ORD-OMA drew the line but no symbols or labels. Whenever TFMS had a trajectory the resolver returned it alone, and its samples have no names. Our named fixes are now placed onto it.
+
+Map base by month (2026-11-08): the route map colored the pilot's current base green for every month, so Sam's LGA months showed ORD. It now uses `pilotBaseAt()` for the month's flights.

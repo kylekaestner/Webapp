@@ -6131,12 +6131,14 @@
             airportFlightTypes = {};
 
             const now = new Date();
-            const pilotBase = (pilotsCache[currentPilot]?.base || '').toUpperCase();
             const bounds = [];
             const airportSet = new Set();
             const monthPrefix = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}`;
             const allFlights = segments.filter(s => s.type === 'flight' && !s.cancelled);
             const flights = allFlights.filter(s => s.departureTime && s.departureTime.startsWith(monthPrefix));
+            // The base in effect for this month's flights, not today's: Sam's LGA months showed ORD green.
+            // Both show in a month with a base change.
+            const monthBases = [...new Set(flights.map(f => pilotBaseAt(currentPilot, f.departureTime)).filter(Boolean))];
 
             // Determine airport roles: overnight (slept there) vs turn (same-day)
             // Only consider arrivals within this month so prior-month arrivals don't
@@ -6344,7 +6346,7 @@
                 const { past, future, active } = airportFlightTypes[upper];
                 const visible = (past && showPast) || (future && showFuture) || active;
 
-                const isBase = sameApt(upper, pilotBase);
+                const isBase = monthBases.some(b => sameApt(upper, b));
                 const isLayover = layoverAirports.has(upper);
                 const dotColor = isBase ? '#22c55e' : isLayover ? '#f59e0b' : '#f8fafc';
                 const radius = isBase ? 7 : isLayover ? 6 : 5;

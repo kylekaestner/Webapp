@@ -281,3 +281,5 @@ These live in the `pilots.color` DB column now (see "Pilot roster is fully DB-dr
 ## Offline / connectivity
 
 `#offline-banner` (red bar, top) appears on `window.addEventListener('offline')`, disappears on `'online'`. The service worker does not cache API responses — push-only, no offline data mode; all schedule data requires network.
+
+**Base on the single-pilot route map**: the green base dot is the base in effect for the month shown (`pilotBaseAt()` at each of that month's departures, so a month with a change shows both), not the pilot's current base.
