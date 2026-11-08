@@ -6856,6 +6856,23 @@
             } catch (_) { return false; }
         }
 
+        // One report per leg shown as "departure due" 20+ min after its departure, with what the server
+        // told the app. The server records its own state with it (/api/debug/stuck-due), so a stuck leg
+        // can be looked at later. Never throws, never retries, nothing in demo or without a login.
+        const _stuckDueSent = new Set();
+        function _reportStuckDue(cs, depApt, arrApt, depMs, arrMs, view, seen) {
+            try {
+                if (!cs || !depMs || isDemo || !myToken || Date.now() - depMs < 20 * 60000) return;
+                const key = `${cs}|${depMs}`;
+                if (_stuckDueSent.has(key)) return;
+                _stuckDueSent.add(key);
+                fetch(`${API_BASE}/debug/stuck-due`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: myToken, callsign: cs, origin: depApt || null, dest: arrApt || null, depMs, arrMs: arrMs || null, view, seen: seen || null }),
+                }).catch(() => {});
+            } catch (_) {}
+        }
+
         function stopLivePollers() {
             Object.values(_livePollers).forEach(id => clearInterval(id));
             for (const k in _livePollers) delete _livePollers[k];
@@ -6968,6 +6985,7 @@
                         // handles it (TFDM's own showDelay just supplies supplementary text then).
                         let notFoundDelayEtd = null;
                         let notFoundChecked = false;
+                        let _statusSeen = null; // for _reportStuckDue
                         if (!d.found && depMs) {
                             try {
                                 // Same origin cross-check as /api/live-position above -- see
@@ -6980,6 +6998,7 @@
                                 const _arrIso = arrMs ? new Date(arrMs).toISOString() : '';
                                 const statusData = await fetch(`${API_BASE}/flight-status?callsigns=${encodeURIComponent(cs)}&origins=${encodeURIComponent(depApt || '')}&arrivals=${encodeURIComponent(_arrIso)}`).then(r => r.json());
                                 notFoundChecked = true;
+                                _statusSeen = statusData;
                                 // Real OOOI touchdown/gate-arrival time (not an estimate) -- same
                                 // last-resort completion signal the day map's _legState already
                                 // uses (see "TFMS's real OOOI arrival time" in CLAUDE.md), checked
@@ -7051,6 +7070,7 @@
                         } else if (notFoundChecked && !_confirmedDue.has(delayedKey)) {
                             _confirmedDelayed.delete(delayedKey);
                             _confirmedDue.add(delayedKey);
+                            _reportStuckDue(cs, depApt, arrApt, depMs, arrMs, 'grid', { live: d, status: _statusSeen });
                             clearInterval(_calListPollers[cs]);
                             delete _calListPollers[cs];
                             render();
@@ -8369,7 +8389,10 @@
                 if (landedEarlyFlag) return { state: 'completed' };
                 if (newerLegStarted) return { state: 'completed' };
                 if (cs && depHasPassed && isParked && !isLive) return { state: 'completed' };
-                if (cs && isLive) return { state: 'active' };
+                // A later leg on the same callsign (SKW3716 SAN-LAX) can't take the live position while the
+                // earlier one (LAX-SAN) is still open: that position is the earlier leg's.
+                const earlierOpen = !depHasPassed && _earlierLegOpen(pilotKey, cs, dMs, nowMs);
+                if (cs && isLive && !earlierOpen) return { state: 'active' };
                 if (cs && depHasPassed && isAirborne && nowMs < effA) return { state: 'active' };
                 if (realOnMs && nowMs >= realOnMs) return { state: 'completed' };
                 if (flown && nowMs >= effA) return { state: 'completed' };
@@ -8429,6 +8452,8 @@
                 const isPast = _st.state === 'completed';
                 const _delayed = _st.state === 'delayed';
                 const _etdMs = _st.etdMs;
+                if (_st.state === 'due') _reportStuckDue(_cs, f.departureAirport, f.arrivalAirport, depTime?.getTime(), arrTime?.getTime(), 'map',
+                    { live: liveSeen.has(_cs), airborne: airborneSeen.has(_cs), parked: _confirmedParked.has(_cs), ev: legEv[_cs + '~' + f.departureAirport] || null, times: estTimes[_cs] || null });
                 const color = PILOT_COLORS[f.pilotKey];
 
                 // Offset index within pair group

@@ -4165,6 +4165,13 @@ function legFlewFrom(cs, origin, arrMs) {
     const at = _legHistory[cs]?.[norm3Airport(origin)]?.airborneAt;
     return !!(at && arrMs && at >= arrMs - 8 * 60 * 60 * 1000 && at <= arrMs + 12 * 60 * 60 * 1000);
 }
+// Flew and is over: parked after it took off, or well past its arrival. TFMS shows a number's next
+// plan before the current leg lands (SKW3716 SAN-LAX while LAX-SAN was in the air).
+function legOverFrom(cs, origin, arrMs, now = Date.now()) {
+    if (!legFlewFrom(cs, origin, arrMs)) return false;
+    const leg = _legHistory[cs][norm3Airport(origin)];
+    return (leg.parkedAt != null && leg.parkedAt >= leg.airborneAt) || now > arrMs + 90 * 60 * 1000;
+}
 function restoreLegHistory() {
     getDB().all('SELECT callsign, origin, airborne_at, parked_at FROM flight_leg_log WHERE updated_at >= ? ORDER BY updated_at ASC',
         [Date.now() - 2 * 24 * 60 * 60 * 1000], (err, rows) => {
@@ -4214,8 +4221,10 @@ function unpark(cs) {
 }
 // A flight number commonly flies several legs in one rotation. If the route now starts somewhere else
 // than the leg that parked, this is a new leg, so the parked flag no longer applies.
+// Compared as airports, not strings: the schedule says TUS and the feeds say KTUS, and the raw
+// compare unparked every landed flight on the next 15s poll, leaving it "departure due".
 function unparkIfNewLeg(cs, origin) {
-    if (origin && _parkedOrigin[cs] && origin !== _parkedOrigin[cs]) unpark(cs);
+    if (origin && _parkedOrigin[cs] && norm3Airport(origin) !== norm3Airport(_parkedOrigin[cs])) unpark(cs);
 }
 function isParked(cs) {
     if (!_parkedCallsigns.has(cs)) return false;
@@ -4643,7 +4652,7 @@ function withEverAirborne(data, callsign) {
     const cs = String(callsign).toUpperCase().trim();
     // A flight number flies several legs a day. If this leg starts somewhere else than the one that was
     // seen airborne, the earlier history doesn't apply to it.
-    if (data.origin && _everAirborneOrigin[cs] && data.origin !== _everAirborneOrigin[cs]) {
+    if (data.origin && _everAirborneOrigin[cs] && norm3Airport(data.origin) !== norm3Airport(_everAirborneOrigin[cs])) {
         clearAirborne(cs);
         delete _everAirborneOrigin[cs];
     }
@@ -4868,6 +4877,71 @@ app.get('/api/early-landings', (req, res) => {
 // pattern already used throughout this file (e.g. `GET /api/pilots`) -- see that endpoint's own
 // comment for the original unauthenticated-endpoint incident this mirrors.
 
+// Stuck "departure due" reports (docs/live-tracking.md). The app decides "due", so it reports the leg;
+// the server records everything it knows about that callsign right then. Read-only otherwise.
+function _stuckDueSnapshot(cs) {
+    const live = _liveCache[cs];
+    const flat = tfms.getFlightData(cs);
+    return {
+        at: new Date().toISOString(),
+        parked: isParked(cs), parkedAt: _parkedAt[cs] || null, parkedOrigin: _parkedOrigin[cs] || null,
+        everAirborne: _everAirborneCallsigns.has(cs), everAirborneAt: _everAirborneAt[cs] || null, everAirborneOrigin: _everAirborneOrigin[cs] || null,
+        legHistory: _legHistory[cs] || null,
+        tfmsFlat: flat ? { origin: flat.origin || null, dest: flat.dest || null, route: flat.route || null, lastMsg: flat.lastMsg || null } : null,
+        tfmsTimes: tfms.getFlightTimes(cs) || null,
+        tfmsLegs: NJ_CALLSIGN_RE.test(cs) ? tfms.getAllLegTimes(cs).slice(-8) : undefined,
+        tfdm: tfdm.getFlightInfo(cs) || null,
+        live: live ? {
+            ageS: Math.round((Date.now() - live.ts) / 1000), found: !!live.data?.found, source: live.data?.source || null,
+            altFt: live.data?.altFt ?? null, speedKts: live.data?.speedKts ?? null, onGround: live.data?.onGround ?? null,
+            origin: live.data?.origin || null, dest: live.data?.dest || null, parked: !!live.data?.parked,
+        } : null,
+    };
+}
+app.post('/api/debug/stuck-due', express.json({ limit: '16kb' }), (req, res) => {
+    const db = getDB();
+    const b = req.body || {};
+    const cs = String(b.callsign || '').toUpperCase().trim();
+    const depMs = Number(b.depMs);
+    if (!/^[A-Z0-9]{2,10}$/.test(cs) || !Number.isFinite(depMs) || Math.abs(Date.now() - depMs) > 2 * 24 * 60 * 60 * 1000) {
+        return res.status(400).json({ error: 'bad report' });
+    }
+    _resolvePilotToken(b.token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        let server;
+        try { server = _stuckDueSnapshot(cs); } catch (e) { server = { error: e.message }; }
+        const day = new Date(depMs).toISOString().slice(0, 10);
+        db.all('SELECT * FROM flight_log WHERE callsign=? AND day>=?', [cs, day], (e1, flightLog) => {
+            db.all('SELECT * FROM flight_leg_log WHERE callsign=? AND day>=?', [cs, day], (e2, legLog) => {
+                server.flightLog = flightLog || [];
+                server.flightLegLog = legLog || [];
+                const apt = a => (a == null ? null : String(a).toUpperCase().slice(0, 5));
+                db.run(`INSERT OR IGNORE INTO stuck_due_log (callsign, dep_ms, origin, dest, arr_ms, view, reported_by, client_json, server_json, created_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [cs, depMs, apt(b.origin), apt(b.dest), Number.isFinite(Number(b.arrMs)) ? Number(b.arrMs) : null, String(b.view || '').slice(0, 10),
+                     callerKey, JSON.stringify(b.seen ?? null).slice(0, 8000), JSON.stringify(server).slice(0, 16000), Date.now()],
+                    function (err) {
+                        if (err) return res.status(500).json({ error: err.message });
+                        if (this.changes) console.log(`[stuck-due] ${cs} ${apt(b.origin) || '?'}->${apt(b.dest) || '?'} dep ${new Date(depMs).toISOString()} (${b.view || '?'}, ${callerKey})`);
+                        res.json({ ok: true });
+                    });
+            });
+        });
+    });
+});
+app.get('/api/debug/stuck-due', (req, res) => {
+    const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 7);
+        db.all('SELECT * FROM stuck_due_log WHERE created_at >= ? ORDER BY created_at DESC', [Date.now() - days * 86400000], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json((rows || []).map(r => ({ ...r, client_json: undefined, server_json: undefined, seen: JSON.parse(r.client_json || 'null'), server: JSON.parse(r.server_json || 'null') })));
+        });
+    });
+});
+
 // TEMP — read-only inspector for NetJets auto-leg-creation: on-duty/tour-tail resolution, the
 // derived callsign, EVERY auto-created segment for this tour (plural now -- _pollNetjetsLegCreation
 // materializes every known leg concurrently, not one "current" row, see that function's header
@@ -5043,7 +5117,7 @@ app.get('/api/flight-status', (req, res) => {
     // This leg flew, and the number has since been filed from somewhere else: the leg is over. Only
     // when the feeds say the number moved on, the one case the checks here otherwise answer with nothing.
     const flewThenMovedOn = cs => !njLegOf[cs] && !NJ_CALLSIGN_RE.test(cs) && !!expectedOrigin[cs]
-        && !originCheckOk(cs) && legFlewFrom(cs, expectedOrigin[cs], expectedArrival[cs]);
+        && !originCheckOk(cs) && !live.includes(cs) && legOverFrom(cs, expectedOrigin[cs], expectedArrival[cs], now);
     const airborne = [...new Set(list)].filter(cs => {
         const nl = njLegOf[cs];
         // "Ever flew" (historical), not "in the air now" -- the grid marks a leg done on airborne +

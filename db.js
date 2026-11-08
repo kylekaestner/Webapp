@@ -129,6 +129,21 @@ function initDB() {
             updated_at INTEGER NOT NULL,
             PRIMARY KEY (callsign, origin, day)
         )`);
+        // A leg the app showed as "departure due" 20+ min after its departure, with what the app saw and
+        // the server's own state at that moment, so a stuck leg can be looked at after the evidence is gone.
+        db.run(`CREATE TABLE IF NOT EXISTS stuck_due_log (
+            callsign TEXT NOT NULL,
+            dep_ms INTEGER NOT NULL,
+            origin TEXT,
+            dest TEXT,
+            arr_ms INTEGER,
+            view TEXT,
+            reported_by TEXT,
+            client_json TEXT,
+            server_json TEXT,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (callsign, dep_ms)
+        )`);
         db.run(`CREATE TABLE IF NOT EXISTS intel_votes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             intel_id INTEGER NOT NULL,
@@ -488,6 +503,7 @@ function initDB() {
 function pruneFlightLog() {
     getDB().run('DELETE FROM flight_log WHERE updated_at < ?', [Date.now() - 7 * 24 * 60 * 60 * 1000]);
     getDB().run('DELETE FROM flight_leg_log WHERE updated_at < ?', [Date.now() - 7 * 24 * 60 * 60 * 1000]);
+    getDB().run('DELETE FROM stuck_due_log WHERE created_at < ?', [Date.now() - 7 * 24 * 60 * 60 * 1000]);
 }
 
 module.exports = { getDB, DB_PATH, generateToken, pruneFlightLog };

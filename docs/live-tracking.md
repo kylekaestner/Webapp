@@ -213,6 +213,14 @@ Full bug-by-bug discovery narrative (8 distinct findings across 2026-10-09 throu
 
 **Labels**: on the ground at 50 kts or more reads "Landing" or "Taking off", not taxiing. STDDS already calls under 50 kts surface.
 
-**Per-leg history** (`flight_leg_log`, `_legHistory`, one entry per callsign and origin): the airborne and parked state holds one leg per callsign, and the next leg clears it. `/api/flight-status` answers a leg from this history (`flewThenMovedOn`) only when the feeds say the number now departs elsewhere and `legFlewFrom()` finds this leg airborne within 8h before to 12h after its arrival. NetJets legs use TFMS's per-leg store instead.
+**Per-leg history** (`flight_leg_log`, `_legHistory`, one entry per callsign and origin): the airborne and parked state holds one leg per callsign, and the next leg clears it. `/api/flight-status` answers a leg from this history (`flewThenMovedOn`) only when the feeds say the number now departs elsewhere, there's no live position for this leg, and `legOverFrom()` finds it flew (airborne within 8h before to 12h after its arrival) and is over (parked after takeoff, or 90 min past arrival). TFMS shows a number's next plan before the current leg lands. NetJets legs use TFMS's per-leg store instead.
 
 **Feeds only run on the droplet**: SWIM, STDDS, TFMS and TFDM connect only with `LIVE_FEEDS=1` in `.env`, set on the droplet and nowhere else. The logins are shared, so a local server would take the sessions from prod. Without it the app falls back to ADS-B.
+
+**Airport compares**: `unparkIfNewLeg()` and `withEverAirborne()` compare origins with `norm3Airport()`. The schedule has TUS and the feeds KTUS, and a raw compare cleared the parked flag of nearly every landed flight on the next poll.
+
+**Same callsign, later leg** (`_legState()`): a leg that hasn't departed doesn't take the callsign's live position while an earlier leg on it is still open (`_earlierLegOpen()`).
+
+## Stuck "departure due" log
+
+The app decides "departure due", so it reports it: `_reportStuckDue()` sends one report per leg shown due 20+ min after its departure, from the grid/list poller and the day map, with what the server told it. `POST /api/debug/stuck-due` (any login) adds the server's state for that callsign at that moment (`_stuckDueSnapshot()`: parked and airborne flags and their origins, `_legHistory`, TFMS flat and times, TFDM, the live cache, `flight_log` and `flight_leg_log` rows) to `stuck_due_log`, one row per callsign and departure, kept 7 days. Read it with `GET /api/debug/stuck-due?token=<admin>&days=N` (admin only). The pm2 log gets a `[stuck-due]` line per new row.
