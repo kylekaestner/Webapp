@@ -62,7 +62,7 @@ Filed route string → `swim.js`'s `parseRouteString()` → typed tokens (airpor
 
 **Runway-body selection** (`pickBody()` in navdata.js), most-to-least authoritative: TFDM's real per-flight runway assignment (a NetJets tail uses that leg's own record from `tfdm.getAllLegs()`, matched on origin and destination and heard from in the last 6h, because the flat record is wiped by messages for its other legs; a re-filed city pair 6h+ from the stored departure starts with no runways) → TFMS's airport-configuration (APTC) `arrRunwayConf`/`depRunwayConf` for that airport (`splitRunwayConf()`, accepts multiple candidate runways from one config string) → the destination's own current `depRunwayConf` as a wind-direction proxy (when the destination has no arrival config at all) → `bodies[0]` (arbitrary CSV-order default, last resort).
 
-**Symbol classification** (`resolveFixOrNavaid()`): `vor`/`ndb` from `NAV_TYPE`, `waypoint`/`fix` from `FIX_USE_CODE`, `airport`/`latlon` for endpoints (no marker), `null` for TFMS's dense unnamed trajectory samples (no marker).
+**Symbol classification** (`resolveFixOrNavaid()`): `vor`/`ndb` from `NAV_TYPE`, `waypoint`/`fix` from `FIX_USE_CODE`, `airport`/`latlon` for endpoints (no marker), `null` for TFMS's dense unnamed trajectory samples (no marker). A TFMS line still gets our named fixes (`_withNamedFixes()`): within 2 nm of a sample a fix names it, within 5 nm it's inserted, further off it's left out because our procedure guess isn't TFMS's path. Airports aren't added.
 
 ### Frontend rendering (`startLiveTracking()` in app.html)
 
@@ -224,3 +224,5 @@ Full bug-by-bug discovery narrative (8 distinct findings across 2026-10-09 throu
 ## Stuck "departure due" log
 
 The app decides "departure due", so it reports it: `_reportStuckDue()` sends one report per leg shown due 20+ min after its departure, from the grid/list poller and the day map, with what the server told it. `POST /api/debug/stuck-due` (any login) adds the server's state for that callsign at that moment (`_stuckDueSnapshot()`: parked and airborne flags and their origins, `_legHistory`, TFMS flat and times, TFDM, the live cache, `flight_log` and `flight_leg_log` rows) to `stuck_due_log`, one row per callsign and departure, kept 7 days. Read it with `GET /api/debug/stuck-due?token=<admin>&days=N` (admin only). The pm2 log gets a `[stuck-due]` line per new row.
+
+**Airline codes vs FAA codes**: a schedule can use an airline (IATA) code the feeds don't: SCE is the feeds' KUNV/UNV. Every origin compare goes through `sameAirport()` (server.js): K stripped, `norm3Airport()`, or `aptKey()` (IATA → ICAO via `_iataToIcaoApt`, then `norm3Airport()`). It only adds matches. Per-leg history is keyed by `aptKey()`. Stored codes are never changed: the schedule feed would write them back.

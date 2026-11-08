@@ -1833,6 +1833,22 @@ function norm3Airport(a) {
     if (/^K[A-Z0-9]{3}$/.test(raw)) { const bare = raw.slice(1); return _kCodeCollides(bare) ? raw : bare; }
     return icaoToIataAirport(raw) || raw;
 }
+// One key per real airport across code systems: an airline schedule's SCE is the feeds' KUNV/UNV
+// (State College). Comparing origins as text threw away every feed answer for Drew's GJS4509
+// SCE->ORD, so it read "departure due" in the air. Only for comparing; stored codes stay as the
+// schedule has them, since the schedule feed writes them back on every sync.
+function aptKey(a) {
+    if (!a) return null;
+    const raw = String(a).toUpperCase().trim();
+    return norm3Airport(/^[A-Z0-9]{3}$/.test(raw) ? (_iataToIcaoApt[raw] || raw) : raw);
+}
+// True when either older rule (K stripped, or norm3Airport) or the airport key says so: it only ever
+// adds matches to what each call site already accepted.
+function sameAirport(a, b) {
+    if (!a || !b) return false;
+    const stripK = x => String(x).toUpperCase().trim().replace(/^K/, '');
+    return stripK(a) === stripK(b) || norm3Airport(a) === norm3Airport(b) || aptKey(a) === aptKey(b);
+}
 
 // TFDM only covers towered airports, so a leg into or out of an untowered field (confirmed on
 // EJA492 2026-11-02: 27K->LBE) never appears in tfdm.getAllLegs() at all -- and the leg creator
@@ -4144,7 +4160,7 @@ function markParked(cs, origin) {
 const _legHistory = {}; // callsign -> origin -> { airborneAt, parkedAt }
 const LEG_REPEAT_MS = 6 * 60 * 60 * 1000; // a later airborne sighting from one origin is the same flight within this
 function noteLegEvent(cs, origin, field) {
-    const o = norm3Airport(origin);
+    const o = aptKey(origin);
     if (!cs || !o) return;
     const now = Date.now();
     const leg = (_legHistory[cs] = _legHistory[cs] || {})[o] = _legHistory[cs]?.[o] || {};
@@ -4162,14 +4178,14 @@ function noteLegEvent(cs, origin, field) {
 // Did the leg from this origin, due in at arrMs, really fly? arrMs is what separates it from the same
 // flight number from the same airport on another day.
 function legFlewFrom(cs, origin, arrMs) {
-    const at = _legHistory[cs]?.[norm3Airport(origin)]?.airborneAt;
+    const at = _legHistory[cs]?.[aptKey(origin)]?.airborneAt;
     return !!(at && arrMs && at >= arrMs - 8 * 60 * 60 * 1000 && at <= arrMs + 12 * 60 * 60 * 1000);
 }
 // Flew and is over: parked after it took off, or well past its arrival. TFMS shows a number's next
 // plan before the current leg lands (SKW3716 SAN-LAX while LAX-SAN was in the air).
 function legOverFrom(cs, origin, arrMs, now = Date.now()) {
     if (!legFlewFrom(cs, origin, arrMs)) return false;
-    const leg = _legHistory[cs][norm3Airport(origin)];
+    const leg = _legHistory[cs][aptKey(origin)];
     return (leg.parkedAt != null && leg.parkedAt >= leg.airborneAt) || now > arrMs + 90 * 60 * 1000;
 }
 function restoreLegHistory() {
@@ -4224,7 +4240,7 @@ function unpark(cs) {
 // Compared as airports, not strings: the schedule says TUS and the feeds say KTUS, and the raw
 // compare unparked every landed flight on the next 15s poll, leaving it "departure due".
 function unparkIfNewLeg(cs, origin) {
-    if (origin && _parkedOrigin[cs] && norm3Airport(origin) !== norm3Airport(_parkedOrigin[cs])) unpark(cs);
+    if (origin && _parkedOrigin[cs] && !sameAirport(origin, _parkedOrigin[cs])) unpark(cs);
 }
 function isParked(cs) {
     if (!_parkedCallsigns.has(cs)) return false;
@@ -4244,8 +4260,7 @@ function isParkedForOrigin(cs, expectedOrigin) {
     if (!expectedOrigin) return true; // nothing to compare against -- permissive, same posture as matchesExpectedOrigin()
     const recordedOrigin = _parkedOrigin[cs];
     if (!recordedOrigin) return true; // no recorded origin for the parked evidence -- can't disprove it, trust it
-    const norm = a => String(a || '').toUpperCase().replace(/^K/, '');
-    return norm(recordedOrigin) === norm(expectedOrigin);
+    return sameAirport(recordedOrigin, expectedOrigin);
 }
 // Callsigns whose SWIM/STDDS trail has already had its missing head backfilled from ADS-B
 // history (see the live-position handler below) -- done once per flight instance, not every
@@ -4440,6 +4455,31 @@ async function fetchAdsbPosition(callsign) {
 // routeParsed.waypoints, which stays the original simple token list (still useful for a
 // readable "filed route" text display, e.g. showing "FORPE1" as one name rather than its
 // five-fix expansion).
+// TFMS's trajectory is the better line but has no names, so its routes showed no fixes (Drew's
+// ORD-OMA). Puts our own named fixes onto it: a fix within 2 nm of a sample names that sample (and
+// snaps it to the fix), within 5 nm is inserted beside it, further off is left out, since then our
+// procedure guess isn't the path TFMS has. Airports stay as TFMS has them.
+function _withNamedFixes(path, named) {
+    const out = path.map(p => ({ ...p }));
+    const nm = (a, b) => Math.hypot(a.lat - b.lat, (a.lon - b.lon) * Math.cos(a.lat * Math.PI / 180)) * 60;
+    const inserts = [];
+    for (const f of named || []) {
+        if (!f?.name || !f.symbol || f.symbol === 'airport' || f.symbol === 'latlon' || f.lat == null || f.lon == null) continue;
+        if (out.some(p => p.name === f.name)) continue;
+        let bi = -1, bd = Infinity;
+        out.forEach((p, i) => { const d = nm(p, f); if (d < bd) { bd = d; bi = i; } });
+        if (bi < 0 || bd > 5) continue;
+        if (bd <= 2 && !out[bi].name) { out[bi] = { name: f.name, lat: f.lat, lon: f.lon, symbol: f.symbol }; continue; }
+        inserts.push({ bi, f });
+    }
+    inserts.sort((a, b) => b.bi - a.bi).forEach(({ bi, f }) => {
+        const prev = out[bi - 1], next = out[bi + 1];
+        const after = !prev || (!!next && nm(next, f) < nm(prev, f));
+        out.splice(after ? bi + 1 : bi, 0, { name: f.name, lat: f.lat, lon: f.lon, symbol: f.symbol });
+    });
+    return out;
+}
+
 function resolveRouteWaypoints(routeParsed, callsign) {
     if (!routeParsed?.waypoints) return;
     for (const wp of routeParsed.waypoints) {
@@ -4463,16 +4503,13 @@ function resolveRouteWaypoints(routeParsed, callsign) {
     const sameApt = (a, b) => !a || !b || norm3Airport(a) === norm3Airport(b);
     const sameLeg = d => !!d && sameApt(d.origin, originWp?.name) && sameApt(d.dest, destWp?.name);
     const tfmsData = callsign ? tfms.getFlightData(callsign) : null;
-    if (tfmsData?.trajectory?.length && sameLeg(tfmsData)) {
-        routeParsed.resolvedPath = tfmsData.trajectory
+    const tfmsPath = tfmsData?.trajectory?.length && sameLeg(tfmsData)
+        ? tfmsData.trajectory
             .slice().sort((a, b) => a.seq - b.seq)
-            // TFMS trajectory points are dense, unnamed lat/lon samples along the path — not
-            // charted fixes/navaids, so no symbol/name to show; the frontend skips markers for
-            // these and draws the line only.
-            .map(w => ({ name: null, lat: w.lat, lon: w.lon, symbol: null }));
-        routeParsed.source = 'tfms';
-        return;
-    }
+            // TFMS trajectory points are dense, unnamed lat/lon samples along the path; names and
+            // symbols come from our own fixes below (_withNamedFixes).
+            .map(w => ({ name: null, lat: w.lat, lon: w.lon, symbol: null }))
+        : null;
 
     // Real per-flight assigned runway (TFDM) lets navdata.js pick the correct SID/STAR body
     // instead of its old "always bodies[0]" guess — see navdata.js's pickBody(). `null` fields
@@ -4512,11 +4549,19 @@ function resolveRouteWaypoints(routeParsed, callsign) {
         || tfms.splitRunwayConf(tfms.getAirportConfig(destWp?.name)?.arrRunwayConf)
         || tfms.splitRunwayConf(tfms.getAirportConfig(destWp?.name)?.depRunwayConf);
 
-    routeParsed.resolvedPath = navdata.resolveWaypoints(
+    const resolveNamed = () => navdata.resolveWaypoints(
         routeParsed.waypoints,
         originWp?.lat != null ? originWp : null,
         (depRunway || arrRunway) ? { depRunway, arrRunway } : null
     );
+    if (tfmsPath) {
+        let named = null;
+        try { named = resolveNamed(); } catch (_) {} // without names it's the bare TFMS line, as before
+        routeParsed.resolvedPath = named ? _withNamedFixes(tfmsPath, named) : tfmsPath;
+        routeParsed.source = 'tfms';
+        return;
+    }
+    routeParsed.resolvedPath = resolveNamed();
     routeParsed.source = 'navdata';
 }
 
@@ -4576,8 +4621,7 @@ function withTfdmInfo(data, callsign, expectedOrigin) {
         // the per-leg entry matching THIS leg's known origin when one exists; fall back to the
         // flat cache otherwise (a normal pilot's legs are sequential, never concurrent, so the
         // flat cache was never wrong for them to begin with).
-        const norm = a => a ? String(a).toUpperCase().replace(/^K/, '') : null;
-        const matched = tfdm.getAllLegs(callsign).find(l => norm(l.origin) === norm(expectedOrigin));
+        const matched = tfdm.getAllLegs(callsign).find(l => sameAirport(l.origin, expectedOrigin));
         if (matched) info = matched;
     }
     if (info?.flightState) data.tfdmState = info.flightState;
@@ -4652,7 +4696,7 @@ function withEverAirborne(data, callsign) {
     const cs = String(callsign).toUpperCase().trim();
     // A flight number flies several legs a day. If this leg starts somewhere else than the one that was
     // seen airborne, the earlier history doesn't apply to it.
-    if (data.origin && _everAirborneOrigin[cs] && norm3Airport(data.origin) !== norm3Airport(_everAirborneOrigin[cs])) {
+    if (data.origin && _everAirborneOrigin[cs] && !sameAirport(data.origin, _everAirborneOrigin[cs])) {
         clearAirborne(cs);
         delete _everAirborneOrigin[cs];
     }
@@ -4688,8 +4732,7 @@ function noteNoPosition(callsign) {
 // contaminate any trail/state tracking, not just hidden from the response.
 function matchesExpectedOrigin(data, expectedOrigin) {
     if (!expectedOrigin || !data?.origin) return true;
-    const norm = a => String(a || '').toUpperCase().replace(/^K/, '');
-    return norm(data.origin) === norm(expectedOrigin);
+    return sameAirport(data.origin, expectedOrigin);
 }
 
 async function fetchLivePosition(callsign, expectedOrigin, arrMs, expectedDest) {
@@ -4793,7 +4836,7 @@ async function _fetchLivePositionRaw(callsign, expectedOrigin, expectedDest, arr
         // At the leg's own origin with no sign of flight, it's a delayed flight at a gate, not an arrival.
         const cs = String(callsign).toUpperCase().trim();
         const atOriginUnflown = expectedOrigin && stddsHit.airport && !_everAirborneCallsigns.has(cs)
-            && norm3Airport(stddsHit.airport) === norm3Airport(expectedOrigin);
+            && sameAirport(stddsHit.airport, expectedOrigin);
         if (stddsHit.event === 'spotin' && !atOriginUnflown) {
             stddsHit.parked = true;
             markParked(cs, stddsHit.origin || null);
@@ -4997,7 +5040,7 @@ app.get('/api/flight-status', (req, res) => {
     const originOk = (cs, actualOrigin) => {
         const exp = expectedOrigin[cs];
         if (!exp || !actualOrigin) return true;
-        return normApt(actualOrigin) === normApt(exp);
+        return sameAirport(actualOrigin, exp);
     };
     const now = Date.now();
     // Parallel to origins -- each callsign's own scheduled arrival (ISO), for the SPECIFIC leg
@@ -5087,7 +5130,7 @@ app.get('/api/flight-status', (req, res) => {
         // filed legs (NetJets) can have the flat cache reflecting a DIFFERENT leg's times than
         // the one this specific expectedOrigin is actually asking about.
         const exp = expectedOrigin[cs];
-        const legMatch = exp ? tfms.getAllLegTimes(cs).find(l => normApt2(l.origin) === normApt2(exp)) : null;
+        const legMatch = exp ? tfms.getAllLegTimes(cs).find(l => sameAirport(l.origin, exp)) : null;
         const t = legMatch || tfms.getFlightTimes(cs);
         // airlineOnTime/airlineInTime are the airline's own real OOOI report (actual touchdown /
         // actual gate arrival) -- confirmed live as a real, authoritative "this flight is
