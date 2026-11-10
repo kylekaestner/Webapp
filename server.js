@@ -1948,7 +1948,7 @@ function _pilotArrival(rows, leg) {
     return row ? row.arrival_airport : null;
 }
 
-function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs, rows = []) {
+function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs, rows = [], startFrom = null) {
     const norm = norm3Airport;
     const out = [];
     for (const t of tfmsLegTimes) {
@@ -1984,7 +1984,11 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs, rows = []) {
     const pool = tfdmLegs.filter(l => !tfmsCancelled(l) && l.scheduledDepMs != null && l.dest);
     let anchor = [...pool.filter(l => MOVING_RE.test(l.flightState || '')), ..._collapseSameDepartureLegs(out, tfmsLegTimes)]
         .filter(l => l.scheduledDepMs != null && l.dest).sort(byTime).pop()
-        || pool.slice().sort(byTime)[0]; // nothing has moved yet: start from the first filed leg
+        // Nothing has moved this tour: start where the tail is (its last real flight before the tour),
+        // not the first filed leg. On Mack's day 1 that was a stale RIC->SDF, and the chain never
+        // reached HOU->FTW->COS from Houston, where EJA17 actually sat.
+        || startFrom
+        || pool.slice().sort(byTime)[0]; // nothing known at all: start from the first filed leg
     for (let step = 0; anchor && anchor.dest && step < 12; step++) {
         const here = norm(_pilotArrival(rows, anchor) || anchor.dest), after = anchor.scheduledDepMs;
         const fromTfms = tfmsLegTimes
@@ -2010,7 +2014,7 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs, rows = []) {
 // these alone, because a tail often goes back through an airport it left earlier in the tour
 // (EJA23 LAS->LAX->LAS). A stale plan from somewhere the tail isn't headed (RSW->APF) isn't on it.
 // A leg 3h past departure that never moved is a dropped plan, so the chain doesn't follow it.
-function _netjetsUpcomingChain(legs, tfmsLegTimes, movedRe, rows = [], now = Date.now()) {
+function _netjetsUpcomingChain(legs, tfmsLegTimes, movedRe, rows = [], now = Date.now(), startFrom = null) {
     const norm = norm3Airport;
     const planFor = l => {
         const p = _tfmsPlanFor(tfmsLegTimes, l.origin, l.dest, l.scheduledDepMs);
@@ -2019,7 +2023,8 @@ function _netjetsUpcomingChain(legs, tfmsLegTimes, movedRe, rows = [], now = Dat
     const moved = l => movedRe.test(l.flightState || '') || _tfmsLegFlown(planFor(l));
     const byTime = (a, b) => a.scheduledDepMs - b.scheduledDepMs;
     const usable = legs.filter(l => l.scheduledDepMs != null && l.dest);
-    const last = usable.filter(moved).sort(byTime).pop();
+    // Nothing moved this tour: the tail's last real flight before it (same start as _tfmsOnlyFlownLegs).
+    const last = usable.filter(moved).sort(byTime).pop() || startFrom;
     const chain = { legs: new Set(), stops: [] };
     if (!last) return chain;
     let here = norm(_pilotArrival(rows, last) || last.dest), after = last.scheduledDepMs;
@@ -5724,7 +5729,14 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 (err, rows) => resolve(err ? [] : (rows || []))
             );
         });
-        const allLegs = _collapseSameDepartureLegs([...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs, existingRows)], tfmsLegTimes)
+        // Where the tail is when the tour starts: its last flight that really moved in the 4 days before.
+        const PRIOR_MOVED_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
+        const tailWasAt = [
+            ...csList.flatMap(c => tfdm.getAllLegs(c)).filter(l => PRIOR_MOVED_RE.test(l.flightState || '')),
+            ...tfmsLegTimes.filter(_tfmsLegFlown),
+        ].filter(l => l.scheduledDepMs != null && l.dest && l.scheduledDepMs < tourStartMs && l.scheduledDepMs > tourStartMs - 4 * 86400000)
+            .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs).pop() || null;
+        const allLegs = _collapseSameDepartureLegs([...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs, existingRows, tailWasAt)], tfmsLegTimes)
             .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
         if (!allLegs.length) continue; // nothing known yet for this tour -- wait for a real signal
 
@@ -5755,7 +5767,7 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             const existing = confirmedDepartureByOrigin.get(o);
             if (existing == null || l.scheduledDepMs < existing) confirmedDepartureByOrigin.set(o, l.scheduledDepMs);
         }
-        const upcomingChain = _netjetsUpcomingChain(allLegs, tfmsLegTimes, REALLY_DEPARTED_RE, existingRows);
+        const upcomingChain = _netjetsUpcomingChain(allLegs, tfmsLegTimes, REALLY_DEPARTED_RE, existingRows, Date.now(), tailWasAt);
 
         const touchedRowIds = new Set(); // rows some current candidate matched/created this poll
         for (const leg of allLegs) {

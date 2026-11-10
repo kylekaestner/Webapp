@@ -373,3 +373,5 @@ No fixes on TFMS routes (2026-11-08): Drew's ORD-OMA drew the line but no symbol
 Map base by month (2026-11-08): the route map colored the pilot's current base green for every month, so Sam's LGA months showed ORD. It now uses `pilotBaseAt()` for the month's flights.
 
 Day-1 legs before the pilot arrives (2026-11-09): Mack started tail 17 at HOU on 11/10 with an AAL1949 DFW-HOU commute, but EJA17's filed RIC-SDF and SDF-JZI (both leaving before he landed, and from another city than where the tail sat) were on his schedule. `start_airport` is informational and the chain rule needs two stops, so nothing removed them. Added `auto_leg_cancelled=5`. Legs after he lands stay, since some NetJets pilots deadhead on day 1 and fly from day 2.
+
+Day-1 chain start (2026-11-10): Mack's FTW-COS (TFMS-only) never showed. Tour legs are cut at the tour start, so on day 1 nothing had moved and the in-advance chain started from the first filed leg, a stale RIC-SDF, and went RIC-SDF-JZI. It now starts from the tail's last real flight before the tour (CHO-HOU), so it walks HOU-FTW-COS.
