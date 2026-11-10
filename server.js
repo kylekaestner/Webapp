@@ -5568,7 +5568,27 @@ function _netjetsRowTimes(row, legTimes, flown, depTime, arrTime, nextDepMs = nu
 
 // The Lookup's note on why a hidden auto leg is off the schedule. Value 1 has several causes and the
 // row doesn't record which, so a cancellation is read from TFMS. Values: docs/netjets.md.
+// When the pilot reaches the aircraft on a tour's first day: the latest commute or deadhead landing
+// at the start airport that day (any airport when none is saved). Null when there's none.
+function _pilotReachedAircraftMs(rows, startAirport) {
+    let best = null;
+    for (const r of rows || []) {
+        if (!r.arrival_time || !r.arrival_airport) continue;
+        if (startAirport && !sameAirport(r.arrival_airport, startAirport)) continue;
+        let ms;
+        if (/Z$|[+-]\d\d:?\d\d$/.test(r.arrival_time)) ms = Date.parse(r.arrival_time);
+        else { const tz = _lookupTzForAirport(r.arrival_airport); ms = tz ? new Date(localTZToUTC(r.arrival_time.slice(0, 19).replace(/[-:]/g, ''), tz)).getTime() : NaN; }
+        if (Number.isFinite(ms) && (best == null || ms > best)) best = ms;
+    }
+    return best;
+}
+// A leg leaving before the pilot got there that day is the previous crew's.
+function _beforePilotArrives(depMs, reachedMs) {
+    return Number.isFinite(depMs) && reachedMs != null && depMs < reachedMs && depMs > reachedMs - 24 * 60 * 60 * 1000;
+}
+
 function _njHiddenReason(row, plans, rowDepMs) {
+    if (row.auto_leg_cancelled === 5) return 'hidden: before the pilot reached the aircraft (day-1 commute)';
     if (row.auto_leg_cancelled === 4) return 'hidden: CrewSync, tail elsewhere on its chain';
     if (row.auto_leg_cancelled === 3) return 'hidden: deleted by the pilot';
     if (row.auto_leg_cancelled === 2) return 'hidden: pilot left this aircraft before this leg';
@@ -6030,6 +6050,27 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 r.auto_leg_cancelled = _tfmsLegCancelled(plan) ? 1 : 0;
                 db.run('UPDATE segments SET auto_leg_cancelled=? WHERE id=? AND auto_leg_cancelled=4', [r.auto_leg_cancelled, r.id], () => {});
                 console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} ${r.auto_leg_cancelled ? 'cancelled' : 'back on the schedule'}`);
+            }
+        }
+
+        // Tour day 1 (auto_leg_cancelled=5): legs that leave before the pilot's commute or deadhead
+        // lands at the start airport are the previous crew's (Mack, EJA17 11/10: RIC-SDF and SDF-JZI
+        // before his AAL1949 DFW-HOU landed). Decided again every poll, so a changed commute brings
+        // them back. Legs after he lands stay, even if he only starts flying on day 2.
+        const reachedMs = await new Promise(done => db.all(
+            `SELECT arrival_time, arrival_airport FROM segments WHERE pilot_id=? AND type='flight' AND (trip='COMMUTE' OR is_dh=1) AND arrival_time LIKE ?`,
+            [nj.pilotId, `${nj.tourStart}%`], (err, rows) => done(err ? null : _pilotReachedAircraftMs(rows, nj.startAirport))));
+        for (const r of existingRows) {
+            if (r.auto_leg_edited || ![0, 4, 5].includes(r.auto_leg_cancelled || 0)) continue;
+            const before = _beforePilotArrives(Date.parse(r.departure_time), reachedMs);
+            if (before && r.auto_leg_cancelled !== 5) {
+                r.auto_leg_cancelled = 5;
+                db.run('UPDATE segments SET auto_leg_cancelled=5 WHERE id=? AND auto_leg_cancelled IN (0, 4)', [r.id], () => {});
+                console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} hidden -- before they reached the aircraft`);
+            } else if (!before && r.auto_leg_cancelled === 5) {
+                r.auto_leg_cancelled = 0;
+                db.run('UPDATE segments SET auto_leg_cancelled=0 WHERE id=? AND auto_leg_cancelled=5', [r.id], () => {});
+                console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} back on the schedule`);
             }
         }
     }

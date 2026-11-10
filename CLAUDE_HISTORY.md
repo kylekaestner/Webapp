@@ -371,3 +371,5 @@ SCE vs UNV (2026-11-08): Drew's GJS4509 SCE-ORD read "departure due" while in th
 No fixes on TFMS routes (2026-11-08): Drew's ORD-OMA drew the line but no symbols or labels. Whenever TFMS had a trajectory the resolver returned it alone, and its samples have no names. Our named fixes are now placed onto it.
 
 Map base by month (2026-11-08): the route map colored the pilot's current base green for every month, so Sam's LGA months showed ORD. It now uses `pilotBaseAt()` for the month's flights.
+
+Day-1 legs before the pilot arrives (2026-11-09): Mack started tail 17 at HOU on 11/10 with an AAL1949 DFW-HOU commute, but EJA17's filed RIC-SDF and SDF-JZI (both leaving before he landed, and from another city than where the tail sat) were on his schedule. `start_airport` is informational and the chain rule needs two stops, so nothing removed them. Added `auto_leg_cancelled=5`. Legs after he lands stay, since some NetJets pilots deadhead on day 1 and fly from day 2.
