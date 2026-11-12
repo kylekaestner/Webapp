@@ -377,3 +377,5 @@ Day-1 legs before the pilot arrives (2026-11-09): Mack started tail 17 at HOU on
 Day-1 chain start (2026-11-10): Mack's FTW-COS (TFMS-only) never showed. Tour legs are cut at the tour start, so on day 1 nothing had moved and the in-advance chain started from the first filed leg, a stale RIC-SDF, and went RIC-SDF-JZI. It now starts from the tail's last real flight before the tour (CHO-HOU), so it walks HOU-FTW-COS.
 
 STAR branch guess (2026-11-11): Drew's ORD-STL drew AARCH2's 11/12 branch while STL used the 30s. With no runway known, pickBody() took bodies[0], fine for SIDs (branches join after the runway) but wrong for STARs (they split toward it). It now keeps only the shared fixes. Added /api/debug/airport-config/:apt. Note: the APTC log line was removed on 11/3 (b49c920), so its absence from the log is not a sign the feed stopped.
+
+Runway configurations kept (2026-11-11): after a restart STL had no configuration for 21+ minutes (ORD, DFW and ATL arrived within 15), because a quiet airport reports only on a flow change and configurations lived only in memory with a 30-minute limit. Now saved to disk and used for 3 hours.

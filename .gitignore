@@ -18,3 +18,4 @@ scratch/
 .airborne_cache.json
 .tfdm_legs_cache.json
 .tfms_legtimes_cache.json
+.tfms_aptc_cache.json

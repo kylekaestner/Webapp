@@ -142,6 +142,24 @@ try {
 } catch (_) {}
 
 const _airportConfig = {}; // bare 3-letter airport code -> { arrRunwayConf, depRunwayConf, ..., lastMsg }
+// Runway configurations survive restarts and stay usable for 3h: an airport reports when its flow
+// changes, so a quiet one (STL at night) otherwise had nothing after a restart and routes guessed.
+const APTC_CACHE_PATH = path.join(__dirname, '.tfms_aptc_cache.json');
+const APTC_TTL_MS = 3 * 60 * 60 * 1000;
+try {
+    const saved = JSON.parse(fs.readFileSync(APTC_CACHE_PATH, 'utf8'));
+    for (const [apt, cfg] of Object.entries(saved)) if (Date.now() - (cfg.lastMsg || 0) <= APTC_TTL_MS) _airportConfig[apt] = cfg;
+} catch (_) {}
+let _aptcSaveTimer = null;
+function scheduleAptcSave() {
+    if (_aptcSaveTimer) return;
+    _aptcSaveTimer = setTimeout(() => {
+        _aptcSaveTimer = null;
+        const now = Date.now();
+        for (const apt of Object.keys(_airportConfig)) if (now - (_airportConfig[apt].lastMsg || 0) > APTC_TTL_MS) delete _airportConfig[apt];
+        try { fs.writeFileSync(APTC_CACHE_PATH, JSON.stringify(_airportConfig)); } catch (_) {}
+    }, 30000);
+}
 
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
 
@@ -666,6 +684,7 @@ function processOneFiMessage(msgObj) {
         lastMsg: Date.now(),
     };
     _airportConfig[key] = next;
+    scheduleAptcSave();
 }
 
 function handleMessage(xmlText) {
@@ -822,9 +841,9 @@ function getAirportConfig(aptCode) {
     const bare = (code.length === 4 && code[0] === 'K') ? code.slice(1) : code;
     const cfg = _airportConfig[bare];
     if (!cfg) return null;
-    // 1800s staleness window -- longer than a position/trail check needs, since an airport's
-    // runway configuration realistically only changes a few times a day, not every poll.
-    if (Date.now() - (cfg.lastMsg || 0) > 30 * 60 * 1000) return null;
+    // An airport's runway flow changes a few times a day and it only reports when it does, so a
+    // configuration stays good for APTC_TTL_MS (3h). 30 min left quiet airports with none.
+    if (Date.now() - (cfg.lastMsg || 0) > APTC_TTL_MS) return null;
     return cfg;
 }
 
