@@ -143,13 +143,13 @@ function resolveFixOrNavaid(name, ref) {
 // Preference order:
 //   1. A body whose runway list contains the target runway exactly (e.g. "06L") -- the real fix.
 //   2. A runway-agnostic body (empty runway list -- the "any runway" case above).
-//   3. bodies[0], same deterministic fallback as before — used when there's no target runway at
-//      all (TFDM hasn't reported one for this flight yet) or NASR's own bodies don't cover it.
+//   3. No match: only the fixes all bodies share (the start of a STAR, the end of a SID), so an
+//      unknown runway leaves a gap instead of drawing one side's approach. One body is used as is.
 // `targetRunway` is either a single runway string (TFDM's real per-flight assignment) or an
 // array of several (TFMS APTC's general airport-configuration fallback, which can list more than
 // one runway in simultaneous use, e.g. "19R/19L/18" -- any one of them matching a body is enough,
 // since APTC doesn't say which specific runway *this* flight will actually get).
-function pickBody(proc, targetRunway) {
+function pickBody(proc, targetRunway, isSid = false) {
     if (!proc.bodies || !proc.bodies.length) return null;
     const targets = Array.isArray(targetRunway) ? targetRunway : (targetRunway ? [targetRunway] : []);
     if (targets.length) {
@@ -158,14 +158,23 @@ function pickBody(proc, targetRunway) {
         const agnostic = proc.bodies.find(b => b.runways.length === 0);
         if (agnostic) return agnostic;
     }
-    return proc.bodies[0];
+    if (proc.bodies.length === 1) return proc.bodies[0];
+    // Runway unknown and the branches differ: keep only what every branch shares, the start of a
+    // STAR (they split toward the runways) or the end of a SID (they join after the runways).
+    // bodies[0] drew a whole final approach on the wrong side (Drew's ORD-STL AARCH2: the 12
+    // branch with STL on the 30s, because no runway was known).
+    const lists = proc.bodies.map(b => isSid ? [...b.points].reverse() : b.points);
+    const shared = [];
+    for (let i = 0; lists.every(l => i < l.length && l[i] === lists[0][i]); i++) shared.push(lists[0][i]);
+    if (shared.length === lists[0].length && lists.every(l => l.length === shared.length)) return proc.bodies[0]; // all identical
+    return { points: isSid ? shared.reverse() : shared, runways: [] };
 }
 
 function expandProcedure(procName, isSid, neighborTokenName, targetRunway) {
     const table = isSid ? proceduresData.sids : proceduresData.stars;
     const proc = table[procName];
     if (!proc) return null;
-    const chosenBody = pickBody(proc, targetRunway);
+    const chosenBody = pickBody(proc, targetRunway, isSid);
     const body = chosenBody ? chosenBody.points : [];
     const transitionFixes = (neighborTokenName && proc.transitions[neighborTokenName]) || [];
     return { body, transitionFixes, isSid, matchedNeighbor: transitionFixes.length > 0 };

@@ -828,6 +828,13 @@ function getAirportConfig(aptCode) {
     return cfg;
 }
 
+// As stored, however old, for the admin check in server.js (/api/debug/airport-config).
+function getAirportConfigRaw(aptCode) {
+    const code = String(aptCode || '').trim().toUpperCase();
+    const bare = (code.length === 4 && code[0] === 'K') ? code.slice(1) : code;
+    return _airportConfig[bare] || null;
+}
+
 // Splits a runway-configuration string ("19R/19L/18", or a single "35L") into individual
 // designators for matching against navdata.js's pickBody(), which expects the runways a NASR
 // procedure body actually lists (e.g. "19R"). Returns null for an absent/blank config (APTC's
@@ -851,4 +858,4 @@ function getFlightTimes(callsign) {
         gateDeparture, gateArrival, runwayDeparture, runwayArrival, originalDeparture, originalArrival };
 }
 
-module.exports = { connect, getFlightData, getFlightTimes, getAllLegTimes, getCallsignsWithLegTimes, routeDest, getAirportConfig, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };
+module.exports = { connect, getFlightData, getFlightTimes, getAllLegTimes, getCallsignsWithLegTimes, routeDest, getAirportConfig, getAirportConfigRaw, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };

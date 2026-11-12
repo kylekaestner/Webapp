@@ -4977,6 +4977,17 @@ app.post('/api/debug/stuck-due', express.json({ limit: '16kb' }), (req, res) => 
         });
     });
 });
+// Admin: an airport's TFMS runway configuration and how old it is (routes ignore it after 30 min).
+app.get('/api/debug/airport-config/:apt', (req, res) => {
+    _resolvePilotToken(req.query.token, getDB(), (status, msg, callerKey) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (callerKey !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+        const cfg = tfms.getAirportConfigRaw(req.params.apt);
+        if (!cfg) return res.json({ airport: req.params.apt, config: null, note: 'No TFMS runway configuration received since the last restart' });
+        const ageMin = Math.round((Date.now() - cfg.lastMsg) / 60000);
+        res.json({ airport: req.params.apt, ageMin, usedForRoutes: ageMin <= 30, arrRunways: tfms.splitRunwayConf(cfg.arrRunwayConf), depRunways: tfms.splitRunwayConf(cfg.depRunwayConf), config: cfg });
+    });
+});
 app.get('/api/debug/stuck-due', (req, res) => {
     const db = getDB();
     _resolvePilotToken(req.query.token, db, (status, msg, callerKey) => {
