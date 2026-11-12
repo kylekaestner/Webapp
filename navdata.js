@@ -215,10 +215,27 @@ function resolveWaypoints(waypoints, originCoords, runwayInfo) {
             const expansion = sidMatch?.matchedNeighbor ? sidMatch : (starMatch?.matchedNeighbor ? starMatch : (sidMatch || starMatch));
 
             if (expansion) {
-                const names = expansion.isSid
+                let names = expansion.isSid
                     ? [...expansion.body, ...expansion.transitionFixes.filter(f => f !== expansion.body[expansion.body.length - 1])]
                     : [...expansion.transitionFixes.filter(f => f !== prevTok),
                        ...expansion.body.filter((f, idx) => idx > 0 || f !== expansion.transitionFixes[expansion.transitionFixes.length - 1])];
+                // Joined partway through: a STAR entered at a fix already in it (cleared direct PETTI,
+                // then AARCH2) starts after that fix, and a SID left at a fix inside it ends before it.
+                // Expanding the whole thing drew PETTI-AARCH-PETTI (Drew's GJS4576, 2026-11-11).
+                if (!expansion.matchedNeighbor) {
+                    const proc = (expansion.isSid ? proceduresData.sids : proceduresData.stars)[wp.name];
+                    if (!expansion.isSid && prevTok) {
+                        const k = expansion.body.indexOf(prevTok);
+                        if (k >= 0) names = expansion.body.slice(k + 1);
+                        else for (const fixes of Object.values(proc?.transitions || {})) {
+                            const j = fixes.indexOf(prevTok);
+                            if (j >= 0 && j < fixes.length - 1) { names = [...fixes.slice(j + 1), ...expansion.body.filter((f, idx) => idx > 0 || f !== fixes[fixes.length - 1])]; break; }
+                        }
+                    } else if (expansion.isSid && nextTok) {
+                        const k = expansion.body.indexOf(nextTok);
+                        if (k >= 0) names = expansion.body.slice(0, k);
+                    }
+                }
                 for (const fixName of names) {
                     const resolved = resolveFixOrNavaid(fixName, ref);
                     if (resolved) { out.push({ name: fixName, lat: resolved.lat, lon: resolved.lon, symbol: resolved.symbol }); ref = resolved; }
