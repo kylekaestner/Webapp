@@ -5,6 +5,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 const multer = require('multer');
 const os = require('os');
 const crypto = require('crypto');
@@ -39,12 +40,12 @@ const compression = require('compression');
 app.use(compression());
 app.use(cors());
 app.use(bodyParser.json());
-// Prevent browsers (especially iOS PWA) from caching HTML pages
+// HTML pages: the browser may keep a copy but must check with the server on every load (ETag), so a
+// deploy shows up on the next open, including the iOS home-screen app. This replaced `no-store`,
+// which forced the full download every time. app.html itself is served by sendAppHtml().
 app.use((req, res, next) => {
     if (req.path.endsWith('.html') || req.path === '/' || req.path === '/app' || req.path === '/landing' || req.path === '/join') {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
+        res.setHeader('Cache-Control', 'no-cache');
     }
     next();
 });
@@ -7138,10 +7139,50 @@ app.get('/manifest.json', (req, res) => {
     res.json(manifest);
 });
 
+// app.html (1 MB) is compressed once per version, not on every request, and the browser keeps it:
+// `no-cache` means "store it, but ask every time", so an unchanged app costs a 304 of a few hundred
+// bytes and a deploy is picked up on the very next open (the old `no-store` re-sent the whole file
+// on every open). The file only changes on a deploy; it's re-read when its size or mtime changes.
+const APP_HTML_PATH = path.join(__dirname, 'public', 'app.html');
+let _appHtml = null; // { mtimeMs, size, etag, raw, gzip, br }
+function _loadAppHtml() {
+    const st = fs.statSync(APP_HTML_PATH);
+    if (_appHtml && _appHtml.mtimeMs === st.mtimeMs && _appHtml.size === st.size) return _appHtml;
+    const raw = fs.readFileSync(APP_HTML_PATH);
+    const entry = {
+        mtimeMs: st.mtimeMs, size: st.size, raw,
+        etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 16) + '"',
+        gzip: zlib.gzipSync(raw, { level: 9 }),
+        br: null,
+    };
+    // Brotli at full strength takes about a second, so it runs off the main thread; gzip serves until then.
+    zlib.brotliCompress(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } },
+        (err, buf) => { if (!err) entry.br = buf; });
+    _appHtml = entry;
+    return entry;
+}
+function sendAppHtml(req, res) {
+    let a;
+    try { a = _loadAppHtml(); } catch (e) { console.error('app.html unreadable:', e.message); return res.status(500).send('App unavailable'); }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.removeHeader('Pragma');
+    res.removeHeader('Expires');
+    res.setHeader('ETag', a.etag);
+    res.setHeader('Vary', 'Accept-Encoding');
+    const inm = (req.headers['if-none-match'] || '').split(',').map(s => s.trim().replace(/^W\//, ''));
+    if (inm.includes(a.etag)) return res.status(304).end();
+    const ae = req.headers['accept-encoding'] || '';
+    let body = a.raw;
+    // Setting Content-Encoding here makes the compression middleware leave the response alone.
+    if (a.br && /\bbr\b/.test(ae)) { res.setHeader('Content-Encoding', 'br'); body = a.br; }
+    else if (/\bgzip\b/.test(ae)) { res.setHeader('Content-Encoding', 'gzip'); body = a.gzip; }
+    res.setHeader('Content-Length', body.length);
+    res.end(body);
+}
+
 // Main app
-app.get('/app', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'app.html'));
-});
+app.get('/app', sendAppHtml);
 
 // Manual / wiki — public, no auth required
 app.get('/manual', (req, res) => {
@@ -7154,9 +7195,7 @@ app.get('/join', (req, res) => {
 });
 
 // Demo — read-only view, no token required
-app.get('/demo', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'app.html'));
-});
+app.get('/demo', sendAppHtml);
 
 // Demo API — returns fake data, never touches the real DB. Segments are built
 // fresh per request (anchored to the current month) rather than once at

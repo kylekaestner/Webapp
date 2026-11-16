@@ -160,6 +160,8 @@ Bell icon → `loadNotifications()` (`/api/notifications?token=…`). Clicking a
 
 ## PWA / service worker
 
+**How app.html is served** (`sendAppHtml()` in server.js, for `/app` and `/demo`): `Cache-Control: no-cache` plus a content-hash ETag. The browser keeps its copy but checks on every open, and gets a `304` (no body) when nothing changed, so a deploy shows up on the next open, including the iOS home-screen app. The server compresses the file once per version (gzip right away, Brotli about a second later, off the main thread) and re-reads it when its size or modified time changes, so a `git pull` needs no restart. Other HTML pages get `no-cache` with Express's own ETag. **Don't go back to `no-store`**: it re-sent the whole 1 MB file on every open.
+
 **Service worker `/sw.js`**: registered on every load; handles background push (parses payload, shows system notification); on click sends `{type:'OPEN_OVERLAP'}` → Crossings tab.
 
 **PWA install prompt (`#pwa-prompt`)**: shown on mobile when not in `standalone` mode. iOS: manual "Add to Home Screen" instructions (no native API). Android: `beforeinstallprompt` → `pwaInstall()`. Dismissed state in `localStorage['pwa_dismissed']`, not shown again for 7 days.
