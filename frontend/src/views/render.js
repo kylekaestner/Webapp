@@ -520,7 +520,6 @@
                                 const commuteBadge = isCommute ? `<span class="ml-1.5 text-[10px] font-semibold text-amber-400">Commute</span>` : '';
                                 const flightNumAttr = f.flightNumber || '';
                                 const _flLabel = deriveCallsign({ flightNumber: flightNumAttr, tail: tailAttr }, currentPilot) || '';
-                                const tripLabel = _flLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_flLabel}</span>` : '';
                                 let layoverText = '';
                                 if (!isPersonal && arrApt && arrAttr) {
                                     const nextLeg = getNextLegFrom(arrApt, arrAttr);

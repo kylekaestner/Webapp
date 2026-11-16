@@ -651,10 +651,6 @@
             });
             const earthCircumNm = 21638;
             const earthLaps     = totalNm / earthCircumNm;
-            const totalMiStr    = totalNm > 0 ? Math.round(totalNm * 1.15078).toLocaleString() : '—';
-            const earthStr      = totalNm > 0
-                ? (earthLaps >= 1 ? `${earthLaps.toFixed(2)}× around Earth` : `${Math.round(earthLaps * 100)}% around Earth`)
-                : '';
 
             // Avg block time
             const avgBlock = s.totalLegs > 0 ? Math.round(s.totalBlockMins / s.totalLegs) : 0;
@@ -721,7 +717,6 @@
 
             const maxApt   = s.topAirports[0]?.[1] || 1;
             const maxRoute = s.topRoutes[0]?.[1]   || 1;
-            const maxTail  = s.topTails[0]?.[1]    || 1;
 
             function aptLabel(code) {
                 const c = coords[code.toUpperCase()];

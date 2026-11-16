@@ -13,7 +13,6 @@
                 .map(o => {
                     const otherKey = o.kA === myPilot ? o.kB : o.kA;
                     const otherName = (PILOT_NAMES[otherKey] || otherKey).split(' ')[0];
-                    const myName = (PILOT_NAMES[myPilot] || myPilot).split(' ')[0];
                     const apt = o.airport || o.airportB;
                     const tz = airportTz(apt) || null;
                     const fmtT = d => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ...(tz ? { timeZone: tz } : {}) });
@@ -210,7 +209,6 @@
             }
             const sidebarList = document.getElementById('sidebar-pilot-list');
             if (sidebarList) {
-                const label = sidebarList.querySelector('p');
                 const existing = sidebarList.querySelectorAll('button');
                 existing.forEach(b => b.remove());
                 PILOT_KEYS.forEach(k => {

@@ -281,7 +281,6 @@
             ? { alex: '#3b82f6', morgan: '#2dd4bf', casey: '#f97316', jordan: '#818cf8' }
             : {};
         // Rotating palette for any pilot without a `color` set in the DB
-        const _dynamicColorPool = ['#a3e635','#c084fc','#f43f5e','#06b6d4','#ff8c42','#7dd3fc','#4ade80','#e879f9'];
         const hiddenPilots = new Set(); // pilot keys toggled off in the map legend
         const PILOT_NAMES = _isDemo
             ? { alex: 'Alex Rivera', morgan: 'Morgan Tate', casey: 'Casey Walsh', jordan: 'Jordan Ellis' }

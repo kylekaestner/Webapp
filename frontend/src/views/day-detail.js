@@ -169,11 +169,7 @@
                 const blockMins = calcBlockMins(f);
                 const isPersonal = f.trip === 'PERSONAL';
                 const isCommute = f.trip === 'COMMUTE';
-                const dhBadge = f.dh ? `<span class="ml-2 text-[9px] font-black text-pink-300">DH</span>` : '';
-                const personalBadge = isPersonal ? `<span class="ml-2 text-[9px] font-black text-violet-300">Personal</span>` : '';
-                const commuteBadge = isCommute ? `<span class="ml-2 text-[9px] font-black text-amber-300">Commute</span>` : '';
                 const _dayFlLabel = deriveCallsign(f, currentPilot) || '';
-                const flightNum = _dayFlLabel ? `<span class="text-[10px] text-blue-400/70 ml-2">${_dayFlLabel}</span>` : '';
                 let groundBadge = '';
                 if (!isPersonal && arr && f.arrivalTime) {
                     const nextLeg = getNextLegFrom(arr, f.arrivalTime);
@@ -194,7 +190,6 @@
                 const legState = _legLiveState(_dayCs, dMs, isActiveLeg);
                 const showLive = legState === 'live';
                 const accentColor = showLive ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
-                const cardBorder = showLive ? 'border-emerald-500/50' : isPersonal ? 'border-violet-500/20' : isCommute ? 'border-amber-500/20' : `border-[${accentColor}25]`;
                 const cardBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : showLive ? 'bg-emerald-950/10' : 'bg-zinc-900/60';
                 const aptColor = showLive ? '#22c55e' : 'rgba(255,255,255,0.92)';
                 const editActions = (f.id && canEdit()) ? `<div class="flex gap-2 px-4 py-2.5 border-t border-white/5">

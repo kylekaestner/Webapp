@@ -512,10 +512,7 @@
 
                 const count = entries.length;
                 const cats = [...new Set(entries.map(e => e.category))];
-                // pick dominant color: most frequent category, or red for mixed
-                const catFreq = {};
-                entries.forEach(e => { catFreq[e.category] = (catFreq[e.category] || 0) + 1; });
-                const topCat = Object.entries(catFreq).sort((a,b) => b[1]-a[1])[0]?.[0];
+                // one category: its color; more than one: red ("Mixed" in the legend)
                 const pinColor = cats.length === 1 ? (catColors[cats[0]] || '#ef4444') : '#ef4444';
                 const areaLabel = _intelAreaLabel(ap) || '';
 

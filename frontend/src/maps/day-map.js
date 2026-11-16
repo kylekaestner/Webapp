@@ -401,20 +401,6 @@
                     ? `<div class="live-status-line" style="font-size:10px;color:#eab308;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTURE DUE</div>`
                     : `<div class="live-status-line" style="font-size:10px;color:#3b82f6;font-weight:800;letter-spacing:.04em;margin-top:6px">DEPARTS IN ${formatDurationMinutes(Math.round((depTime - now) / 60000))}</div>`;
 
-                // TFMS estimates (display-only, the uploaded schedule above is never changed). Shown only
-                // when they differ from the scheduled time by at least 5 minutes.
-                const _est = _cs ? (legEv[_cs + '~' + f.departureAirport]?.times || (_NJ_CS_RE.test(_cs) || depTime - now > PREFLIGHT_ROUTE_MS ? null : estTimes[_cs])) : null;
-                const _estDep = _est?.etd && depTime && Math.abs(new Date(_est.etd) - depTime) >= 5 * 60000 ? _est.etd : null;
-                const _estArr = _est?.eta && arrTime && Math.abs(new Date(_est.eta) - arrTime) >= 5 * 60000 ? _est.eta : null;
-                const _arrDiffMin = _est?.eta && arrTime ? Math.round((new Date(_est.eta) - arrTime) / 60000) : null;
-                const _arrNote = _arrDiffMin == null ? '' : _arrDiffMin <= -5 ? ` <span style="color:#4ade80">· ${-_arrDiffMin}m early</span>` : _arrDiffMin >= 15 ? ` <span style="color:#f87171">· ${_arrDiffMin}m late</span>` : '';
-                // One compact line: estimated times and how they compare to the uploaded schedule.
-                // Labelled the way ops people read them: ETD/ETA, with the arrival's difference from the schedule.
-                const _depDiffMin = _estDep && depTime ? Math.round((new Date(_estDep) - depTime) / 60000) : null;
-                const _depNote = _depDiffMin == null ? '' : _depDiffMin >= 5 ? ` <span style="color:#f87171">(+${_depDiffMin}m)</span>` : _depDiffMin <= -5 ? ` <span style="color:#4ade80">(${_depDiffMin}m)</span>` : '';
-                const _estLine = (_estDep || _estArr)
-                    ? `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin-bottom:3px;white-space:nowrap">${_estDep ? `ETD ${formatTimeISO(_estDep, f.departureAirport)}${_depNote}` : ''}${_estDep && _estArr ? ' · ' : ''}${_estArr ? `ETA ${formatTimeISO(_estArr, f.arrivalAirport)}${_arrNote}` : ''}</div>`
-                    : '';
                 const dayPopup = `
                     <div style="font-weight:900;font-size:13px;color:#f8fafc;line-height:1.2;white-space:nowrap">${aptLabel(f.departureAirport, f.pilotKey)} → ${aptLabel(f.arrivalAirport, f.pilotKey)}<span style="font-size:10px;font-weight:700;margin-left:6px"><span style="color:${color}">${_pilotFirst}</span>${_cs ? `<span style="color:#475569"> · ${flightAwareLink(_cs, _cs, flightAwareEligible(depTime?.getTime()))}</span>` : ''}</span></div>
                     <div style="font-size:10px;color:#94a3b8;margin-top:2px">${formatTimeISO(f.departureTime, f.departureAirport)} <span style="opacity:.5">${tzAbbr(f.departureAirport, f.departureTime)}</span> – ${formatTimeISO(f.arrivalTime, f.arrivalAirport)} <span style="opacity:.5">${tzAbbr(f.arrivalAirport, f.arrivalTime)}</span>${blockMins ? `<span style="color:#52525b"> · ${formatDurationMinutes(blockMins)}</span>` : ''}${f.tail ? `<span style="color:#3f3f46"> · ${displayTail(f.tail, f.pilotKey)}</span>` : ''}</div>

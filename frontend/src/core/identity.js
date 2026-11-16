@@ -14,7 +14,6 @@
         async function initIdentity() {
             const params   = new URLSearchParams(window.location.search);
             const urlToken = params.get('u');
-            const urlPilot = params.get('pilot'); // admin/dev override
 
             isDemo = window.location.pathname === '/demo';
 

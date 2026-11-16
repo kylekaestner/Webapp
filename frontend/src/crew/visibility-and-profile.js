@@ -455,5 +455,4 @@
                 : '.ics,.csv';
             input.click();
         }
-        const overlapRadiusMi = 50;
 
