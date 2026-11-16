@@ -92,6 +92,14 @@ Markup in `frontend/app.template.html`. Full-screen overlay while the app initia
 
 Use `<img src="/icon.svg">` with `border-radius` to match the rounded-square style for any new logo placement. Don't use emoji or generic plane glyphs.
 
+## Switching crew (`loadPilot()`, schedule/load-pilot.js)
+
+- **Cached first:** if `pilotsCache[pilot]` has a schedule, it's drawn immediately (no loading overlay), then refreshed from the server in the background and drawn again only if it changed, new city names arrived, or the landed-early set grew (a second render would reset list scrolling for nothing).
+- **Last tap wins:** each call takes a number (`_loadPilotGen`); a response for an older tap is ignored. Before this, a slow response for an earlier tap could land last and show that schedule under the newer name.
+- `_reloadLandedEarly()` runs alongside the schedule fetch, not after it.
+- **Crew pre-load:** after the first schedule is up, `_prefetchCrewSchedules()` loads the other visible crew (`getCrewVisible()`) one at a time at idle, with their city names (once per session, never replacing loaded data, skipped with data saver).
+- Headless Chrome with 150 ms latency: ~380 ms per switch before, ~20 ms after (first visits included).
+
 ## Calendar grid rendering (`render()` → grid branch)
 
 `render()` (frontend/src/views/render.js) rebuilds whichever view is active. It does **not** fetch — call `loadPilot()` first.

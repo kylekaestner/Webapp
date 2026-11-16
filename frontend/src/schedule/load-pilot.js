@@ -220,18 +220,123 @@
         // It fetches from the server, converts snake_case -> camelCase, injects away
         // events, updates all headers/pills/active states, then calls render().
         // Also the target for pull-to-refresh.
+        // Switching crew used to show the loading overlay and wait for the full schedule from the server, then
+        // city names and landed-early status, one after another, on every tap, even for someone viewed a
+        // moment ago (~0.4 s per switch on a phone-like connection, more with real schedules). And a slow
+        // response for an earlier tap could land last and put that schedule under the newer name.
+        // Now: a schedule already in pilotsCache shows at once and is refreshed in the background (redrawn
+        // only if it changed); each tap gets a number and responses for an older tap are dropped; the
+        // landed-early check runs alongside the fetch; and visible crew are pre-loaded once the app is idle
+        // (_prefetchCrewSchedules), so most first taps are instant too.
+        let _loadPilotGen = 0;
+        function _pilotSegmentsFrom(data) {
+            let segmentData = [];
+            if (data.segments && Array.isArray(data.segments)) {
+                segmentData = data.segments.map(seg => ({
+                    id: seg.id,
+                    type: seg.type,
+                    departureTime: seg.departure_time,
+                    arrivalTime: seg.arrival_time,
+                    departureAirport: seg.departure_airport,
+                    arrivalAirport: seg.arrival_airport,
+                    tail: seg.tail || '',
+                    trip: seg.trip || '',
+                    flightNumber: seg.flight_number || '',
+                    dh: seg.is_dh ? true : false,
+                    isManual: seg.is_manual ? true : false,
+                    blockMinutes: seg.block_minutes || null,
+                    cancelled: seg.auto_leg_cancelled ? true : false
+                }));
+            }
+
+            return segmentData;
+        }
+        // Everything that puts this pilot's schedule on screen (no fetching, no popups).
+        function _showPilotData(pilot, data, segmentData) {
+            // Sync dynamic pilot metadata from DB (role, name) — handles newly joined pilots
+            if (data.name)  PILOT_NAMES[pilot] = data.name;
+            if (data.role)  PILOT_ROLES[pilot] = data.role;
+            if (data.home_airport) PILOT_HOME[pilot] = data.home_airport;
+
+            // Re-evaluate upload vs sync button now that parser_type is known
+            if (pilot === myPilot) updateUploadSyncButtons(pilot);
+
+            const pilotBase = data.base || null;
+            segments = inferAwayLayovers(segmentData || [], pilotBase, data.base_history);
+            const displayName = data.name || pilot;
+            const firstName   = displayName.split(' ')[0];
+            // Personalized header: "Your Schedule" / "[Name]'s Schedule" / full name for admin
+            let headerText, mobileHeaderText;
+            if (myPilot && pilot === myPilot) {
+                headerText = 'Your Schedule';
+                mobileHeaderText = 'YOU';
+            } else if (myPilot) {
+                headerText = `${firstName}'s Schedule`;
+                mobileHeaderText = firstName.toUpperCase();
+            } else {
+                headerText = displayName;
+                mobileHeaderText = firstName.toUpperCase();
+            }
+            document.getElementById('pilot-header').textContent = headerText;
+            // Sync mobile header
+            const mobileHeader = document.getElementById('pilot-header-mobile');
+            if (mobileHeader) mobileHeader.textContent = mobileHeaderText;
+            // Update sidebar next-trip widget when viewing own schedule
+            _updateNextTripWidget(pilot, segmentData);
+            // Sync desktop sidebar pilot active states
+            PILOT_KEYS.forEach(k => {
+                const btn = document.getElementById(`pilot-${k}`);
+                if (!btn) return;
+                const pc = PILOT_COLORS[k] || '#3b82f6';
+                if (k === pilot) {
+                    btn.style.background = pc + '1a';
+                    btn.style.borderColor = pc + '55';
+                } else {
+                    btn.style.background = '';
+                    btn.style.borderColor = '';
+                }
+            });
+            // Sync mobile pilot pill active states
+            document.querySelectorAll('.mpilot-btn').forEach(b => {
+                b.style.borderColor = '';
+                b.style.color = '';
+                b.style.background = '';
+            });
+            const mpill = document.getElementById(`mpilot-${pilot}`);
+            if (mpill) {
+                const pc = PILOT_COLORS[pilot] || '#3b82f6';
+                mpill.style.borderColor = pc + '80';
+                mpill.style.color = pc;
+                mpill.style.background = pc + '1a';
+            }
+            // Re-apply identity tint to "you" pill (if different from active)
+            _applyPillIdentity();
+        }
         function loadPilot(pilot) {
             haptic('tap');
             currentPilot = pilot;
             localStorage.setItem('lastPilot', pilot);
             _applyEditPermissions();
             _updateMyRoutesLabel();
+            const gen = ++_loadPilotGen;
 
             const loadingOverlay = document.getElementById('loading-overlay');
-            loadingOverlay.classList.add('loading-active');
+            // Already loaded this session: show it now, refresh below.
+            const cached = pilotsCache[pilot];
+            const showCached = !!(cached && Array.isArray(cached.segments));
+            if (showCached) {
+                loadingOverlay.classList.remove('loading-active');
+                _showPilotData(pilot, cached, _pilotSegmentsFrom(cached));
+                render();
+            } else {
+                loadingOverlay.classList.add('loading-active');
+            }
+            const cachedJson = showCached ? JSON.stringify(cached) : null;
+            const landed = _reloadLandedEarly(); // independent of the schedule, so it runs alongside
 
             // Fetch from server
             fetchPilotData(pilot).then(async (data) => {
+                if (gen !== _loadPilotGen) return; // a later tap took over; its own load is in charge
                 loadingOverlay.classList.remove('loading-active');
                 if (!data) {
                     console.error('Failed to load pilot data');
@@ -242,98 +347,27 @@
                     _renderNotFriendsState(data.pilotKey, data.name);
                     return;
                 }
-
-                // Convert database format to segment format
-                let segmentData = [];
-                if (data.segments && Array.isArray(data.segments)) {
-                    segmentData = data.segments.map(seg => ({
-                        id: seg.id,
-                        type: seg.type,
-                        departureTime: seg.departure_time,
-                        arrivalTime: seg.arrival_time,
-                        departureAirport: seg.departure_airport,
-                        arrivalAirport: seg.arrival_airport,
-                        tail: seg.tail || '',
-                        trip: seg.trip || '',
-                        flightNumber: seg.flight_number || '',
-                        dh: seg.is_dh ? true : false,
-                        isManual: seg.is_manual ? true : false,
-                        blockMinutes: seg.block_minutes || null,
-                        cancelled: seg.auto_leg_cancelled ? true : false
-                    }));
-                }
+                const segmentData = _pilotSegmentsFrom(data);
 
                 // Cache pilot data for use in render()
                 pilotsCache[pilot] = data;
                 if (pilot === myPilot) { _maybeShowNetjetsTailReminder(pilot, data); _maybeShowNetjetsLastLegAlert(pilot, data); }
-
-                // Sync dynamic pilot metadata from DB (role, name) — handles newly joined pilots
-                if (data.name)  PILOT_NAMES[pilot] = data.name;
-                if (data.role)  PILOT_ROLES[pilot] = data.role;
-                if (data.home_airport) PILOT_HOME[pilot] = data.home_airport;
-
-                // Re-evaluate upload vs sync button now that parser_type is known
-                if (pilot === myPilot) updateUploadSyncButtons(pilot);
-
-                const pilotBase = data.base || null;
-                segments = inferAwayLayovers(segmentData || [], pilotBase, data.base_history);
-                const displayName = data.name || pilot;
-                const firstName   = displayName.split(' ')[0];
-                // Personalized header: "Your Schedule" / "[Name]'s Schedule" / full name for admin
-                let headerText, mobileHeaderText;
-                if (myPilot && pilot === myPilot) {
-                    headerText = 'Your Schedule';
-                    mobileHeaderText = 'YOU';
-                } else if (myPilot) {
-                    headerText = `${firstName}'s Schedule`;
-                    mobileHeaderText = firstName.toUpperCase();
-                } else {
-                    headerText = displayName;
-                    mobileHeaderText = firstName.toUpperCase();
-                }
-                document.getElementById('pilot-header').textContent = headerText;
-                // Sync mobile header
-                const mobileHeader = document.getElementById('pilot-header-mobile');
-                if (mobileHeader) mobileHeader.textContent = mobileHeaderText;
-                // Update sidebar next-trip widget when viewing own schedule
-                _updateNextTripWidget(pilot, segmentData);
-                // Sync desktop sidebar pilot active states
-                PILOT_KEYS.forEach(k => {
-                    const btn = document.getElementById(`pilot-${k}`);
-                    if (!btn) return;
-                    const pc = PILOT_COLORS[k] || '#3b82f6';
-                    if (k === pilot) {
-                        btn.style.background = pc + '1a';
-                        btn.style.borderColor = pc + '55';
-                    } else {
-                        btn.style.background = '';
-                        btn.style.borderColor = '';
-                    }
-                });
-                // Sync mobile pilot pill active states
-                document.querySelectorAll('.mpilot-btn').forEach(b => {
-                    b.style.borderColor = '';
-                    b.style.color = '';
-                    b.style.background = '';
-                });
-                const mpill = document.getElementById(`mpilot-${pilot}`);
-                if (mpill) {
-                    const pc = PILOT_COLORS[pilot] || '#3b82f6';
-                    mpill.style.borderColor = pc + '80';
-                    mpill.style.color = pc;
-                    mpill.style.background = pc + '1a';
-                }
-                // Re-apply identity tint to "you" pill (if different from active)
-                _applyPillIdentity();
+                const unchanged = cachedJson !== null && cachedJson === JSON.stringify(data);
+                if (!unchanged) _showPilotData(pilot, data, segmentData);
                 // City names and landed-early status are independent requests, so they run together
                 // rather than one after the other.
-                await Promise.all([_prefetchCities(data.segments || []), _reloadLandedEarly()]);
+                const knownApts = () => Object.keys(_serverCityCache).length + Object.keys(AIRPORTS).length;
+                const aptsBefore = knownApts();
+                const [, landedGrew] = await Promise.all([_prefetchCities(data.segments || []), landed]);
+                const newCityNames = knownApts() > aptsBefore;
+                if (gen !== _loadPilotGen) return;
                 // Was only ever loaded by renderMap() -- meaning a flight confirmed landed
                 // early (before its scheduled arrival) kept showing "IN THE AIR" in the
                 // calendar grid, list view, and day detail sheet indefinitely whenever Map
                 // hadn't been opened this session, since those views had no way to know about
                 // it. Loaded here too so every view has it before its first render.
-                render();
+                // Shown from cache already and nothing changed: no second render (it would reset list scrolling).
+                if (!unchanged || landedGrew || newCityNames) render();
                 // Show empty-state prompt for newly joined pilots viewing their own blank schedule
                 const emptyBanner = document.getElementById('empty-schedule-banner');
                 if (emptyBanner) {
@@ -346,6 +380,28 @@
                 }
                 checkScheduleUploadReminder(pilot);
                 dismissSplash();
+                _prefetchCrewSchedules();
             });
+        }
+        // Once, after the first schedule is up and the browser is idle: load the other visible crew's
+        // schedules into pilotsCache one at a time, so switching to them is instant. Never replaces data
+        // already loaded; skipped on data-saver connections.
+        let _crewPrefetchStarted = false;
+        function _prefetchCrewSchedules() {
+            if (_crewPrefetchStarted) return;
+            _crewPrefetchStarted = true;
+            if (navigator.connection && navigator.connection.saveData) return;
+            const keys = (typeof getCrewVisible === 'function' ? getCrewVisible() : PILOT_KEYS).filter(k => k && !pilotsCache[k]);
+            const next = () => {
+                const k = keys.shift();
+                if (!k) return;
+                if (pilotsCache[k]) return next();
+                fetch(_pilotFetchUrl(k))
+                    .then(r => r.ok ? r.json() : null)
+                    .then(d => { if (d && Array.isArray(d.segments) && !pilotsCache[k]) { pilotsCache[k] = d; return _prefetchCities(d.segments); } })
+                    .catch(() => {})
+                    .finally(() => (window.requestIdleCallback || (cb => setTimeout(cb, 200)))(next, { timeout: 3000 }));
+            };
+            setTimeout(() => (window.requestIdleCallback || (cb => cb()))(next, { timeout: 3000 }), 1000);
         }
 
