@@ -5,6 +5,7 @@ const path = require('path');
 module.exports = {
     content: [
         path.join(__dirname, 'app.template.html'),
+        path.join(__dirname, 'styles.css'), // was inside the template; kept in the scan so app.css stays the same
         path.join(__dirname, 'src/**/*.js'),
     ],
 };

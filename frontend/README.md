@@ -12,6 +12,7 @@ Commit `public/app.html`, `public/app.js`, `public/app.js.map` and `public/app.c
 ## How it fits together
 
 - `app.template.html`: the page markup, CSS and head scripts. It loads `/app.js?v=@@APP_JS_VERSION@@` at the end of `<body>` (where the inline script used to be) and `/app.css?v=@@APP_CSS_VERSION@@` last in `<head>`; the build fills in each file's content hash. The server lets browsers keep a file for a year when `v` matches it, so unchanged code is never re-downloaded and a deploy is picked up at once.
+- `styles.css`: the page's own CSS (the app's look on top of Tailwind: views, cards, maps, PWA layout). The build puts it back inline in the template's `<style>` (`@@APP_STYLES@@`), before `app.css` and before the map libraries' CSS is inserted, because which rule wins depends on that order. Tailwind also scans it.
 - `src/**/*.js`: the app's script, split by feature.
 - `tailwind.config.js` / `tailwind.input.css`: Tailwind 3.4.17 (default theme). The build scans the template and `src/` for class names and writes `public/app.css`, linked last in `<head>` with a version so a changed stylesheet is always fetched fresh. **Write class names out in full**: `text-${color}-400` never gets CSS because the scanner can't see it. Use a lookup object of full names (`{ ok: 'text-green-400', bad: 'text-red-400' }`) or an inline style for a truly dynamic color.
 - `files.json`: the order the files are joined in. **A new file must be added here**; the build stops if a file in `src/` isn't listed.
