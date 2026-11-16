@@ -35,6 +35,11 @@
            tab bar lands at the physical bottom edge. */
         /* Installed app only: lvh ignores browser bars, so in Safari it pushed the page past the visible area. */
         @supports (height: 100lvh) { html.is-pwa body[data-fullheight] { height: 100lvh !important; } }
+        /* iPad (any width from 768 up) as a Home Screen app: the page draws under the status bar
+           (viewport-fit=cover), and the desktop layout had no room for it, so the sidebar logo and the month
+           header sat under the clock. Push the whole layout down by the status bar's height; the gap shows the
+           body's own black. Phones (under 768) use #mobile-header's fixed bar instead (see below). */
+        @media (min-width: 768px) { html.is-pwa body[data-fullheight] { padding-top: env(safe-area-inset-top); } }
 
         /* Mobile: fixed bottom nav + safe-area padding for scrollable views */
         @media (max-width: 767px) {
