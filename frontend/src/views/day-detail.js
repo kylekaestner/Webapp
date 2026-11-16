@@ -40,7 +40,9 @@
                 const rawAMs = f.arrivalTime ? flightUTCTime(f.arrivalTime, f.arrivalAirport)?.getTime() : null;
                 return { dMs, aMs: rawAMs, cs, dep: f.departureAirport };
             });
-            const anyLive = flightMs.some(({dMs, aMs, cs, dep}) => isFlightStillActive(dMs, aMs, nowMs, cs, dep) && !_isLandedEarly(cs, aMs));
+            // "IN THE AIR" only when a position fix confirmed it, the same rule as the grid/list's green.
+            // It used to follow the schedule clock alone, so a delayed or "departure due" flight read as live.
+            const anyLive = flightMs.some(({dMs, aMs, cs, dep}) => _legLiveState(cs, dMs, isFlightStillActive(dMs, aMs, nowMs, cs, dep) && !_isLandedEarly(cs, aMs)) === 'live');
             let label = _pilotOnDutyDefault(currentPilot, dateKey) ? _onDutyDefaultLabel(currentPilot) : 'DAY OFF';
             let labelColor = 'text-zinc-400';
             if (isVacation) { label = awayApt ? `VACATION · AWAY - ${aptLabel(awayApt, currentPilot)}` : 'VACATION'; labelColor = 'text-teal-400'; }
@@ -189,10 +191,12 @@
                 // Added because the day-detail sheet (opened by tapping a grid cell) was the one place
                 // showing a completed leg with no indicator at all, after the grid itself got one.
                 const isCompletedLeg = !isActiveLeg && !!aMs && (nowMs >= aMs || _isLandedEarly(_dayCs, aMs)) && dateKey === _localToday();
-                const accentColor = isActiveLeg ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
-                const cardBorder = isActiveLeg ? 'border-emerald-500/50' : isPersonal ? 'border-violet-500/20' : isCommute ? 'border-amber-500/20' : `border-[${accentColor}25]`;
-                const cardBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : isActiveLeg ? 'bg-emerald-950/10' : 'bg-zinc-900/60';
-                const aptColor = isActiveLeg ? '#22c55e' : 'rgba(255,255,255,0.92)';
+                const legState = _legLiveState(_dayCs, dMs, isActiveLeg);
+                const showLive = legState === 'live';
+                const accentColor = showLive ? '#22c55e' : isPersonal ? '#a78bfa' : isCommute ? '#f59e0b' : (PILOT_COLORS[currentPilot] || '#38bdf8');
+                const cardBorder = showLive ? 'border-emerald-500/50' : isPersonal ? 'border-violet-500/20' : isCommute ? 'border-amber-500/20' : `border-[${accentColor}25]`;
+                const cardBg = isPersonal ? 'bg-violet-950/20' : isCommute ? 'bg-amber-950/20' : showLive ? 'bg-emerald-950/10' : 'bg-zinc-900/60';
+                const aptColor = showLive ? '#22c55e' : 'rgba(255,255,255,0.92)';
                 const editActions = (f.id && canEdit()) ? `<div class="flex gap-2 px-4 py-2.5 border-t border-white/5">
                     <button onclick="document.getElementById('day-detail-sheet').classList.add('hidden');openEditFlight(${f.id})" class="flex-1 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border border-zinc-700 text-zinc-400 hover:text-blue-400 hover:border-blue-700 transition-colors">✏️ Edit</button>
                     <button onclick="deleteManualFlight(${f.id}).then(()=>document.getElementById('day-detail-sheet').classList.add('hidden'))" class="flex-1 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800 transition-colors">🗑️ Delete</button>
@@ -209,7 +213,7 @@
                 html += `<div class="bp-card border mb-3 ${cardBg}" style="border-color:${accentColor}28">
                     <div class="bp-top-bar" style="background:linear-gradient(90deg,${accentColor},${accentColor}44,transparent)"></div>
                     <div class="flex items-center gap-2 px-4 pt-3 pb-0 flex-wrap">
-                        ${isActiveLeg ? `<span class="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" style="animation:pulse 1.5s infinite"></span>In the air</span>` : ''}
+                        ${isActiveLeg && _dayCs ? `<span style="display:contents" data-leg-status="${_dayCs}" data-dep-ms="${dMs}" data-dep-apt="${f.departureAirport || ''}">${_legStatusBadge(legState, _dayCs, dMs, f.departureAirport)}</span>` : ''}
                         ${f.dh ? `<span class="text-[10px] font-semibold text-pink-400">Deadhead</span>` : ''}
                         ${isPersonal ? `<span class="text-[10px] font-semibold text-violet-400">Personal</span>` : ''}
                         ${isCommute ? `<span class="text-[10px] font-semibold text-amber-400">Commute</span>` : ''}

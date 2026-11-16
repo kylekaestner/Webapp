@@ -209,6 +209,11 @@
                             m.textContent = liveEl.textContent;
                             m.style.display = liveEl.style.display;
                         });
+                        // An open day-detail sheet's status badge (In the air / Delayed / Departure due) follows too.
+                        document.querySelectorAll(`[data-leg-status="${cs}"]`).forEach(m => {
+                            const dm = +m.dataset.depMs || null;
+                            m.innerHTML = _legStatusBadge(_legLiveState(cs, dm, true), cs, dm, m.dataset.depApt);
+                        });
                         // Same wording/color as the day map's 'delayed'/'due' states.
                         if (delayEl) delayEl.textContent = notFoundDelayEtd
                             ? `DELAYED · ETD ${formatTimeISO(notFoundDelayEtd, depApt)}`

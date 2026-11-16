@@ -42,6 +42,25 @@
         const _confirmedDelayed = new Map();
         function _delayedKey(cs, depMs) { return `${cs}|${depMs || ''}`; }
         function _getConfirmedDelayEtd(cs, depMs) { return cs ? _confirmedDelayed.get(_delayedKey(cs, depMs)) : undefined; }
+        // One answer for "what is this leg doing right now", the same rules as the grid and list:
+        // 'live' only once a position fix confirmed it (_confirmedLive), else 'delayed' / 'due' from the
+        // live checks, else null (scheduled time has passed but nothing is confirmed yet, so no claim).
+        // `active` is isFlightStillActive() && not landed early, worked out by the caller.
+        function _legLiveState(cs, depMs, active) {
+            if (!active || !cs) return null;
+            const key = _delayedKey(cs, depMs);
+            if (_confirmedLive.has(key)) return 'live';
+            if (_getConfirmedDelayEtd(cs, depMs)) return 'delayed';
+            if (_confirmedDue.has(key)) return 'due';
+            return null;
+        }
+        // The day-detail sheet's status badge for that state (the live poller refreshes it while open).
+        function _legStatusBadge(state, cs, depMs, depApt) {
+            if (state === 'live') return '<span class="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" style="animation:pulse 1.5s infinite"></span>In the air</span>';
+            if (state === 'delayed') return `<span class="text-[10px] font-semibold" style="color:#f97316">Delayed · ETD ${formatTimeISO(_getConfirmedDelayEtd(cs, depMs), depApt)}</span>`;
+            if (state === 'due') return '<span class="text-[10px] font-semibold" style="color:#eab308">Departure due</span>';
+            return '';
+        }
         // Same idea, same key shape, for the map's other non-active state: scheduled departure has
         // passed, still not found at all, but TFMS doesn't show a real delay either (no estimate,
         // or one too close to scheduled to count) -- the map's own _legState falls through to this
