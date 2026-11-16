@@ -40,6 +40,7 @@ const { createFeedQueue } = require('./feed-queue');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const path = require('path');
+const { createLegStore } = require('./feed-leg-store');
 
 const TFMS_HOST  = process.env.TFMS_HOST;
 const TFMS_VPN   = process.env.TFMS_VPN;
@@ -85,15 +86,7 @@ function scheduleTimesSave() {
         _timesSaveTimer = null;
         const now = Date.now();
         for (const cs of Object.keys(_flightTimes)) if (now - (_flightTimes[cs].timesUpdated || 0) > TIMES_TTL_MS) delete _flightTimes[cs];
-        for (const cs of Object.keys(_legTimes)) {
-            const legsMap = _legTimes[cs];
-            for (const [k, leg] of legsMap) if (now - (leg.lastMsg || 0) > legTimesStaleMsFor(cs)) legsMap.delete(k);
-            if (legsMap.size === 0) delete _legTimes[cs];
-        }
         try { fs.writeFileSync(TIMES_CACHE_PATH, JSON.stringify(_flightTimes)); } catch (_) {}
-        const legTimesOut = {};
-        for (const [cs, map] of Object.entries(_legTimes)) legTimesOut[cs] = [...map.entries()];
-        try { fs.writeFileSync(LEG_TIMES_CACHE_PATH, JSON.stringify(legTimesOut)); } catch (_) {}
     }, 2000);
 }
 // callsign -> Map(legKey -> {...FLIGHT_TIME_ATTRS, etd, eta, igtd, origin, dest, scheduledDepMs,
@@ -123,23 +116,26 @@ const _legTimes = {};
 const LEG_TIMES_STALE_MS = 48 * 60 * 60 * 1000;
 // See tfdm.js's identical LEG_STALE_MS_RESEARCH for the full reasoning -- a completed leg's
 // lastMsg stops updating the moment the flight ends, so it was aging out at 48h, already gone
-// before the NetJets Lookup tool's own 3-day lookback window could ever show it.
-const LEG_TIMES_STALE_MS_RESEARCH = 7 * 24 * 60 * 60 * 1000;
+// before the NetJets Lookup tool's own 3-day lookback window could ever show it. 5 days, not 3: the
+// day-1 chain start (server.js _netjetsLegCreationPass) looks back 4 days before the tour for where
+// the tail really is, and needs those legs still here (Mack's EJA17 FTW-COS).
+const LEG_TIMES_STALE_MS_RESEARCH = 5 * 24 * 60 * 60 * 1000;
 function legTimesStaleMsFor(cs) { return _isResearchRelevant(cs) ? LEG_TIMES_STALE_MS_RESEARCH : LEG_TIMES_STALE_MS; }
-// Persisted to disk, same reasoning as _flightTimes above and tfdm.js's identical _legs cache --
-// a pm2 restart otherwise throws away whatever future legs had already been filed ahead.
-const LEG_TIMES_CACHE_PATH = path.join(__dirname, '.tfms_legtimes_cache.json');
-try {
-    const saved = JSON.parse(fs.readFileSync(LEG_TIMES_CACHE_PATH, 'utf8'));
+// Persisted so a pm2 restart keeps the legs already filed ahead: one SQLite row per leg
+// (feed-leg-store.js), only changed legs written. Was a JSON file rewritten whole every ~2s.
+const _legStore = createLegStore({
+    source: 'tfms', legs: _legTimes, staleMsFor: legTimesStaleMsFor,
+    maxStaleMs: Math.max(LEG_TIMES_STALE_MS, LEG_TIMES_STALE_MS_RESEARCH),
+    legacyJsonPath: path.join(__dirname, '.tfms_legtimes_cache.json'),
+});
+setInterval(() => {
     const now = Date.now();
-    for (const [cs, entries] of Object.entries(saved)) {
-        const map = new Map();
-        for (const [key, leg] of entries) {
-            if (now - (leg.lastMsg || 0) <= legTimesStaleMsFor(cs)) map.set(key, leg);
-        }
-        if (map.size) _legTimes[cs] = map;
+    for (const cs of Object.keys(_legTimes)) {
+        const legsMap = _legTimes[cs];
+        for (const [k, leg] of legsMap) if (now - (leg.lastMsg || 0) > legTimesStaleMsFor(cs)) { legsMap.delete(k); _legStore.markDirty(cs, k); }
+        if (legsMap.size === 0) delete _legTimes[cs];
     }
-} catch (_) {}
+}, 5 * 60 * 1000).unref();
 
 const _airportConfig = {}; // bare 3-letter airport code -> { arrRunwayConf, depRunwayConf, ..., lastMsg }
 // Runway configurations survive restarts and stay usable for 3h: an airport reports when its flow
@@ -209,7 +205,7 @@ function setRelevantCallsigns(input) {
         if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) delete _latest[cs];
     }
     for (const cs of Object.keys(_legTimes)) {
-        if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) delete _legTimes[cs];
+        if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) { delete _legTimes[cs]; _legStore.markCallsignGone(cs); }
     }
 }
 
@@ -436,7 +432,7 @@ function processOneFltdMessage(msgObj) {
                 const leg = _legTimes[cs]?.get(`${legOrigin}>${legDest}`);
                 // Ignored once the leg already really flew -- NetJets sends cleanup cancellations
                 // after landing (N713QS PHOG->BFI arrived 00:54Z, cancelled 01:38Z).
-                if (leg && !(leg.departedAt || leg.arrivedAt || leg.tracked || (leg.timeOfArrival && leg.timeOfArrivalEstimated === false))) leg.cancelled = true;
+                if (leg && !(leg.departedAt || leg.arrivedAt || leg.tracked || (leg.timeOfArrival && leg.timeOfArrivalEstimated === false))) { leg.cancelled = true; _legStore.markDirty(cs, `${legOrigin}>${legDest}`); }
             }
         } else if (candidateMs != null) {
             // Routeless times-only update (confirmed the common case live: most ongoing ETD/ETA
@@ -628,7 +624,7 @@ function processLegTimes(msgObj, cs, origin, dest, candidateMs, msgType) {
     if (leg.cancelled && (leg.departedAt || leg.arrivedAt || leg.tracked)) delete leg.cancelled;
     leg.lastMsg = Date.now();
     legsMap.set(key, leg);
-    scheduleTimesSave();
+    _legStore.markDirty(cs, key);
 
 }
 
@@ -877,4 +873,4 @@ function getFlightTimes(callsign) {
         gateDeparture, gateArrival, runwayDeparture, runwayArrival, originalDeparture, originalArrival };
 }
 
-module.exports = { connect, getFlightData, getFlightTimes, getAllLegTimes, getCallsignsWithLegTimes, routeDest, getAirportConfig, getAirportConfigRaw, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };
+module.exports = { legsReady: () => _legStore.isReady(), connect, getFlightData, getFlightTimes, getAllLegTimes, getCallsignsWithLegTimes, routeDest, getAirportConfig, getAirportConfigRaw, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };

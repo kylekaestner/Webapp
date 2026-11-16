@@ -6340,7 +6340,9 @@ async function runActiveFlightPoller() {
                     if (!data?.notThisLeg) _liveCache[callsign] = { ts: Date.now(), data };
                 } catch (_) {}
             }
-            if (onDutyNetjets.length) {
+            // Not until the feed leg stores are restored from feed-cache.db (a second or two after a
+            // restart): a pass on half-loaded legs could hide or cancel legs it just can't see yet.
+            if (onDutyNetjets.length && tfms.legsReady() && tfdm.legsReady()) {
                 try { await _pollNetjetsLegCreation(db, onDutyNetjets); } catch (e) { console.error('[NetJets] leg-creation poll failed:', e.message); }
             }
         }

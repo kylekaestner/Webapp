@@ -28,6 +28,7 @@ const { createFeedQueue } = require('./feed-queue');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const path = require('path');
+const { createLegStore } = require('./feed-leg-store');
 
 const TFDM_HOST  = process.env.TFDM_HOST;
 const TFDM_VPN   = process.env.TFDM_VPN;
@@ -95,9 +96,10 @@ const LEG_STALE_MS = 48 * 60 * 60 * 1000; // longer than _latest's 1h -- a futur
 // leg's lastMsg stops updating the moment the flight ends, so it was aging out of this cache at
 // 48h -- already gone before the tool's own default window could ever show it (confirmed real:
 // EJA23's 10/31 KADS->KSAT leg, the only confirmed movement this tail has ever had, had already
-// been purged by 11/2). Research-relevant callsigns get a week instead -- a handful of EJA/tail-
-// number entries, not a memory concern the way every real tracked pilot's legs would be.
-const LEG_STALE_MS_RESEARCH = 7 * 24 * 60 * 60 * 1000;
+// been purged by 11/2). Research-relevant callsigns get 5 days: the Lookup's 3-day window plus the
+// day-1 chain start, which looks back 4 days before a tour for where the tail really is (server.js
+// _netjetsLegCreationPass, Mack's EJA17 FTW-COS).
+const LEG_STALE_MS_RESEARCH = 5 * 24 * 60 * 60 * 1000;
 function legStaleMsFor(cs) { return _isResearchRelevant(cs) ? LEG_STALE_MS_RESEARCH : LEG_STALE_MS; }
 function legKey(origin, dest) { return (origin && dest) ? `${origin}>${dest}` : null; }
 
@@ -107,28 +109,13 @@ function legKey(origin, dest) { return (origin && dest) ? `${origin}>${dest}` : 
 // future legs had already been filed ahead -- exactly the "forward schedule" value this store
 // exists to provide. A Map doesn't JSON-serialize on its own, so the save/load round-trips
 // through plain [key, leg] entry arrays.
-const LEGS_CACHE_PATH = path.join(__dirname, '.tfdm_legs_cache.json');
-try {
-    const saved = JSON.parse(fs.readFileSync(LEGS_CACHE_PATH, 'utf8'));
-    const now = Date.now();
-    for (const [cs, entries] of Object.entries(saved)) {
-        const map = new Map();
-        for (const [key, leg] of entries) {
-            if (now - (leg.lastMsg || 0) <= legStaleMsFor(cs)) map.set(key, leg);
-        }
-        if (map.size) _legs[cs] = map;
-    }
-} catch (_) {}
-let _legsSaveTimer = null;
-function scheduleLegsSave() {
-    if (_legsSaveTimer) return;
-    _legsSaveTimer = setTimeout(() => {
-        _legsSaveTimer = null;
-        const out = {};
-        for (const [cs, map] of Object.entries(_legs)) out[cs] = [...map.entries()];
-        try { fs.writeFileSync(LEGS_CACHE_PATH, JSON.stringify(out)); } catch (_) {}
-    }, 2000);
-}
+// Persisted so a pm2 restart keeps the legs already filed ahead: one SQLite row per leg
+// (feed-leg-store.js), only changed legs written. Was a JSON file rewritten whole every ~2s.
+const _legStore = createLegStore({
+    source: 'tfdm', legs: _legs, staleMsFor: legStaleMsFor,
+    maxStaleMs: Math.max(LEG_STALE_MS, LEG_STALE_MS_RESEARCH),
+    legacyJsonPath: path.join(__dirname, '.tfdm_legs_cache.json'),
+});
 
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
 
@@ -175,7 +162,7 @@ function setRelevantCallsigns(input) {
         if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) delete _latest[cs];
     }
     for (const cs of Object.keys(_legs)) {
-        if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) delete _legs[cs];
+        if (!_relevantCallsigns.has(cs) && !_isResearchRelevant(cs)) { delete _legs[cs]; _legStore.markCallsignGone(cs); }
     }
 }
 
@@ -350,7 +337,7 @@ function processOneMessage(msgObj) {
         if (estDepartureTime) leg.estDepartureTime = estDepartureTime;
         if (isDiversion) leg.isDiversion = true;
         legsMap.set(lk, leg);
-        scheduleLegsSave();
+        _legStore.markDirty(cs, lk);
     }
 }
 
@@ -390,15 +377,13 @@ function purgeStale() {
     for (const cs of Object.keys(_latest)) {
         if (now - (_latest[cs].lastMsg || 0) > STALE_MS) delete _latest[cs];
     }
-    let legsChanged = false;
     for (const cs of Object.keys(_legs)) {
         const legsMap = _legs[cs];
         for (const [k, leg] of legsMap) {
-            if (now - (leg.lastMsg || 0) > legStaleMsFor(cs)) { legsMap.delete(k); legsChanged = true; }
+            if (now - (leg.lastMsg || 0) > legStaleMsFor(cs)) { legsMap.delete(k); _legStore.markDirty(cs, k); }
         }
         if (legsMap.size === 0) delete _legs[cs];
     }
-    if (legsChanged) scheduleLegsSave();
 }
 setInterval(purgeStale, 5 * 60 * 1000);
 
@@ -526,4 +511,4 @@ function getCallsignsWithLegs() {
     }).sort((a, b) => b.lastMs - a.lastMs);
 }
 
-module.exports = { connect, getFlightInfo, getAllLegs, getCallsignsWithLegs, setRelevantCallsigns, isEnabled: () => TFDM_ENABLED };
+module.exports = { legsReady: () => _legStore.isReady(), connect, getFlightInfo, getAllLegs, getCallsignsWithLegs, setRelevantCallsigns, isEnabled: () => TFDM_ENABLED };

@@ -19,3 +19,7 @@ scratch/
 .tfdm_legs_cache.json
 .tfms_legtimes_cache.json
 .tfms_aptc_cache.json
+*.db-wal
+*.db-shm
+.tfdm_legs_cache.json.bak
+.tfms_legtimes_cache.json.bak
