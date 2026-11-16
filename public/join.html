@@ -7,7 +7,6 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon-192.png">
     <title>Join CrewSync</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
         html, body { background: #09090b; margin: 0; }
@@ -114,6 +113,8 @@
             white-space: nowrap;
         }
     </style>
+    <!-- Tailwind, built ahead of time (npm run build). Last in <head>, where the old in-browser CDN put its CSS. -->
+    <link rel="stylesheet" href="/pages.css">
 </head>
 <body class="text-zinc-100 font-sans flex flex-col items-center justify-center px-5" style="min-height:100dvh;">
 

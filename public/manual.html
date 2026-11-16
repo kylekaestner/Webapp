@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CrewSync Manual</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background: #09090b; color: #e4e4e7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
         ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 2px; }
@@ -39,6 +38,8 @@
         section[id] { scroll-margin-top: 80px; }
         @media (max-width: 767px) { section[id] { scroll-margin-top: 116px; } }
     </style>
+    <!-- Tailwind, built ahead of time (npm run build). Last in <head>, where the old in-browser CDN put its CSS. -->
+    <link rel="stylesheet" href="/pages.css">
 </head>
 <body class="min-h-screen">
 
