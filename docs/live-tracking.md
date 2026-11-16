@@ -23,7 +23,7 @@ Polls `/api/live-position?callsign=XX&origin=DEP` — **adaptive cadence**: `_po
 
 **Reliability safeguards currently in place** (full discovery history: `CLAUDE_HISTORY.md § ADS-B live tracking`): dashed arc removal requires `missCount >= 3` (not the first miss); stale-trail protection via `_hexToCallsign` (changed callsign on the same hex forces a trail reset); `isPositionOnRoute()` uses a 300mi floor on top of its 25% slack (so a real weather deviation doesn't freeze the live icon).
 
-### `startCalListLivePolling()` (~line 4848)
+### `startCalListLivePolling()` (frontend/src/live/calendar-list-polling.js)
 
 Polls every **15 seconds** for `[data-live-callsign]` elements in calendar/list. Per callsign: polls `/api/live-position`, updates `#live-{callsign}` with altitude/speed (`✈ FL340 · 428 kts` or `Taxiing · 15 kts`), appends `· Delayed Nm` when `departureDelayMin >= 10` and not yet en route. `d.parked` populates `_confirmedParked`. Falls back to the `airborne` array + a known past arrival time when the airline's own OOOI field isn't populated (true for non-airline operators like NetJets). Stopped by `stopCalListPollers()` before each re-render.
 

@@ -15,7 +15,8 @@ This file is the short core, loaded every session. Detail lives in topic docs, r
 
 - Read the relevant doc **before** changing that area, and more than one if the work crosses areas. A sentence like "see X below" in a doc may point at a section in another doc: search `docs/` for the heading.
 - These docs and this file describe **current behavior** only. After a fix, update the relevant doc in the same commit, and put the story in `CLAUDE_HISTORY.md`.
-- `server.js` and `public/app.html` are large. Use Grep for function names, don't read them sequentially.
+- `server.js` is large. Use Grep for function names, don't read it sequentially. The frontend is split by feature under `frontend/src/` (see [frontend/README.md](frontend/README.md)); Grep there.
+- **`public/app.html` is generated. Never edit it.** Edit `frontend/`, run `npm run build` (or keep `npm run watch` running), and commit the rebuilt `public/app.html` with the source. The build refuses to overwrite a hand-edited app.html.
 
 ## Standing rules
 
@@ -26,7 +27,7 @@ This file is the short core, loaded every session. Detail lives in topic docs, r
 
 ## What this app is
 
-CrewSync is a private PWA for a group of pilots (Kyle, Adam, Sam, Logan, Drew, plus later joiners) to coordinate schedules. Key views: Calendar, List, Route Map, Crew Planning (Crossings + Off Days). Backend: Node/Express + SQLite. Frontend: single-file `public/app.html` (~11k lines, all views and logic inline).
+CrewSync is a private PWA for a group of pilots (Kyle, Adam, Sam, Logan, Drew, plus later joiners) to coordinate schedules. Key views: Calendar, List, Route Map, Crew Planning (Crossings + Off Days). Backend: Node/Express + SQLite. Frontend: one page, `public/app.html`, built from `frontend/` (markup template + the app script split by feature into ~30 files).
 
 Kyle also runs a Tampermonkey userscript (`public/frat-autofill.user.js`) that autofills PRISM SMS flight risk assessments from his CrewSync schedule — see its own section below.
 
@@ -38,7 +39,8 @@ Current version: `1.0.12-beta` (`package.json`/`package-lock.json`). Bump it for
 
 | File | Role |
 |---|---|
-| `public/app.html` | Entire frontend — HTML, CSS (Tailwind CDN), all JS |
+| `frontend/` | Frontend source: `app.template.html` (markup, CSS, head scripts) + `src/**` (the app script, split by feature) + `files.json` (join order). Built into `public/app.html` by `scripts/build-frontend.js` |
+| `public/app.html` | **Generated** from `frontend/` (committed, served as-is). Don't edit |
 | `server.js` | Express API + all schedule parsers (ICS, CSV, VCS, Schedaero) |
 | `db.js` | SQLite init + schema migrations |
 | `dispatch.db` | SQLite database |
@@ -88,9 +90,9 @@ Current version: `1.0.12-beta` (`package.json`/`package-lock.json`). Bump it for
 ## File map continued — large module notes
 
 - `swim.js`/`stdds.js`/`tfms.js`/`tfdm.js`/`vnas.js`/`navdata.js` are all read fresh when debugging live-tracking issues; none of their internals are duplicated here — check the module directly.
-- `server.js` and `public/app.html` are large; use Grep for function names rather than reading sequentially.
+- `server.js` is large; use Grep for function names rather than reading sequentially. Frontend functions: Grep `frontend/src/`.
 
-## Key constants in `app.html`
+## Key constants in the frontend (`frontend/src/core/` and nearby)
 
 ```js
 PILOT_KEYS / VALID_PILOTS   // same array ref; starts EMPTY for a real session, populated

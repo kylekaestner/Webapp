@@ -1,0 +1,1956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <script>if (navigator.standalone || matchMedia('(display-mode: standalone)').matches) document.documentElement.classList.add('is-pwa');</script>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="CrewSync">
+    <meta name="theme-color" content="#000000">
+    <script>(function(){const t=new URLSearchParams(location.search).get('u')||localStorage.getItem('crewsync_token');const l=document.createElement('link');l.rel='manifest';l.href='/manifest.json'+(t?'?u='+encodeURIComponent(t):'');document.currentScript.before(l);})();</script>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <title>CrewSync</title>
+    <script>
+        // Auto-refresh when reopened from iOS home screen after 5 min idle
+        (function() {
+            let hiddenAt = null;
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'hidden') {
+                    hiddenAt = Date.now();
+                } else if (hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000) {
+                    window.location.reload();
+                } else {
+                    hiddenAt = null;
+                }
+            });
+        })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+    <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script defer src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.Geodesic/2.5.5/leaflet.geodesic.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tz-lookup/tz.js"></script>
+    <style>
+        html { background: #050505; } /* fills any gap below body in standalone PWA */
+        /* iOS blurs the top of an installed web app, down over the header, unless a solid fixed bar sits at
+           the top edge. A normal header doesn't count, so it's fixed here with the same space kept for it. */
+        @media (max-width: 767px) {
+            html.is-pwa #mobile-header { position: fixed; top: 0; left: 0; right: 0; z-index: 20; }
+            html.is-pwa div:has(> #mobile-header) { padding-top: calc(env(safe-area-inset-top) + 56px); }
+        }
+        .view-section { display: none; height: 100%; }
+        .view-active { display: block; }
+        @media (max-width: 767px) {
+            #view-map.view-active { display: flex !important; flex-direction: column; padding-bottom: calc(50px + env(safe-area-inset-bottom)); }
+            #map { flex: 1 1 0 !important; height: auto !important; min-height: 0; }
+        }
+
+        /* Intel map full-width mode */
+        #view-intel.intel-map-mode { overflow: hidden !important; display: flex !important; flex-direction: column; }
+        #view-overlap.view-active { display: flex !important; flex-direction: column; overflow: hidden; }
+        #view-intel.intel-map-mode #intel-inner { max-width: none !important; width: 100% !important; flex: 1 1 0; display: flex; flex-direction: column; padding-bottom: 0 !important; margin: 0 !important; }
+        #view-intel.intel-map-mode #intel-header { position: relative; flex-shrink: 0; }
+        #view-intel.intel-map-mode #intel-content { flex: 1 1 0; padding: 0 !important; min-height: 0; }
+        #intel-map-el { height: 100% !important; width: 100% !important; background: #0b0c0d; }
+        @media (max-width: 767px) {
+            #view-intel.intel-map-mode { padding-bottom: calc(50px + env(safe-area-inset-bottom)); }
+        }
+
+        /* Desktop: calendar grid — fixed-height cells, internal scroll per day */
+        @media (min-width: 768px) {
+            #view-grid.view-active { display: block !important; }
+        }
+
+
+        /* The app should fill the whole screen, including the bottom area that dvh excludes on iOS, so the
+           tab bar lands at the physical bottom edge. */
+        /* Installed app only: lvh ignores browser bars, so in Safari it pushed the page past the visible area. */
+        @supports (height: 100lvh) { html.is-pwa body[data-fullheight] { height: 100lvh !important; } }
+
+        /* Mobile: fixed bottom nav + safe-area padding for scrollable views */
+        @media (max-width: 767px) {
+            .mobile-nav {
+                position: fixed !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                z-index: 200;
+            }
+            /* Push scrollable content above the fixed nav */
+            #view-grid, #view-list {
+                padding-bottom: 70px !important;
+            }
+            #view-map.view-active { padding-bottom: 68px !important; }
+            .mobile-nav { background: #09090b !important; padding-bottom: 12px !important; }
+        }
+
+        /* Mobile: compact grid + readable list */
+        @media (max-width: 767px) {
+            /* Calendar grid: compact colored tiles */
+            #view-grid { padding: 4px 2px !important; }
+            #view-grid > div { gap: 2px !important; }
+            #view-grid .col-span-7 { margin-bottom: 2px; font-size: 9px !important; }
+            #calendar-grid-content > div {
+                height: auto !important;
+                min-height: 52px !important;
+                max-height: 96px !important;
+                border-radius: 6px !important;
+                cursor: pointer;
+                overflow: hidden !important;
+            }
+            #calendar-grid-content > div > div:first-child { padding: 4px 5px 2px !important; }
+            #calendar-grid-content .day-number { font-size: 13px !important; line-height: 1; }
+
+            /* Flying days: color = status, just show route — hide pill */
+            #calendar-grid-content > div:has(.flight-item) span[class*="rounded-full"] { display: none !important; }
+            #calendar-grid-content > div > div:last-child {
+                display: block !important;
+                overflow: hidden !important;
+                padding: 0 5px 3px !important;
+            }
+            #calendar-grid-content > div > div:last-child .flight-item {
+                padding: 0 !important;
+                background: none !important;
+                border: none !important;
+            }
+            #calendar-grid-content > div > div:last-child .flight-item > div:first-child { font-size: 9px !important; font-weight: 800 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; line-height: 1.3 !important; }
+            #calendar-grid-content > div > div:last-child .flight-item > div:not(:first-child):not(.leg-delay-line) { display: none !important; }
+
+            /* Non-flying days (away, hard off, off): show pill only */
+            #calendar-grid-content > div:not(:has(.flight-item)) span[class*="rounded-full"] { font-size: 6px !important; padding: 1px 4px !important; }
+            /* List view: compact + wrap flight rows */
+            #view-list { padding: 10px !important; }
+            #calendar-list-content > div { padding: 10px !important; gap: 10px !important; }
+            #calendar-list-content .w-16 { width: 48px !important; }
+            .flight-row { padding-left: 8px !important; padding-right: 8px !important; }
+            .flight-row .flex { flex-wrap: wrap !important; gap: 4px !important; }
+            .flight-row .text-right { text-align: left !important; width: 100%; }
+            /* Map legend: compact size on mobile (positioning handled by bottom-4 relative to #map tile area) */
+            #map-legend { padding: 4px 6px !important; font-size: 7px !important; gap: 2px !important; }
+            #map-legend .space-y-1 > div { gap: 4px !important; }
+            #map-legend span[class*="w-4"] { width: 10px !important; }
+            #map-legend span[class*="w-2"] { width: 6px !important; height: 6px !important; }
+            /* Map: smaller filter pills on mobile */
+            .map-ctrl-pill { padding: 3px 8px !important; font-size: 9px !important; }
+            /* Hide the "Filters" label on mobile — too cluttered */
+            .map-controls > div > div:first-child { display: none !important; }
+            /* Day nav handled by mobile-day-nav-bar on mobile; hide the map overlay version */
+            #day-nav { display: none !important; }
+        }
+        /* Thin scrollbars app-wide */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+        * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.14) transparent; }
+        /* Even thinner inside calendar cells */
+        #calendar-grid-content .overflow-y-auto::-webkit-scrollbar { width: 3px; }
+
+        #sidebar { transition: width 0.22s ease, min-width 0.22s ease, opacity 0.18s ease; }
+        #sidebar.sidebar-hidden { width: 0 !important; min-width: 0 !important; overflow: hidden; opacity: 0; border-right-width: 0 !important; }
+        .nav-active { border-color: #3b82f6 !important; color: white !important; background: rgba(59, 130, 246, 0.1); }
+        .overlap-tab { color: #52525b; border-color: transparent; }
+        .overlap-tab:hover { color: #a1a1aa; }
+        .overlap-tab-active { color: #f4f4f5 !important; border-color: #3b82f6 !important; }
+        #map { height: 100%; width: 100%; background: #0a0a0a; }
+        .map-controls { position: absolute; top: 10px; right: 10px; z-index: 1000; }
+        .map-ctrl-pill { display:block; padding:5px 13px; background:rgba(18,18,20,0.82); border:1px solid rgba(63,63,70,0.5); border-radius:8px; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.07em; color:#52525b; white-space:nowrap; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); cursor:pointer; transition:color .15s,border-color .15s,background .15s,box-shadow .15s; }
+        .map-ctrl-pill:hover { color:#e4e4e7; border-color:rgba(113,113,122,0.8); background:rgba(36,36,40,0.92); }
+        .map-ctrl-on  { color:#f4f4f5 !important; border-color:rgba(161,161,170,0.65) !important; background:rgba(39,39,42,0.95) !important; box-shadow:0 1px 6px rgba(0,0,0,0.35) !important; }
+        .map-mode-bar-pill { text-align:center; padding:11px 4px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#52525b; transition:color .15s,background .15s; cursor:pointer; }
+        .map-mode-bar-pill:hover { color:#a1a1aa; }
+        .map-mode-bar-pill.map-mode-active { color:#e4e4e7; background:rgba(39,39,42,0.6); }
+        .map-ctrl-radar { color:#f87171 !important; border-color:rgba(248,113,113,0.5) !important; background:rgba(248,113,113,0.08) !important; }
+        .flight-row:not(:last-child) { margin-bottom: 8px; }
+        .flight-row.active-leg { animation: active-leg-pulse 1.8s ease-in-out infinite; }
+        .day-past { opacity: 0.55; }
+        #calendar-list-content .list-past { filter: grayscale(30%) brightness(0.75); }
+        .day-today { border-color: #38bdf8 !important; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.3); }
+        .day-today .day-number { color: #7dd3fc; }
+        /* CARTO restyled dark_all with a lighter blue-grey water than its near-black land, so the
+           map read as two-toned. Dim + desaturate the basemap only (class on the CARTO layers) so
+           the NEXRAD radar overlay, also a tile layer, keeps its colors. */
+        .cs-basemap { filter: brightness(0.8) saturate(0.3); }
+        /* Pilot legend grows with the crew -- cap it and scroll instead of covering the map. */
+        .legend-scroll { max-height: min(40vh, 220px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-right: 4px; scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
+        .legend-scroll::-webkit-scrollbar { width: 4px; }
+        .legend-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 2px; }
+        .dark-popup .leaflet-popup-content-wrapper { background: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.8); }
+        .dark-popup .leaflet-popup-tip { background: #0f172a; }
+        .dark-popup .leaflet-popup-content { margin: 12px 14px; }
+        .day-popup .leaflet-popup-content { margin: 6px 8px; }
+        .day-popup .leaflet-popup-content-wrapper { padding: 0; }
+        .live-label { background: rgba(9,9,11,0.82) !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 5px !important; padding: 3px 7px !important; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7) !important; backdrop-filter: blur(6px); pointer-events: none; }
+        .live-label::before { display: none !important; }
+        /* Route-point (VOR/fix/waypoint) name tags -- deliberately NOT the dark-pill .live-label
+           style used for the plane's own callsign/status. Chart-style labels (requested directly):
+           plain small text, no background box, just enough shadow to stay legible over varying
+           map colors underneath. */
+        .wp-label { background: transparent !important; border: none !important; padding: 0 !important; box-shadow: none !important; backdrop-filter: none !important; white-space: nowrap; pointer-events: none; }
+        .wp-label::before { display: none !important; }
+        @keyframes here-pulse { 0% { box-shadow: 0 0 0 0 rgba(168,85,247,0.7); } 70% { box-shadow: 0 0 0 16px rgba(168,85,247,0); } 100% { box-shadow: 0 0 0 0 rgba(168,85,247,0); } }
+        @keyframes here-pulse-plane { 0% { box-shadow:0 0 0 0 var(--pc); } 70% { box-shadow:0 0 0 16px var(--pc0); } 100% { box-shadow:0 0 0 0 var(--pc0); } }
+        .here-dot { width: 16px; height: 16px; border-radius: 50%; background: #a855f7; border: 2px solid #fff; animation: here-pulse 2s ease-out infinite; }
+        @keyframes toast-in  { from { opacity:0; transform:translateY(-14px) scale(0.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+        @keyframes toast-out { from { opacity:1; transform:translateY(0) scale(1); } to { opacity:0; transform:translateY(-10px) scale(0.97); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { width:18px; height:18px; border:2px solid rgba(148,163,184,0.15); border-top-color:#71717a; border-radius:50%; animation:spin 0.65s linear infinite; display:inline-block; flex-shrink:0; }
+        .xbadge { position:absolute; min-width:14px; height:14px; background:#f59e0b; border-radius:99px; font-size:8px; font-weight:900; color:#000; display:flex; align-items:center; justify-content:center; padding:0 3px; line-height:1; pointer-events:none; border:1.5px solid #09090b; }
+        @keyframes modal-in { from { opacity:0; transform:scale(0.95) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
+        .modal-in { animation:modal-in 0.18s cubic-bezier(.2,.8,.3,1) forwards; }
+        .intel-cat-btn { flex-shrink:0; padding:4px 10px; border-radius:99px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; border:1px solid #3f3f46; color:#71717a; transition:all 0.15s; cursor:pointer; background:transparent; }
+        .intel-cat-btn.intel-cat-active { border-color:#3b82f6; color:#93c5fd; background:rgba(30,58,95,0.25); }
+        .intel-cat-btn:hover:not(.intel-cat-active) { border-color:#52525b; color:#a1a1aa; }
+        .line-clamp-3 { overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; line-clamp:3; }
+        .intel-form-cat { flex-shrink:0; padding:4px 10px; border-radius:99px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; border:1px solid #3f3f46; color:#71717a; transition:all 0.15s; cursor:pointer; background:transparent; }
+        .intel-form-cat.intel-form-cat-active { border-color:#3b82f6; color:#93c5fd; background:rgba(30,58,95,0.25); }
+        .intel-badge { display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; background:#1d4ed8; border-radius:99px; font-size:8px; font-weight:900; color:#bfdbfe; padding:0 3px; line-height:1; }
+        #toast-container { position:fixed; top:max(16px, calc(env(safe-area-inset-top) + 12px)); left:50%; transform:translateX(-50%); z-index:99999; display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
+        .toast { pointer-events:auto; display:flex; align-items:center; gap:10px; padding:11px 18px; border-radius:14px; font-size:13px; font-weight:600; line-height:1.3; max-width:380px; white-space:pre-wrap; box-shadow:0 8px 32px rgba(0,0,0,0.5); backdrop-filter:blur(12px); animation:toast-in 0.22s cubic-bezier(.2,.8,.3,1) forwards; }
+        .toast.out { animation:toast-out 0.18s ease-in forwards; }
+        .toast-success { background:rgba(20,83,45,0.95); border:1px solid rgba(34,197,94,0.45); color:#bbf7d0; }
+        .toast-error   { background:rgba(69,10,10,0.95);  border:1px solid rgba(239,68,68,0.45);  color:#fecaca; }
+        .toast-info    { background:rgba(15,23,42,0.95);  border:1px solid rgba(99,102,241,0.45); color:#c7d2fe; }
+        @keyframes dash-flow { to { stroke-dashoffset: -18; } }
+        /* The map credit has to stay visible (OpenStreetMap license), so it's one small dark line. */
+        .leaflet-container .leaflet-control-attribution { background: rgba(9, 9, 11, 0.55); color: #71717a; font-size: 8px; line-height: 1.3; padding: 0 4px; }
+        .leaflet-container .leaflet-control-attribution a { color: #71717a; }
+        .active-route { stroke-dasharray: 10, 5; stroke-dashoffset: 0; animation: dash-flow 0.5s linear infinite; }
+        @keyframes active-leg-pulse { 0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.15); } 50% { box-shadow: 0 0 14px rgba(34,197,94,0.65); } }
+        .active-leg { animation: active-leg-pulse 1.8s ease-in-out infinite; }
+        .map-hit { pointer-events: stroke !important; }
+
+        /* ── Boarding pass flight cards ─────────────────────────────────── */
+        .bp-card { position:relative; border-radius:16px; overflow:hidden; }
+        .bp-card .bp-top-bar { height:3px; width:100%; }
+        .bp-card .bp-apt-code { font-size:24px; font-weight:800; letter-spacing:-0.5px; line-height:1; }
+        @media (max-width:640px) { .bp-card .bp-apt-code { font-size:20px; } }
+        .bp-card .bp-city { font-size:10px; color:rgba(255,255,255,0.45); margin-top:3px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .bp-card .bp-stub { background:rgba(0,0,0,0.2); padding:9px 16px; display:flex; align-items:center; flex-wrap:wrap; gap:14px; border-top:1px solid rgba(255,255,255,0.05); }
+        .bp-stub-field { display:flex; flex-direction:column; gap:1px; }
+        .bp-stub-label { font-size:9px; font-weight:500; color:#52525b; }
+        .bp-stub-value { font-size:12px; font-weight:600; color:rgba(255,255,255,0.6); }
+        /* ── Pilot avatar crew buttons + sidebar nav buttons ────────────── */
+        .pilot-avatar-btn, .sidebar-nav-btn { border:1px solid transparent; border-radius:12px; transition:background 0.13s, border-color 0.13s; }
+        .pilot-avatar-btn:hover, .sidebar-nav-btn:hover { background:rgba(255,255,255,0.04) !important; }
+        .sidebar-nav-icon { width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:8px; flex-shrink:0; }
+        .sidebar-nav-btn.nav-active, .sidebar-nav-btn.map-mode-active { background:rgba(59,130,246,0.1) !important; border-color:rgba(59,130,246,0.28) !important; color:#3b82f6 !important; }
+        .sidebar-nav-btn.nav-active .sidebar-nav-icon, .sidebar-nav-btn.map-mode-active .sidebar-nav-icon { background:rgba(59,130,246,0.12); }
+
+        /* ── Tap active states ─────────────────────────────────────── */
+        @media (hover: none) {
+            .mbtn:active            { transform: scale(0.86); opacity: 0.65; }
+            .mpilot-btn:active      { transform: scale(0.92); opacity: 0.75; }
+            .map-ctrl-pill:active   { transform: scale(0.92); opacity: 0.75; }
+            .map-mode-bar-pill:active { transform: scale(0.92); opacity: 0.75; }
+            .flight-item:active     { opacity: 0.6; transform: scale(0.985); }
+            .flight-row:active      { opacity: 0.6; }
+            button:not(:disabled):active { opacity: 0.65; }
+            .mbtn, .mpilot-btn, .map-ctrl-pill, .map-mode-bar-pill, .flight-item, .flight-row, button {
+                transition: transform 0.06s ease, opacity 0.06s ease;
+            }
+        }
+
+        /* ── Pull-to-refresh indicator ─────────────────────────────── */
+        #ptr-indicator {
+            position: fixed; top: env(safe-area-inset-top); left: 50%; transform: translate(-50%, -52px);
+            width: 36px; height: 36px; border-radius: 50%;
+            background: rgba(30,30,36,0.95); border: 1px solid rgba(99,102,241,0.4);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; z-index: 50; opacity: 0;
+            transition: opacity 0.15s; pointer-events: none;
+        }
+        #ptr-indicator.ptr-releasing { animation: ptr-spin 0.5s linear infinite; }
+        @keyframes ptr-spin { to { transform: translate(-50%, -52px) rotate(360deg); } }
+
+        /* ── View fade-in transition ────────────────────────────────── */
+        .view-section.view-active {
+            animation: view-fade 0.14s ease forwards;
+        }
+        @keyframes view-fade {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+
+        /* ── Wrapped (Year in Review) ──────────────────────────────── */
+        @keyframes wrapped-in {
+            from { opacity: 0; transform: translateY(22px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes wrapped-glow {
+            0%, 100% { text-shadow: 0 0 60px rgba(59,130,246,0.35); }
+            50%       { text-shadow: 0 0 110px rgba(59,130,246,0.65), 0 0 40px rgba(99,180,255,0.3); }
+        }
+        .wslide { width:100%; max-width:360px; text-align:center; }
+        .wslide-eyebrow { font-size:11px; font-weight:800; letter-spacing:0.18em; text-transform:uppercase; color:#3b82f6; margin-bottom:20px; }
+        .wslide-big { font-size:clamp(80px,22vw,120px); font-weight:200; color:#fff; line-height:1; letter-spacing:-0.04em; animation: wrapped-in 0.4s ease forwards, wrapped-glow 4s ease 0.5s infinite; text-shadow: 0 0 60px rgba(59,130,246,0.35); }
+        .wslide-label { font-size:13px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#475569; margin-top:12px; }
+        .wslide-apt { font-size:clamp(30px,8vw,48px); font-weight:700; letter-spacing:0.04em; color:#fff; }
+        .wslide-arrow { font-size:22px; color:#3b82f6; margin:0 10px; }
+        .wslide-count { font-size:12px; color:#475569; margin-top:10px; letter-spacing:0.12em; text-transform:uppercase; }
+        .wslide-hero-name { font-size:clamp(28px,8vw,44px); font-weight:700; color:#fff; margin-top:12px; letter-spacing:-0.01em; }
+        .wslide-hero-range { font-size:12px; color:#475569; margin-top:10px; letter-spacing:0.1em; text-transform:uppercase; }
+        .wslide-month { font-size:clamp(34px,10vw,56px); font-weight:200; color:#fff; line-height:1.1; letter-spacing:-0.02em; margin-top:6px; animation: wrapped-in 0.45s ease forwards; }
+        .wslide-icon { font-size:44px; margin:6px 0 12px; opacity:0; animation: wrapped-in 0.35s ease 0.15s forwards; display:block; }
+        .wslide-context { font-size:12px; color:#334155; margin-top:10px; letter-spacing:0.05em; }
+        @keyframes wrapped-slide-left { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
+        @keyframes wrapped-slide-right { from { opacity:0; transform:translateX(-40px); } to { opacity:1; transform:translateX(0); } }
+        /* Wrapped detail page */
+        .wr-mini-card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:12px; }
+        .wr-mini-val  { font-size:16px; font-weight:600; color:#e2e8f0; line-height:1; }
+        .wr-mini-lbl  { font-size:10px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#475569; margin-top:5px; line-height:1.4; }
+        .wr-section-head { font-size:11px; font-weight:800; letter-spacing:0.14em; text-transform:uppercase; color:#3b82f6; margin-bottom:14px; }
+
+        /* ── Momentum scrolling ─────────────────────────────────────── */
+        #view-grid, #view-list, #view-overlap, #view-offdays {
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* ── Loading overlay ────────────────────────────────────────── */
+        #loading-overlay {
+            position: fixed; inset: 0; z-index: 9000;
+            background: rgba(5,5,5,0.55); backdrop-filter: blur(3px);
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: none; opacity: 0; transition: opacity 0.18s;
+        }
+        #loading-overlay.loading-active { opacity: 1; pointer-events: auto; }
+        .loading-spinner {
+            width: 30px; height: 30px;
+            border: 2px solid rgba(99,102,241,0.2);
+            border-top-color: #818cf8; border-radius: 50%;
+            animation: spin-loader 0.65s linear infinite;
+        }
+        @keyframes spin-loader { to { transform: rotate(360deg); } }
+
+        /* ── Splash screen ──────────────────────────────────────────── */
+        #splash-screen {
+            position: fixed; inset: 0; z-index: 999999;
+            background: #050505;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 0; transition: opacity 0.45s ease;
+        }
+        #splash-screen.splash-hide { opacity: 0; pointer-events: none; }
+        #splash-screen.splash-gone { display: none; }
+        .splash-plane {
+            width: 72px; height: 72px; margin-bottom: 20px;
+            border-radius: 18px;
+            animation: splash-float 2s ease-in-out infinite;
+        }
+        @keyframes splash-float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+        .splash-title {
+            font-size: 28px; font-weight: 900; font-style: italic;
+            color: #3b82f6; letter-spacing: -0.04em; text-transform: uppercase;
+        }
+        .splash-sub {
+            font-size: 11px; font-weight: 700; color: #3f3f46;
+            letter-spacing: 0.18em; text-transform: uppercase; margin-top: 6px;
+        }
+        .splash-dots {
+            display: flex; gap: 6px; margin-top: 40px;
+        }
+        .splash-dot {
+            width: 5px; height: 5px; border-radius: 50%; background: #3b82f6;
+            animation: splash-pulse 1.2s ease-in-out infinite;
+        }
+        .splash-dot:nth-child(2) { animation-delay: 0.2s; }
+        .splash-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes splash-pulse {
+            0%, 80%, 100% { opacity: 0.15; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1); }
+        }
+
+        /* ── Mobile nav — active indicator ──────────────────────────── */
+        .mbtn { position: relative; }
+        .mbtn::before {
+            content: '';
+            position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+            width: 0; height: 2px; border-radius: 0 0 3px 3px;
+            background: #3b82f6;
+            transition: width 0.2s cubic-bezier(.2,.8,.3,1);
+        }
+        .mbtn.mbtn-active { color: #3b82f6 !important; }
+        .mbtn.mbtn-active::before { width: 28px; }
+        .mbtn-icon-wrap { width: 38px; height: 28px; display:flex; align-items:center; justify-content:center; border-radius:10px; transition: background 0.15s; }
+        .mbtn-active .mbtn-icon-wrap { background: rgba(59,130,246,0.13); }
+
+        /* ── PWA install prompt ─────────────────────────────────────── */
+        #pwa-prompt {
+            position: fixed; left: 12px; right: 12px;
+            bottom: calc(60px + env(safe-area-inset-bottom));
+            z-index: 9500;
+            background: rgba(15,23,42,0.97);
+            border: 1px solid rgba(99,102,241,0.35);
+            border-radius: 16px; padding: 12px 14px;
+            display: flex; align-items: center; gap: 10px;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            transform: translateY(16px); opacity: 0;
+            transition: transform 0.32s cubic-bezier(.2,.8,.3,1), opacity 0.28s ease;
+            pointer-events: none;
+        }
+        #pwa-prompt.pwa-visible { transform: translateY(0); opacity: 1; pointer-events: auto; }
+        @media (min-width: 768px) { #pwa-prompt { display: none !important; } }
+
+        /* ── Offline banner ─────────────────────────────────────────── */
+        #offline-banner {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 99998;
+            background: rgba(69,10,10,0.97);
+            border-bottom: 1px solid rgba(239,68,68,0.45);
+            color: #fecaca; text-align: center;
+            font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
+            padding: max(8px, env(safe-area-inset-top)) 16px 8px;
+            transform: translateY(-100%); transition: transform 0.25s ease;
+        }
+        #offline-banner.offline-visible { transform: translateY(0); }
+    </style>
+</head>
+<body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;" data-fullheight>
+<div id="toast-container"></div>
+<div id="upload-reminder" class="hidden fixed bottom-20 md:bottom-4 inset-x-0 z-[9000] px-3">
+    <div class="max-w-lg mx-auto bg-zinc-900 border border-amber-500/40 rounded-2xl p-4 shadow-2xl flex gap-3 items-start">
+        <div class="text-xl shrink-0 mt-0.5">📅</div>
+        <div class="flex-1 min-w-0">
+            <div class="text-xs font-black text-amber-300 uppercase tracking-widest mb-1">Schedule Reminder</div>
+            <div id="upload-reminder-msg" class="text-xs text-zinc-400 leading-relaxed"></div>
+            <div class="flex gap-2 mt-3">
+                <button onclick="uploadReminderUpload()" class="text-xs font-black px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40">Upload Now</button>
+                <button onclick="dismissUploadReminder()" class="text-xs font-bold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 border border-zinc-700">Dismiss</button>
+            </div>
+        </div>
+        <button onclick="dismissUploadReminder()" class="shrink-0 text-zinc-500 hover:text-zinc-300 text-sm mt-0.5">✕</button>
+    </div>
+</div>
+<div id="splash-screen">
+    <img class="splash-plane" src="/icon.svg" alt="">
+    <div class="splash-title">CrewSync</div>
+    <div class="splash-sub" id="splash-sub-text">Crew Scheduling</div>
+    <div id="splash-version" style="font-size:10px;font-weight:700;color:#3f3f46;letter-spacing:0.12em;text-transform:uppercase;margin-top:6px;"></div>
+    <div class="splash-dots" id="splash-dots">
+        <div class="splash-dot"></div>
+        <div class="splash-dot"></div>
+        <div class="splash-dot"></div>
+    </div>
+    <button id="splash-retry-btn" onclick="window.location.reload()" class="hidden" style="margin-top:16px;padding:10px 24px;background:#3b82f6;color:white;border:none;border-radius:10px;font-weight:800;font-size:13px;cursor:pointer;">Retry</button>
+</div>
+<div id="offline-banner">⚡ No internet connection</div>
+<div id="loading-overlay"><div class="loading-spinner"></div></div>
+<div id="ptr-indicator">↻</div>
+<div id="pwa-prompt">
+    <div style="font-size:20px;line-height:1;flex-shrink:0">✈️</div>
+    <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:800;color:#e2e8f0;letter-spacing:0.01em">Install CrewSync</div>
+        <div id="pwa-prompt-sub" style="font-size:10px;color:#94a3b8;margin-top:2px;line-height:1.4">Add to Home Screen for the full experience</div>
+    </div>
+    <button id="pwa-install-btn" onclick="pwaInstall()" style="display:none;background:rgba(99,102,241,0.18);border:1px solid rgba(99,102,241,0.45);color:#a5b4fc;font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;white-space:nowrap;flex-shrink:0">Install</button>
+    <button onclick="pwaDismiss()" style="background:none;border:none;color:#64748b;font-size:16px;padding:2px 4px;flex-shrink:0;line-height:1;cursor:pointer">✕</button>
+</div>
+
+    <div id="sidebar" class="hidden md:flex w-64 border-r border-zinc-800 bg-zinc-900/20 flex-col shrink-0">
+        <div class="p-6 border-b border-zinc-800 text-center shrink-0">
+            <h1 class="text-blue-500 font-black italic text-xl tracking-tighter uppercase">CrewSync</h1>
+            <p id="sidebar-version" class="text-zinc-600 text-[10px] font-bold uppercase tracking-widest mt-0.5"></p>
+        </div>
+        <!-- Desktop identity row -->
+        <div id="sidebar-identity" class="hidden px-3 py-2.5 border-b border-zinc-800/60 shrink-0">
+            <button onclick="openProfile()" class="relative flex items-center gap-2.5 w-full rounded-xl px-2 py-2 hover:bg-zinc-800/50 transition-colors text-left">
+                <div id="sidebar-identity-avatar" class="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black shrink-0"></div>
+                <span id="friend-badge-desktop" class="xbadge hidden" style="top:-2px;left:20px"></span>
+                <div class="flex flex-col min-w-0">
+                    <span class="text-[8px] font-black uppercase tracking-widest text-zinc-500">Signed in as</span>
+                    <span id="sidebar-identity-name" class="text-xs font-black text-white truncate"></span>
+                </div>
+                <svg class="w-3 h-3 text-zinc-600 ml-auto shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+        </div>
+
+        <!-- Notification enable prompt (desktop) -->
+        <div id="notif-prompt-sidebar" class="hidden items-center gap-2 px-3 py-2.5 border-b border-amber-900/40 bg-amber-950/30 shrink-0">
+            <svg class="text-amber-500 shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span class="text-[10px] font-bold text-amber-400 flex-1 leading-tight">Enable crossing alerts</span>
+            <button onclick="requestNotifPermission()" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-md text-[9px] font-black transition-colors">Enable</button>
+            <button onclick="dismissNotifPrompt()" class="text-amber-700 hover:text-amber-500 text-sm leading-none">✕</button>
+        </div>
+
+        <!-- Sidebar: next trip widget (signed-in users only) -->
+        <div id="sidebar-next-trip" class="hidden px-4 pt-3 pb-1 shrink-0"></div>
+
+        <div class="flex-1 min-h-0 overflow-y-auto">
+        <div class="p-3 space-y-0.5">
+            <p class="text-[9px] font-bold text-zinc-600 uppercase tracking-widest px-2 pt-1 pb-2">Views</p>
+            <button onclick="switchView('grid')" id="btn-grid" class="sidebar-nav-btn nav-active w-full flex items-center gap-3 px-2.5 py-2.5">
+                <span class="sidebar-nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                <span class="text-[13px] font-semibold">Calendar</span>
+            </button>
+            <button onclick="switchView('list')" id="btn-list" class="sidebar-nav-btn w-full flex items-center gap-3 px-2.5 py-2.5">
+                <span class="sidebar-nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg></span>
+                <span class="text-[13px] font-semibold">List</span>
+            </button>
+            <button onclick="switchView('map')" id="btn-map" class="sidebar-nav-btn w-full flex items-center gap-3 px-2.5 py-2.5">
+                <span class="sidebar-nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg></span>
+                <span class="text-[13px] font-semibold">Map</span>
+            </button>
+            <div id="map-mode-nav" class="hidden flex-col gap-0.5 pr-0 pb-0.5 pt-0.5" style="padding-left:20px;margin-left:13px;border-left:2px solid rgba(59,130,246,0.2)">
+                <button onclick="setMapMode('mine')" id="mapmode-mine" class="sidebar-nav-btn w-full flex items-center gap-3 px-2.5 py-2">
+                    <span class="sidebar-nav-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21 4 19.5 2.5S18 2 16.5 3.5L13 7 4.8 5.2l-2 2 2.8 4.5-2.8 2.8 1 3 3-1 2.8 4.5 2-2z"/></svg></span>
+                    <span class="text-[12px] font-semibold" id="mapmode-mine-label">My Routes</span>
+                </button>
+                <p class="text-[8px] font-bold text-zinc-700 uppercase tracking-widest px-2.5 pt-2 pb-0.5">All Crew</p>
+                <button onclick="setMapMode('day')" id="mapmode-day" class="sidebar-nav-btn map-mode-active w-full flex items-center gap-3 px-2.5 py-2">
+                    <span class="sidebar-nav-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+                    <span class="text-[12px] font-semibold">Day</span>
+                </button>
+                <button onclick="setMapMode('month')" id="mapmode-month" class="sidebar-nav-btn w-full flex items-center gap-3 px-2.5 py-2">
+                    <span class="sidebar-nav-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                    <span class="text-[12px] font-semibold">Month</span>
+                </button>
+            </div>
+            <button onclick="switchView('overlap')" id="btn-overlap" class="sidebar-nav-btn relative w-full flex items-center gap-3 px-2.5 py-2.5">
+                <span class="sidebar-nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="12" r="6.5"/><circle cx="15" cy="12" r="6.5"/></svg></span>
+                <span class="text-[13px] font-semibold">Overlap</span>
+                <span id="crossing-badge-desktop" class="xbadge hidden" style="top:6px;right:8px"></span>
+            </button>
+            <button onclick="switchView('intel')" id="btn-intel" class="sidebar-nav-btn w-full flex items-center gap-3 px-2.5 py-2.5">
+                <span class="sidebar-nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg></span>
+                <span class="text-[13px] font-semibold">Intel</span>
+            </button>
+        </div>
+
+        <div id="sidebar-pilot-list" class="px-3 pb-3 space-y-0.5 mt-2">
+            <p class="text-[9px] font-bold text-zinc-600 uppercase tracking-widest px-2 pt-1 pb-2">Crew</p>
+            <!-- Populated entirely by _syncPilotRoster() from the DB -- no hardcoded pilots here. -->
+        </div>
+
+        </div><!-- end scrollable area -->
+
+        <div id="sidebar-upload-section" class="shrink-0 px-3 py-2 border-t border-zinc-800 bg-black/20 space-y-1.5">
+            <div id="upload-for-row" class="space-y-1">
+                <label class="text-[9px] font-black text-zinc-600 uppercase px-1 block">Upload For</label>
+                <select id="upload-pilot-select" onchange="updateUploadSyncButtons(this.value)" class="w-full px-2 py-1.5 rounded-lg border border-zinc-700 bg-zinc-900 text-xs font-bold text-zinc-100 hover:border-blue-500 transition">
+                    <option value="kyle">Kyle Kaestner</option>
+                    <option value="adam">Adam Burke</option>
+                    <option value="sam">Sam Byrne</option>
+                    <option value="logan">Logan Hine</option>
+                    <option value="drew">Drew Sinelli</option>
+                </select>
+            </div>
+            <input type="file" id="file-input" class="hidden" onchange="handleUpload(this)">
+            <button id="btn-upload-schedule" onclick="triggerUpload('upload-pilot-select','file-input')" class="w-full py-1.5 border border-zinc-800 hover:border-blue-500 text-zinc-500 hover:text-blue-400 rounded-lg transition text-[9px] font-black uppercase text-center">↑ Upload Schedule</button>
+            <button id="btn-sync-schedaero" onclick="openSchedaeroSync()" class="hidden w-full py-1.5 border border-zinc-800 hover:border-purple-500 text-zinc-600 hover:text-purple-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedaero</button>
+            <button id="btn-sync-ics" onclick="openGenericICSSync(document.getElementById('upload-pilot-select').value)" class="hidden w-full py-1.5 border border-zinc-800 hover:border-teal-500 text-zinc-600 hover:text-teal-400 rounded-lg transition text-[9px] font-black uppercase text-center">⟳ Sync Schedule</button>
+        </div>
+    </div>
+
+    <div class="flex-1 flex flex-col overflow-hidden min-w-0">
+        <!-- Desktop header -->
+        <header class="hidden md:flex h-20 border-b border-zinc-800 items-center justify-between px-8 bg-black/40 backdrop-blur-md shrink-0">
+            <div class="flex items-center gap-4">
+                <button onclick="toggleSidebar()" id="hamburger-btn" title="Toggle sidebar" class="flex flex-col items-center justify-center gap-[5px] w-9 h-9 rounded-xl hover:bg-zinc-800 transition-colors group shrink-0">
+                    <span class="w-5 h-[2px] bg-zinc-500 group-hover:bg-zinc-200 transition-colors rounded-full"></span>
+                    <span class="w-5 h-[2px] bg-zinc-500 group-hover:bg-zinc-200 transition-colors rounded-full"></span>
+                    <span class="w-5 h-[2px] bg-zinc-500 group-hover:bg-zinc-200 transition-colors rounded-full"></span>
+                </button>
+                <div class="flex flex-col">
+                    <h2 id="pilot-header" class="font-black uppercase tracking-widest text-xs text-zinc-400 italic">CrewSync</h2>
+                    <div class="text-2xl font-black italic tracking-tighter text-white uppercase" id="current-month-display">May 2026</div>
+                </div>
+                <div class="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800">
+                    <button onclick="changeMonth(-1)" class="px-4 py-2 rounded-lg text-[10px] font-black uppercase bg-zinc-800 hover:bg-zinc-700">Prev</button>
+                    <button onclick="changeMonth(1)" class="px-4 py-2 rounded-lg text-[10px] font-black uppercase bg-zinc-800 hover:bg-zinc-700 ml-1">Next</button>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="notif-bell-btn" onclick="toggleNotifPanel()" class="hidden relative w-8 h-8 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 transition-colors" title="Notifications">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span id="notif-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 bg-red-500 rounded-full text-[8px] font-black text-white flex items-center justify-center px-0.5 leading-none pointer-events-none"></span>
+                </button>
+                <button onclick="openViewHelp()" class="w-8 h-8 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 text-xs font-black transition-colors">?</button>
+                <button id="btn-add-flight-desktop" onclick="openAddFlight()" class="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-wide transition-colors">
+                    <span class="text-base leading-none">+</span> Add Flight
+                </button>
+            </div>
+        </header>
+
+        <!-- Mobile header -->
+        <header id="mobile-header" class="md:hidden border-b border-zinc-800 flex items-end justify-between px-4 bg-black shrink-0" style="height: calc(env(safe-area-inset-top) + 56px); padding-top: calc(env(safe-area-inset-top) + 6px); padding-bottom: 10px;">
+            <div class="flex items-center gap-2.5">
+                <button id="identity-avatar" onclick="openProfile()" class="relative flex items-center gap-1.5 pl-2 pr-2.5 h-10 rounded-xl border-2 shrink-0 transition-all font-black text-xs" style="background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4);color:#818cf8">
+                    <span id="identity-avatar-initials" class="text-xs font-black leading-none">?</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.7"><polyline points="6 9 12 15 18 9"/></svg>
+                    <span id="friend-badge-mobile" class="xbadge hidden" style="top:-3px;left:-3px"></span>
+                </button>
+                <div id="mobile-header-month-info" class="flex flex-col leading-tight min-w-0">
+                    <span id="pilot-header-mobile" class="text-[9px] font-black uppercase tracking-widest text-zinc-500 italic whitespace-nowrap">CrewSync</span>
+                    <span id="current-month-display-mobile" class="text-sm font-black italic tracking-tighter text-white uppercase whitespace-nowrap overflow-hidden text-ellipsis">May 2026</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-1">
+                <button id="mobile-prev-btn" onclick="changeMonth(-1)" class="w-10 h-10 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">‹</button>
+                <button id="mobile-next-btn" onclick="changeMonth(1)" class="w-10 h-10 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-black text-sm">›</button>
+                <button id="notif-bell-btn-mobile" onclick="toggleNotifPanel()" class="hidden relative w-10 h-10 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 transition-colors" title="Notifications">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span id="notif-badge-mobile" class="hidden absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 bg-red-500 rounded-full text-[8px] font-black text-white flex items-center justify-center px-0.5 leading-none pointer-events-none"></span>
+                </button>
+                <button onclick="openViewHelp()" class="w-10 h-10 flex items-center justify-center rounded-full border border-zinc-700 text-zinc-500 font-black text-xs ml-0.5">?</button>
+                <button id="btn-add-flight-mobile" onclick="openAddFlight()" class="w-10 h-10 flex items-center justify-center rounded-lg bg-blue-600 text-white font-black text-base ml-0.5">+</button>
+            </div>
+        </header>
+
+        <!-- Demo mode banner -->
+        <div id="demo-banner" class="hidden shrink-0 px-4 py-2 text-center text-[11px] font-black uppercase tracking-widest" style="background:rgba(234,179,8,0.1);border-bottom:1px solid rgba(234,179,8,0.2);color:#ca8a04;">
+            Demo Mode — Read Only &nbsp;·&nbsp; <a href="/join" style="color:#eab308;text-decoration:underline;text-underline-offset:2px;">Join CrewSync</a>
+        </div>
+
+        <!-- Empty schedule prompt (shown for newly joined pilot with no data yet) -->
+        <div id="empty-schedule-banner" class="hidden shrink-0 px-4 py-3 flex items-center justify-between gap-3" style="background:rgba(99,102,241,0.08);border-bottom:1px solid rgba(99,102,241,0.2);">
+            <span class="text-xs text-indigo-300 font-black uppercase tracking-wide">No schedule yet — add your first flight or upload your schedule</span>
+            <button onclick="openUploadSheet()" class="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wide transition-colors">Upload</button>
+        </div>
+
+        <!-- Mobile pilot selector bar -->
+        <div id="mobile-pilot-bar" class="md:hidden flex gap-2 px-3 py-2 bg-zinc-950 border-b border-zinc-800 shrink-0 overflow-x-auto">
+            <!-- Populated entirely by _syncPilotRoster() from the DB -- no hardcoded pilots here. -->
+        </div>
+
+        <!-- Mobile next flight strip (signed-in pilots only, hidden when no upcoming flight) -->
+        <div id="mobile-next-trip" class="md:hidden hidden shrink-0 border-b border-zinc-800/50 cursor-pointer select-none" onclick="_dismissNextFlight()" style="-webkit-tap-highlight-color:transparent"></div>
+
+        <main class="flex-1 overflow-hidden relative bg-black">
+            <div id="view-grid" class="view-section view-active overflow-y-auto p-3">
+                <div class="w-full grid grid-cols-7 gap-2">
+                    <div class="col-span-7 grid grid-cols-7 text-center text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">
+                        <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+                    </div>
+                    <div id="calendar-grid-content" class="contents"></div>
+                    <!-- Calendar legend -->
+                    <div class="col-span-7 mt-3 flex flex-wrap gap-x-5 gap-y-1.5 px-1 pb-2 border-t border-zinc-800/60 pt-3">
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-blue-500/60"></span>Flying</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-red-500/70"></span>Hard Off</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-amber-500/70"></span>Away/Overnight</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md bg-zinc-800 border border-sky-400" style="box-shadow:0 0 0 2px rgba(56,189,248,0.3)"></span>Today</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md" style="background:rgba(109,40,217,0.15);border:1px solid rgba(139,92,246,0.4)"></span>Personal</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block w-3 h-3 rounded-md" style="background:rgba(120,53,15,0.2);border:1px solid rgba(245,158,11,0.4)"></span>Commute</div>
+                        <div class="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wide text-zinc-500"><span class="inline-block px-1.5 text-pink-300 text-[8px] font-black rounded bg-pink-950/40 border border-pink-500/30">DH</span>Deadhead</div>
+                        <div class="w-px self-stretch bg-zinc-800/60"></div>
+                        <div id="grid-month-totals" class="flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[9px] font-black uppercase tracking-wide text-zinc-500">
+                            <div><span id="grid-total-flown" class="text-zinc-200">0</span> Flown</div>
+                            <div><span id="grid-total-off" class="text-zinc-200">0</span> Off</div>
+                            <div><span id="grid-total-oncall" class="text-zinc-200">0</span> On Call</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-list" class="view-section overflow-y-auto p-6">
+                <div id="calendar-list-content" class="max-w-3xl mx-auto space-y-4 pb-20"></div>
+            </div>
+
+            <div id="view-map" class="view-section relative">
+                <!-- #map is the Leaflet container. Leaflet sets position:relative on it,
+                     so children with position:absolute are anchored to the map tiles area
+                     only — not the mode bar below it. -->
+                <div id="map">
+                    <!-- Zoom controls — top-left -->
+                    <div class="absolute top-3 left-3 z-[1000] flex flex-col gap-1">
+                        <button onclick="map.zoomIn()" class="map-ctrl-pill" style="padding:5px 11px;font-size:15px;line-height:1;font-weight:900">+</button>
+                        <button onclick="map.zoomOut()" class="map-ctrl-pill" style="padding:5px 11px;font-size:15px;line-height:1;font-weight:900">−</button>
+                    </div>
+                    <!-- Legend inside #map so bottom-4 is relative to tile area, not the whole view -->
+                    <div id="map-legend" class="absolute bottom-4 left-3 z-[1000] bg-zinc-950/85 border border-zinc-800/70 rounded-lg px-2.5 py-2 text-[9px] font-black uppercase tracking-wide space-y-1 backdrop-blur-sm pointer-events-none">
+                        <div id="legend-single" class="space-y-1">
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-blue-500"></span><span class="text-zinc-500">Upcoming</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-zinc-500"></span><span class="text-zinc-500">Past</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-4 h-[2.5px] rounded-full bg-green-500"></span><span class="text-zinc-500">In Air</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 border border-white/60"></span><span class="text-zinc-500">Overnight</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-green-400 border border-white/60"></span><span class="text-zinc-500">Base</span></div>
+                            <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 border border-white/60" style="animation:here-pulse 2s ease-out infinite"></span><span class="text-zinc-500">Here Now</span></div>
+                        </div>
+                        <div id="legend-day" class="hidden space-y-1 pointer-events-auto">
+                            <div id="legend-day-pilots" class="space-y-1 legend-scroll"></div>
+                            <div class="flex items-center gap-1.5 pt-1 mt-0.5 border-t border-zinc-800/60"><span class="inline-block w-4 shrink-0" style="height:2.5px;background:repeating-linear-gradient(90deg,#94a3b8 0,#94a3b8 5px,transparent 5px,transparent 8px)"></span><span class="text-zinc-500">Airborne</span></div>
+                        </div>
+                    </div>
+                    <!-- Controls — compact pills, top-right, also inside #map -->
+                    <div class="map-controls flex flex-col gap-1 items-end">
+                        <div id="map-pilot-controls">
+                            <div class="text-right text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 pr-0.5">Filters</div>
+                            <div class="flex gap-1">
+                                <button onclick="toggleMapFilter('past')" id="btn-past" class="map-ctrl-pill map-ctrl-on">Flown</button>
+                                <button onclick="toggleMapFilter('future')" id="btn-future" class="map-ctrl-pill map-ctrl-on">Upcoming</button>
+                            </div>
+                        </div>
+                        <div class="flex gap-1">
+                            <button id="btn-radar" onclick="toggleRadar()" class="map-ctrl-pill">⛈ Radar</button>
+                            <button id="btn-route-detail" onclick="toggleRouteDetail()" class="map-ctrl-pill" title="Toggle route detail (VOR/fix/waypoint symbols)">✦ RTE</button>
+                            <button id="btn-show-sector" onclick="toggleShowSector()" class="map-ctrl-pill" title="Show the real ATC frequency currently controlling each live flight, when it resolves">📻 FREQ</button>
+                        </div>
+                        <div id="day-nav" class="hidden items-center gap-1 relative">
+                            <button onclick="stepDayNav(-1)" class="map-ctrl-pill px-2">&#8592;</button>
+                            <span id="day-nav-label" onclick="openDayPicker()" class="text-[10px] font-black text-zinc-300 min-w-[58px] text-center cursor-pointer hover:text-white transition-colors select-none" title="Pick a date"></span>
+                            <input type="date" id="day-nav-picker" onchange="pickDayNav(this.value)" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0;width:1px;height:1px;pointer-events:none">
+                            <button onclick="stepDayNav(1)" class="map-ctrl-pill px-2">&#8594;</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Mobile mode bar — sits below map tiles, above fixed bottom nav -->
+                <div class="md:hidden flex flex-col shrink-0 border-t border-zinc-800/70 bg-zinc-950/98 backdrop-blur-sm">
+                    <div class="flex">
+                        <button onclick="setMapMode('mine')" id="mapmode-bar-mine" class="map-mode-bar-pill flex-1 flex flex-col items-center justify-center gap-1" style="padding:8px 4px">
+                            <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                            <span id="mapmode-bar-mine-label">My Routes</span>
+                        </button>
+                        <div class="flex-1 flex flex-col bg-zinc-900/60 border-l border-zinc-800">
+                            <div class="flex items-center justify-center gap-1.5 pt-1.5 pb-0.5 border-b border-zinc-800/70">
+                                <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+                                <span class="text-[8px] font-black uppercase tracking-widest text-zinc-400">All Crew</span>
+                            </div>
+                            <div class="flex flex-1">
+                                <button onclick="setMapMode('day')" id="mapmode-bar-day" class="map-mode-bar-pill map-mode-active flex-1" style="padding-top:5px;padding-bottom:8px">Day</button>
+                                <div class="w-px bg-zinc-800/60 self-stretch my-1.5"></div>
+                                <button onclick="setMapMode('month')" id="mapmode-bar-month" class="map-mode-bar-pill flex-1" style="padding-top:5px;padding-bottom:8px">Month</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Date nav row — only visible in day mode -->
+                    <div id="mobile-day-nav-bar" class="hidden items-center justify-between border-t border-zinc-800/60 px-3 py-1">
+                        <button onclick="stepDayNav(-1)" class="map-ctrl-pill" style="padding:5px 14px !important;font-size:11px !important">&#8592;</button>
+                        <label class="relative flex-1 flex items-center justify-center cursor-pointer py-1">
+                            <span id="mobile-day-nav-label" class="text-[11px] font-black text-zinc-200 select-none"></span>
+                            <input type="date" id="mobile-day-nav-picker" onchange="pickDayNav(this.value)" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer">
+                        </label>
+                        <button onclick="stepDayNav(1)" class="map-ctrl-pill" style="padding:5px 14px !important;font-size:11px !important">&#8594;</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-overlap" class="view-section">
+                <div id="overlap-header" class="shrink-0 bg-[#050505] border-b border-zinc-800/60" style="z-index:10">
+                    <div class="max-w-2xl mx-auto px-6 pt-5 pb-0 flex items-center justify-between gap-4">
+                        <h2 class="text-lg font-black text-white uppercase tracking-tight">Crew Planning</h2>
+                        <button id="overlap-refresh-btn" onclick="computeOverlap()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-xs uppercase tracking-widest transition-colors">Refresh</button>
+                    </div>
+                    <!-- Tabs -->
+                    <div class="max-w-2xl mx-auto flex px-6 pt-3 gap-0">
+                        <button id="tab-crossings" onclick="switchOverlapTab('crossings')" class="overlap-tab overlap-tab-active pb-2.5 pr-5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-colors">Crossings</button>
+                        <button id="tab-offdays" onclick="switchOverlapTab('offdays')" class="overlap-tab pb-2.5 px-5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-colors">Off Days</button>
+                    </div>
+                </div>
+                <!-- Off Days filter bar — shrink-0 so it's outside the scroll container; iOS horizontal scroll works correctly -->
+                <div id="offday-filter-bar" style="display:none" class="shrink-0 border-b border-zinc-800 bg-[#050505]">
+                    <div class="max-w-2xl mx-auto px-4 py-2.5 flex items-center gap-2.5">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-zinc-600 shrink-0">Show</span>
+                        <div id="offday-filter-chips" class="flex-1 min-w-0 flex gap-2 overflow-x-auto" style="-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;flex-wrap:nowrap"></div>
+                        <button id="offday-view-toggle" onclick="toggleOffDayView()" title="Toggle calendar view" style="flex-shrink:0;width:30px;height:30px;border-radius:8px;background:#18181b;border:1px solid #27272a;color:#a1a1aa;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;-webkit-tap-highlight-color:transparent">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto" style="-webkit-overflow-scrolling:touch">
+                    <div class="max-w-2xl mx-auto pb-20">
+                        <div id="overlap-content" class="space-y-3 px-6 pt-4">
+                            <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate crossings</div>
+                        </div>
+                        <div id="offdays-content" class="px-6 pt-4 hidden">
+                            <div class="text-center py-12 text-zinc-600 text-sm">Click Refresh to calculate common off days</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Crew Intel view — header is fully dynamic via renderIntelHeader() -->
+            <div id="view-intel" class="view-section overflow-y-auto">
+                <div id="intel-inner" class="max-w-2xl mx-auto pb-20">
+                    <div id="intel-header" class="sticky top-0 z-10 bg-[#050505]/95 backdrop-blur-sm border-b border-zinc-800/60"></div>
+                    <div id="intel-content" class="px-4 pt-4"></div>
+                </div>
+            </div>
+
+            <!-- Wrapped / Year in Review (hidden; admin + kyle only) -->
+            <div id="view-wrapped" class="view-section" style="overflow:hidden;background:#030811;position:relative">
+                <canvas id="wrapped-bg-canvas" style="position:absolute;inset:0;width:100%;height:100%;opacity:0.45;pointer-events:none;z-index:0"></canvas>
+                <div id="wrapped-progress" style="position:absolute;top:env(safe-area-inset-top,0px);left:0;right:0;display:flex;gap:4px;padding:14px 16px 0;z-index:10;box-sizing:border-box"></div>
+                <button id="wrapped-mute-btn" onclick="toggleWrappedMute()" style="position:absolute;top:calc(env(safe-area-inset-top,0px) + 14px);right:54px;z-index:20;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.07);border:none;border-radius:50%;color:#94a3b8;cursor:pointer;font-size:14px">🔊</button>
+                <button id="wrapped-close-btn" onclick="closeWrapped()" style="position:absolute;top:calc(env(safe-area-inset-top,0px) + 14px);right:16px;z-index:20;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.07);border:none;border-radius:50%;color:#94a3b8;cursor:pointer;font-size:13px">✕</button>
+                <div id="wrapped-slide-area" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:56px 28px 80px;overflow:hidden;z-index:5"></div>
+                <div id="wrapped-tap-zones" style="position:absolute;inset:0;display:grid;grid-template-columns:1fr 2fr;z-index:8">
+                    <div onclick="wrappedPrev()" style="cursor:pointer"></div>
+                    <div onclick="wrappedNext()" style="cursor:pointer"></div>
+                </div>
+                <div id="wrapped-dots" style="position:absolute;bottom:max(28px,calc(env(safe-area-inset-bottom,0px)+12px));left:0;right:0;display:flex;align-items:center;justify-content:center;gap:5px;z-index:10"></div>
+            </div>
+        </main>
+
+        <!-- Mobile bottom nav -->
+        <nav class="mobile-nav md:hidden border-t border-zinc-800 bg-zinc-950 flex items-end shrink-0" style="padding-bottom: env(safe-area-inset-bottom);">
+            <button onclick="switchView('grid')" id="mbtn-grid" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Grid</span>
+            </button>
+            <button onclick="switchView('list')" id="mbtn-list" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg></div>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">List</span>
+            </button>
+            <button onclick="switchView('map')" id="mbtn-map" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg></div>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Map</span>
+            </button>
+            <button onclick="switchView('overlap')" id="mbtn-overlap" class="mbtn relative flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="12" r="6.5"/><circle cx="15" cy="12" r="6.5"/></svg></div>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Overlap</span>
+                <span id="crossing-badge-mobile" class="xbadge hidden" style="top:6px;right:calc(50% - 18px)"></span>
+            </button>
+            <button onclick="switchView('intel')" id="mbtn-intel" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg></div>
+                <span class="text-[8px] font-black uppercase tracking-wide leading-none">Intel</span>
+            </button>
+            <button id="btn-upload-nav" onclick="openMobileUpload()" class="mbtn flex-1 flex flex-col items-center justify-center gap-0.5 text-zinc-500 h-[56px]">
+                <div class="mbtn-icon-wrap"><svg id="mbtn-upload-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+                <span id="mbtn-upload-label" class="text-[8px] font-black uppercase tracking-wide leading-none">Upload</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Crossing Alert Modal -->
+    <div id="crossing-alert-modal" class="hidden fixed inset-0 z-[2000] flex items-center justify-center px-5" onclick="if(event.target===this)dismissCrossingAlert()">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+        <div class="modal-in relative bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div class="px-5 pt-5 pb-4 border-b border-zinc-800 flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <span class="inline-block w-2 h-2 rounded-full bg-amber-400" style="animation:here-pulse 2s ease-out infinite"></span>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-amber-400">Upcoming Crossing</span>
+                </div>
+                <button onclick="dismissCrossingAlert()" class="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 text-lg leading-none">×</button>
+            </div>
+            <div id="crossing-alert-content" class="px-5 py-4 space-y-2.5 max-h-64 overflow-y-auto"></div>
+            <div class="px-5 pb-5 flex gap-2.5">
+                <button onclick="dismissCrossingAlert()" class="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 text-xs font-black uppercase tracking-wide transition-colors hover:border-zinc-500">Dismiss</button>
+                <button onclick="goToCrossings()" class="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wide transition-colors">View Crossings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Crew Intel Modal -->
+    <div id="intel-modal" class="hidden fixed inset-0 z-[2000] flex items-center justify-center px-5" onclick="if(event.target===this)closeIntelModal()">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+        <div class="modal-in relative bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div class="px-5 pt-5 pb-4 border-b border-zinc-800 flex items-center justify-between">
+                <span id="intel-modal-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Add Intel</span>
+                <button onclick="closeIntelModal()" class="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 text-lg leading-none">×</button>
+            </div>
+            <div class="px-5 py-4 space-y-3">
+                <div>
+                    <label class="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Airport</label>
+                    <input id="intel-form-airport" type="text" maxlength="4" placeholder="KLAX"
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono uppercase text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 tracking-widest" />
+                </div>
+                <div>
+                    <label class="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Category</label>
+                    <div class="flex gap-1.5 flex-wrap">
+                        <button onclick="selectIntelCat('hotel')" id="form-icat-hotel" class="intel-form-cat">Hotel</button>
+                        <button onclick="selectIntelCat('food')" id="form-icat-food" class="intel-form-cat">Food</button>
+                        <button onclick="selectIntelCat('activity')" id="form-icat-activity" class="intel-form-cat">Activity</button>
+                        <button onclick="selectIntelCat('tip')" id="form-icat-tip" class="intel-form-cat intel-form-cat-active">Tip</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Title</label>
+                    <input id="intel-form-title" type="text" maxlength="80" placeholder="e.g. Marriott Courtyard is great"
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500" />
+                </div>
+                <div>
+                    <label class="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Notes <span class="text-zinc-600 normal-case font-normal">(optional)</span></label>
+                    <textarea id="intel-form-body" rows="3" maxlength="400" placeholder="Details, address, price range…"
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 resize-none"></textarea>
+                </div>
+            </div>
+            <div class="px-5 pb-5 flex gap-2.5">
+                <button onclick="closeIntelModal()" class="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 text-xs font-black uppercase tracking-wide transition-colors hover:border-zinc-500">Cancel</button>
+                <button onclick="saveIntelTip()" class="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-wide transition-colors">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Panel -->
+    <div id="notif-panel" class="hidden fixed inset-0 z-[1500]" onclick="if(event.target===this)closeNotifPanel()">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="absolute top-0 left-0 right-0 md:left-auto md:right-4 md:top-12 md:w-80 bg-zinc-900 border border-zinc-700 md:rounded-2xl shadow-2xl overflow-hidden flex flex-col" style="max-height:min(500px,80vh)">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-zinc-800 shrink-0">
+                <span class="text-xs font-black uppercase tracking-widest text-white">Notifications</span>
+                <div class="flex items-center gap-3">
+                    <button onclick="markAllNotifRead()" class="text-[10px] font-bold text-zinc-500 hover:text-zinc-300 transition-colors">Mark all read</button>
+                    <button onclick="closeNotifPanel()" class="text-zinc-500 hover:text-zinc-300 transition-colors text-xl leading-none">&times;</button>
+                </div>
+            </div>
+            <div id="notif-list" class="overflow-y-auto divide-y divide-zinc-800/50 flex-1">
+                <div class="px-4 py-8 text-center text-xs text-zinc-600">No notifications</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Flight Modal -->
+    <div id="add-flight-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeAddFlight()">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div id="add-flight-accent-bar" style="height:3px;background:linear-gradient(90deg,#3b82f6,#3b82f644,transparent)"></div>
+            <!-- Modal header -->
+            <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-800/60">
+                <div class="flex items-center gap-2.5">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21 4 19.5 2.5S18 2 16.5 3.5L13 7 4.8 5.2l-2 2 2.8 4.5-2.8 2.8 1 3 3-1 2.8 4.5 2-2z"/></svg>
+                    <h3 id="add-flight-title" class="text-[11px] font-black uppercase tracking-widest text-zinc-200">Add Flight</h3>
+                </div>
+                <button onclick="closeAddFlight()" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-500 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <!-- Type selector -->
+                <div class="space-y-1.5">
+                    <div class="flex gap-1.5 p-1 bg-zinc-800/70 rounded-xl">
+                        <button onclick="setAddFlightType('work')" id="ftype-work" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all bg-blue-600 text-white">Work</button>
+                        <button onclick="setAddFlightType('dh')" id="ftype-dh" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">DH</button>
+                        <button onclick="setAddFlightType('commute')" id="ftype-commute" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Commute</button>
+                        <button onclick="setAddFlightType('personal')" id="ftype-personal" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Personal</button>
+                    </div>
+                    <div class="flex gap-1.5 p-1 bg-zinc-800/70 rounded-xl">
+                        <button onclick="setAddFlightType('training')" id="ftype-training" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Training</button>
+                        <button onclick="setAddFlightType('vacation')" id="ftype-vacation" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all text-zinc-500 hover:text-zinc-300">Vacation</button>
+                    </div>
+                </div>
+                <!-- Pilot + Date -->
+                <div id="add-pilot-date-grid" class="grid grid-cols-2 gap-3">
+                    <div id="add-pilot-row">
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Pilot</label>
+                        <select id="add-pilot" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                            <option value="kyle">Kyle Kaestner</option>
+                            <option value="adam">Adam Burke</option>
+                            <option value="sam">Sam Byrne</option>
+                            <option value="logan">Logan Hine</option>
+                            <option value="drew">Drew Sinelli</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Date</label>
+                        <input type="date" id="add-date" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                    </div>
+                </div>
+                <!-- Training location (shown only for training type) -->
+                <div id="add-training-location-row" class="hidden">
+                    <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Location <span class="text-zinc-600 normal-case font-normal">(opt — e.g. STL, SIM)</span></label>
+                    <input type="text" id="add-training-location" placeholder="STL" maxlength="4" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-orange-500 outline-none transition uppercase">
+                </div>
+                <!-- Flight-only fields (hidden for training/vacation) -->
+                <div id="add-flight-only-fields" class="space-y-4">
+                    <!-- Airports -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">From</label>
+                            <input type="text" id="add-dep" maxlength="4" placeholder="ORD" oninput="this.value=this.value.toUpperCase()" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">To</label>
+                            <input type="text" id="add-arr" maxlength="4" placeholder="SFO" oninput="this.value=this.value.toUpperCase()" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                        </div>
+                    </div>
+                    <!-- Times -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Departs</label>
+                            <input type="time" id="add-dep-time" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Arrives <span id="add-arr-next-day-label" class="text-zinc-500 normal-case font-normal"></span></label>
+                            <input type="time" id="add-arr-time" onchange="autoComputeBlockTime()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                        </div>
+                    </div>
+                    <!-- Block time -->
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Block Time <span id="add-block-auto-label" class="text-zinc-600 normal-case font-normal">(auto-calculated)</span></label>
+                        <input type="text" id="add-block-time" placeholder="0:00" maxlength="5"
+                            oninput="_blockUserEdited=true;document.getElementById('add-block-auto-label').textContent='(manual)'"
+                            class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                    </div>
+                    <!-- Optional fields -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="min-w-0">
+                            <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Flight # <span id="add-flight-num-label" class="text-zinc-600 normal-case font-normal">(opt)</span></label>
+                            <input type="text" id="add-flight-num" placeholder="SKW1234" oninput="this.value=this.value.toUpperCase().replace(/\s/g,'')" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                        </div>
+                        <div class="min-w-0">
+                            <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Tail # <span class="text-zinc-600 normal-case font-normal">(opt)</span></label>
+                            <input type="text" id="add-tail-num" placeholder="N12345" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                        </div>
+                    </div>
+                </div>
+                <!-- Error -->
+                <div id="add-flight-error" class="hidden text-xs text-red-400 font-bold bg-red-950/40 border border-red-800/50 rounded-lg px-3 py-2"></div>
+            </div>
+            <!-- Footer -->
+            <div class="flex gap-3 px-5 pb-5">
+                <button id="add-flight-submit-btn" onclick="submitAddFlight()" class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-xs tracking-widest transition-colors">Add Flight</button>
+                <button onclick="closeAddFlight()" class="px-5 py-3 border border-zinc-700 hover:border-zinc-500 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ground transport edit modal -->
+    <div id="edit-ground-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeEditGround()">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Edit Ground Transport</h3>
+                <button onclick="closeEditGround()" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">From</label>
+                        <input type="text" id="eg-dep" maxlength="4" placeholder="KSUS" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">To</label>
+                        <input type="text" id="eg-arr" maxlength="4" placeholder="KSTL" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-black text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition uppercase">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Date</label>
+                    <input type="date" id="eg-date" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Departs</label>
+                        <input type="time" id="eg-dep-time" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Arrives</label>
+                        <input type="time" id="eg-arr-time" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 focus:border-blue-500 outline-none transition">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black uppercase text-zinc-500 block mb-1.5">Label <span class="text-zinc-600 normal-case font-normal">(opt)</span></label>
+                    <input type="text" id="eg-label" placeholder="GRND01" oninput="this.value=this.value.toUpperCase()" class="w-full px-3 py-2.5 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-blue-500 outline-none transition">
+                </div>
+                <div id="eg-error" class="hidden text-xs text-red-400 font-bold bg-red-950/40 border border-red-800/50 rounded-lg px-3 py-2"></div>
+            </div>
+            <div class="flex gap-3 px-5 pb-5">
+                <button onclick="saveEditGround()" class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-xs tracking-widest transition-colors">Save</button>
+                <button onclick="closeEditGround()" class="px-5 py-3 border border-zinc-700 hover:border-zinc-500 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Day detail sheet (bottom sheet on mobile, centered modal on desktop) -->
+    <div id="day-detail-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:items-center md:justify-center md:p-6" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+        <div class="relative w-full md:w-auto md:min-w-[380px] md:max-w-md bg-zinc-900 border-t md:border border-zinc-700 rounded-t-2xl md:rounded-2xl max-h-[78vh] flex flex-col shadow-2xl" onclick="event.stopPropagation()">
+            <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mt-3 mb-1 shrink-0 md:hidden"></div>
+            <div id="day-detail-content" class="overflow-y-auto px-5 pb-6 pt-2 md:pt-5"></div>
+        </div>
+    </div>
+
+    <!-- Off-day detail bottom sheet -->
+    <div id="offday-detail-sheet" class="hidden fixed inset-0 z-[1002] flex items-end" onclick="if(event.target===this)dismissOffDayDetail()">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div id="offday-detail-panel" class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl shadow-2xl" onclick="event.stopPropagation()" style="padding-bottom:max(20px,env(safe-area-inset-bottom))">
+            <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mt-3 mb-0 shrink-0"></div>
+            <div id="offday-detail-content" class="px-5 pt-3 pb-4"></div>
+        </div>
+    </div>
+
+    <!-- Schedaero Sync Modal -->
+    <div id="schedaero-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeSchedaeroModal()">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Sync Schedaero</h3>
+                    <p class="text-[10px] text-zinc-500 mt-0.5">Kyle</p>
+                </div>
+                <button onclick="closeSchedaeroModal()" class="text-zinc-500 hover:text-zinc-200 transition text-xl leading-none">✕</button>
+            </div>
+            <!-- Session-expired banner (hidden unless triggered from failed quick sync) -->
+            <div id="schedaero-expired-banner" class="hidden px-6 py-3 bg-red-950/60 border-b border-red-800/50">
+                <p class="text-xs font-bold text-red-300">Session expired — paste a fresh cookie below to re-authenticate.</p>
+            </div>
+            <div class="px-6 py-5 space-y-4">
+                <!-- URL + API Token (hidden in cookie-only mode) -->
+                <div id="schedaero-creds-fields" class="space-y-4">
+                    <div>
+                        <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">GetMonth URL <span class="text-zinc-600 font-normal normal-case">(DevTools → Network tab)</span></label>
+                        <input id="schedaero-url" type="text" placeholder="https://schedaero.avinode.com/mvc/api/CrewScheduling/GetMonth"
+                            class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-500">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">API Token <span class="text-zinc-600 font-normal normal-case">(Request Headers → x-avinode-apitoken)</span></label>
+                        <input id="schedaero-apitoken" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                            class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-500">
+                    </div>
+                </div>
+                <!-- "Edit URL & token" toggle — only shown in cookie-only mode -->
+                <button id="schedaero-creds-toggle" onclick="document.getElementById('schedaero-creds-fields').classList.toggle('hidden');document.getElementById('schedaero-month-range').classList.toggle('hidden');this.classList.add('hidden')" class="hidden text-[10px] text-zinc-600 hover:text-zinc-400 underline -mt-2">Edit URL &amp; API token</button>
+                <!-- Cookie (always shown) -->
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Session Cookie <span class="text-zinc-600 font-normal normal-case">(Request Headers → Cookie)</span></label>
+                    <textarea id="schedaero-cookie" rows="3" placeholder="Paste the full Cookie: header value here…"
+                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs text-zinc-200 font-mono resize-none focus:outline-none focus:border-zinc-500"></textarea>
+                </div>
+                <!-- Month range (hidden in cookie-only mode) -->
+                <div id="schedaero-month-range" class="flex gap-3">
+                    <div class="flex-1">
+                        <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Months Back</label>
+                        <select id="schedaero-months-back" class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-200 focus:outline-none focus:border-zinc-500">
+                            <option value="0">None</option>
+                            <option value="1">1 month back</option>
+                            <option value="2" selected>2 months back</option>
+                            <option value="3">3 months back</option>
+                            <option value="6">6 months back</option>
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Months Ahead</label>
+                        <select id="schedaero-months" class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-200 focus:outline-none focus:border-zinc-500">
+                            <option value="1">Current only</option>
+                            <option value="2">+ 1 ahead</option>
+                            <option value="3" selected>+ 2 ahead</option>
+                            <option value="6">+ 5 ahead</option>
+                        </select>
+                    </div>
+                </div>
+                <p id="schedaero-error" class="hidden text-xs text-red-400 font-bold"></p>
+                <div class="flex gap-3 pt-1">
+                    <button onclick="syncSchedaero()" id="schedaero-sync-btn" class="flex-1 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition">Sync</button>
+                    <button onclick="closeSchedaeroModal()" class="flex-1 py-3 border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-xl font-black uppercase text-xs tracking-wide transition">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Drew ICS Sync Modal -->
+    <!-- Overlap Detail Modal -->
+    <div id="overlap-detail-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
+                <span id="overlap-detail-title" class="text-sm font-black text-white uppercase tracking-widest"></span>
+                <button onclick="document.getElementById('overlap-detail-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div id="overlap-detail-body" class="overflow-y-auto p-5 space-y-4 text-sm text-zinc-400"></div>
+        </div>
+    </div>
+    <!-- Overlap Help Modal -->
+    <div id="overlap-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
+                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">How Location Overlap Works</h3>
+                <button onclick="document.getElementById('overlap-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
+                <p>Location Overlap shows your crossings with the rest of the crew. Only crossings involving you are shown. Admins and view-only guests see everyone they can view.</p>
+
+                <div class="space-y-3">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Overlap Types</p>
+                    <div class="space-y-2.5">
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-violet-950/60 text-violet-400 uppercase tracking-wide shrink-0 mt-0.5">Same Flight</span>
+                            <span>You're both on the same flight.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-violet-950/60 text-violet-400 uppercase tracking-wide shrink-0 mt-0.5">Overnight</span>
+                            <span>Both pilots at the same airport for 5+ hours or overnight — plenty of time to meet up.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-cyan-950/60 text-cyan-400 uppercase tracking-wide shrink-0 mt-0.5">Meetup</span>
+                            <span>Same airport, same time — shorter window but still worth a coffee at the gate.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-blue-950/60 text-blue-400 uppercase tracking-wide shrink-0 mt-0.5">Passing Through</span>
+                            <span>Same airport, but one pilot is on a tight connection. Quick hello if timing works out.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-orange-950/60 text-orange-400 uppercase tracking-wide shrink-0 mt-0.5">City Meetup</span>
+                            <span>Different airports in the same metro, but both have real overnight time — could meet in the city.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 uppercase tracking-wide shrink-0 mt-0.5">Home Turf</span>
+                            <span>One pilot is overnighting in another crew member's home city.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-950/60 text-amber-400 uppercase tracking-wide shrink-0 mt-0.5">Near Miss</span>
+                            <span>Same location within 3 hours of each other but no direct overlap — close but not quite.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Metro Areas</p>
+                    <p>Airports in the same city are grouped — JFK, LGA, EWR, and TEB all count as "New York Area." The specific airports are shown in smaller text below the city name.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Off Days Tab</p>
+                    <p>Switch to the <strong class="text-zinc-300">Off Days</strong> tab to see upcoming days where crew members are simultaneously free. Use the <strong class="text-zinc-300">pilot chips</strong> in the filter bar to choose who to include — tap any chip to toggle them. Toggle between <strong class="text-zinc-300">list</strong> and <strong class="text-zinc-300">calendar</strong> views using the calendar icon in the filter bar. In calendar view, colored name pills inside each cell show who is off that day — amber cells mean everyone is off, green cells mean most are off. Tap any cell for a detail breakdown. Days where all selected pilots are off show a <strong class="text-zinc-300">gold highlight and ALL badge</strong>.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Also Nearby</p>
+                    <p>Geographic coincidences — airports that are close but a meetup isn't realistic (transiting, different airports across town). <strong class="text-zinc-300">Tap a row</strong> to expand for detail.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Accuracy</p>
+                    <p>Calculated from scheduled ground time. Add commute and personal flights manually for best results — especially for positioning to base before a trip.</p>
+                </div>
+            </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#crossings" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Crew Intel Help Modal -->
+    <div id="intel-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
+                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Crew Intel</h3>
+                <button onclick="document.getElementById('intel-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
+                <p>Crew Intel is a shared knowledge base for the crew. Any pilot can add hotels, food spots, activities, and general tips for airports they've been to — and everyone benefits.</p>
+
+                <div class="space-y-3">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Categories</p>
+                    <div class="space-y-2.5">
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0 mt-0.5" style="background:rgba(59,130,246,0.15);color:#60a5fa">Hotel</span>
+                            <span>Where to stay — crew-friendly spots, quiet rooms, easy transport to the airport.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0 mt-0.5" style="background:rgba(245,158,11,0.15);color:#fbbf24">Food</span>
+                            <span>Good eats nearby — late-night options, delivery that actually works, places worth the walk.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0 mt-0.5" style="background:rgba(34,197,94,0.15);color:#4ade80">Activity</span>
+                            <span>Things to do on a long layover — gyms, trails, things worth seeing if you have time.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0 mt-0.5" style="background:rgba(167,139,250,0.15);color:#c4b5fd">Tip</span>
+                            <span>Anything else — parking, transport tricks, heads-up about the FBO, stuff that doesn't fit elsewhere.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Browsing</p>
+                    <p>The main screen has two views. <strong class="text-zinc-300">Airports</strong> (default) lists every location with intel as a card, showing category counts and city name. <strong class="text-zinc-300">Tap a card</strong> to open the detail view — use the <strong class="text-zinc-300">category pills</strong> to filter by type, and <strong class="text-zinc-300">tap any entry</strong> to expand it. Use the <strong class="text-zinc-300">search bar</strong> to filter by airport code or city. Switch to the <strong class="text-zinc-300">Map</strong> tab to see all intel locations as pins on a world map.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Intel Map</p>
+                    <p>The <strong class="text-zinc-300">Map</strong> tab plots every airport with intel as a color-coded thumbtack pin. <span style="color:#60a5fa">Blue</span> = hotels, <span style="color:#fbbf24">amber</span> = food, <span style="color:#4ade80">green</span> = activities, <span style="color:#c4b5fd">purple</span> = tips. Airports with intel in multiple categories show a <span style="color:#ef4444">red</span> pin. <strong class="text-zinc-300">Tap any pin</strong> to see a summary of what's there. A legend in the bottom-left shows the color key.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Voting</p>
+                    <p>Tap <strong class="text-zinc-300">▲</strong> or <strong class="text-zinc-300">▼</strong> next to an entry's category badge to vote. Entries sort by score, highest first, so the crew's best tips rise to the top. Tap an arrow again to remove your vote. An entry downvoted to <strong class="text-zinc-300">-3 or lower</strong> collapses to a one-line placeholder — nothing's deleted, tap it to expand.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Reducing Clutter</p>
+                    <p>Two toggles above the list/map hide low-value entries by default: generic <strong class="text-zinc-300">park/monument</strong> trivia, and <strong class="text-zinc-300">blank activity</strong> entries (just a landmark name, no actual tip). Tap either to show everything — nothing is deleted, just hidden.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Adding an Entry</p>
+                    <p>Tap <strong class="text-zinc-300">+ Add</strong> in the top right. Pick the airport, select a category, give it a short title, and optionally add a description. Your entry is visible to the whole crew immediately.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Editing & Deleting</p>
+                    <p>You can edit or delete your own entries, including changing the airport code. Admin can manage all entries. Tap the <strong class="text-zinc-300">pencil</strong> or <strong class="text-zinc-300">trash</strong> icons that appear on entries you own.</p>
+                </div>
+            </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#crew-intel" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Grid/Calendar Help Modal -->
+    <div id="grid-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
+                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">How the Calendar Works</h3>
+                <button onclick="document.getElementById('grid-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
+                <p>The calendar shows a full month of scheduled flights, days off, and overnights in a color-coded grid. Tap any day to see the full detail sheet.</p>
+
+                <div class="space-y-3">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Color Coding</p>
+                    <div class="space-y-2.5">
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-blue-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Flying</strong> — active flight leg (work or revenue)</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-amber-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Commute</strong> — commute leg to or from base</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-violet-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Personal</strong> — personal or leisure flight</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-red-600 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Hard Off</strong> — scheduled unavailable day</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm border border-rose-400 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Soft Day</strong> — tentative day off that can still become a work day</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-yellow-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Away</strong> — overnight away from home</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm border border-amber-400 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">On Call</strong> — reserve window</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm border border-indigo-400 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">On Tour</strong> — NetJets duty day with no legs yet</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-orange-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Training</strong> — training day</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-teal-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Vacation</strong> — vacation day</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm border border-green-500 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">Green outline</strong> — flight is confirmed live</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="w-3 h-3 rounded-sm bg-zinc-500/40 shrink-0 mt-0.5"></span>
+                            <span><strong class="text-zinc-300">DH badge</strong> — deadhead leg (riding as passenger)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Navigation</p>
+                    <p>Use <strong class="text-zinc-300">Prev / Next</strong> to change months. The current day is highlighted. Tap any cell to open a detail sheet with full flight info for that day — routes include city and state names below each airport pair when available, so you don't need to know every code by heart. The header shows <strong class="text-zinc-300">▶ IN THE AIR</strong> in green if a flight is currently airborne, and each live flight card shows a green border and <strong class="text-zinc-300">▶ LIVE</strong> badge.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Next Flight</p>
+                    <p>On your own schedule, the <strong class="text-zinc-300">Next Flight</strong> banner shows your next upcoming leg. Cancelled legs are skipped. On mobile, tap the banner to hide it until you reopen the app.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">NetJets Tours</p>
+                    <p>Tour days come from your duty rotation in My Info. On a CC schedule, they come from the monthly schedule you upload, and the app reminds you when a month is missing. On a tour day, tap the day and use <strong class="text-zinc-300">Edit Tour</strong> to save your tail. Legs appear once NetJets files them, usually the evening before.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Adding Flights</p>
+                    <p>Use the <strong class="text-zinc-300">+ Add Flight</strong> button to add Work, Deadhead, Commute, or Personal flights, plus Training and Vacation days. The button in a day's detail sheet opens on that day.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Syncing Schedules</p>
+                    <p>Schedules can be synced automatically or uploaded manually from your scheduling app. Use the <strong class="text-zinc-300">Upload</strong> tab to import a new file. Re-uploading a file <strong class="text-zinc-300">replaces all non-manual data for the dates it covers</strong> — only that date range is affected, so uploading one month won't touch any other month. Flights you've added or edited by hand are never overwritten. If you upload files, a Schedule Reminder appears when a month is missing.</p>
+                </div>
+            </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#calendar" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- List Help Modal -->
+    <div id="list-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
+                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">How the List View Works</h3>
+                <button onclick="document.getElementById('list-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
+                <p>The list view shows every flight and event in chronological order — one row per leg. It's the best way to see exact block times, overnight durations, and flight details at a glance.</p>
+
+                <div class="space-y-3">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Reading Each Row</p>
+                    <div class="space-y-2">
+                        <p><strong class="text-zinc-300">Airport pair</strong> — departure → arrival with local times shown. City and state appear in smaller text below when both airports resolve to a known city.</p>
+                        <p><strong class="text-zinc-300">Block time</strong> — flight duration in hours and minutes</p>
+                        <p><strong class="text-zinc-300">Overnight badge</strong> — shown between legs when ground time exceeds a few hours, includes duration</p>
+                        <p><strong class="text-zinc-300">Flight number / tail</strong> — shown when available from the schedule file</p>
+                    </div>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Color Coding</p>
+                    <p>Same colors as the calendar: blue for work flights, amber for commutes, violet for personal, gray for off/away, and green on a flight confirmed live. Orange means delayed, with the new departure time. Yellow means the departure is due and the flight hasn't been seen moving yet.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Editing Flights</p>
+                    <p>Use the <strong class="text-zinc-300">Edit</strong> and <strong class="text-zinc-300">Delete</strong> buttons on each row of your own schedule. A flight you edit won't be replaced by a later upload or sync. An uploaded flight you delete comes back at the next sync.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Overnight vs. Home</p>
+                    <p>Overnight durations are shown when the pilot overnights away from home base. If the gap is more than 30 hours and the destination is home, no overnight tag is shown — the pilot is assumed to have commuted home.</p>
+                </div>
+            </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#list" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Help Modal -->
+    <div id="map-help-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-full flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
+                <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">How the Map Works</h3>
+                <button onclick="document.getElementById('map-help-modal').classList.add('hidden')" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+            </div>
+            <div class="overflow-y-auto p-6 space-y-5 text-sm text-zinc-400">
+                <p>The map plots flight routes as great-circle arcs and shows live positions when aircraft are airborne. Switch modes using the tabs at the top.</p>
+
+                <div class="space-y-3">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Map Modes</p>
+                    <div class="space-y-2.5">
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 uppercase tracking-wide shrink-0 mt-0.5">My Routes</span>
+                            <span>Your full month of routes — all legs plotted as arcs. <strong class="text-zinc-300">Tap any arc</strong> to see all flights on that route with departure and arrival times (including timezone).</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 uppercase tracking-wide shrink-0 mt-0.5">All Crew — Day</span>
+                            <span>Everyone's flights on a single day. <strong class="text-zinc-300">Tap any arc</strong> to see the pilot, route, block time, and times with timezone — plus status: <strong class="text-zinc-300">▶ In the air now</strong>, <strong class="text-zinc-300">◷ Departs in…</strong>, or <strong class="text-zinc-300">✓ Completed</strong>. Completed flights are shown at 25% opacity so upcoming and live legs stand out. Use the date arrows to step forward and back.</span>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 uppercase tracking-wide shrink-0 mt-0.5">All Crew — Month</span>
+                            <span>All crew routes for the month overlaid. <strong class="text-zinc-300">Tap any arc</strong> to see whose flight it is and how many times they flew that route.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Here Now pins</p>
+                    <p>Each pilot's location pin is resolved in priority order: <strong class="text-zinc-300">live ADS-B</strong> if airborne → <strong class="text-zinc-300">active flight window</strong> → <strong class="text-zinc-300">reserve base</strong> if on call → <strong class="text-zinc-300">away layover</strong> airport → <strong class="text-zinc-300">most recent arrival</strong> or home. Commuter pilots (base ≠ home) briefly show "Heading home" after landing at their base. <strong class="text-zinc-300">Tap any pin</strong> to see the airport and status.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Live Tracking</p>
+                    <p>While a flight is airborne, its position updates every few seconds from ADS-B and FAA data. A <strong class="text-zinc-300">dashed arc</strong> shows the remaining path to destination; the solid colored trail behind is the actual GPS track. The route arc and its tap target stay aligned with the live position, so popups always work mid-flight.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Legend & Filters</p>
+                    <p>In All Crew modes, the legend shows each pilot's color — <strong class="text-zinc-300">only pilots you've left on in your Profile</strong> appear here. <strong class="text-zinc-300">Tap a legend entry</strong> to temporarily toggle that pilot's routes on or off without changing your crew settings. Use the <strong class="text-zinc-300">Flown / Upcoming</strong> filter to show only past or future legs.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Map Toggles</p>
+                    <p><strong class="text-zinc-300">⛈ Radar</strong> overlays live precipitation. <strong class="text-zinc-300">✦ RTE</strong> shows the named points along a live flight's route. <strong class="text-zinc-300">📻 FREQ</strong> shows the ATC frequency controlling a live flight, when it's known.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500">Dots vs. Arcs</p>
+                    <p>A colored dot at an airport means the pilot is on the ground there. An arc with an airplane icon means they're airborne along that route right now.</p>
+                </div>
+            </div>
+            <div class="px-6 py-3 border-t border-zinc-800 shrink-0 flex justify-end">
+                <a href="/manual#map" target="_blank" class="text-[11px] font-bold text-blue-500 hover:text-blue-400 transition-colors">Full Manual →</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generic ICS Sync Modal -->
+    <div id="ics-sync-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeGenericICSModal()">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="p-6 space-y-4">
+                <h3 id="ics-sync-modal-title" class="text-sm font-black uppercase tracking-widest text-zinc-200">Sync Schedule</h3>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block">ICS Calendar URL</label>
+                    <input id="ics-sync-url" type="url" placeholder="https://…/calendar.ics"
+                        class="w-full p-2.5 rounded-lg border border-zinc-700 bg-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-teal-500 placeholder-zinc-600">
+                    <p class="text-[10px] text-zinc-600">Paste the private subscription link from your airline's scheduling app.</p>
+                </div>
+                <p id="ics-sync-error" class="hidden text-xs text-red-400 font-bold"></p>
+                <div class="flex gap-3">
+                    <button onclick="syncGenericICS()" id="ics-sync-btn" class="flex-1 py-3 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition">Sync</button>
+                    <button onclick="closeGenericICSModal()" class="flex-1 py-3 border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-xl font-black uppercase text-xs tracking-wide transition">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile upload sheet -->
+    <div id="mobile-upload-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative w-full bg-zinc-900 border-t border-zinc-700 rounded-t-2xl p-6 space-y-4" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+            <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto mb-2"></div>
+            <h3 id="mobile-upload-sheet-title" class="text-sm font-black uppercase tracking-widest text-zinc-400 text-center">Upload Schedule</h3>
+            <div id="mobile-upload-pilot-row" class="space-y-2">
+                <label class="text-[10px] font-black text-zinc-500 uppercase block">Upload For</label>
+                <select id="mobile-upload-pilot-select" onchange="updateUploadSyncButtons(this.value)" class="w-full p-3 rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-100">
+                    <option value="kyle">Kyle Kaestner</option>
+                    <option value="adam">Adam Burke</option>
+                    <option value="sam">Sam Byrne</option>
+                    <option value="logan">Logan Hine</option>
+                    <option value="drew">Drew Sinelli</option>
+                </select>
+            </div>
+            <input type="file" id="mobile-file-input" class="hidden" onchange="handleMobileUpload(this)">
+            <button id="mobile-upload-file-btn" onclick="triggerUpload('mobile-upload-pilot-select','mobile-file-input')" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black uppercase text-sm tracking-wide transition">Choose File</button>
+            <button id="mobile-sync-schedaero-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');quickSyncSchedaero()" class="hidden w-full py-3 border border-purple-800 text-purple-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedaero (Kyle)</button>
+            <button id="mobile-sync-ics-btn" onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden');openGenericICSSync(document.getElementById('mobile-upload-pilot-select').value)" class="hidden w-full py-3 border border-teal-800 text-teal-400 rounded-xl font-black uppercase text-xs tracking-wide">⟳ Sync Schedule</button>
+            <button onclick="document.getElementById('mobile-upload-sheet').classList.add('hidden')" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Profile / Identity Sheet -->
+    <div id="profile-sheet" class="hidden fixed inset-0 z-[1001] flex items-end md:items-center md:justify-center" onclick="if(event.target===this)closeProfile()">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative w-full md:max-w-md bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl p-6 space-y-5 overflow-y-auto" style="max-height:90dvh;padding-bottom: max(1.5rem, env(safe-area-inset-bottom))" onclick="event.stopPropagation()">
+            <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto -mt-1 mb-1"></div>
+
+            <!-- Identity display -->
+            <div class="flex items-center gap-4">
+                <div id="profile-avatar" class="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl border-2" style="background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4);color:#818cf8">?</div>
+                <div>
+                    <div id="profile-name" class="text-lg font-black text-white">Not signed in</div>
+                    <div id="profile-role" class="text-xs text-zinc-400 font-bold mt-0.5">Open your personal link to sign in</div>
+                </div>
+            </div>
+
+            <!-- Personal link -->
+            <div id="profile-link-section">
+                <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Your Personal Link</label>
+                <div class="flex gap-2">
+                    <div id="profile-link-display" class="flex-1 px-3 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 text-xs font-mono text-zinc-300 overflow-hidden text-ellipsis whitespace-nowrap"></div>
+                    <button onclick="copyMyLink()" class="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-black text-xs whitespace-nowrap transition-colors hover:bg-blue-500">Copy</button>
+                </div>
+                <p class="text-[10px] text-zinc-500 mt-2">Bookmark this link or add it to your Home Screen — opening it signs you in automatically.</p>
+            </div>
+
+            <!-- My Info: self-service base/home/airline. Moved, changed crew base, or started
+                 flying for a new carrier -- update it here instead of asking an admin. -->
+            <div id="my-info-section" class="hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">My Info</label>
+                    <button onclick="openEditMyInfoModal()" class="text-[10px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest">Edit</button>
+                </div>
+                <div id="my-info-summary" class="text-xs text-zinc-400 font-bold py-1"></div>
+            </div>
+
+            <!-- Friends — also doubles as crew visibility: each row carries its own show/hide
+                 toggle alongside Remove, instead of duplicating the same person in a separate
+                 "Your Crew" list right below this one. -->
+            <div id="friends-section">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Friends</label>
+                    <button onclick="openAddFriendModal()" class="text-[10px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest">+ Add</button>
+                </div>
+                <p class="text-[10px] text-zinc-500 mb-3 -mt-1">Only friends can see your schedule, and you can only see theirs. Use the toggle to show or hide someone in your calendar/map without unfriending them.</p>
+                <div id="friends-incoming-section" class="hidden space-y-1.5 mb-3"></div>
+                <div id="friends-list" class="space-y-2"></div>
+            </div>
+
+            <!-- Crew visibility — admin/viewer/demo only now. A real pilot's equivalent control
+                 lives inline in the Friends list above instead (same set of people either way, so
+                 showing a second, separate list for them was pure duplication). Admin/viewer/demo
+                 have no Friends panel of their own to fold this into (admin has no "friends"
+                 concept at all; viewers are admin-assigned, no self-service UI), so they keep this
+                 standalone section. -->
+            <div id="crew-visibility-section">
+                <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Your Crew</label>
+                <p class="text-[10px] text-zinc-500 mb-3 -mt-1">Choose who you want to see in your schedule view.</p>
+                <div class="space-y-2" id="crew-visibility-btns"></div>
+            </div>
+
+            <!-- Add Friend modal -->
+            <div id="add-friend-modal" class="hidden fixed inset-0 z-[1002] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)closeAddFriendModal()">
+                <div class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+                <div class="relative w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-[80vh] flex flex-col" onclick="event.stopPropagation()">
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
+                        <h3 class="text-sm font-black uppercase tracking-widest text-zinc-200">Add a Friend</h3>
+                        <button onclick="closeAddFriendModal()" class="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-white text-xs transition-colors">✕</button>
+                    </div>
+                    <div class="p-4 shrink-0">
+                        <input id="friend-search-input" type="text" placeholder="Search by name…" oninput="renderFriendSearchResults(this.value)" class="w-full bg-zinc-800 border border-zinc-700 focus:border-blue-500 rounded-xl px-3.5 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors">
+                    </div>
+                    <div id="friend-search-results" class="overflow-y-auto px-4 pb-4 space-y-1.5 flex-1"></div>
+                </div>
+            </div>
+
+            <!-- Notifications toggle -->
+            <div id="profile-notif-section" class="hidden border-t border-zinc-800 pt-4">
+                <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Notifications</label>
+                <div id="profile-notif-row" class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
+                    <div>
+                        <div id="profile-notif-label" class="text-xs font-black text-zinc-200">Crossing alerts</div>
+                        <div id="profile-notif-sub" class="text-[10px] text-zinc-500 mt-0.5">Get notified when you have a crossing</div>
+                    </div>
+                    <button id="profile-notif-btn" onclick="toggleNotifSetting()" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors"></button>
+                </div>
+            </div>
+
+            <!-- Block totals -->
+            <div id="profile-block-section" class="hidden border-t border-zinc-800 pt-4">
+                <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Block Hours</label>
+                <div class="flex items-center justify-between py-2.5 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
+                    <div>
+                        <div class="text-xs font-black text-zinc-200">Show block totals</div>
+                        <div class="text-[10px] text-zinc-500 mt-0.5">Per day, and per NetJets tour</div>
+                    </div>
+                    <button id="profile-block-btn" onclick="toggleBlockTotals()" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors"></button>
+                </div>
+            </div>
+
+            <!-- Year in Review (admin + kyle only) -->
+            <div id="wrapped-profile-section" class="hidden border-t border-zinc-800 pt-4">
+                <button onclick="closeProfile();openWrapped()" class="w-full py-2.5 border border-blue-900/50 text-blue-400 hover:text-blue-300 hover:border-blue-700 rounded-xl font-black uppercase text-xs tracking-wide transition-colors">✦ Year in Review</button>
+            </div>
+
+            <!-- Admin: opens the full admin panel (Users + Dashboard tabs live inside it) -->
+            <div id="admin-manage-section" class="hidden border-t border-zinc-800 pt-4">
+                <button onclick="closeProfile();openAdminPanel('users')" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors shadow-lg shadow-indigo-950/40">★ Admin Panel</button>
+            </div>
+
+            <button onclick="closeProfile()" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Done</button>
+            <button id="sign-out-btn" onclick="signOut()" class="hidden w-full py-3 border border-red-900/60 text-red-500/70 rounded-xl font-black uppercase text-xs tracking-wide hover:border-red-700 hover:text-red-400 transition-colors">Sign Out</button>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Panel Modal -->
+<!-- Admin Panel — full-page takeover (not a small modal): big tab switcher, prominent
+     Add User action, and a card grid instead of a cramped list. -->
+<div id="admin-panel" class="hidden fixed inset-0 z-[1002] bg-zinc-950 flex flex-col">
+    <div class="shrink-0 border-b border-zinc-800" style="padding-top:max(1rem,env(safe-area-inset-top))">
+        <div class="flex items-center justify-between px-4 md:px-8 pb-3 gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                <button onclick="closeAdminPanel()" class="w-10 h-10 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors text-lg shrink-0">←</button>
+                <h2 class="text-lg md:text-xl font-black text-white truncate">Admin</h2>
+            </div>
+            <button id="admin-add-user-btn" onclick="openEditUserModal(null)" class="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors shadow-lg shadow-indigo-950/40 shrink-0">
+                <span class="text-base leading-none">+</span><span class="hidden sm:inline">Add User</span>
+            </button>
+        </div>
+        <div class="flex gap-2 px-4 md:px-8 pb-4">
+            <button id="admin-tab-users" onclick="switchAdminTab('users')" class="flex-1 md:flex-none md:px-10 py-2.5 rounded-xl font-black uppercase text-xs tracking-widest transition-colors">Users</button>
+            <button id="admin-tab-dashboard" onclick="switchAdminTab('dashboard')" class="flex-1 md:flex-none md:px-10 py-2.5 rounded-xl font-black uppercase text-xs tracking-widest transition-colors">Dashboard</button>
+        </div>
+    </div>
+    <div id="admin-user-list" class="overflow-y-auto flex-1 min-h-0 p-4 md:p-8" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+        <div class="max-w-6xl mx-auto">
+            <div class="mb-5">
+                <input id="admin-user-search" type="text" oninput="filterAdminUsers(this.value)" placeholder="Search by name or key…" class="w-full px-4 py-3 rounded-xl border border-zinc-800 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <div id="admin-user-count" class="text-[10px] font-black text-zinc-600 uppercase tracking-widest mt-2"></div>
+            </div>
+            <div id="admin-user-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </div>
+    </div>
+    <div id="admin-dashboard-pane" class="hidden overflow-y-auto flex-1 min-h-0 p-4 md:p-8 space-y-5 max-w-5xl mx-auto w-full" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))"></div>
+</div>
+
+<!-- Edit / Add User Modal — full-page takeover, matching the admin panel's shell -->
+<div id="edit-user-modal" class="hidden fixed inset-0 z-[1003] bg-zinc-950 flex flex-col">
+    <div class="shrink-0 border-b border-zinc-800 flex items-center justify-between px-4 md:px-8 pb-3 gap-3" style="padding-top:max(1rem,env(safe-area-inset-top))">
+        <div class="flex items-center gap-3 min-w-0">
+            <button onclick="closeEditUserModal()" class="w-10 h-10 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors text-lg shrink-0">←</button>
+            <h2 id="edit-user-title" class="text-lg md:text-xl font-black text-white truncate">Add User</h2>
+        </div>
+        <button id="edit-user-save-btn" onclick="saveUser()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors shadow-lg shadow-indigo-950/40 shrink-0">Save</button>
+    </div>
+    <div class="overflow-y-auto flex-1 min-h-0 p-4 md:p-8" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+    <div class="max-w-xl mx-auto space-y-5">
+        <input type="hidden" id="edit-user-key">
+        <!-- View-only toggle -->
+        <div onclick="_toggleViewerMode()" id="edit-user-viewer-row" class="flex items-center justify-between py-3 px-4 rounded-xl cursor-pointer transition-colors select-none" style="background:#052e16;border:1px solid #166534;-webkit-tap-highlight-color:transparent">
+            <div class="flex items-center gap-2.5">
+                <span class="text-base">👁</span>
+                <div>
+                    <div class="text-sm font-black text-emerald-300">View Only</div>
+                    <div class="text-[10px] text-emerald-800">Can see schedules, cannot upload or edit</div>
+                </div>
+            </div>
+            <div id="edit-user-viewer-toggle" class="w-11 h-6 rounded-full flex items-center px-0.5 transition-all pointer-events-none" style="background:#3f3f46">
+                <div id="edit-user-viewer-knob" class="w-5 h-5 rounded-full bg-white shadow transition-transform" style="transform:translateX(0px)"></div>
+            </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">First Name</label>
+                <input id="edit-user-first" type="text" placeholder="Kyle" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Last Name</label>
+                <input id="edit-user-last" type="text" placeholder="Kaestner" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+        </div>
+        <!-- Pilot-only fields — hidden when View Only is on -->
+        <div id="edit-user-pilot-fields" class="space-y-5">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
+                    <input id="edit-user-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=normApt(this.value); _onEditUserBaseChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                </div>
+                <div>
+                    <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
+                    <input id="edit-user-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                </div>
+            </div>
+            <div id="edit-user-base-effective-row" class="hidden space-y-1">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block">Base Change Effective From</label>
+                <input id="edit-user-base-effective" type="date" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                <p class="text-[10px] text-zinc-500">Any trip still in progress on this date (even one landing after it) keeps counting as the old base. Past schedule history stays correct either way.</p>
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
+                <select id="edit-user-airline-sel" onchange="_onAirlineChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                    <option value="">— Select airline —</option>
+                    <option value="AAL">American Airlines (MobileCCI)</option>
+                    <option value="GTI">Atlas Air</option>
+                    <option value="DAL">Delta Air Lines (MiCrew)</option>
+                    <option value="GJS">GoJet Airlines</option>
+                    <option value="RPA">Republic Airways</option>
+                    <option value="SKW">SkyWest Airlines</option>
+                    <option value="SWA">Southwest Airlines (CrewHub)</option>
+                    <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
+                    <option value="SCX">Sun Country Airlines</option>
+                    <option value="EJA">NetJets (Beta)</option>
+                    <option value="OTHER">Other / Auto-detect</option>
+                </select>
+            </div>
+            <div id="edit-user-ics-row" class="hidden space-y-1">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block" id="edit-user-ics-label">ICS Calendar URL</label>
+                <input id="edit-user-ics-url" type="url" placeholder="https://…" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                <p class="text-[10px] text-zinc-600" id="edit-user-ics-hint">Paste the private subscription link from your airline's scheduling app.</p>
+            </div>
+            <div id="edit-user-netjets-section" class="hidden space-y-1 p-3 rounded-xl bg-zinc-900/60 border border-zinc-800">
+                <label class="text-[9px] font-black text-zinc-500 uppercase block">NetJets Status (read-only — set by the pilot in My Info)</label>
+                <p id="edit-user-netjets-summary" class="text-xs text-zinc-300 leading-relaxed">Loading…</p>
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Role / Description</label>
+                <input id="edit-user-role" type="text" placeholder="Corporate · KSUS" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+        </div>
+        <!-- Admin friend management — bypasses the request/accept flow entirely. Only shown
+             when editing an existing pilot or viewer (a brand-new user has no key yet to attach
+             friendships to). Viewers are friend-gated too now, admin-assigned only — this is the
+             only way to grant a viewer visibility into a specific pilot's schedule. -->
+        <div id="edit-user-friends-section" class="hidden space-y-1.5 pt-2 border-t border-zinc-800">
+            <p class="text-[9px] font-black text-zinc-500 uppercase tracking-widest pt-4">Friends</p>
+            <p class="text-[10px] text-zinc-600 -mt-1">Toggle to instantly add or remove a friendship — no request needed.</p>
+            <div id="edit-user-friends-list" class="space-y-1.5 max-h-60 overflow-y-auto"></div>
+        </div>
+        <div id="edit-user-error" class="hidden text-xs text-red-400 font-bold"></div>
+    </div>
+    </div>
+</div>
+
+<!-- Edit My Info Modal — self-service: base, home airport, airline/carrier. Same full-page
+     shell as the admin edit-user modal, scoped down to exactly what a pilot may change about
+     their own profile (no name/role -- role is a permission level, admin-only). -->
+<div id="edit-my-info-modal" class="hidden fixed inset-0 z-[1003] bg-zinc-950 flex flex-col">
+    <div class="shrink-0 border-b border-zinc-800 flex items-center justify-between px-4 md:px-8 pb-3 gap-3" style="padding-top:max(1rem,env(safe-area-inset-top))">
+        <div class="flex items-center gap-3 min-w-0">
+            <button onclick="closeEditMyInfoModal()" class="w-10 h-10 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors text-lg shrink-0">←</button>
+            <h2 class="text-lg md:text-xl font-black text-white truncate">My Info</h2>
+        </div>
+        <button id="my-info-save-btn" onclick="saveMyInfo()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black uppercase text-xs tracking-wide transition-colors shadow-lg shadow-indigo-950/40 shrink-0">Save</button>
+    </div>
+    <div class="overflow-y-auto flex-1 min-h-0 p-4 md:p-8" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+    <div class="max-w-xl mx-auto space-y-5">
+        <p class="text-[10px] text-zinc-500">Moved, changed crew base, or started flying for a new carrier? Update it here.</p>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Crew Base</label>
+                <input id="my-info-base" type="text" placeholder="TUL" maxlength="4" oninput="this.value=normApt(this.value); _onMyInfoBaseChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Home Airport</label>
+                <input id="my-info-home" type="text" placeholder="STL" maxlength="4" oninput="this.value=normApt(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            </div>
+        </div>
+        <div id="my-info-base-effective-row" class="hidden space-y-1">
+            <label class="text-[9px] font-black text-zinc-500 uppercase block">Base Change Effective From</label>
+            <input id="my-info-base-effective" type="date" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+            <p class="text-[10px] text-zinc-500">Any trip still in progress on this date (even one landing after it) keeps counting as your old base. Past schedule history stays correct either way.</p>
+        </div>
+        <div>
+            <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Airline / Operator</label>
+            <select id="my-info-airline-sel" onchange="_onMyInfoAirlineChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                <option value="">— Select airline —</option>
+                <option value="AAL">American Airlines (MobileCCI)</option>
+                <option value="GTI">Atlas Air</option>
+                <option value="DAL">Delta Air Lines (MiCrew)</option>
+                <option value="GJS">GoJet Airlines</option>
+                <option value="RPA">Republic Airways</option>
+                <option value="SKW">SkyWest Airlines</option>
+                <option value="SWA">Southwest Airlines (CrewHub)</option>
+                <option value="SJJ">SpiritJets (Corporate — Schedaero)</option>
+                <option value="SCX">Sun Country Airlines</option>
+                <option value="EJA">NetJets (Beta)</option>
+                <option value="OTHER">Other / Auto-detect</option>
+            </select>
+        </div>
+        <div id="my-info-ics-row" class="hidden space-y-1">
+            <label class="text-[9px] font-black text-zinc-500 uppercase block" id="my-info-ics-label">ICS Calendar URL</label>
+            <input id="my-info-ics-url" type="url" placeholder="https://…" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+            <p class="text-[10px] text-zinc-600" id="my-info-ics-hint">Paste the private subscription link from your airline's scheduling app.</p>
+        </div>
+        <div id="my-info-netjets-section" class="hidden space-y-4 pt-3 border-t border-zinc-800">
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Duty Rotation</label>
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <select id="my-info-rotation-family" onchange="_onRotationFamilyChange()" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                        <option value="">— Family —</option>
+                        <option value="7">7 &amp; 7</option>
+                        <option value="8">8 &amp; 6</option>
+                        <option value="CC">CC (52/60/72/76)</option>
+                    </select>
+                    <select id="my-info-rotation-line" class="w-full px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 focus:border-indigo-500 outline-none">
+                        <option value="">— Line —</option>
+                        <option value="1">Line 1</option><option value="2">Line 2</option><option value="3">Line 3</option>
+                        <option value="4">Line 4</option><option value="5">Line 5</option><option value="6">Line 6</option>
+                        <option value="7">Line 7</option><option value="8">Line 8</option><option value="9">Line 9</option>
+                        <option value="10">Line 10</option><option value="11">Line 11</option><option value="12">Line 12</option>
+                        <option value="13">Line 13</option><option value="14">Line 14</option>
+                    </select>
+                </div>
+                <p id="my-info-rotation-note" class="text-[10px] text-zinc-500">Pick your schedule family and bid line.</p>
+                <div class="flex gap-2 mt-2">
+                    <button type="button" onclick="saveMyRotation()" class="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save</button>
+                    <button type="button" onclick="clearMyRotation()" class="px-3 py-2.5 rounded-xl bg-red-950/40 hover:bg-red-950/70 border border-red-900 text-[10px] font-black uppercase tracking-wide text-red-400 transition-colors">Clear</button>
+                </div>
+                <p id="my-info-rotation-status" class="text-[10px] text-zinc-500 mt-1"></p>
+                <div id="my-info-cc-clear-row" class="hidden flex gap-2 mt-2">
+                    <select id="my-info-cc-clear-month" class="flex-1 px-3 py-2 rounded-xl border border-zinc-700 bg-zinc-900 text-xs text-zinc-100 focus:border-red-500 outline-none"></select>
+                    <button type="button" onclick="clearMyCcScheduleMonth()" class="px-3 py-2 rounded-xl bg-red-950/40 hover:bg-red-950/70 border border-red-900 text-[10px] font-black uppercase tracking-wide text-red-400 transition-colors">Clear Month</button>
+                </div>
+            </div>
+            <div>
+                <label class="text-[9px] font-black text-zinc-500 uppercase block mb-1">Current Tour Tail</label>
+                <div class="flex gap-2 mb-2">
+                    <input id="my-info-tour-tail" type="text" inputmode="numeric" maxlength="3" placeholder="e.g. 163" class="flex-1 px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none" oninput="this.value=this.value.replace(/\D/g,'').slice(0,3)">
+                    <input id="my-info-tour-start-airport" type="text" placeholder="Starting Apt" maxlength="4" oninput="this.value=normApt(this.value)" class="w-[7.5rem] px-3.5 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-bold text-zinc-100 placeholder-zinc-600 focus:border-indigo-500 outline-none">
+                    <button type="button" onclick="saveMyTourTail()" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-black uppercase tracking-wide text-white transition-colors">Save</button>
+                </div>
+                <p class="text-[10px] text-zinc-500">Just the number off your tail (N163QS → 163). No need to type N, QS, or EJA. Starting airport is wherever you're meeting the aircraft on Day 1 — helps the tracker confirm the right flight.</p>
+                <p id="my-info-tour-tail-status" class="text-[10px] text-zinc-500 mt-1"></p>
+            </div>
+        </div>
+        <div id="my-info-error" class="hidden text-xs text-red-400 font-bold"></div>
+    </div>
+    </div>
+</div>
+
+<!-- NetJets Day-1 tail reminder -->
+<div id="netjets-tail-reminder-modal" class="hidden fixed inset-0 z-[1010] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)dismissNetjetsTailReminder()">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-xs bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+        <div class="px-6 pt-6 pb-5 space-y-2">
+            <p id="netjets-tail-reminder-title" class="text-sm font-black uppercase tracking-wide text-white">Tour Starts Soon</p>
+            <p class="text-xs text-zinc-400 leading-relaxed">Add your tail # and starting airport before you depart — a leg flown before it's saved can't be recovered after the fact. Also worth logging any deadhead/commute to get to the aircraft.</p>
+        </div>
+        <div class="flex border-t border-zinc-800">
+            <button onclick="dismissNetjetsTailReminder()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Not Now</button>
+            <button onclick="_openMyInfoFromNetjetsReminder()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30 transition-colors">Add Tail #</button>
+        </div>
+    </div>
+</div>
+
+<!-- NetJets last leg gone: the pilot's picked last leg was cancelled or deleted before it flew -->
+<div id="netjets-last-leg-modal" class="hidden fixed inset-0 z-[1010] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)dismissNetjetsLastLegAlert()">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-xs bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+        <div class="px-6 pt-6 pb-5 space-y-2">
+            <p id="netjets-last-leg-title" class="text-sm font-black uppercase tracking-wide text-white">Last Leg Cancelled</p>
+            <p id="netjets-last-leg-body" class="text-xs text-zinc-400 leading-relaxed"></p>
+        </div>
+        <div class="flex border-t border-zinc-800">
+            <button onclick="dismissNetjetsLastLegAlert()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Not Now</button>
+            <button onclick="_openTourFromLastLegAlert()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30 transition-colors">Pick Leg</button>
+        </div>
+    </div>
+</div>
+
+<!-- NetJets Tour Tail Modal -- dedicated, scoped to ONE tour (not routed through My Info) --
+     opened from the day-detail sheet's "Edit Tour" button on any on-duty day, or from the
+     reminder popup below. -->
+<div id="netjets-tour-modal" class="hidden fixed inset-0 z-[1001] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)dismissNetjetsTourModal()">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-xs bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+        <div class="px-6 pt-6 pb-5 space-y-3">
+            <div>
+                <p class="text-sm font-black uppercase tracking-wide text-white">Tour Tail</p>
+                <p id="netjets-tour-modal-range" class="text-xs text-zinc-500 mt-0.5"></p>
+            </div>
+            <p class="text-xs text-zinc-400 leading-relaxed">Tail # and starting airport for this tour — "wherever you're meeting the aircraft on Day 1." A leg flown before this is saved can't be recovered after the fact.</p>
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Tail # (e.g. 742)</label>
+                <input id="netjets-tour-modal-tail" type="text" inputmode="numeric" maxlength="3" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white" placeholder="742">
+            </div>
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Starting Airport</label>
+                <input id="netjets-tour-modal-start-airport" type="text" maxlength="4" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white uppercase" placeholder="SGR">
+            </div>
+            <div id="netjets-tour-modal-last-leg-wrap" class="hidden">
+                <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Leaving this aircraft?</label>
+                <select id="netjets-tour-modal-last-leg" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white"></select>
+                <p id="netjets-tour-modal-last-leg-note" class="text-[10px] text-zinc-500 mt-1 leading-snug"></p>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="extendNetjetsTour()" class="flex-1 py-2 rounded-lg border border-zinc-700 text-[11px] font-black uppercase tracking-wide text-emerald-400 hover:bg-emerald-950/30 transition-colors">＋ Extend 1 day</button>
+                <button id="netjets-tour-modal-unextend-btn" onclick="unextendNetjetsTour()" class="hidden py-2 px-3 rounded-lg border border-zinc-700 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors">Undo</button>
+            </div>
+            <button onclick="_openCommuteForTour()" class="w-full text-left text-[11px] font-bold text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1.5">📋 Log the commute/deadhead to get there</button>
+            <p id="netjets-tour-modal-status" class="text-xs text-zinc-500 h-4"></p>
+        </div>
+        <div class="flex border-t border-zinc-800">
+            <button onclick="dismissNetjetsTourModal()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Close</button>
+            <button id="netjets-tour-modal-reset-btn" onclick="resetNetjetsTour()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-red-400 hover:text-red-300 hover:bg-red-950/30 transition-colors border-r border-zinc-800">Reset</button>
+            <button onclick="saveNetjetsTourTail()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30 transition-colors">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Modal -->
+<div id="confirm-modal" class="hidden fixed inset-0 z-[1010] flex items-center justify-center" style="padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom))" onclick="if(event.target===this)_confirmReject()">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-xs bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+        <div class="px-6 pt-6 pb-5 space-y-2">
+            <p id="confirm-title" class="text-sm font-black uppercase tracking-wide text-white"></p>
+            <p id="confirm-body" class="text-xs text-zinc-400 leading-relaxed"></p>
+        </div>
+        <div class="flex border-t border-zinc-800">
+            <button onclick="_confirmReject()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-100 transition-colors border-r border-zinc-800">Cancel</button>
+            <button id="confirm-ok-btn" onclick="_confirmAccept()" class="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wide text-red-400 hover:text-red-300 hover:bg-red-950/30 transition-colors">Delete</button>
+        </div>
+    </div>
+</div>
+
+    <script>
+@@APP_SCRIPT@@
+    </script>
+</body>
+</html>

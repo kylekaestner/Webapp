@@ -4,47 +4,47 @@ Current behavior only. Past bugs and why things were built this way: `CLAUDE_HIS
 
 ## Key functions (grep these names)
 
-| Function | Line ~| Role |
+| Function | File (frontend/src/) | Role |
 |---|---|---|
-| `initIdentity()` | 2122 | Auth check on load; sets myPilot/myViewer; calls `_syncPilotRoster()` before any pilot-dependent UI builds |
-| `_applyIdentityUI()` | 2267 | Shows/hides UI sections based on who's logged in |
-| `_buildCrewVisibilityUI()` | ~2570 | Crew toggle switches — admin/viewer/demo only now |
-| `renderFriendsPanel()` | ~2300 | Friends list + incoming/outgoing requests; for a real pilot also renders the crew-visibility toggle + Remove inline per row |
-| `render()` | ~6485 | Main calendar/list render dispatcher |
-| `renderMap()` | 4857 | Single pilot monthly route map |
-| `renderAllPilotsMap()` | 4715 | All-crew monthly map |
-| `renderDayMap()` | ~5828 | All-crew single-day map |
-| `distanceProportionalArc()` | 4826 | Bezier-bowed great-circle arc for a single route (no de-overlap; `renderMap()` has no cross-route overlap handling at all) |
-| `offsetArc()` | 5238 | Bezier arc with perpendicular offset — spreads multiple flights sharing an identical city pair (`renderDayMap()` only) |
-| `inferAwayLayovers()` | 2880 | Generates synthetic 'away' events for overnight non-home stays |
-| `switchView()` | 3200 | Switches between calendar/list/map/overlap views |
-| `switchOverlapTab()` | 3315 | Crossings ↔ Off Days tab switch |
-| `computeOverlap()` | 3928 | Crossings pipeline (fetch → buildGroundPeriods → classify → render) |
-| `buildGroundPeriods()` | ~3942 | Inside computeOverlap; emits ground windows per pilot |
-| `computeOffDays()` | 3517 | Off Days pipeline |
-| `renderCommonOffSection()` | ~3152 | Renders off day rows + filter chips |
-| `showDayDetail()` | 7194 | Opens day detail bottom sheet for a date key |
-| `handleUpload()` | 7160 | File upload handler → `uploadPilotSchedule()` |
-| `submitAddFlight()` | 7722 | Saves manual flight from add-flight modal |
-| `flightAwareLink()` | ~5288 | Wraps a flight ident in a FlightAware tracking link, gated by `flightAwareEligible()` (departed or within 48h) |
-| `startLiveTracking()` | 4946 | ADS-B/SWIM poll loop for one callsign; adaptive cadence |
-| `startCalListLivePolling()` | 4848 | Polls `/api/live-position` for `[data-live-callsign]` elements in cal/list every 15s |
-| `setupMobileGestures()` | 1636 | Registers swipe + pull-to-refresh handlers |
-| `renderIntel()` | 8452 | Crew Intel dispatcher → airports / map / detail sub-renders |
-| `renderIntelMap()` | 8524 | Leaflet thumbtack-pin map for intel entries |
-| `renderIntelAirports()` | 8633 | Airport card list for Crew Intel |
-| `renderIntelDetail()` | 8686 | Per-airport intel tip cards |
-| `saveIntelTip()` | 8828 | POST/PUT intel entry to `/api/intel` |
-| `openAdminPanel()` | 7508 | Admin users panel + dashboard tab |
-| `saveUser()` | 7872 | Admin add/edit user → POST/PUT `/api/pilots` |
-| `initServiceWorker()` | 7960 | Registers `/sw.js`; listens for `OPEN_OVERLAP` message |
-| `initPushNotifications()` | 7970 | Decides whether to subscribe or show prompt |
-| `subscribeToPush()` | 7994 | Gets VAPID key, creates push subscription, POSTs to server |
-| `updateCrossingAlert()` | 8132 | Updates badge count + crossing modal from computed overlaps |
-| `loadNotifications()` | 8022 | Fetches `/api/notifications` and updates bell badge |
-| `_legState()` | ~7024 | Day map's unified per-flight status resolver (see "Durable flight-tracking evidence" below) |
-| `_hasNewerLegStarted()` | — | Shared helper: has this pilot's same callsign already started a later-scheduled leg today |
-| `isFlightStillActive()` | — | Shared grid/list/day-detail/map "is this flight still active" check (90min grace past scheduled arrival, see "TFDM delay insight" below) |
+| `initIdentity()` | core/identity.js | Auth check on load; sets myPilot/myViewer; calls `_syncPilotRoster()` before any pilot-dependent UI builds |
+| `_applyIdentityUI()` | crew/visibility-and-profile.js | Shows/hides UI sections based on who's logged in |
+| `_buildCrewVisibilityUI()` | crew/visibility-and-profile.js | Crew toggle switches — admin/viewer/demo only now |
+| `renderFriendsPanel()` | crew/friends.js | Friends list + incoming/outgoing requests; for a real pilot also renders the crew-visibility toggle + Remove inline per row |
+| `render()` | views/render.js | Main calendar/list render dispatcher |
+| `renderMap()` | maps/route-map.js | Single pilot monthly route map |
+| `renderAllPilotsMap()` | maps/route-map.js | All-crew monthly map |
+| `renderDayMap()` | maps/day-map.js | All-crew single-day map |
+| `distanceProportionalArc()` | maps/route-map.js | Bezier-bowed great-circle arc for a single route (no de-overlap; `renderMap()` has no cross-route overlap handling at all) |
+| `offsetArc()` | maps/route-map.js | Bezier arc with perpendicular offset — spreads multiple flights sharing an identical city pair (`renderDayMap()` only) |
+| `inferAwayLayovers()` | schedule/load-pilot.js | Generates synthetic 'away' events for overnight non-home stays |
+| `switchView()` | views/navigation.js | Switches between calendar/list/map/overlap views |
+| `switchOverlapTab()` | crew/off-days.js | Crossings ↔ Off Days tab switch |
+| `computeOverlap()` | crew/crossings.js | Crossings pipeline (fetch → buildGroundPeriods → classify → render) |
+| `buildGroundPeriods()` | crew/crossings.js | Inside computeOverlap; emits ground windows per pilot |
+| `computeOffDays()` | crew/off-days.js | Off Days pipeline |
+| `renderCommonOffSection()` | crew/off-days.js | Renders off day rows + filter chips |
+| `showDayDetail()` | views/day-detail.js | Opens day detail bottom sheet for a date key |
+| `handleUpload()` | schedule/parsers-and-upload.js | File upload handler → `uploadPilotSchedule()` |
+| `submitAddFlight()` | modals/add-flight.js | Saves manual flight from add-flight modal |
+| `flightAwareLink()` | live/flight-helpers.js | Wraps a flight ident in a FlightAware tracking link, gated by `flightAwareEligible()` (departed or within 48h) |
+| `startLiveTracking()` | live/live-tracking.js | ADS-B/SWIM poll loop for one callsign; adaptive cadence |
+| `startCalListLivePolling()` | live/calendar-list-polling.js | Polls `/api/live-position` for `[data-live-callsign]` elements in cal/list every 15s |
+| `setupMobileGestures()` | ui/feedback-and-gestures.js | Registers swipe + pull-to-refresh handlers |
+| `renderIntel()` | crew/intel.js | Crew Intel dispatcher → airports / map / detail sub-renders |
+| `renderIntelMap()` | crew/intel.js | Leaflet thumbtack-pin map for intel entries |
+| `renderIntelAirports()` | crew/intel.js | Airport card list for Crew Intel |
+| `renderIntelDetail()` | crew/intel.js | Per-airport intel tip cards |
+| `saveIntelTip()` | crew/intel.js | POST/PUT intel entry to `/api/intel` |
+| `openAdminPanel()` | admin/admin.js | Admin users panel + dashboard tab |
+| `saveUser()` | admin/admin.js | Admin add/edit user → POST/PUT `/api/pilots` |
+| `initServiceWorker()` | pwa/notifications.js | Registers `/sw.js`; listens for `OPEN_OVERLAP` message |
+| `initPushNotifications()` | pwa/notifications.js | Decides whether to subscribe or show prompt |
+| `subscribeToPush()` | pwa/notifications.js | Gets VAPID key, creates push subscription, POSTs to server |
+| `updateCrossingAlert()` | pwa/notifications.js | Updates badge count + crossing modal from computed overlaps |
+| `loadNotifications()` | pwa/notifications.js | Fetches `/api/notifications` and updates bell badge |
+| `_legState()` | maps/day-map.js (inside renderDayMap) | Day map's unified per-flight status resolver (see "Durable flight-tracking evidence" below) |
+| `_hasNewerLegStarted()` | live/flight-helpers.js | Shared helper: has this pilot's same callsign already started a later-scheduled leg today |
+| `isFlightStillActive()` | core/state.js | Shared grid/list/day-detail/map "is this flight still active" check (90min grace past scheduled arrival, see "TFDM delay insight" below) |
 
 ## `#view-overlap` layout (important for iOS scroll)
 
@@ -59,7 +59,7 @@ Moving the filter bar inside the scroll container breaks iOS horizontal scroll (
 
 ## Touch gesture system
 
-Two swipe handlers registered in `setupGestures()` (~line 1640):
+Two swipe handlers registered in `setupMobileGestures()` (frontend/src/ui/feedback-and-gestures.js):
 
 **Calendar / List month swipe** — main content element. Horizontal swipe (|dx| > 60, more horizontal than vertical by 1.8×) → changes month. Calendar/list views only.
 
@@ -79,7 +79,7 @@ overlapEl.addEventListener('touchend', e => {
 
 ## Splash screen (`#splash-screen`)
 
-`app.html` ~line 360. Full-screen overlay while the app initializes; fades out once identity is resolved. Logo: `<img class="splash-plane" src="/icon.svg">` (72×72, rounded, floating animation — not an emoji, don't revert). Title "CrewSync", subtitle "Crew Scheduling", three pulsing blue dots. Dismissed via `splash-hide` (fade) then `splash-gone` (display:none). Repurposed for identity-resolution failure: `_showIdentityError()` shows red subtitle text + a Retry button instead of proceeding with an unresolved identity.
+Markup in `frontend/app.template.html`. Full-screen overlay while the app initializes; fades out once identity is resolved. Logo: `<img class="splash-plane" src="/icon.svg">` (72×72, rounded, floating animation — not an emoji, don't revert). Title "CrewSync", subtitle "Crew Scheduling", three pulsing blue dots. Dismissed via `splash-hide` (fade) then `splash-gone` (display:none). Repurposed for identity-resolution failure: `_showIdentityError()` shows red subtitle text + a Retry button instead of proceeding with an unresolved identity.
 
 ## Branding assets
 
@@ -94,7 +94,7 @@ Use `<img src="/icon.svg">` with `border-radius` to match the rounded-square sty
 
 ## Calendar grid rendering (`render()` → grid branch)
 
-`render()` (~line 5937) rebuilds whichever view is active. It does **not** fetch — call `loadPilot()` first.
+`render()` (frontend/src/views/render.js) rebuilds whichever view is active. It does **not** fetch — call `loadPilot()` first.
 
 **Grid mode logic per calendar cell:**
 1. Walks every day in the month; filters `segments[]` by **local** departure/arrival date (`flightLocalDate()`, not raw JS date). Classifies: Hard Off > Vacation > Flying > Reserve > Away (inferAwayLayovers) > personal-away > Off.

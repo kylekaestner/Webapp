@@ -94,7 +94,7 @@ GET  /admin/users                         admin user management page
 GET  /api/pilots/:key/here-now            debug: HERE-NOW priority-chain reimplementation
 ```
 
-## Admin panel (`openAdminPanel()`, ~line 8255)
+## Admin panel (`openAdminPanel()`, frontend/src/admin/admin.js)
 
 Full-page takeover (`#admin-panel`), header with back arrow/title/"+ Add User", Users/Dashboard tab switcher (`switchAdminTab()`).
 

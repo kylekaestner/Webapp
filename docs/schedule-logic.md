@@ -59,7 +59,7 @@ This section documents non-obvious behaviors already implemented. Check here bef
 
 ### "Here Now" / pilot location pins (`renderDayMap`)
 
-Priority order (numbered comments `// ── N. ──` in the code, ~line 7085 onward):
+Priority order (numbered comments `// ── N. ──` in `renderDayMap()`, frontend/src/maps/day-map.js):
 1. **Live ADS-B / SWIM / STDDS** — `_legState(...).state === 'active'` for any of the day's flights → in-air, skip everything below.
 2. **Active reserve period** — shown at the reserve airport, *unless* a completed flight to a different, non-reserve airport landed after the reserve began (`wentHomeDuringReserve`).
 3. **Reserve ended recently (≤36h ago)** — if the next work segment from that airport departs within 30h, stay anchored there; otherwise fall through.
@@ -192,13 +192,13 @@ UTC/local date skew is common: segments stored in local time, `new Date()` in br
 
 ## Upload flow
 
-`handleUpload(input)` (~line 6523): reads the selected file + upload-for pilot (`#upload-pilot-select`), calls `uploadPilotSchedule(pilotKey, file)` → `POST /api/pilots/:key/upload` (multipart). On success: toast with segment count, reload if currently viewed, `computeOverlap()` to refresh crossings, then `updateCrossingAlert()`/`broadcastCrossingNotifications()`.
+`handleUpload(input)` (frontend/src/schedule/parsers-and-upload.js): reads the selected file + upload-for pilot (`#upload-pilot-select`), calls `uploadPilotSchedule(pilotKey, file)` → `POST /api/pilots/:key/upload` (multipart). On success: toast with segment count, reload if currently viewed, `computeOverlap()` to refresh crossings, then `updateCrossingAlert()`/`broadcastCrossingNotifications()`.
 
 **Mobile upload**: `#mobile-upload-sheet` with its own pilot-select/file-input, handled by `handleMobileUpload()` (mirrors `handleUpload`).
 
 **Upload reminder**: `checkScheduleUploadReminder()` runs after `loadPilot()` on your own schedule. From the 23rd it checks next month (once per device until the 28th, then every load), otherwise this month (every load). Synced pilots and NetJets 7&7/8&6 pilots are skipped. A NetJets CC pilot is checked against `cc_schedule_days` instead of flights, because their tour days only exist for uploaded months. A pilot counts as CC with `cc_variant` set, or with CC days and no rotation history, so old CC days left after switching to a rotation don't cause reminders.
 
-## Add flight modal (`submitAddFlight()`, ~line 7024)
+## Add flight modal (`submitAddFlight()`, frontend/src/modals/add-flight.js)
 
 The header button opens on today. The day detail's **+ Add Flight** opens on that day. The confirmation names the date, because a flight saved on the wrong day looks like it never saved.
 
