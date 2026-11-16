@@ -39,8 +39,8 @@ Current version: `1.0.12-beta` (`package.json`/`package-lock.json`). Bump it for
 
 | File | Role |
 |---|---|
-| `frontend/` | Frontend source: `app.template.html` (markup, CSS, head scripts) + `src/**` (the app script, split by feature) + `files.json` (join order). Built into `public/app.html` by `scripts/build-frontend.js` |
-| `public/app.html` | **Generated** from `frontend/` (committed, served as-is). Don't edit |
+| `frontend/` | Frontend source: `app.template.html` (markup, CSS, head scripts) + `src/**` (the app script, split by feature) + `files.json` (join order). Built into `public/app.html` + `public/app.css` (Tailwind 3.4.17, `frontend/tailwind.config.js`) by `scripts/build-frontend.js` |
+| `public/app.html`, `public/app.css` | **Generated** from `frontend/` (committed, served as-is). Don't edit. Class names must be written out in full or Tailwind won't generate them |
 | `server.js` | Express API + all schedule parsers (ICS, CSV, VCS, Schedaero) |
 | `db.js` | SQLite init + schema migrations |
 | `dispatch.db` | SQLite database |

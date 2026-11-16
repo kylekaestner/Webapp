@@ -27,7 +27,6 @@
             });
         })();
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
@@ -410,6 +409,8 @@
         }
         #offline-banner.offline-visible { transform: translateY(0); }
     </style>
+    <!-- Tailwind, built ahead of time (npm run build). Last in <head>, where the old in-browser CDN put its CSS, so it still wins ties with the styles above. -->
+    <link rel="stylesheet" href="/app.css?v=@@APP_CSS_VERSION@@">
 </head>
 <body class="bg-[#050505] text-zinc-100 flex overflow-hidden font-sans" style="height: 100dvh;" data-fullheight>
 <div id="toast-container"></div>
