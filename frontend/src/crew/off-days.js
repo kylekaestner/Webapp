@@ -1,10 +1,3 @@
-        // computeOverlap -- 3-step pipeline:
-        //   1. buildGroundPeriods(): walk each pilot's flights and emit { airport, start, end }
-        //      periods for every ground window (gate arrival -> next departure).
-        //   2. Cross every pair of pilots' periods; airportsNear() checks metro groups first,
-        //      then haversine fallback (50 mi). classifyOverlap() assigns tier + label.
-        //   3. Render: tier 1-2 -> primary cards; tier 3 -> compact "Also Nearby" rows.
-        //      involvesMyPilot filters cards shown in "Your Crossings" vs "Other Crew".
         function toggleOffDayPilot(key) {
             if (!_offDayFilter) _offDayFilter = new Set(PILOT_KEYS);
             if (_offDayFilter.has(key)) {
@@ -17,16 +10,6 @@
             else renderCommonOffSection(true, false);
         }
 
-        function toggleCrossingsPilot(key) {
-            if (!_crossingsFilter) _crossingsFilter = new Set(PILOT_KEYS);
-            if (_crossingsFilter.has(key)) {
-                _crossingsFilter.delete(key);
-            } else {
-                _crossingsFilter.add(key);
-            }
-            renderOverlapFilterBar();
-            computeOverlap();
-        }
 
         function renderOverlapFilterBar() {
             const chipsEl = document.getElementById('offday-filter-chips');

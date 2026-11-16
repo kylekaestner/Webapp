@@ -29,16 +29,17 @@ The files are joined, in that order, into `public/app.js`, one classic script (n
 |---|---|
 | `core/` | `globals.js` (architecture overview, `pilotsCache`), `state.js` (app state, landed/parked keys), `identity.js` (`initIdentity`), `roster.js` (`_syncPilotRoster`, pilot UI rebuild, crossing broadcast) |
 | `ui/` | confirm dialog, toasts, haptics, swipe and pull-to-refresh, double-tap zoom, sheet swipe |
-| `crew/` | `friends.js`, `visibility-and-profile.js` (crew visibility, identity UI, profile, next-trip widget, upload sheet), `off-days.js` (Off Days, crossings filter bar and tabs), `crossings.js` (`computeOverlap`), `intel.js` (Crew Intel) |
+| `crew/` | `friends.js`, `visibility-and-profile.js` (crew visibility, identity UI, profile, next-trip widget, upload sheet), `off-days.js` (Off Days, the shared filter bar and the Crossings/Off Days tabs), `crossings.js` (`computeOverlap`, `toggleCrossingsPilot`), `intel.js` (Crew Intel) |
 | `schedule/` | `airports-and-bases.js` (`normApt`, `sameApt`, bases over time, route progress), `load-pilot.js` (airport DB, `fetchPilotData`, `inferAwayLayovers`, `loadPilot`), `parsers-and-upload.js`, `sync.js` (Schedaero / ICS sync) |
 | `netjets/` | `duty-and-tours.js`: on-duty and tour logic, CC schedules, home windows, tail and last-leg reminders |
-| `views/` | `navigation.js` (`switchView`), `render.js` (`render()`, calendar and list), `day-detail.js`, `tooltips-and-time-format.js` (`tzAbbr`, `formatTimeISO`, tooltips) |
+| `views/` | `navigation.js` (`switchView`), `render.js` (`render()`, calendar and list), `day-detail.js`, `tooltips.js` (hover tooltips, layover labels) |
 | `maps/` | `map-core.js` (`ensureMapLibs`: Leaflet/MapLibre load on first map open; `initMap`, world arcs), `route-map.js` (map modes, `renderMap`, all-pilots map), `day-map.js` (`renderDayMap`, `_legState`, plane icons) |
 | `live/` | `flight-helpers.js` (callsigns, basemap, radar, landed-early), `calendar-list-polling.js` (grid/list live polling, label de-overlap), `live-tracking.js` (`startLiveTracking`) |
-| `modals/` | `add-flight.js`: Add/Edit Flight, block totals, and the time helpers `flightLocalDate` / `flightUTCTime` |
+| `time/` | `airport-time.js`: `airportTz`, `tzAbbr`, `formatTimeISO`, `formatDurationMinutes`, `localTimeToUTC`, `flightLocalDate`, `flightUTCTime` |
+| `modals/` | `add-flight.js`: Add/Edit Flight, block totals |
 | `profile/` | `my-info-and-netjets-tour.js`: My Info, rotations, NetJets tour modal |
 | `admin/` | admin panel and dashboard |
 | `pwa/` | `app-shell.js` (offline banner, install prompt, version, upload reminder, splash), `notifications.js` (push, in-app crossing alerts) |
 | `wrapped/` | Wrapped / Year in Review |
 
-The split (2026-11-16) was a pure move: the joined files reproduced the old single script exactly. Some helpers still sit where they did in the old file (the time helpers in `modals/add-flight.js`, for example). Move a function declaration to a better file whenever it's convenient; that's always safe.
+The split (2026-11-16) was a pure move: the joined files reproduced the old single script exactly. A tidy pass then moved the time helpers into `time/` and the Crossings toggle into `crossings.js`. Moving a function declaration to a better file is always safe.

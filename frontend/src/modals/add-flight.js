@@ -108,64 +108,6 @@ let _blockUserEdited = false;
             return Math.round((new Date(f.arrivalTime) - new Date(f.departureTime)) / 60000);
         }
 
-        function localTimeToUTC(localISO, tzName) {
-            const memoKey = tzName + '|' + localISO;
-            const memo = _utcMemo.get(memoKey);
-            if (memo !== undefined) return new Date(memo);
-            const approx = new Date(localISO + 'Z');
-            let fmt = _tzOffsetFmts.get(tzName);
-            if (!fmt) {
-                fmt = new Intl.DateTimeFormat('en-US', { timeZone: tzName, timeZoneName: 'longOffset' });
-                _tzOffsetFmts.set(tzName, fmt);
-            }
-            const offsetAt = d => {
-                const parts = fmt.formatToParts(d);
-                const m = (parts.find(p => p.type === 'timeZoneName')?.value || '').match(/GMT([+-])(\d+):(\d{2})/);
-                return m ? (m[1] === '+' ? 1 : -1) * (parseInt(m[2]) * 60 + parseInt(m[3])) : null;
-            };
-            const first = offsetAt(approx);
-            if (first == null) return approx;
-            // Second pass with the offset at the corrected instant: the first guess reads the offset
-            // a few hours away from the real moment, so on a DST-change day a time shortly after
-            // the switch came out an hour off (Nov 1 3:00 AM CST converted as 2:00 AM).
-            const second = offsetAt(new Date(approx.getTime() - first * 60000));
-            const utcMs = approx.getTime() - (second ?? first) * 60000;
-            _utcMemo.set(memoKey, utcMs);
-            return new Date(utcMs);
-        }
-
-        // Returns the local calendar date (YYYY-MM-DD) of a flight time at its airport.
-        // Non-Z strings already encode the local date — use the prefix directly.
-        // Only apply timezone conversion for UTC (Z-suffixed) strings.
-        function flightLocalDate(isoStr, airportCode) {
-            if (!isoStr) return '';
-            try {
-                const d = new Date(isoStr);
-                if (isNaN(d.getTime())) return isoStr.substring(0, 10);
-                if ((isoStr.endsWith('Z') || isoStr.endsWith('z')) && airportCode) {
-                    const tz = airportTz(airportCode);
-                    if (tz) {
-                        let fmt = _tzDateFmts.get(tz);
-                        if (!fmt) { fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz }); _tzDateFmts.set(tz, fmt); }
-                        return fmt.format(d);
-                    }
-                }
-                return isoStr.substring(0, 10);
-            } catch(e) { return isoStr.substring(0, 10); }
-        }
-
-        // Returns a proper UTC Date for a flight time, accounting for airport timezone.
-        // Times ending in Z are already UTC. Local times (Adam/Sam/Logan) are converted
-        // using the airport's IANA timezone so browser timezone doesn't corrupt comparisons.
-        function flightUTCTime(isoStr, airportCode) {
-            if (!isoStr) return null;
-            if (isoStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(isoStr)) return new Date(isoStr);
-            const tz = airportTz(airportCode);
-            if (tz) {
-                try { return localTimeToUTC(isoStr.slice(0, 16), tz); } catch(e) {}
-            }
-            return new Date(isoStr); // fallback: browser-local (old behavior)
-        }
 
         function parseBlockInput(val) {
             if (!val) return null;

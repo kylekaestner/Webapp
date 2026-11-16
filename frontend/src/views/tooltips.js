@@ -21,53 +21,6 @@
         function moveTooltip(x, y) { positionTooltip(x, y); }
         function hideTooltip() { tooltip.style.display = 'none'; }
 
-        const _tzCache = {}; // populated on demand by airportTz() via tz-lookup + coordinates
-        function airportTz(code) {
-            if (!code) return null;
-            const c = code.toUpperCase().trim();
-            if (_tzCache[c]) return _tzCache[c];
-            // Derive from coordinates if tz-lookup is available
-            const coords = AIRPORTS[c] || (typeof AIRPORT_DB !== 'undefined' && (AIRPORT_DB.byIcao[c] || AIRPORT_DB.byIata[c]));
-            if (coords && typeof tzlookup === 'function') {
-                try {
-                    const tz = tzlookup(coords[0], coords[1]);
-                    if (tz) { _tzCache[c] = tz; return tz; }
-                } catch (e) { /* ignore */ }
-            }
-            return null;
-        }
-        const _TZ_SHORT = { 'EST':'ET','EDT':'ET','CST':'CT','CDT':'CT','MST':'MT','MDT':'MT','PST':'PT','PDT':'PT','AKST':'AKT','AKDT':'AKT','HST':'HT','HDT':'HT','AST':'AT','ADT':'AT' };
-        function tzAbbr(airportCode, iso) {
-            const tz = airportTz(airportCode);
-            if (!tz) return '';
-            try {
-                const d = new Date(iso || Date.now());
-                const raw = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
-                    .formatToParts(d).find(p => p.type === 'timeZoneName')?.value || '';
-                return _TZ_SHORT[raw] || raw;
-            } catch (e) { return ''; }
-        }
-        function formatTimeISO(iso, airportCode) {
-            if (!iso) return '—';
-            try {
-                const d = new Date(iso);
-                if (isNaN(d.getTime())) return '—';
-                const isUtc = iso.endsWith('Z') || iso.endsWith('z');
-                if (isUtc && airportCode) {
-                    const tz = airportTz(airportCode);
-                    if (tz) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: tz });
-                }
-                return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-            } catch (e) {
-                return '—';
-            }
-        }
-        function formatDurationMinutes(mins) {
-            if (mins <= 0 || !isFinite(mins)) return '—';
-            const h = Math.floor(mins / 60); const m = Math.round(mins % 60);
-            if (h > 0) return `${h}h ${m}m`;
-            return `${m}m`;
-        }
         // The pilot's very next leg, only if it leaves this airport. A later departure from here with
         // other flying in between isn't a layover: Sam's 11/1 LGA arrival used to pair with 11/24.
         function getNextLegFrom(airport, afterTimeStr) {

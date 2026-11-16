@@ -1,3 +1,14 @@
+        function toggleCrossingsPilot(key) {
+            if (!_crossingsFilter) _crossingsFilter = new Set(PILOT_KEYS);
+            if (_crossingsFilter.has(key)) {
+                _crossingsFilter.delete(key);
+            } else {
+                _crossingsFilter.add(key);
+            }
+            renderOverlapFilterBar();
+            computeOverlap();
+        }
+
         function openOverlapDetail(idx) {
             const o = _overlapData[idx];
             if (!o) return;
@@ -86,6 +97,13 @@
             modal.classList.remove('hidden');
         }
 
+        // computeOverlap -- 3-step pipeline:
+        //   1. buildGroundPeriods(): walk each pilot's flights and emit { airport, start, end }
+        //      periods for every ground window (gate arrival -> next departure).
+        //   2. Cross every pair of pilots' periods; airportsNear() checks metro groups first,
+        //      then haversine fallback (50 mi). classifyOverlap() assigns tier + label.
+        //   3. Render: tier 1-2 -> primary cards; tier 3 -> compact "Also Nearby" rows.
+        //      involvesMyPilot filters cards shown in "Your Crossings" vs "Other Crew".
         async function computeOverlap() {
             const container = document.getElementById('overlap-content');
             container.innerHTML = '<div class="flex items-center justify-center gap-2.5 py-10 text-zinc-500 text-sm"><div class="spinner"></div><span>Loading schedules…</span></div>';
