@@ -427,42 +427,32 @@
         }
 
         let _intelMapKey = null;
-        function renderIntelMap() {
-            const el = document.getElementById('intel-content');
-            if (!el) return;
-            // Map libraries load on first use (ensureMapLibs, maps/map-core.js); redraw once they're in.
-            if (!_mapLibsReady()) { ensureMapLibs().then(() => { if (currentView === 'intel') renderIntel(); }).catch(() => {}); return; }
-            const items = _intelVisible();
-
-            document.getElementById('view-intel').classList.add('intel-map-mode');
-            // Same pins and the map is still on the page: keep it, tiles and position included.
-            const mapKey = items.map(x => `${x.id}:${x.category}:${x.airport_code}`).join();
-            if (_intelMap && mapKey === _intelMapKey && el.querySelector('#intel-map-el')) {
-                requestAnimationFrame(() => _intelMap?.invalidateSize());
-                return;
+        // One Intel map for the session, like the main map. It used to be built from scratch on every first
+        // open (~1.3 s), every pin change, and every switch back from the list. Now the map and its element
+        // persist: the element is moved into #intel-content (which the list and detail views overwrite) when
+        // the map view shows, and only the pins layer is redrawn. _prewarmIntelMap() creates it ahead of time
+        // off-screen. Starts on the US like the main map; it keeps wherever you leave it.
+        let _intelMapEl = null, _intelPins = null;
+        function _ensureIntelMap() {
+            if (_intelMap) return _intelMap;
+            let holder = document.getElementById('intel-map-holder');
+            if (!holder) {
+                holder = document.createElement('div');
+                holder.id = 'intel-map-holder';
+                holder.style.cssText = 'position:fixed;left:-200vw;top:0;width:100vw;height:100vh;visibility:hidden;pointer-events:none';
+                document.body.appendChild(holder);
             }
-            _intelMapKey = mapKey;
-            el.innerHTML = `<div id="intel-map-el"></div>`;
-
-            if (items.length === 0) return;
-
-            const byAirport = {};
-            items.forEach(x => { (byAirport[x.airport_code] = byAirport[x.airport_code] || []).push(x); });
-
-            let _savedCenter = null, _savedZoom = null;
-            if (_intelMap) {
-                _savedCenter = _intelMap.getCenter();
-                _savedZoom   = _intelMap.getZoom();
-                _basemapMaps = _basemapMaps.filter(e => e.map !== _intelMap);
-                _intelMap.remove(); _intelMap = null;
-            }
-            _intelMap = L.map('intel-map-el', { zoomControl: false, attributionControl: false, worldCopyJump: true, doubleClickZoom: true, bounceAtZoomLimits: false });
+            _intelMapEl = document.createElement('div');
+            _intelMapEl.id = 'intel-map-el';
+            holder.appendChild(_intelMapEl);
+            _intelMap = L.map(_intelMapEl, { zoomControl: false, worldCopyJump: true, doubleClickZoom: true, bounceAtZoomLimits: false }).setView([39.8283, -98.5795], 4);
+            _intelMap.attributionControl.setPrefix(false);
             addBasemap(_intelMap);
             setupDoubleTapZoom(_intelMap);
             const _intelZoom = document.createElement('div');
             _intelZoom.style.cssText = 'position:absolute;top:10px;left:10px;z-index:1000;display:flex;flex-direction:column;gap:4px;pointer-events:auto';
             _intelZoom.innerHTML = `<button onclick="if(_intelMap)_intelMap.zoomIn()" class="map-ctrl-pill" style="padding:5px 11px;font-size:15px;line-height:1;font-weight:900">+</button><button onclick="if(_intelMap)_intelMap.zoomOut()" class="map-ctrl-pill" style="padding:5px 11px;font-size:15px;line-height:1;font-weight:900">−</button>`;
-            document.getElementById('intel-map-el').appendChild(_intelZoom);
+            _intelMapEl.appendChild(_intelZoom);
 
             // Legend
             const legendItems = [
@@ -484,6 +474,33 @@
                 return d;
             };
             legend.addTo(_intelMap);
+            _intelPins = L.layerGroup().addTo(_intelMap);
+            return _intelMap;
+        }
+        function _prewarmIntelMap() {
+            if (_intelMap || !_mapLibsReady() || (currentView === 'intel' && _intelView === 'map')) return;
+            try { _ensureIntelMap(); } catch (e) { console.warn('[intel] prewarm failed:', e.message); }
+        }
+        function renderIntelMap() {
+            const el = document.getElementById('intel-content');
+            if (!el) return;
+            // Map libraries load on first use (ensureMapLibs, maps/map-core.js); redraw once they're in.
+            if (!_mapLibsReady()) { ensureMapLibs().then(() => { if (currentView === 'intel') renderIntel(); }).catch(() => {}); return; }
+            const items = _intelVisible();
+
+            document.getElementById('view-intel').classList.add('intel-map-mode');
+            _ensureIntelMap();
+            if (_intelMapEl.parentNode !== el) { el.innerHTML = ''; el.appendChild(_intelMapEl); }
+            requestAnimationFrame(() => _intelMap?.invalidateSize());
+            // Same pins: nothing to redraw.
+            const mapKey = items.map(x => `${x.id}:${x.category}:${x.airport_code}`).join();
+            if (mapKey === _intelMapKey) return;
+            _intelMapKey = mapKey;
+            _intelPins.clearLayers();
+
+            const byAirport = {};
+            items.forEach(x => { (byAirport[x.airport_code] = byAirport[x.airport_code] || []).push(x); });
+
 
             const catColors = { hotel:'#60a5fa', food:'#fbbf24', activity:'#4ade80', tip:'#c4b5fd' };
             const bounds = [];
@@ -534,16 +551,10 @@
                 [-360, 0, 360].forEach(offset => {
                     L.marker([coords[0], coords[1] + offset], { icon })
                         .bindPopup(popup, { className: 'dark-popup', maxWidth: 210 })
-                        .addTo(_intelMap);
+                        .addTo(_intelPins);
                 });
             });
 
-            if (_savedCenter && _savedZoom != null) {
-                _intelMap.setView(_savedCenter, _savedZoom);
-            } else {
-                _intelMap.setView([15, -85], 2);
-            }
-            requestAnimationFrame(() => _intelMap?.invalidateSize());
         }
 
         function renderIntelAirports() {
@@ -677,9 +688,6 @@
         }
 
         function setIntelView(view) {
-            if (_intelView === 'map' && view !== 'map' && _intelMap) {
-                _intelMap.remove(); _intelMap = null;
-            }
             _intelView = view;
             if (view === 'airports' || view === 'map') { _intelDetailAirport = null; _intelFilter.category = 'all'; }
             renderIntel();

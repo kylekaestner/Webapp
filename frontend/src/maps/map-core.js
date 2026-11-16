@@ -59,7 +59,7 @@
             view.classList.add('map-prewarm');
             try { initMap(); } catch (e) { view.classList.remove('map-prewarm'); console.warn('[map] prewarm failed:', e.message); return; }
             const gl = ((_basemapMaps.find(b => b.map === map) || {}).layers || []).map(l => l.getMaplibreMap?.()).find(Boolean);
-            const finish = () => view.classList.remove('map-prewarm');
+            const finish = () => { view.classList.remove('map-prewarm'); setTimeout(_prewarmIntelMap, 500); };
             if (gl) { const t = setTimeout(finish, 10000); gl.once('idle', () => { clearTimeout(t); finish(); }); }
             else setTimeout(finish, 3000);
         }
