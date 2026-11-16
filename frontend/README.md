@@ -7,7 +7,7 @@ npm run watch    # while working: rebuilds public/app.html every time you save (
 npm run build    # one build, e.g. before committing
 ```
 
-Commit `public/app.html`, `public/app.js` and `public/app.css` together with your source changes. Building needs the dev dependencies (`npm install` once). The droplet serves it as-is, so deploys need no build step.
+Commit `public/app.html`, `public/app.js`, `public/app.js.map` and `public/app.css` together with your source changes. Building needs the dev dependencies (`npm install` once). The droplet serves it as-is, so deploys need no build step.
 
 ## How it fits together
 
@@ -15,6 +15,8 @@ Commit `public/app.html`, `public/app.js` and `public/app.css` together with you
 - `src/**/*.js`: the app's script, split by feature.
 - `tailwind.config.js` / `tailwind.input.css`: Tailwind 3.4.17 (default theme). The build scans the template and `src/` for class names and writes `public/app.css`, linked last in `<head>` with a version so a changed stylesheet is always fetched fresh. **Write class names out in full**: `text-${color}-400` never gets CSS because the scanner can't see it. Use a lookup object of full names (`{ ok: 'text-green-400', bad: 'text-red-400' }`) or an inline style for a truly dynamic color.
 - `files.json`: the order the files are joined in. **A new file must be added here**; the build stops if a file in `src/` isn't listed.
+
+`public/app.js` ships without comments and blank space (esbuild, whitespace only, nothing renamed). `public/app.js.map` maps it back to your files, so the browser's developer tools and error locations show `frontend/src/<file>:<line>`. `npm run build -- --readable` builds an unstripped app.js for debugging (don't commit that one).
 
 The files are joined, in that order, into `public/app.js`, one classic script (not a module), so they all share one global scope, just like when it was a single file. Any file can call any function, and `onclick="fn()"` in the markup works. Order matters only for top-level `let`/`const` variables and code that runs at load time: a file can't use a top-level variable declared in a later file while the page is loading. Function declarations can go in any file.
 
