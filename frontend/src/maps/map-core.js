@@ -45,8 +45,24 @@
         // moved out of the page). Skipped on data-saver connections; those load on first map open.
         window.addEventListener('load', () => setTimeout(() => {
             if (navigator.connection && navigator.connection.saveData) return;
-            (window.requestIdleCallback || (cb => cb()))(() => ensureMapLibs(true).catch(() => {}), { timeout: 4000 });
+            (window.requestIdleCallback || (cb => cb()))(() => ensureMapLibs(true).then(_prewarmMap).catch(() => {}), { timeout: 4000 });
         }, 1500));
+        // The first Map open was slow even with the libraries loaded (~1.2 s in Chrome, then ~10 ms on every
+        // later open): creating the map, the vector basemap's style, fonts and first tiles. So after the
+        // warm-up the map is also created ahead of time, full size but off-screen and invisible
+        // (#view-map.map-prewarm), and left to load. That's the same state as having opened Map once and
+        // gone back to the calendar. switchView('map') drops the class and resizes the map to its real box.
+        function _prewarmMap() {
+            if (map || currentView === 'map' || !_mapLibsReady()) return;
+            const view = document.getElementById('view-map');
+            if (!view) return;
+            view.classList.add('map-prewarm');
+            try { initMap(); } catch (e) { view.classList.remove('map-prewarm'); console.warn('[map] prewarm failed:', e.message); return; }
+            const gl = ((_basemapMaps.find(b => b.map === map) || {}).layers || []).map(l => l.getMaplibreMap?.()).find(Boolean);
+            const finish = () => view.classList.remove('map-prewarm');
+            if (gl) { const t = setTimeout(finish, 10000); gl.once('idle', () => { clearTimeout(t); finish(); }); }
+            else setTimeout(finish, 3000);
+        }
 
         function initMap() {
             if (map) return;

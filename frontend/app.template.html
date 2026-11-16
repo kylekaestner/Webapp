@@ -42,6 +42,8 @@
             html.is-pwa div:has(> #mobile-header) { padding-top: calc(env(safe-area-inset-top) + 56px); }
         }
         .view-section { display: none; height: 100%; }
+        /* Map created ahead of time (_prewarmMap): laid out full size but off-screen and invisible until the Map tab opens. */
+        #view-map.map-prewarm:not(.view-active) { display: flex !important; flex-direction: column; position: fixed; left: -200vw; top: 0; width: 100vw; height: 100vh; visibility: hidden; pointer-events: none; }
         .view-active { display: block; }
         @media (max-width: 767px) {
             #view-map.view-active { display: flex !important; flex-direction: column; padding-bottom: calc(50px + env(safe-area-inset-bottom)); }

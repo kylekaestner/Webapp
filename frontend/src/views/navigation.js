@@ -51,7 +51,10 @@
             const pilotBar = document.getElementById('mobile-pilot-bar');
             if (pilotBar) pilotBar.style.display = calView ? '' : 'none';
             if (view === 'map') {
+                // The map may have been created ahead of time off-screen (_prewarmMap): fit it to its real box.
+                viewEl.classList.remove('map-prewarm');
                 initMap();
+                if (map) map.invalidateSize({ animate: false });
                 // Sync day nav / pilot controls visibility with the current mode
                 const _dn = document.getElementById('day-nav');
                 const _mdn = document.getElementById('mobile-day-nav-bar');
