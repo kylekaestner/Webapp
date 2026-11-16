@@ -9,7 +9,8 @@
         // falls back to raster tiles, as it did when MapLibre (then `defer`) hadn't loaded yet.
         var _mapLibsPromise = null;
         function _mapLibsReady() { return !!(window.L && window.L.map); }
-        function ensureMapLibs() {
+        // quiet: the background warm-up below; a failure there shows nothing (a real map open retries and says so).
+        function ensureMapLibs(quiet = false) {
             if (_mapLibsPromise) return _mapLibsPromise;
             const before = document.head.querySelector('style');
             const css = href => new Promise(done => {
@@ -34,11 +35,18 @@
                 .catch(e => console.warn('[map] vector basemap unavailable, using raster tiles:', e.message))
             ).catch(e => {
                 _mapLibsPromise = null; // let the next map open try again
-                showToast('Map could not load. Check your connection and try again.', 'error', 4000);
+                if (!quiet) showToast('Map could not load. Check your connection and try again.', 'error', 4000);
                 throw e;
             });
             return _mapLibsPromise;
         }
+        // Warm-up: once the app has drawn and the browser is idle, load the map libraries in the background,
+        // so the first map open doesn't wait for them (the map already took a moment to pop in before they
+        // moved out of the page). Skipped on data-saver connections; those load on first map open.
+        window.addEventListener('load', () => setTimeout(() => {
+            if (navigator.connection && navigator.connection.saveData) return;
+            (window.requestIdleCallback || (cb => cb()))(() => ensureMapLibs(true).catch(() => {}), { timeout: 4000 });
+        }, 1500));
 
         function initMap() {
             if (map) return;
