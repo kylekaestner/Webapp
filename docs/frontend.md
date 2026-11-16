@@ -160,6 +160,8 @@ Bell icon → `loadNotifications()` (`/api/notifications?token=…`). Clicking a
 
 ## PWA / service worker
 
+**How app.js and app.css are served** (`sendVersionedAsset()`, registered before the static files): pre-compressed once per version like app.html. The page links them as `?v=<content hash>` (sha256 of the file, first 12 hex, computed the same way by the build and the server). When `v` matches the current file: `public, max-age=31536000, immutable`, so the browser never re-asks. Any other `v` (a page loaded just before a deploy) gets the current file with `no-cache`, so a wrong version is never cached under that URL.
+
 **How app.html is served** (`sendAppHtml()` in server.js, for `/app` and `/demo`): `Cache-Control: no-cache` plus a content-hash ETag. The browser keeps its copy but checks on every open, and gets a `304` (no body) when nothing changed, so a deploy shows up on the next open, including the iOS home-screen app. The server compresses the file once per version (gzip right away, Brotli about a second later, off the main thread) and re-reads it when its size or modified time changes, so a `git pull` needs no restart. Other HTML pages get `no-cache` with Express's own ETag. **Don't go back to `no-store`**: it re-sent the whole 1 MB file on every open.
 
 **Service worker `/sw.js`**: registered on every load; handles background push (parses payload, shows system notification); on click sends `{type:'OPEN_OVERLAP'}` → Crossings tab.

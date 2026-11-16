@@ -49,6 +49,8 @@ app.use((req, res, next) => {
     }
     next();
 });
+// Before the static files: app.js / app.css are served pre-compressed and versioned (sendVersionedAsset).
+app.get(['/app.js', '/app.css'], (req, res) => sendVersionedAsset(req, res));
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -7139,33 +7141,35 @@ app.get('/manifest.json', (req, res) => {
     res.json(manifest);
 });
 
-// app.html (1 MB) is compressed once per version, not on every request, and the browser keeps it:
-// `no-cache` means "store it, but ask every time", so an unchanged app costs a 304 of a few hundred
-// bytes and a deploy is picked up on the very next open (the old `no-store` re-sent the whole file
-// on every open). The file only changes on a deploy; it's re-read when its size or mtime changes.
+// The built frontend (app.html, app.js, app.css; scripts/build-frontend.js) is compressed once per
+// version, not on every request. Files only change on a deploy; each is re-read when its size or mtime
+// changes, so a `git pull` needs no restart.
+//   app.html: `no-cache` = the browser keeps it but asks every time; unchanged costs a 304 (the old
+//     `no-store` re-sent the whole file on every open), and a deploy shows up on the next open.
+//   app.js / app.css: the page links them as ?v=<content hash>. When v matches the file the browser
+//     may keep it for a year without asking (a new deploy changes the hash, so the URL); any other v
+//     (a page loaded just before a deploy) gets the current file with no-cache, never cached under it.
 const APP_HTML_PATH = path.join(__dirname, 'public', 'app.html');
-let _appHtml = null; // { mtimeMs, size, etag, raw, gzip, br }
-function _loadAppHtml() {
-    const st = fs.statSync(APP_HTML_PATH);
-    if (_appHtml && _appHtml.mtimeMs === st.mtimeMs && _appHtml.size === st.size) return _appHtml;
-    const raw = fs.readFileSync(APP_HTML_PATH);
-    const entry = {
-        mtimeMs: st.mtimeMs, size: st.size, raw,
-        etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 16) + '"',
-        gzip: zlib.gzipSync(raw, { level: 9 }),
-        br: null,
-    };
+const _builtFiles = new Map(); // path -> { mtimeMs, size, version, etag, raw, gzip, br }
+function _loadBuilt(file) {
+    const st = fs.statSync(file);
+    const cur = _builtFiles.get(file);
+    if (cur && cur.mtimeMs === st.mtimeMs && cur.size === st.size) return cur;
+    const raw = fs.readFileSync(file);
+    // Same hash as the build's ?v= (sha256 of the whole file, first 12 hex), CRLF-insensitive like the build.
+    const version = crypto.createHash('sha256').update(raw.toString('utf8').replace(/\r\n/g, '\n')).digest('hex').slice(0, 12);
+    const entry = { mtimeMs: st.mtimeMs, size: st.size, version, etag: '"' + version + '"', raw, gzip: zlib.gzipSync(raw, { level: 9 }), br: null };
     // Brotli at full strength takes about a second, so it runs off the main thread; gzip serves until then.
     zlib.brotliCompress(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } },
         (err, buf) => { if (!err) entry.br = buf; });
-    _appHtml = entry;
+    _builtFiles.set(file, entry);
     return entry;
 }
-function sendAppHtml(req, res) {
+function _sendBuilt(req, res, file, contentType, cacheControlFor) {
     let a;
-    try { a = _loadAppHtml(); } catch (e) { console.error('app.html unreadable:', e.message); return res.status(500).send('App unavailable'); }
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache');
+    try { a = _loadBuilt(file); } catch (e) { console.error(path.basename(file) + ' unreadable:', e.message); return res.status(500).send('App unavailable'); }
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', cacheControlFor(a));
     res.removeHeader('Pragma');
     res.removeHeader('Expires');
     res.setHeader('ETag', a.etag);
@@ -7179,6 +7183,18 @@ function sendAppHtml(req, res) {
     else if (/\bgzip\b/.test(ae)) { res.setHeader('Content-Encoding', 'gzip'); body = a.gzip; }
     res.setHeader('Content-Length', body.length);
     res.end(body);
+}
+function sendAppHtml(req, res) {
+    _sendBuilt(req, res, APP_HTML_PATH, 'text/html; charset=utf-8', () => 'no-cache');
+}
+const _VERSIONED_ASSETS = {
+    '/app.js': ['app.js', 'application/javascript; charset=utf-8'],
+    '/app.css': ['app.css', 'text/css; charset=utf-8'],
+};
+function sendVersionedAsset(req, res) {
+    const [name, type] = _VERSIONED_ASSETS[req.path];
+    _sendBuilt(req, res, path.join(__dirname, 'public', name), type,
+        a => req.query.v === a.version ? 'public, max-age=31536000, immutable' : 'no-cache');
 }
 
 // Main app
