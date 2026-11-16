@@ -1701,7 +1701,7 @@ const _aptTimezone = {};
 const _iataToIcaoApt = {};
 const _icaoToIataApt = {};
 try {
-    const lines = fs.readFileSync(path.join(__dirname, 'airports.dat'), 'utf8').split('\n');
+    const lines = fs.readFileSync(path.join(__dirname, 'data', 'airports.dat'), 'utf8').split('\n');
     for (const line of lines) {
         const p = line.split(',').map(s => s.replace(/^"|"$/g, ''));
         const iata = p[4]?.trim(), icao = p[5]?.trim();
@@ -5417,16 +5417,7 @@ const ROUTE_DURATIONS_PATH = path.join(__dirname, '.netjets_route_durations_v2.j
 const _routeDurations = {}; // "origin>dest" -> { count, totalMinutes }
 try {
     Object.assign(_routeDurations, JSON.parse(fs.readFileSync(ROUTE_DURATIONS_PATH, 'utf8')));
-} catch (_) {
-    // First run on this file. The old one counted a leg on every poll, so a count meant nothing:
-    // keep each route's average as one entry. The old file is left in place.
-    try {
-        const old = JSON.parse(fs.readFileSync(path.join(__dirname, '.netjets_route_durations.json'), 'utf8'));
-        for (const [route, r] of Object.entries(old)) {
-            if (r.count > 0) _routeDurations[route] = { count: 1, totalMinutes: r.totalMinutes / r.count };
-        }
-    } catch (_) {}
-}
+} catch (_) {}
 let _routeDurationsSaveTimer = null;
 const _routeDurationRecorded = new Set(); // segment ids already counted
 function _recordRouteDuration(origin, dest, minutes) {

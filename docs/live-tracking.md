@@ -136,7 +136,7 @@ Not implemented. SWIM only pushes live deltas with no snapshot/backlog of alread
 
 1. **FAA NASR** (`data/nasr/airports.json`): authoritative for US airports, with current IDs (KPBI → KDJT), exact coordinates, and an IANA timezone computed from coordinates at build time (`tz-lookup` is a devDependency, so the server needs no new package). ICAO IDs always win. A bare FAA ID only fills an empty slot or replaces the **same** airport (within 50 km), never a different one abroad sharing the letters (CQF = Calais, HND = Tokyo). Loaded by `server.js` after OurAirports, and merged into `public/airports.json` by `build-airports.js` as its last pass.
 2. **OurAirports** (`data/airports_raw.csv`): worldwide coordinates and city names, no timezones.
-3. **OpenFlights** (`airports.dat`): unmaintained and ~7,700 airline airports only, but still the server's timezone source outside the US.
+3. **OpenFlights** (`data/airports.dat`): unmaintained and ~7,700 airline airports only, but still the server's timezone source outside the US.
 
 NASR has no timezone column (checked against APT_BASE.csv), hence computing zones from coordinates.
 

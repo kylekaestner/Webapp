@@ -10,8 +10,7 @@ A private pilot scheduling and crew coordination web app. Tracks flight schedule
 ├── server.js          # Express API + parsers + auto-sync scheduler
 ├── db.js              # SQLite init and schema
 ├── dispatch.db        # SQLite database (auto-created)
-├── airports.dat       # OpenFlights airport database (coords + timezones)
-├── data/              # airports.json (city labels) + airports_raw.csv (OurAirports source)
+├── data/              # airports.json (city labels), airports_raw.csv (OurAirports source), airports.dat (OpenFlights timezones), nasr/ (FAA)
 ├── scripts/           # build-airports.js, gen-icons.js, import-intel.js
 ├── public/
 │   ├── app.html       # Main app (calendar, map, list, overlap, intel) -- single file, all JS inline
