@@ -3,6 +3,10 @@
         // formatting. flightLocalDate() = which calendar day at the airport; flightUTCTime() = the true
         // instant, for comparing across pilots or "is it active now" (see CLAUDE.md). Their caches
         // (_tzOffsetFmts, _tzDateFmts, _utcMemo) are in schedule/airports-and-bases.js.
+        // tz-lookup (tzlookup) loads async from the page head. Until it's in, airportTz() returns null, the same
+        // as before airports.json arrives, and only successes are cached. Once it loads, redraw so every time
+        // shown picks up its zone (if it loads before this script runs, there's nothing to redraw yet).
+        function _onTzLookup() { if (typeof airportDbReady !== 'undefined' && airportDbReady && typeof render === 'function') render(); }
         const _tzCache = {}; // populated on demand by airportTz() via tz-lookup + coordinates
         function airportTz(code) {
             if (!code) return null;

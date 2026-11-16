@@ -32,7 +32,8 @@
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="prefetch" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script">
     <link rel="prefetch" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" as="script">
-    <script src="https://cdn.jsdelivr.net/npm/tz-lookup@6.1.25/tz.js"></script>
+    <!-- Time-zone lookup by coordinates. async: it used to hold up the first draw; airportTz() copes until it's in, and _onTzLookup() redraws once it is. -->
+    <script async src="https://cdn.jsdelivr.net/npm/tz-lookup@6.1.25/tz.js" onload="window._onTzLookup && window._onTzLookup()"></script>
     <style>
 @@APP_STYLES@@
     </style>
