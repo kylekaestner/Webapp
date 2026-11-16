@@ -32,7 +32,7 @@ The files are joined, in that order, into `public/app.js`, one classic script (n
 | `schedule/` | `airports-and-bases.js` (`normApt`, `sameApt`, bases over time, route progress), `load-pilot.js` (airport DB, `fetchPilotData`, `inferAwayLayovers`, `loadPilot`), `parsers-and-upload.js`, `sync.js` (Schedaero / ICS sync) |
 | `netjets/` | `duty-and-tours.js`: on-duty and tour logic, CC schedules, home windows, tail and last-leg reminders |
 | `views/` | `navigation.js` (`switchView`), `render.js` (`render()`, calendar and list), `day-detail.js`, `tooltips-and-time-format.js` (`tzAbbr`, `formatTimeISO`, tooltips) |
-| `maps/` | `map-core.js` (`initMap`, world arcs), `route-map.js` (map modes, `renderMap`, all-pilots map), `day-map.js` (`renderDayMap`, `_legState`, plane icons) |
+| `maps/` | `map-core.js` (`ensureMapLibs`: Leaflet/MapLibre load on first map open; `initMap`, world arcs), `route-map.js` (map modes, `renderMap`, all-pilots map), `day-map.js` (`renderDayMap`, `_legState`, plane icons) |
 | `live/` | `flight-helpers.js` (callsigns, basemap, radar, landed-early), `calendar-list-polling.js` (grid/list live polling, label de-overlap), `live-tracking.js` (`startLiveTracking`) |
 | `modals/` | `add-flight.js`: Add/Edit Flight, block totals, and the time helpers `flightLocalDate` / `flightUTCTime` |
 | `profile/` | `my-info-and-netjets-tour.js`: My Info, rotations, NetJets tour modal |

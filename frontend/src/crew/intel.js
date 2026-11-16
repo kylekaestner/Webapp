@@ -430,6 +430,8 @@
         function renderIntelMap() {
             const el = document.getElementById('intel-content');
             if (!el) return;
+            // Map libraries load on first use (ensureMapLibs, maps/map-core.js); redraw once they're in.
+            if (!_mapLibsReady()) { ensureMapLibs().then(() => { if (currentView === 'intel') renderIntel(); }).catch(() => {}); return; }
             const items = _intelVisible();
 
             document.getElementById('view-intel').classList.add('intel-map-mode');

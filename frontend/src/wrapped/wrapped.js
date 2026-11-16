@@ -925,6 +925,9 @@
 
         // ── Route map ───────────────────────────────────────────────────────
         function _initWrappedRouteMap(segments, coords) {
+            // Map libraries load on first use (ensureMapLibs, maps/map-core.js); draw once they're in,
+            // if this slide is still showing.
+            if (!_mapLibsReady()) { ensureMapLibs().then(() => { if (document.getElementById('wrapped-map-el')) _initWrappedRouteMap(segments, coords); }).catch(() => {}); return; }
             if (_wrappedMapInst) { _wrappedMapInst.remove(); _wrappedMapInst = null; }
             const el = document.getElementById('wrapped-map-el');
             if (!el) return;

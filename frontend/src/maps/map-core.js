@@ -1,5 +1,51 @@
+        // ── Map libraries, loaded on first use ──────────────────────────────────
+        // Leaflet 1.9.4, MapLibre GL 4.7.1 and the Leaflet-MapLibre bridge (~950 KB to download and parse)
+        // used to load on every launch. They load the first time a map is shown instead. Only three
+        // functions start a map: initMap() (Map tab), renderIntelMap() (Crew Intel) and
+        // _initWrappedRouteMap() (Wrapped). Each waits here first. Every other map function (renderMap,
+        // renderDayMap, live tracking, pins) does nothing until initMap() has created `map`.
+        // The CSS goes in before the page's own <style>, where it always was, so the app's overrides of
+        // Leaflet's popups and attribution still win. MapLibre is optional: if it fails, _canDrawVectorMap()
+        // falls back to raster tiles, as it did when MapLibre (then `defer`) hadn't loaded yet.
+        var _mapLibsPromise = null;
+        function _mapLibsReady() { return !!(window.L && window.L.map); }
+        function ensureMapLibs() {
+            if (_mapLibsPromise) return _mapLibsPromise;
+            const before = document.head.querySelector('style');
+            const css = href => new Promise(done => {
+                const l = document.createElement('link');
+                l.rel = 'stylesheet'; l.href = href;
+                l.onload = l.onerror = () => done();
+                document.head.insertBefore(l, before);
+            });
+            const js = src => new Promise((ok, fail) => {
+                const s = document.createElement('script');
+                s.src = src; s.async = false;
+                s.onload = () => ok();
+                s.onerror = () => fail(new Error('could not load ' + src));
+                document.head.appendChild(s);
+            });
+            _mapLibsPromise = Promise.all([
+                css('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'),
+                css('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css'),
+                js('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'),
+            ]).then(() => js('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js')
+                .then(() => js('https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js'))
+                .catch(e => console.warn('[map] vector basemap unavailable, using raster tiles:', e.message))
+            ).catch(e => {
+                _mapLibsPromise = null; // let the next map open try again
+                showToast('Map could not load. Check your connection and try again.', 'error', 4000);
+                throw e;
+            });
+            return _mapLibsPromise;
+        }
+
         function initMap() {
             if (map) return;
+            if (!_mapLibsReady()) {
+                ensureMapLibs().then(() => { if (currentView === 'map') { initMap(); render(); } }).catch(() => {});
+                return;
+            }
             map = L.map('map', { zoomControl: false, doubleClickZoom: true, bounceAtZoomLimits: false }).setView([39.8283, -98.5795], 4);
             addBasemap(map);
             map.attributionControl.setPrefix(false);
