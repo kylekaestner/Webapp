@@ -45,6 +45,7 @@ Current version: `1.0.12-beta` (`package.json`/`package-lock.json`). Bump it for
 | `db.js` | SQLite init + schema migrations |
 | `dispatch.db` | SQLite database |
 | `feed-leg-store.js` / `feed-cache.db` | TFMS/TFDM per-leg feed history, one SQLite row per leg, changed legs saved every 10s (separate DB file, git-ignored). See docs/live-tracking.md |
+| `/var/www/crew-calendar` (droplet only) | Crew Calendar at `/crew-calendar`: separate tool, not in this repo or DB; `server.js` only mounts it if the folder exists. See docs/backend-admin.md |
 | `demo-data.js` | Fake data for `/demo` route (read-only preview) |
 | `public/join.html` | New pilot onboarding form |
 | `public/frat-autofill.user.js` | Tampermonkey userscript — autofills Kyle's PRISM SMS flight risk assessments |

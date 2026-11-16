@@ -50,6 +50,14 @@ Server-side HTML in `server.js` (~line 2068). Protected by `rosterAuth` middlewa
 
 There's also a NetJets-specific lookup sub-page, `/crew-roster/netjets-lookup` — see "NetJets manual tracking" below.
 
+## Crew Calendar (`/crew-calendar`)
+
+Kyle's company ON/OFF, open-trip and flying-balance calendar (built from the Schedaero company calendar). **A separate tool, not part of CrewSync**: it lives in `/var/www/crew-calendar` on the droplet (source of truth on Kyle's PC in `E:schedaero-export`), outside this repo and its database. That folder holds its code (`router.js`, `fetch.js`, the build scripts, the page template), the weekly Schedaero JSON files and the built page, and its own `.secret`; it has no database. `server.js` mounts its `router.js` at `/crew-calendar` only if the folder exists (`CREW_CALENDAR_DIR`, default `../crew-calendar`), so CrewSync runs the same without it.
+
+- **Password**: set in the calendar's own `router.js` on the droplet (`CREW_CALENDAR_PASSWORD` overrides); Kyle has it. Never write it into this repo. Signing in sets an HttpOnly `crewcal` cookie for 30 days, a keyed hash of the password, so changing it signs everyone out. 5 wrong tries lock that IP out for 15 minutes (in memory, cleared by a restart). Pages are `no-store` and `noindex`. The droplet is plain http, so the password crosses the network unencrypted.
+- **Refresh** (`POST /crew-calendar/refresh`, signed in, one at a time): `fetch.js` pulls 10 weeks from the 1st of this month using CrewSync's stored Schedaero session (`settings.schedaero-creds`, **opened read-only**; if it's expired, sync once from CrewSync), then the build scripts run as child processes. About 20-30 s.
+- **Updating its code**: edit in `E:schedaero-export`, copy the changed files to `/var/www/crew-calendar` (pscp), restart pm2 only if `router.js` changed. It isn't in git; this repo only has the mount.
+
 ## API endpoints (server.js)
 
 ```

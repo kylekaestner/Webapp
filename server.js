@@ -53,6 +53,20 @@ app.use((req, res, next) => {
 app.get(['/app.js', '/app.css'], (req, res) => sendVersionedAsset(req, res));
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
+// Crew Calendar (/crew-calendar): Kyle's company ON/OFF and flying-balance page. A separate tool kept
+// outside this repo and database, in its own folder (default ../crew-calendar, i.e. /var/www/crew-calendar
+// on the droplet): code, Schedaero data files, its own password. Mounted only if that folder exists, so
+// CrewSync runs the same without it. It reads CrewSync's stored Schedaero session read-only, nothing else.
+{
+    const crewCalDir = process.env.CREW_CALENDAR_DIR || path.join(__dirname, '..', 'crew-calendar');
+    try {
+        if (fs.existsSync(path.join(crewCalDir, 'router.js'))) {
+            app.use('/crew-calendar', require(path.join(crewCalDir, 'router.js'))({ express, webappDir: __dirname }));
+            console.log('[crew-calendar] mounted at /crew-calendar from', crewCalDir);
+        }
+    } catch (e) { console.error('[crew-calendar] not mounted:', e.message); }
+}
+
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ===== ICS & CSV Parsing Functions =====
