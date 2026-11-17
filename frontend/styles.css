@@ -57,7 +57,9 @@
             #view-grid, #view-list {
                 padding-bottom: 70px !important;
             }
-            #view-map.view-active, #view-map.map-prewarm { padding-bottom: 68px !important; }
+            /* Room for the fixed bottom nav: measured on the device (--nav-overlap, _syncNavOverlap in
+               views/navigation.js), 68px until the first measurement. */
+            #view-map.view-active, #view-map.map-prewarm { padding-bottom: var(--nav-overlap, 68px) !important; }
             .mobile-nav { background: #09090b !important; padding-bottom: 12px !important; }
         }
 

@@ -30,6 +30,34 @@
             if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
         }
 
+        // Phones: how far the fixed bottom nav actually covers <main>, measured, as --nav-overlap. The map view
+        // keeps exactly that much room at its bottom so the My Routes / Day / Month bar sits on top of the nav.
+        // It used to be a fixed 68px; on some iPhones (a taller nav: text size, Safari vs Home Screen, screen
+        // height) the bar ended up behind the nav. Re-measured on resize, nav size changes and every view switch.
+        function _syncNavOverlap() {
+            const nav = document.querySelector('.mobile-nav'), main = document.querySelector('main');
+            if (!nav || !main) return;
+            const n = nav.getBoundingClientRect(), m = main.getBoundingClientRect();
+            const px = n.height ? Math.max(0, Math.round(m.bottom - n.top)) : 0;
+            const root = document.documentElement;
+            if (root.style.getPropertyValue('--nav-overlap') === px + 'px') return;
+            root.style.setProperty('--nav-overlap', px + 'px');
+            if (typeof map !== 'undefined' && map && currentView === 'map') map.invalidateSize({ animate: false });
+        }
+        (function () {
+            const run = () => requestAnimationFrame(_syncNavOverlap);
+            window.addEventListener('resize', run);
+            window.addEventListener('orientationchange', () => setTimeout(run, 300));
+            if (window.visualViewport) window.visualViewport.addEventListener('resize', run);
+            const start = () => {
+                run();
+                const nav = document.querySelector('.mobile-nav');
+                if (nav && window.ResizeObserver) new ResizeObserver(run).observe(nav, { box: 'border-box' }); // padding counts too
+            };
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+            window.addEventListener('load', run);
+        })();
+
         function switchView(view) {
             haptic('tap');
             trackEvent('view:' + view);
@@ -65,7 +93,6 @@
                 // The map may have been created ahead of time off-screen (_prewarmMap): fit it to its real box.
                 viewEl.classList.remove('map-prewarm');
                 initMap();
-                if (map) map.invalidateSize({ animate: false });
                 // Sync day nav / pilot controls visibility with the current mode
                 const _dn = document.getElementById('day-nav');
                 const _mdn = document.getElementById('mobile-day-nav-bar');
@@ -80,6 +107,8 @@
                     _mdn?.classList.replace('flex', 'hidden');
                     if (_pc) _pc.style.display = '';
                 }
+                // After the date row shows or hides, so the map knows its final height.
+                if (map) map.invalidateSize({ animate: false });
             }
             if (view === 'overlap') {
                 switchOverlapTab(_overlapTab || 'crossings');
@@ -90,5 +119,6 @@
             if (view === 'intel') loadIntel();
             render();
             _resetPageShift();
+            _syncNavOverlap();
         }
 

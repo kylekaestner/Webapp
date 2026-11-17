@@ -123,6 +123,8 @@ Use `<img src="/icon.svg">` with `border-radius` to match the rounded-square sty
 
 ## List view rendering (`render()` → list branch)
 
+**Room for the bottom nav on the map (phones):** `#view-map`'s bottom padding is `var(--nav-overlap)`, measured by `_syncNavOverlap()` (views/navigation.js) as how far the fixed nav covers `<main>`, never a fixed number: navs differ in height between iPhones. 
+
 **Never use `scrollIntoView()` on the calendar views.** It scrolls every ancestor, and iOS Safari also moves the page itself (nothing overflows, so desktop browsers never show it): the crew names slide under the fixed header and the map mode bar under the bottom nav, and it carries into the next view. The list opens on today by setting `#view-list`'s own scrollTop; grid live legs scroll only their day's list. `_resetPageShift()` (views/navigation.js) puts the page, the column and `<main>` back to 0 on every view switch.
 
 Each NetJets tour day has an Edit button under its date, from the same `_tourEditButton()` as the day detail. List days have no tap action of their own.
