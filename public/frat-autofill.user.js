@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.12
+// @version      3.13
 // @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + risk questions from schedule, weather and airport data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/*
@@ -173,12 +173,24 @@
     return true;
   }
 
-  async function selectAnyOption(info, search) {
+  // Option whose text contains `search`. With `first` (a person's first name), several surname hits
+  // (two Muellers) are told apart by a word starting with the first name or its short form (Brad/Bradley);
+  // if none fits, no option is picked rather than the wrong person.
+  function pickOption(opts, textOf, search, first) {
+    const hits = opts.filter(o => textOf(o).toLowerCase().includes(search.toLowerCase()));
+    // A lone surname hit is taken as-is (CREW_NAMES first names can be nicknames, e.g. JAL "Lonnie").
+    if (!first || hits.length <= 1) return hits[0] || null;
+    const f = first.toLowerCase();
+    const fits = w => w.length >= 3 && (w.startsWith(f) || f.startsWith(w));
+    return hits.find(o => textOf(o).toLowerCase().split(/[^a-z]+/).some(fits)) || null;
+  }
+
+  async function selectAnyOption(info, search, first) {
     if (!info) return false;
     const { el, kind } = info;
     if (kind === 'native') {
       const opts = [...el.options];
-      const match = opts.find(o => o.text.toLowerCase().includes(search.toLowerCase()));
+      const match = pickOption(opts, o => o.text, search, first);
       if (!match) {
         console.log(`[CrewSync FRAT] No match for "${search}" in native select`);
         return false;
@@ -188,7 +200,7 @@
       ['change', 'input'].forEach(ev => el.dispatchEvent(new Event(ev, { bubbles: true })));
       return true;
     }
-    return selectMatOption(el, search);
+    return selectMatOption(el, search, first);
   }
 
   function closeCdkOverlay() {
@@ -197,7 +209,7 @@
     if (backdrop) backdrop.click();
   }
 
-  async function selectMatOption(selectEl, search) {
+  async function selectMatOption(selectEl, search, first) {
     if (!selectEl) return false;
     closeCdkOverlay();
     await new Promise(r => setTimeout(r, 250));
@@ -213,8 +225,13 @@
       await new Promise(r => setTimeout(r, 600));
     }
     const opts = [...document.querySelectorAll('mat-option')];
-    const match = opts.find(o => o.textContent.toLowerCase().includes(search.toLowerCase()));
+    const match = pickOption(opts, o => o.textContent, search, first);
     if (match) { match.click(); return true; }
+    if (first && opts.some(o => o.textContent.toLowerCase().includes(search.toLowerCase()))) {
+      console.log(`[CrewSync FRAT] Several "${search}" options, none for "${first}" — left for manual pick`);
+      closeCdkOverlay();
+      return false;
+    }
     const realOpts = opts.filter(o => !o.classList.contains('mat-option-disabled') &&
       !o.textContent.trim().toLowerCase().startsWith('no '));
     if (realOpts.length === 1) {
@@ -824,7 +841,7 @@
     // PIC
     if (captain && picInfo) {
       highlightField(picInfo);
-      const ok = await selectAnyOption(picInfo, captain.split(' ').pop());
+      const ok = await selectAnyOption(picInfo, captain.split(' ').pop(), captain.split(' ')[0]);
       log.push('PIC ' + (ok ? `✓ (${captain})` : `✗ (${captain} not in list)`));
     } else if (!captain) {
       log.push('PIC — manual (not on schedule)');
