@@ -6,11 +6,14 @@
             html.is-pwa div:has(> #mobile-header) { padding-top: calc(env(safe-area-inset-top) + 56px); }
         }
         .view-section { display: none; height: 100%; }
-        /* Map created ahead of time (_prewarmMap): laid out full size but off-screen and invisible until the Map tab opens. */
-        #view-map.map-prewarm:not(.view-active) { display: flex !important; flex-direction: column; position: fixed; left: -200vw; top: 0; width: 100vw; height: 100vh; visibility: hidden; pointer-events: none; }
+        /* Map created ahead of time (_prewarmMap): laid out in its real place at its real size (absolute over <main>,
+           which holds every view; each view fills it), invisible and untappable, so opening Map changes nothing about its
+           size. An off-screen full-screen build broke iOS: Safari kept that size and the map ran down behind the bottom
+           nav, hiding the My Routes / Day / Month bar. The phone rules below give it the active view's flex layout and padding. */
+        #view-map.map-prewarm:not(.view-active) { display: block; position: absolute; inset: 0; visibility: hidden; pointer-events: none; z-index: -1; }
         .view-active { display: block; }
         @media (max-width: 767px) {
-            #view-map.view-active { display: flex !important; flex-direction: column; padding-bottom: calc(50px + env(safe-area-inset-bottom)); }
+            #view-map.view-active, #view-map.map-prewarm { display: flex !important; flex-direction: column; padding-bottom: calc(50px + env(safe-area-inset-bottom)); }
             #map { flex: 1 1 0 !important; height: auto !important; min-height: 0; }
         }
 
@@ -54,7 +57,7 @@
             #view-grid, #view-list {
                 padding-bottom: 70px !important;
             }
-            #view-map.view-active { padding-bottom: 68px !important; }
+            #view-map.view-active, #view-map.map-prewarm { padding-bottom: 68px !important; }
             .mobile-nav { background: #09090b !important; padding-bottom: 12px !important; }
         }
 

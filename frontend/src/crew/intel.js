@@ -478,7 +478,8 @@
             return _intelMap;
         }
         function _prewarmIntelMap() {
-            if (_intelMap || !_mapLibsReady() || (currentView === 'intel' && _intelView === 'map')) return;
+            // Not on iOS: this map is built off-screen and moved in, and iOS Safari keeps the off-screen size (see _IS_IOS).
+            if (_IS_IOS || _intelMap || !_mapLibsReady() || (currentView === 'intel' && _intelView === 'map')) return;
             try { _ensureIntelMap(); } catch (e) { console.warn('[intel] prewarm failed:', e.message); }
         }
         function renderIntelMap() {

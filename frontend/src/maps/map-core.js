@@ -49,9 +49,14 @@
         }, 1500));
         // The first Map open was slow even with the libraries loaded (~1.2 s in Chrome, then ~10 ms on every
         // later open): creating the map, the vector basemap's style, fonts and first tiles. So after the
-        // warm-up the map is also created ahead of time, full size but off-screen and invisible
-        // (#view-map.map-prewarm), and left to load. That's the same state as having opened Map once and
-        // gone back to the calendar. switchView('map') drops the class and resizes the map to its real box.
+        // warm-up the map is also created ahead of time, in its real place at its real size but invisible
+        // (#view-map.map-prewarm, frontend/styles.css), and left to load. That's the same state as having
+        // opened Map once and gone back to the calendar. switchView('map') drops the class; the size doesn't
+        // change. (It used to be built full screen off to the side, and iOS Safari kept that size: the map
+        // ran down behind the bottom nav and hid the My Routes / Day / Month bar.)
+        // iOS (iPhone/iPad), for the Intel map only (crew/intel.js): it can't be built in its real place, and iOS Safari
+        // keeps an off-screen build's size. The main map is built in place, so it's fine everywhere.
+        const _IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
         function _prewarmMap() {
             if (map || currentView === 'map' || !_mapLibsReady()) return;
             const view = document.getElementById('view-map');
