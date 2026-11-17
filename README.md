@@ -211,7 +211,7 @@ GET  /crew-roster                             Server-rendered pilot roster + per
 GET  /admin/users                             Admin user management page
 ```
 
-Not exhaustive — see `server.js` for the full route list (airport lookups, analytics, NOTAMs, a few debug/legacy endpoints).
+Not exhaustive — see `server.js` for the full route list (airport lookups, analytics, a few debug/legacy endpoints).
 
 ---
 

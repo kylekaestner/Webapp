@@ -150,7 +150,15 @@ NASR has no timezone column (checked against APT_BASE.csv), hence computing zone
 
 ## Resource usage (1 vCPU/1GB droplet)
 
-**Memory**: about 380 MB steady, peaking over 500 MB during boot, and roughly 300 MB goes to everything else on the box. The feed queue was the source of the 2026-11-03 kills, see "Paced message processing". A 2 GB `/swapfile` (swappiness 10) is the safety net. `[mem]` lines in the pm2 log show rss, heap, feed queue depth and event-loop lag: every 5 minutes, or every 15 seconds above 500 MB. After any restart you didn't do, check `dmesg -T | grep "Killed process"`.
+**Memory**: usually 270-330 MB (up to ~380 MB), peaking over 500 MB during boot, and roughly 300 MB goes to everything else on the box. The feed queue was the source of the 2026-11-03 kills, see "Paced message processing". A 2 GB `/swapfile` (swappiness 10) is the safety net. `[mem]` lines in the pm2 log show rss, heap, feed queue depth and event-loop lag: every 5 minutes, or every 15 seconds above 500 MB. After any restart you didn't do, check `dmesg -T | grep "Killed process"`.
+
+**What the memory is** (2026-11-16: heap snapshot of a local run without feeds, plus prod's /proc): ~80 MB Node, Express and libraries; ~30 MB airport tables (`_aptCoords` 15, `_airportCities` 9, `_aptTimezone` 4); ~17 MB route data (navdata `fixes` 15, procedures 2); the rest, ~150-200 MB, is the live feeds plus allocator memory kept after their churn. Without feeds it settles at ~130 MB. Packing the airport/route tables could save 15-25 MB but touches every lookup, so not done. `MALLOC_ARENA_MAX=2` (often 15-30 MB off Node on Linux) is untried.
+
+**CPU**: ~46% of the one vCPU steady (2026-11-17), nearly all feed processing; pages answer in ~10 ms. Was 80-100% before the feed caches moved to SQLite.
+
+**Logs**: Ubuntu's logrotate (`/etc/logrotate.d/pm2-dispatch`: daily, 7 compressed copies, copytruncate) rotates `/root/.pm2/logs/*.log`. pm2-logrotate was tried and removed: it kept ~72 MB resident. Logs from before 2026-11-17 (including printed login links) are archived in `/root/log-archive/` (root only).
+
+**Server software**: Ubuntu 24.04 LTS (standard support to 2029). 26.04 is deliberately not taken in place; a fresh droplet is the safe route. Node is Ubuntu's `nodejs` 18.19.1: upstream end-of-life since April 2025, patched only through Ubuntu Pro ESM Apps (not attached as of 2026-11-17, 7 pending ESM updates). Planned: attach Ubuntu Pro, then Node 22 LTS from NodeSource (`npm rebuild` for sqlite3). TeamSpeak (`ts3server`) also runs on the droplet. Take a DigitalOcean snapshot before OS or Node changes.
 
 Indexes exist on `segments.pilot_id`, `segments.departure_time`, `pilots.token`, `notifications.pilot_key`, `friend_requests.requester_key`/`.recipient_key`, `segments.route` (NetJets historical-duration lookup) — all `CREATE INDEX IF NOT EXISTS`, purely additive. `runActiveFlightPoller()`'s 15s loop calls `fetchLivePosition()` (checks STDDS/SWIM first) rather than unconditionally hitting the real rate-limited ADS-B API.
 
