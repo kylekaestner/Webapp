@@ -49,8 +49,8 @@ app.use((req, res, next) => {
     }
     next();
 });
-// Before the static files: app.js / app.css are served pre-compressed and versioned (sendVersionedAsset).
-app.get(['/app.js', '/app.css'], (req, res) => sendVersionedAsset(req, res));
+// Before the static files: app.js / app.css / airports.json are served pre-compressed and versioned (sendVersionedAsset).
+app.get(['/app.js', '/app.css', '/airports.json'], (req, res) => sendVersionedAsset(req, res));
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // Crew Calendar (/crew-calendar): Kyle's company ON/OFF and flying-balance page. A separate tool kept
@@ -7212,9 +7212,11 @@ function _sendBuilt(req, res, file, contentType, cacheControlFor) {
 function sendAppHtml(req, res) {
     _sendBuilt(req, res, APP_HTML_PATH, 'text/html; charset=utf-8', () => 'no-cache');
 }
+// airports.json (the app's airport coordinates, ~1.9 MB) is linked from app.js the same way.
 const _VERSIONED_ASSETS = {
     '/app.js': ['app.js', 'application/javascript; charset=utf-8'],
     '/app.css': ['app.css', 'text/css; charset=utf-8'],
+    '/airports.json': ['airports.json', 'application/json; charset=utf-8'],
 };
 function sendVersionedAsset(req, res) {
     const [name, type] = _VERSIONED_ASSETS[req.path];

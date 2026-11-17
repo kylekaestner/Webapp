@@ -1,5 +1,6 @@
         function loadAirportDB() {
-            fetch('/airports.json').then(r => {
+            // The build puts airports.json's content hash in the URL, so the browser keeps it until it changes.
+            fetch('/airports.json?v=@@AIRPORTS_VERSION@@').then(r => {
                 if (!r.ok) throw new Error('Failed to load airports.json');
                 return r.json();
             }).then(data => {

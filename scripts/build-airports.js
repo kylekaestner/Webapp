@@ -49,6 +49,8 @@ const HEADER = lines[0];
 
 const cities  = {};  // code → "City, ST"
 const coords  = {};  // code → [lat, lon]
+const coordType = {}; // code → OurAirports type of the airport its coords came from (NASR types mapped to the same names)
+const NASR_TYPES = { A: 'airport', H: 'heliport', C: 'seaplane_base', B: 'balloonport', G: 'gliderport', U: 'ultralight' };
 
 // Track which IATA codes are "real" (assigned by IATA to a specific airport)
 // vs local FAA codes that happen to be 3 letters. We use scheduled_service as
@@ -93,12 +95,12 @@ for (let i = 1; i < lines.length; i++) {
     }
 
     for (const code of allCodes) {
-        if (hasCoords && !coords[code]) coords[code] = [lat, lon];
+        if (hasCoords && !coords[code]) { coords[code] = [lat, lon]; coordType[code] = type; }
         if (label    && !cities[code]) cities[code] = label;
     }
 
     if (local && local !== 'N/A' && local !== '\\N' && hasCoords) {
-        rows.push({ local: local.toUpperCase(), lat, lon, label });
+        rows.push({ local: local.toUpperCase(), lat, lon, label, type });
     }
 
     processed++;
@@ -119,7 +121,7 @@ for (let i = 1; i < lines.length; i++) {
 // outrank one that was merely processed later.
 let localAdded = 0;
 for (const r of rows) {
-    if (!coords[r.local]) { coords[r.local] = [r.lat, r.lon]; localAdded++; }
+    if (!coords[r.local]) { coords[r.local] = [r.lat, r.lon]; coordType[r.local] = r.type; localAdded++; }
     if (r.label && !cities[r.local]) cities[r.local] = r.label;
 }
 console.log(`local_code pass: added ${localAdded} new coord entries`);
@@ -135,9 +137,10 @@ try {
     for (const a of nasr.airports) {
         const ll = [a.lat, a.lon];
         const label = [a.city && a.city.replace(/\b\w+/g, w => w[0] + w.slice(1).toLowerCase()), a.state].filter(Boolean).join(', ');
-        if (a.icao) { coords[a.icao] = ll; if (label && !cities[a.icao]) cities[a.icao] = label; nasrSet++; }
+        const t = NASR_TYPES[a.type] || a.type;
+        if (a.icao) { coords[a.icao] = ll; coordType[a.icao] = t; if (label && !cities[a.icao]) cities[a.icao] = label; nasrSet++; }
         if (!coords[a.faa] || km(coords[a.faa], ll) < 50) {
-            coords[a.faa] = ll; if (label && !cities[a.faa]) cities[a.faa] = label; nasrSet++;
+            coords[a.faa] = ll; coordType[a.faa] = t; if (label && !cities[a.faa]) cities[a.faa] = label; nasrSet++;
         }
     }
     console.log(`NASR pass (cycle ${nasr.cycle}): set ${nasrSet} coord entries`);
@@ -155,7 +158,38 @@ console.log(`Coord entries: ${Object.keys(coords).length}`);
     console.log(`  ${k}: city=${c||'—'} coords=${r ? r.map(v=>v.toFixed(3)).join(',') : '—'}`);
 });
 
+// The app downloads public/airports.json at launch, so it carries only places crews can fly to:
+// heliports, closed fields, seaplane bases and balloonports are left out (about 39k of 111k entries),
+// and coordinates are rounded to 4 decimals (~11 m). The server's own tables are unaffected.
+// Every airport in every schedule resolved the same before and after (2026-11-16).
+const CLIENT_SKIP = new Set(['heliport', 'closed', 'seaplane_base', 'balloonport']);
+const round4 = v => Math.round(v * 1e4) / 1e4;
+const clientCoords = {};
+for (const [code, ll] of Object.entries(coords)) {
+    if (!CLIENT_SKIP.has(coordType[code])) clientCoords[code] = [round4(ll[0]), round4(ll[1])];
+}
+// A left-out code must come back empty in the app, never as a different airport: resolveAirport()
+// (frontend/src/schedule/load-pilot.js) falls back to the last 3 letters of a non-K/C 4-letter code, to
+// K + a 3-letter code, and to the code without punctuation, so "01MO" would land on "1MO". Codes a
+// fallback would catch are kept (about 3k), repeated until nothing changes since a kept code can
+// become a new fallback target.
+function clientResolves(code) {
+    if (clientCoords[code]) return true;
+    if (code.length === 4 && code[0] !== 'K' && code[0] !== 'C' && clientCoords[code.slice(-3)]) return true;
+    if (code.length === 3 && clientCoords['K' + code]) return true;
+    const stripped = code.replace(/[^A-Z0-9]/g, '');
+    return stripped !== code && clientResolves(stripped);
+}
+for (let added = 1; added;) {
+    added = 0;
+    for (const [code, ll] of Object.entries(coords)) {
+        if (!clientCoords[code] && clientResolves(code)) { clientCoords[code] = [round4(ll[0]), round4(ll[1])]; added++; }
+    }
+}
+console.log(`Client coord entries: ${Object.keys(clientCoords).length} (left out ${Object.keys(coords).length - Object.keys(clientCoords).length})`);
+
 fs.writeFileSync(CITIES_PATH, JSON.stringify(cities));
-fs.writeFileSync(COORDS_PATH, JSON.stringify(coords));
+fs.writeFileSync(COORDS_PATH, JSON.stringify(clientCoords));
 console.log(`\nWrote ${CITIES_PATH}`);
 console.log(`Wrote ${COORDS_PATH}`);
+console.log('Now run `npm run build`: the app links airports.json by its content hash.');

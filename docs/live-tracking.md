@@ -146,6 +146,8 @@ Not implemented. SWIM only pushes live deltas with no snapshot/backlog of alread
 
 NASR has no timezone column (checked against APT_BASE.csv), hence computing zones from coordinates.
 
+**The app's copy, `public/airports.json`** (code → `[lat, lon]`, nothing else; the app gets zones from these coordinates with tz-lookup, and city names from the server). `build-airports.js` leaves out heliports, closed fields, seaplane bases and balloonports, and rounds to 4 decimals (~11 m): 72k entries, 1.9 MB, ~500 KB with Brotli. A left-out code is kept anyway if `resolveAirport()`'s fallbacks (last 3 letters, K + code, punctuation stripped) would otherwise send it to a different airport, so a missing code shows nothing rather than the wrong place. The server's tables (`data/airports.json`, `_aptCoords`) are untouched. It's served versioned like app.js (see docs/frontend.md); after rebuilding it, run `npm run build` so app.js links the new version.
+
 ## Resource usage (1 vCPU/1GB droplet)
 
 **Memory**: about 380 MB steady, peaking over 500 MB during boot, and roughly 300 MB goes to everything else on the box. The feed queue was the source of the 2026-11-03 kills, see "Paced message processing". A 2 GB `/swapfile` (swappiness 10) is the safety net. `[mem]` lines in the pm2 log show rss, heap, feed queue depth and event-loop lag: every 5 minutes, or every 15 seconds above 500 MB. After any restart you didn't do, check `dmesg -T | grep "Killed process"`.

@@ -17,7 +17,7 @@ A private pilot scheduling and crew coordination web app. Tracks flight schedule
 │   ├── join.html      # New pilot onboarding form
 │   ├── landing.html   # Public landing page
 │   ├── manual.html    # User manual / help page
-│   ├── airports.json  # Client-side airport coordinate lookup
+│   ├── airports.json  # Client-side airport coordinate lookup (built by scripts/build-airports.js, served versioned)
 │   └── frat-autofill.user.js  # Tampermonkey userscript (Kyle only) -- see CLAUDE.md
 └── README.md
 ```
