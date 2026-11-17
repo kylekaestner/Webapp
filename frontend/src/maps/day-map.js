@@ -1,9 +1,18 @@
+        // Which plane icon (_AC_SHAPES, live/live-tracking.js) an ICAO type designator gets, by wing and engine layout:
+        //   lightjet   - straight wings: Citation CJ/CJ1-CJ4/M2/Mustang/Bravo/Encore/Excel, Phenom 100/300,
+        //                HondaJet, PC-24, Eclipse, Vision Jet; turboprops too (rare for this crew)
+        //   narrowbody - big jets with engines under the wings (A320 family, 737, 757; widebodies too, no icon of their own)
+        //   regional   - smaller jets with engines under the wings (E170/175/190/195, A220)
+        //   bizjet     - swept wings, engines on the rear fuselage: Hawker, Latitude/Longitude/Sovereign, Challenger,
+        //                Gulfstream, Global, CRJ, ERJ-135/145, MD-80/90, 717, Fokker 100. Also any unknown or missing type.
         function getAircraftCategory(typeCode) {
             if (!typeCode) return 'bizjet';
             const t = typeCode.toUpperCase();
-            if (/^(PC12|PC6T?|TBM[679]|BE[12][09]|B190|SF34|C208|DHC[36]|P180|PAY[23]|C40[12]|C421|C441)/.test(t)) return 'turboprop';
-            if (/^(B73[2-9M]|B73MAX|B752|B753|B727|A31[0-9]|A32[0-9]|A22[0-9]|MD[89][0-9]|DC9|B72[0-9]|B74[0-9]|B76[0-9]|B77[0-9]|B78[0-9]|A30[0-9]|A33[0-9]|A34[0-9]|A35[0-9]|A38[0-9])/.test(t)) return 'narrowbody';
-            if (/^(E[17][0-9]{2}|E75[LS]|ERJ[0-9]|ER[0-9]|BCS[0-9]|RJ[0-9]{2}|SF3|D328|DH8)/.test(t)) return 'regional';
+            if (/^(C500|C501|C510|C525|C25[ABCM]|C550|C551|S550|C560|C56X|E50P|E55P|HDJT|PC24|EA50|SF50)/.test(t)) return 'lightjet';
+            if (/^(PC12|PC6|TBM|BE9[LT9]|BE10|BE20|BE30|B350|B190|C208|C425|C441|C40[1-4]|C421|SF34|SB20|DHC[2-8]|DH8|AT[0-9][0-9]|D328|JS3[12]|JS41|E120|P180|PAY|SW[34]|L410|M28)/.test(t)) return 'lightjet';
+            if (/^(CRJ|E135|E145|E35L|E45X|MD[89]|DC9|B712|F100|F70)/.test(t)) return 'bizjet';
+            if (/^(E170|E175|E75[LS]|E190|E195|E290|E295|BCS[13])/.test(t)) return 'regional';
+            if (/^(A3[0-8][0-9]|A[12][019]N|B7[0-9][0-9]|B3[789X]M|B73|B75|B76|B77|B78|B74)/.test(t)) return 'narrowbody';
             return 'bizjet';
         }
 

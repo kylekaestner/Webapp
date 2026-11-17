@@ -39,6 +39,12 @@ Every visible flight number/callsign is wrapped by `flightAwareLink(ident, displ
 
 `renderMap()` groups flights into one arc per unique `dep|arr` pair with **no overlap handling between different pairs** (unlike `renderDayMap()`, which uses `offsetArc()`). Two unrelated legs can cross or run close and look like one line. A fix was tried and reverted — see `CLAUDE_HISTORY.md § Route overlap on renderMap()` before attempting this again; don't reuse transitive BFS clustering.
 
+### Plane icon and aircraft type
+
+The live plane icon comes from the position's `type` (ICAO designator). ADS-B results carry their own; SWIM/STDDS positions don't, so `withTfdmInfo()` fills it from TFMS's `<aircraftModel>` (`tfms.getAircraftModel(callsign, origin)`, kept per callsign **and departure airport**, since airlines reuse flight numbers on different equipment; only messages passing TFMS's day/origin checks are recorded; memory only, 36 h). Such results get `typeSource: 'tfms'`. On the map, `startLiveTracking()` keeps the last type it saw per flight (`labelEntry.acType`), so an update without one doesn't flip the icon back to the default.
+
+`getAircraftCategory()` (frontend/src/maps/day-map.js) picks one of four shapes (`_AC_SHAPES`, live/live-tracking.js) by wing and engine layout: **narrowbody** (A320 family, 737/MAX, 757, widebodies), **regional** (E170/175/190/195, A220), **bizjet** (swept wing, rear engines: Hawker, Latitude, Challenger, Gulfstream, Global, CRJ, ERJ-145, MD-80; also unknown types), **lightjet** (straight wing: Citation CJ/CJ1-4/M2/Mustang/Excel, Phenom 100/300, HondaJet, PC-24, and props).
+
 ## FAA SWIM integration — real filed-route display on the live map
 
 Three backend modules consume FAA SWIM data via Solace PubSub+ (`solclientjs`), separate from ADS-B polling.

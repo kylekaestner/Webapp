@@ -71,7 +71,9 @@
             const baseTooltip = buildBaseTooltip(null); // source unknown until the first poll resolves
             // Start hover-only — tooltip goes permanent once ADS-B confirms airborne
             markers.forEach(m => m.bindTooltip(baseTooltip, { ...tooltipOpts, permanent: false }));
-            const labelEntry = { markers, html: baseTooltip, direction: 'right', heading: null };
+            // acType: the last aircraft type a position reported (ADS-B's own, or the leg's TFMS type from the
+            // server). Kept so an update with no type can't flip the plane icon back to the default.
+            const labelEntry = { markers, html: baseTooltip, direction: 'right', heading: null, acType: null };
             _liveLabels.set(callsign, labelEntry);
             scheduleDeoverlap();
             const setAllTooltip = (html) => {
@@ -472,7 +474,7 @@
                             flownLines.forEach(l => { try { l.setStyle({ opacity: 0.25 }); } catch (_) {} });
                         }
                         setAllLatLng(d.lat, d.lon);
-                        if (d.heading != null) { setAllIcon(makePlaneIcon(d.heading, color, d.type, true)); labelEntry.heading = d.heading; }
+                        if (d.heading != null) { setAllIcon(makePlaneIcon(d.heading, color, (labelEntry.acType = d.type || labelEntry.acType), true)); labelEntry.heading = d.heading; }
                         showIcon();
                         let groundLabel, groundLabelColor;
                         if (_arriving) {
@@ -538,7 +540,7 @@
                     if (depCoords && arrCoords && !isPositionOnRoute(d.lat, d.lon, depCoords, arrCoords)) return;
 
                     setAllLatLng(d.lat, d.lon);
-                    if (d.heading != null) { setAllIcon(makePlaneIcon(d.heading, color, d.type, true)); labelEntry.heading = d.heading; }
+                    if (d.heading != null) { setAllIcon(makePlaneIcon(d.heading, color, (labelEntry.acType = d.type || labelEntry.acType), true)); labelEntry.heading = d.heading; }
 
                     const livePoint = [d.lat, d.lon];
 
@@ -776,8 +778,8 @@
                 vb: '-1 -1 20 26', w: 20, h: 26, sw: 0.5,
                 d: 'M9.44,23c-.1.6-.35.6-.44.6s-.34,0-.44-.6l-3,.67V22.6A.54.54,0,0,1,6,22.05l2.38-1.12L8,19.33H6.69l0-.2a8.23,8.23,0,0,1-.14-3.85l.06-.18H7.73V13.19h-2L.26,14.29v-.93c0-.28.07-.46.22-.53l7.25-3.6V3.85A4.47,4.47,0,0,1,8.83.49L9,.34l.17.15a4.47,4.47,0,0,1,1.1,3.36V9.23l7.25,3.6c.14.07.22.25.22.53v.93l-5.51-1.1h-2V15.1h1.17l.06.18a8.24,8.24,0,0,1-.15,3.84l0,.2H10l-.36,1.6,2.43,1.14a.52.52,0,0,1,.35.53v1.08Z'
             },
-            turboprop: {
-                // Straight unswept wings — jet_nonswept from tar1090 (good for turboprops too)
+            lightjet: {
+                // Straight unswept wings (jet_nonswept from tar1090): Citation CJ-style light jets, and props
                 vb: '-2 -2.4 22 22', w: 22, h: 22, sw: 0.5,
                 d: 'M9,17.09l-3.51.61v-.3c0-.65.11-1,.33-1.09L8.5,15a5.61,5.61,0,0,1-.28-1.32l-.53-.41-.1-.69H7.12l0-.21a7.19,7.19,0,0,1-.15-2.19L.24,9.05V8.84c0-1.1.51-1.15.61-1.15L7.8,7.18V2.88C7.8.64,8.89.3,8.93.28L9,.26l.07,0s1.13.36,1.13,2.6v4.3l7,.51c.09,0,.59.06.59,1.15v.21l-6.69,1.16a7.17,7.17,0,0,1-.15,2.19l0,.21h-.47l-.1.69-.53.41A5.61,5.61,0,0,1,9.5,15l2.74,1.28c.2.07.31.43.31,1.08v.3Z'
             }

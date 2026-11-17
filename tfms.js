@@ -244,6 +244,41 @@ function routeDest(routeStr) {
 // Scoped to the per-leg store only (both callers below are already inside _isResearchRelevant(cs)
 // blocks) -- never touches candidateOrigin/isExpectedOrigin, which gate every other pilot's real
 // tracked flight, so this can't affect the general pipeline.
+// Aircraft type (ICAO designator: A321, E75L, CRJ9, H25B...) from TFMS's <aircraftModel>, for the live
+// map's plane icon (the SWIM position feeds don't carry one, and ADS-B, which does, is often rate-limited).
+// Kept per callsign AND departure airport: airlines reuse a flight number for different legs, sometimes on
+// different equipment, so a leg only gets a type recorded for its own origin (or one recorded with no
+// origin). Only messages that pass processOneFltdMessage's day/origin checks get here. Memory only.
+const _aircraftModels = {}; // callsign -> [{ origin, model, at }]
+const AC_MODEL_TTL_MS = 36 * 3600000;
+const _aptKey = a => a ? String(a).trim().toUpperCase().replace(/^K(?=[A-Z]{3}$)/, '') : null;
+let _acModelWrites = 0;
+function noteAircraftModel(msgObj, cs, origin) {
+    const raw = textOf(findDeep(msgObj, 'aircraftModel'));
+    const model = raw ? String(raw).trim().toUpperCase() : '';
+    if (!/^[A-Z0-9]{2,4}$/.test(model)) return;
+    const o = _aptKey(origin), now = Date.now();
+    const list = _aircraftModels[cs] || (_aircraftModels[cs] = []);
+    const e = list.find(x => x.origin === o);
+    if (e) { e.model = model; e.at = now; } else { list.push({ origin: o, model, at: now }); if (list.length > 6) list.shift(); }
+    if (++_acModelWrites % 2000 === 0) { // research mode sees the whole NetJets fleet: drop stale callsigns now and then
+        for (const k of Object.keys(_aircraftModels)) { const l = _aircraftModels[k].filter(x => now - x.at < AC_MODEL_TTL_MS); if (l.length) _aircraftModels[k] = l; else delete _aircraftModels[k]; }
+    }
+}
+// The type for this callsign's leg from `origin`: that origin's record, else one recorded with no origin.
+// Without an origin, the newest. Never another origin's record (that could be a different aircraft).
+function getAircraftModel(callsign, origin) {
+    const list = (_aircraftModels[String(callsign || '').trim().toUpperCase()] || []).filter(x => Date.now() - x.at < AC_MODEL_TTL_MS);
+    if (!list.length) return null;
+    const newest = l => l.sort((a, b) => b.at - a.at)[0].model;
+    if (!origin) return newest(list);
+    const o = _aptKey(origin);
+    const exact = list.filter(x => x.origin === o);
+    if (exact.length) return newest(exact);
+    const unknown = list.filter(x => !x.origin);
+    return unknown.length ? newest(unknown) : null;
+}
+
 function attrAirport(msgObj, attrName) {
     const v = findAttr(msgObj, attrName);
     return v ? String(v).trim().toUpperCase().replace(/^K/, '') : null;
@@ -404,6 +439,7 @@ function processOneFltdMessage(msgObj) {
     // doesn't carry a fresh route of its own.
     if (!isExpectedOrigin(cs, candidateOrigin)) return;
 
+    noteAircraftModel(msgObj, cs, ownOrigin || attrAirport(msgObj, 'depArpt') || candidateOrigin);
     const msgType = findAttr(msgObj, 'msgType');
     if (msgType === 'flightPlanInformation') processFlightPlanInfo(msgObj, cs);
     else if (msgType === 'flightPlanAmendmentInformation') processAmendment(msgObj, cs);
@@ -873,4 +909,4 @@ function getFlightTimes(callsign) {
         gateDeparture, gateArrival, runwayDeparture, runwayArrival, originalDeparture, originalArrival };
 }
 
-module.exports = { legsReady: () => _legStore.isReady(), connect, getFlightData, getFlightTimes, getAllLegTimes, getCallsignsWithLegTimes, routeDest, getAirportConfig, getAirportConfigRaw, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };
+module.exports = { legsReady: () => _legStore.isReady(), getAircraftModel, connect, getFlightData, getFlightTimes, getAllLegTimes, getCallsignsWithLegTimes, routeDest, getAirportConfig, getAirportConfigRaw, splitRunwayConf, setRelevantCallsigns, setRelevantOrigins, isEnabled: () => TFMS_ENABLED };

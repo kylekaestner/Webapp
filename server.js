@@ -4632,6 +4632,12 @@ function cleanTrail(trail) {
 
 function withTfdmInfo(data, callsign, expectedOrigin) {
     if (data && Array.isArray(data.trail)) data.trail = cleanTrail(data.trail);
+    // Aircraft type for the map's plane icon. ADS-B results carry their own (`type`); SWIM/STDDS don't,
+    // so the leg's TFMS <aircraftModel> fills in (tfms.getAircraftModel, per origin).
+    if (data && data.found && !data.type && callsign) {
+        const m = tfms.getAircraftModel(callsign, expectedOrigin);
+        if (m) { data.type = m; data.typeSource = 'tfms'; }
+    }
     let info = callsign ? tfdm.getFlightInfo(callsign) : null;
     if (callsign && expectedOrigin) {
         // Same leg-matching discipline as _pollNetjetsLegCreation() (see CLAUDE.md's NetJets
