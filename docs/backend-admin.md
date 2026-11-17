@@ -132,7 +132,7 @@ Full three-places-duplicated-config story and the two security-hole discoveries:
 
 ## FRAT Autofill userscript (`public/frat-autofill.user.js`)
 
-Tampermonkey userscript (Kyle only) that autofills PRISM SMS (`prismsms.argus.aero`) flight risk assessment reports from his CrewSync schedule: Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA, and ~24 risk questions computed from schedule + `aviationweather.gov` + FAA NOTAM data. Served from `/frat-autofill.user.js` with `@updateURL`/`@downloadURL` pointing at prod for Tampermonkey auto-update.
+Tampermonkey userscript (Kyle only) that autofills PRISM SMS (`prismsms.argus.aero`) flight risk assessment reports from his CrewSync schedule: Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA, and risk questions computed from schedule + `aviationweather.gov` data (NOTAM questions 15-18, 31 and 42 were removed with `/api/notams` on 2026-11-16: the SkyLink key was failing every call; those are answered by hand). Served from `/frat-autofill.user.js` with `@updateURL`/`@downloadURL` pointing at prod for Tampermonkey auto-update.
 
 **`@match` covers the whole `prismsms.argus.aero` origin**, not just the report URL — needed because PRISM is an Angular SPA using `history.pushState` navigation (full story: `CLAUDE_HISTORY.md § FRAT Autofill userscript`). The script patches `history.pushState`/`replaceState` + listens for `popstate`, idling via `isFratReportRoute()`/`isFratLandingRoute()` route checks.
 

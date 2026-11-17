@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CrewSync FRAT Autofill
 // @namespace    https://crewsync.spiritjets.com/
-// @version      3.11
-// @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + 24 risk questions from schedule, weather, airport, and NOTAM data
+// @version      3.12
+// @description  Prefills Date, Origin, Dest, Trip ID, PIC, SIC, Aircraft, TSA + risk questions from schedule, weather and airport data
 // @author       Kyle Kaestner
 // @match        https://prismsms.argus.aero/*
 // @updateURL    http://167.71.107.245:3000/frat-autofill.user.js
@@ -413,16 +413,6 @@
     KSET: 'KSUS',  // St. Charles → Spirit
   };
 
-  // ── FAA NOTAM data (via CrewSync server proxy — requires FAA API credentials) ──
-
-  async function fetchNotams(dep, arr) {
-    const data = await gmXhr(`${SERVER}/api/notams?dep=${dep}&arr=${arr}`);
-    const notams = data?.notams || [];
-    if (data?.unconfigured) console.log('[CrewSync FRAT] NOTAMs: RapidAPI key not set on server — skipping (POST /api/settings/notam-creds)');
-    else console.log(`[CrewSync FRAT] NOTAMs: ${notams.length} for ${dep}/${arr}`);
-    return notams;
-  }
-
   // ── Weather + airport data + sun times (aviationweather.gov + sunrise-sunset.org) ──
 
   async function fetchWeatherAndAirports(dep, arr, arrTime) {
@@ -626,7 +616,7 @@
   // Returns array of { num, check?, value?, mitigation? } for applicable questions.
   // Only returns entries for questions where the condition IS TRUE (risky).
 
-  function evaluateRiskQuestions(flight, allFlights, weather, schedInfo, notams = []) {
+  function evaluateRiskQuestions(flight, allFlights, weather, schedInfo) {
     const { metar = {}, taf = {}, airports = {}, sunTimes } = weather;
     const dep = flight.departure_airport;
     const arr = flight.arrival_airport;
@@ -745,41 +735,6 @@
     // Q40: Contaminated runway at arrival (frozen precip)
     flag(40, hasFrozen(arrM) ? { check: true } : null);
 
-    // ── NOTAM-derived ────────────────────────────────────────────────────────
-    if (notams.length > 0) {
-      const depNotams = notams.filter(n => n.airport === dep);
-      const arrNotams = notams.filter(n => n.airport === arr);
-      const allNotams = notams;
-
-      // Helpers for common NOTAM pattern matches
-      const isRwyClsd  = n => /\bRWY\b.{0,30}\b(CLSD|CLOSED)\b/i.test(n.text) || (n.subjectCode === 'RW' && /CL/i.test(n.conditionCode || ''));
-      const isConstr   = n => /\b(CONSTR|WIP|WORK IN PROG|WORK IN PROGRESS|CONSTRUCTION)\b/i.test(n.text);
-      const isNoise    = n => /\b(NOISE ABATEMENT|NOISE RESTRICTION|CURFEW|QUIET HOURS)\b/i.test(n.text);
-      const isTFR      = n => n.classification === 'FDC' && /\bTEMPORARY FLIGHT RESTRICTION\b|\bTFR\b/i.test(n.text);
-      const isLgtgInop = n => /\b(PAPI|VASI|REIL|ODALS|ALSF|MALSR|ALS|LGTG|LIGHTING)\b.{0,40}\b(INOP|U\/S|UNUSBL|OUT OF SERVICE|NOT AVBL)\b/i.test(n.text);
-
-      // Q15: Runway closure at departure airport
-      flag(15, depNotams.some(isRwyClsd) ? { check: true } : null);
-
-      // Q16: Runway closure at arrival airport
-      flag(16, arrNotams.some(isRwyClsd) ? { check: true } : null);
-
-      // Q17: Construction (either airport)
-      flag(17, allNotams.some(isConstr) ? { check: true } : null);
-
-      // Q18: Noise abatement / curfew restrictions (arrival airport)
-      flag(18, arrNotams.some(isNoise) ? { check: true } : null);
-
-      // Q31: TFR in effect (any FDC NOTAM)
-      flag(31, allNotams.some(isTFR) ? { check: true } : null);
-
-      // Q42: Approach/runway lighting inoperative at arrival
-      flag(42, arrNotams.some(isLgtgInop) ? { check: true } : null);
-
-      const notamHits = results.filter(r => [15,16,17,18,31,42].includes(r.num)).map(r => `Q${r.num}`);
-      if (notamHits.length) console.log(`[CrewSync FRAT] NOTAM flags: ${notamHits.join(', ')}`);
-    }
-
     console.log(`[CrewSync FRAT] Risk questions flagged: ${results.map(r => `Q${r.num}`).join(', ') || 'none'}`);
     return results;
   }
@@ -794,7 +749,6 @@
     const weatherPromise   = fetchWeatherAndAirports(
       flight.departure_airport, flight.arrival_airport, new Date(flight.arrival_time)
     );
-    const notamsPromise = fetchNotams(flight.departure_airport, flight.arrival_airport);
 
     // ── Flight Date and ETD ────────────────────────────────────────────────
     const dateEl = inputByLabel('flight date and etd');
@@ -825,10 +779,9 @@
     else if (!tripEl) log.push('Trip ID ✗');
 
     // ── Await all parallel fetches (schedule info + weather) ──────────────
-    const [schedInfo, weather, notams] = await Promise.all([
+    const [schedInfo, weather] = await Promise.all([
       schedInfoPromise,
       weatherPromise,
-      notamsPromise,
       new Promise(r => setTimeout(r, 400)), // let autocomplete panels settle
     ]);
 
@@ -915,7 +868,7 @@
     } else log.push('Rest ✗');
 
     // ── Risk questions ────────────────────────────────────────────────────
-    const riskEvals = evaluateRiskQuestions(flight, allFlights, weather, schedInfo, notams);
+    const riskEvals = evaluateRiskQuestions(flight, allFlights, weather, schedInfo);
 
     if (riskEvals.length > 0) {
       for (const ev of riskEvals) {
