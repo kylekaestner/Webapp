@@ -1262,6 +1262,8 @@
             </div>
 
             <button onclick="closeProfile()" class="w-full py-3 border border-zinc-700 text-zinc-400 rounded-xl font-black uppercase text-xs tracking-wide">Done</button>
+            <!-- Version + build (the app.js content hash): says exactly which deploy this device is running. -->
+            <p id="profile-version" class="text-center text-[10px] font-bold uppercase tracking-widest text-zinc-600 pt-1"></p>
             <button id="sign-out-btn" onclick="signOut()" class="hidden w-full py-3 border border-red-900/60 text-red-500/70 rounded-xl font-black uppercase text-xs tracking-wide hover:border-red-700 hover:text-red-400 transition-colors">Sign Out</button>
         </div>
     </div>

@@ -68,6 +68,11 @@
             const sidebar = document.getElementById('sidebar-version');
             if (splash) splash.textContent = label;
             if (sidebar) sidebar.textContent = label;
+            // Profile sheet: version plus the build, the first 7 of app.js's content hash (its ?v=), which changes
+            // with every deploy that changes the code, so it shows which deploy a phone is actually running.
+            const profile = document.getElementById('profile-version');
+            const build = ((document.querySelector('script[src*="app.js?v="]') || {}).src || '').match(/[?&]v=([0-9a-f]{7})/);
+            if (profile) profile.textContent = label + (build ? ' · build ' + build[1] : '');
         }).catch(() => {});
 
         // ── Schedule upload reminder ─────────────────────────────────────
