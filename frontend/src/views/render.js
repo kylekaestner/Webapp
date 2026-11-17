@@ -593,8 +593,13 @@
                     listHtml += `<div class="${listClasses.join(' ')}"><div class="w-16 shrink-0 text-center border-r ${sidebarBorder} pr-4 flex flex-col justify-center"><div class="text-[9px] font-black uppercase ${sidebarColor} opacity-70">${dateLabel.split(' ')[0]}</div><div class="text-2xl font-black ${sidebarColor}">${d}</div><div class="text-[8px] font-bold uppercase ${labelColor} mt-1 tracking-widest">${label}</div>${_tourEditButton(dateKey, 'Edit')}</div><div class="flex-1 space-y-2 min-w-0">${contentHtml}</div></div>`;
                 }
                 listContainer.innerHTML = listHtml;
+                // Scroll only the list to today. Never scrollIntoView(): it scrolls every ancestor, and iOS
+                // Safari also moved the page itself, which slid the crew names under the fixed header and
+                // pushed the map's mode bar under the bottom nav on the next Map open.
                 const todayEl = listContainer.querySelector('.day-today');
-                if (todayEl) todayEl.scrollIntoView({ block: 'start' });
+                const listView = document.getElementById('view-list');
+                if (todayEl && listView) listView.scrollTop += todayEl.getBoundingClientRect().top - listView.getBoundingClientRect().top;
+                _resetPageShift();
             } else if (currentView === 'map') {
                 renderMap();
             }
@@ -611,8 +616,17 @@
             // the next paint guarantees the real, final layout before measuring where to scroll.
             if (currentView === 'grid') {
                 requestAnimationFrame(() => {
+                    // Each live leg into view within its own day's list only (see the list's note above
+                    // on scrollIntoView and iOS).
+                    const intoDayList = el => {
+                        const dayList = el?.closest('.overflow-y-auto');
+                        if (!dayList || dayList.id === 'view-grid') return;
+                        const leg = el.getBoundingClientRect(), box = dayList.getBoundingClientRect();
+                        if (leg.bottom > box.bottom) dayList.scrollTop += leg.bottom - box.bottom;
+                        else if (leg.top < box.top) dayList.scrollTop -= box.top - leg.top;
+                    };
                     const liveLegs = gridContainer.querySelectorAll('.flight-item.active-leg');
-                    liveLegs.forEach(el => el.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+                    liveLegs.forEach(intoDayList);
                     if (liveLegs.length) return;
                     // Nothing in the air: today's next leg, which can sit below the fold of a busy day.
                     const today = _localToday(), nowMs = Date.now();
@@ -623,12 +637,7 @@
                     });
                     // Only the day's own list. scrollIntoView() also moves the page, and this runs on most
                     // redraws, so it would pull you back to today while you're scrolling the month.
-                    const dayList = nextLeg?.closest('.overflow-y-auto');
-                    if (dayList && dayList.id !== 'view-grid') {
-                        const leg = nextLeg.getBoundingClientRect(), box = dayList.getBoundingClientRect();
-                        if (leg.bottom > box.bottom) dayList.scrollTop += leg.bottom - box.bottom;
-                        else if (leg.top < box.top) dayList.scrollTop -= box.top - leg.top;
-                    }
+                    intoDayList(nextLeg);
                 });
             }
         }

@@ -19,6 +19,17 @@
             }).catch(() => {});
         }
 
+        // The page itself never scrolls (every view scrolls inside <main>), but iOS Safari can still be moved
+        // by code: then the crew names sit under the fixed header and the map's mode bar under the bottom nav.
+        // Put the page and its fixed containers back to 0.
+        function _resetPageShift() {
+            const col = document.getElementById('mobile-pilot-bar')?.parentElement;
+            for (const el of [document.documentElement, document.body, col, document.querySelector('main')]) {
+                if (el && el.scrollTop) el.scrollTop = 0;
+            }
+            if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+        }
+
         function switchView(view) {
             haptic('tap');
             trackEvent('view:' + view);
@@ -78,5 +89,6 @@
             }
             if (view === 'intel') loadIntel();
             render();
+            _resetPageShift();
         }
 
