@@ -4632,11 +4632,16 @@ function cleanTrail(trail) {
 
 function withTfdmInfo(data, callsign, expectedOrigin) {
     if (data && Array.isArray(data.trail)) data.trail = cleanTrail(data.trail);
-    // Aircraft type for the map's plane icon. ADS-B results carry their own (`type`); SWIM/STDDS don't,
-    // so the leg's TFMS <aircraftModel> fills in (tfms.getAircraftModel, per origin).
+    // Aircraft type for the map's plane icon. ADS-B results carry their own (`type`); SWIM/STDDS
+    // positions don't, so the leg's filed type fills in: TFMS <aircraftModel>, else SFDPS
+    // <icaoModelIdentifier>, both kept per departure airport.
     if (data && data.found && !data.type && callsign) {
         const m = tfms.getAircraftModel(callsign, expectedOrigin);
         if (m) { data.type = m; data.typeSource = 'tfms'; }
+        else {
+            const s = expectedOrigin ? swim.getAircraftType(callsign, expectedOrigin) : null;
+            if (s) { data.type = s; data.typeSource = 'sfdps'; }
+        }
     }
     let info = callsign ? tfdm.getFlightInfo(callsign) : null;
     if (callsign && expectedOrigin) {

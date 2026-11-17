@@ -71,6 +71,7 @@ const NETJETS_RESEARCH_MODE = true;
 // NetJets flies/files under the bare tail number (always ending "QS") instead of EJA####.
 function _isResearchRelevant(cs) { return NETJETS_RESEARCH_MODE && (/^EJA\d+$/.test(cs) || /^N\d+QS$/.test(cs)); }
 const _legRoutes = {}; // callsign -> Map("ORIGIN>DEST" -> {origin, dest, route, routeParsed, sid, star, gufi, lastMsg})
+let _acTypeLogged = 0;
 function _normApt(a) { return a ? String(a).toUpperCase().replace(/^K/, '') : null; }
 function _legRouteKey(origin, dest) { return `${_normApt(origin)}>${_normApt(dest)}`; }
 // A filed route is matched to a scheduled leg, never the other way round: same origin, same
@@ -131,9 +132,11 @@ function scheduleSave() {
             const f = _latest[cs];
             const hasTrail = _watched.has(cs) && f.trail?.length;
             const hasRoute = !!f.route;
-            if (!hasTrail && !hasRoute) continue;
+            const hasTypes = !!(f.acTypes && Object.keys(f.acTypes).length);
+            if (!hasTrail && !hasRoute && !hasTypes) continue;
             data[cs] = {
                 ts: Date.now(),
+                ...(hasTypes ? { acTypes: f.acTypes } : {}),
                 ...(hasTrail ? { trail: f.trail } : {}),
                 // routeParsed may already carry a resolved resolvedPath (server.js's
                 // resolveRouteWaypoints mutates the same object in place) -- saving it as-is means
@@ -169,6 +172,7 @@ function loadStateCache() {
                 _latest[cs].trail = entry.trail;
                 _watched.add(cs);
             }
+            if (entry.acTypes && typeof entry.acTypes === 'object') _latest[cs].acTypes = entry.acTypes;
             if (entry.route) {
                 _latest[cs].route = entry.route;
                 _latest[cs].originalRoute = entry.originalRoute;
@@ -376,6 +380,14 @@ function processOneMessage(msgObj) {
     // frequency is vnas.js's job (server.js's fetchLivePosition wires the two together), not
     // this module's -- kept separate since vnas.js's data source (VATSIM's own public API) is
     // completely unrelated to the SFDPS feed itself.
+    // Aircraft type (map plane icon): FIXM <aircraftDescription><aircraftType><icaoModelIdentifier>,
+    // on flight-plan/amendment messages, not on every track message. Kept per departure airport
+    // (like tfms.getAircraftModel), never per callsign alone: a reused callsign's next leg can be
+    // another aircraft.
+    let acType = textOf(findDeep(msgObj, 'icaoModelIdentifier'));
+    acType = acType ? String(acType).trim().toUpperCase() : null;
+    if (acType && !/^[A-Z][A-Z0-9]{1,3}$/.test(acType)) acType = null;
+
     const handoff = findDeep(msgObj, 'handoff');
     const recvUnit = handoff?.receivingUnit;
     const sectorUnit = recvUnit ? (recvUnit['@_unitIdentifier'] ?? null) : null;
@@ -417,6 +429,17 @@ function processOneMessage(msgObj) {
     }
     if (sid) entry.sid = sid;
     if (star) entry.star = star;
+    const typeOrigin = _normApt(origin || entry.origin);
+    if (acType && typeOrigin) {
+        entry.acTypes = entry.acTypes || {};
+        if (entry.acTypes[typeOrigin] !== acType) {
+            if (!_acTypeLogged++) console.log(`[SWIM] first aircraft type from SFDPS: ${cs} ${typeOrigin} ${acType}`);
+            entry.acTypes[typeOrigin] = acType;
+            const keys = Object.keys(entry.acTypes);
+            if (keys.length > 6) delete entry.acTypes[keys[0]];
+            scheduleSave();
+        }
+    }
     if (sectorUnit && sectorId) entry.sector = { unit: sectorUnit, sectorId: String(sectorId) };
 
     if (!isNaN(lat) && !isNaN(lon)) {
@@ -648,6 +671,13 @@ loadStateCache();
 // callsign, so this reverse lookup is how stdds.js attributes an anonymous surface track back
 // to one of CrewSync's own pilots. _latest is already filtered to just relevant callsigns, so
 // a linear scan here is cheap — no separate reverse index needed.
+// SFDPS's filed aircraft type for this callsign's leg out of `origin` (null if none seen).
+function getAircraftType(callsign, origin) {
+    const f = _latest[String(callsign || '').trim().toUpperCase()];
+    const o = _normApt(origin);
+    return (f && f.acTypes && o && f.acTypes[o]) || null;
+}
+
 function callsignForGufi(gufi) {
     if (!gufi) return null;
     for (const [cs, f] of Object.entries(_latest)) {
@@ -656,4 +686,4 @@ function callsignForGufi(gufi) {
     return null;
 }
 
-module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, getRouteForLeg, isEnabled: () => SWIM_ENABLED };
+module.exports = { connect, getSwimPosition, setRelevantCallsigns, callsignForGufi, getRouteForLeg, getAircraftType, isEnabled: () => SWIM_ENABLED };

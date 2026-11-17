@@ -248,9 +248,28 @@ function routeDest(routeStr) {
 // map's plane icon (the SWIM position feeds don't carry one, and ADS-B, which does, is often rate-limited).
 // Kept per callsign AND departure airport: airlines reuse a flight number for different legs, sometimes on
 // different equipment, so a leg only gets a type recorded for its own origin (or one recorded with no
-// origin). Only messages that pass processOneFltdMessage's day/origin checks get here. Memory only.
+// origin). Only messages that pass processOneFltdMessage's day/origin checks get here. TFMS only sends
+// <aircraftModel> in FlightTimes / FlightModify / FlightRoute (about 1 in 6 messages; never trackInformation),
+// so a cruising flight can go a long time without one: the records are saved to disk (like the runway
+// configurations) so a restart doesn't put every flight back to the default icon.
 const _aircraftModels = {}; // callsign -> [{ origin, model, at }]
 const AC_MODEL_TTL_MS = 36 * 3600000;
+const AC_MODEL_CACHE_PATH = path.join(__dirname, '.tfms_actype_cache.json');
+try {
+    const saved = JSON.parse(fs.readFileSync(AC_MODEL_CACHE_PATH, 'utf8'));
+    for (const [cs, list] of Object.entries(saved)) {
+        const l = (list || []).filter(x => x && x.model && Date.now() - (x.at || 0) < AC_MODEL_TTL_MS);
+        if (l.length) _aircraftModels[cs] = l;
+    }
+} catch (_) {}
+let _acModelSaveTimer = null;
+function scheduleAcModelSave() {
+    if (_acModelSaveTimer) return;
+    _acModelSaveTimer = setTimeout(() => {
+        _acModelSaveTimer = null;
+        try { fs.writeFileSync(AC_MODEL_CACHE_PATH, JSON.stringify(_aircraftModels)); } catch (_) {}
+    }, 60000);
+}
 const _aptKey = a => a ? String(a).trim().toUpperCase().replace(/^K(?=[A-Z]{3}$)/, '') : null;
 let _acModelWrites = 0;
 function noteAircraftModel(msgObj, cs, origin) {
@@ -260,7 +279,8 @@ function noteAircraftModel(msgObj, cs, origin) {
     const o = _aptKey(origin), now = Date.now();
     const list = _aircraftModels[cs] || (_aircraftModels[cs] = []);
     const e = list.find(x => x.origin === o);
-    if (e) { e.model = model; e.at = now; } else { list.push({ origin: o, model, at: now }); if (list.length > 6) list.shift(); }
+    if (e) { if (e.model !== model) scheduleAcModelSave(); e.model = model; e.at = now; }
+    else { list.push({ origin: o, model, at: now }); if (list.length > 6) list.shift(); scheduleAcModelSave(); }
     if (++_acModelWrites % 2000 === 0) { // research mode sees the whole NetJets fleet: drop stale callsigns now and then
         for (const k of Object.keys(_aircraftModels)) { const l = _aircraftModels[k].filter(x => now - x.at < AC_MODEL_TTL_MS); if (l.length) _aircraftModels[k] = l; else delete _aircraftModels[k]; }
     }

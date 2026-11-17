@@ -19,6 +19,7 @@ scratch/
 .tfdm_legs_cache.json
 .tfms_legtimes_cache.json
 .tfms_aptc_cache.json
+.tfms_actype_cache.json
 .netjets_route_durations*.json
 *.db-wal
 *.db-shm
