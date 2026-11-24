@@ -329,6 +329,15 @@
             document.getElementById('netjets-tour-modal-reset-btn').classList.toggle('hidden', !_tourTailFor(_netjetsTourModalPilot, tourStartDate));
             document.getElementById('netjets-tour-modal').classList.remove('hidden');
         }
+        // A different tail means a new start airport, so the old one doesn't get saved with it.
+        function _onNetjetsTourTailInput() {
+            const saved = (_tourTailFor(_netjetsTourModalPilot, _netjetsTourModalDate) || '').toUpperCase();
+            const savedApt = _tourStartAirportFor(_netjetsTourModalPilot, _netjetsTourModalDate) || '';
+            const aptEl = document.getElementById('netjets-tour-modal-start-airport');
+            const changed = saved && document.getElementById('netjets-tour-modal-tail').value.trim().toUpperCase() !== saved;
+            if (changed && aptEl.value.toUpperCase() === savedApt.toUpperCase()) aptEl.value = '';
+            else if (!changed && !aptEl.value) aptEl.value = savedApt;
+        }
         // Legs on this tour's tail from yesterday on, flown or not, so a pilot already off the plane can
         // still pick the leg they left on. Includes legs a last-leg pick already took off.
         function _refreshNetjetsLastLegPicker() {
@@ -422,6 +431,8 @@
             if (!tail) { statusEl.textContent = 'Enter the tail number first.'; return; }
             const priorTail = _tourTailFor(pilot, tourStart);
             const isSwap = priorTail && priorTail.toUpperCase() !== tail.toUpperCase();
+            // Needed for every new tail: it's where the pilot gets on, which the feeds can't tell us.
+            if (!startAirport && (!priorTail || isSwap)) { statusEl.textContent = `Enter the airport where you start on ${displayTail(tail, pilot)}.`; return; }
             const priorRow = (pilotsCache[pilot]?.tour_tails || []).find(t => t.tour_start_date === tourStart);
             const savedLast = priorRow?.last_leg_id || null;
             const pickerShown = !document.getElementById('netjets-tour-modal-last-leg-wrap').classList.contains('hidden');

@@ -1538,7 +1538,7 @@
             <p class="text-xs text-zinc-400 leading-relaxed">Tail # and starting airport for this tour — "wherever you're meeting the aircraft on Day 1." A leg flown before this is saved can't be recovered after the fact.</p>
             <div>
                 <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Tail # (e.g. 742)</label>
-                <input id="netjets-tour-modal-tail" type="text" inputmode="numeric" maxlength="3" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white" placeholder="742">
+                <input id="netjets-tour-modal-tail" oninput="_onNetjetsTourTailInput()" type="text" inputmode="numeric" maxlength="3" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white" placeholder="742">
             </div>
             <div>
                 <label class="block text-[10px] font-black uppercase tracking-wide text-zinc-500 mb-1">Starting Airport</label>

@@ -236,6 +236,19 @@ function initDB() {
         db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN start_airport TEXT`, () => {});
         db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN last_leg_id INTEGER`, () => {});
         db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN next_tail TEXT`, () => {});
+        // Mid-tour swap: when this tail took over (null on a tour's first tail), where the pilot meets a
+        // queued next_tail, and whether start_airport is only our guess (the old tail's last arrival).
+        db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN tail_since TEXT`, () => {});
+        db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN next_start_airport TEXT`, () => {});
+        db.run(`ALTER TABLE pilot_tour_tail ADD COLUMN start_guess INTEGER DEFAULT 0`, () => {});
+        // Where each NetJets tail last flew to. The feed records it comes from expire after 5 days, so a
+        // tail that sat in maintenance longer had no known position (Mack's EJA10 at ICT, 11/21).
+        db.run(`CREATE TABLE IF NOT EXISTS nj_tail_position (
+            tail TEXT PRIMARY KEY,
+            airport TEXT NOT NULL,
+            dep_ms INTEGER NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_pilot_tour_tail_pilot ON pilot_tour_tail(pilot_id)`);
 
         // A line-to-line switch (7&7<->8&6 or within the same family) isn't a clean cutover --

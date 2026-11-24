@@ -2015,7 +2015,9 @@ function _tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, minDepMs, rows = [], startFr
         const fromTfdm = pool.filter(l => norm(l.origin) === here && l.scheduledDepMs > after)
             .map(l => ({ ms: l.scheduledDepMs, tfdm: l, t: null }));
         // earliest next departure; on a tie TFDM's own leg wins (it's already a candidate)
-        const next = [...fromTfdm, ...fromTfms].sort((a, b) => (a.ms - b.ms) || (a.tfdm ? -1 : 1))[0];
+        // A plan 3h past departure that never moved was dropped, so one still ahead is taken first.
+        const options = [...fromTfdm, ...fromTfms].sort((a, b) => (a.ms - b.ms) || (a.tfdm ? -1 : 1));
+        const next = options.find(o => o.ms > Date.now() - 3 * 3600000 || (o.tfdm && MOVING_RE.test(o.tfdm.flightState || ''))) || options[0];
         if (!next) break;
         if (next.tfdm) { anchor = next.tfdm; continue; }
         const leg = { origin: next.t.origin, dest: next.t.dest, scheduledDepMs: next.ms, flightState: 'SCHEDULED', tfmsOnly: true, inAdvance: true, cs: next.t.cs };
@@ -3381,7 +3383,7 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
                 // Still flying the old tail toward a named last leg: a new tail waits for that leg
                 // to land (_netjetsLegCreationPass makes the switch), or swapping now would cancel it.
                 if (isSwap && priorRow.last_leg_id && !priorRow.last_leg_done) {
-                    return db.run(`UPDATE pilot_tour_tail SET next_tail=? WHERE pilot_id=? AND tour_start_date=?`, [cleanTail, pilotRow.id, tourStartDate], err1b => {
+                    return db.run(`UPDATE pilot_tour_tail SET next_tail=?, next_start_airport=? WHERE pilot_id=? AND tour_start_date=?`, [cleanTail, cleanStartAirport, pilotRow.id, tourStartDate], err1b => {
                         if (err1b) return res.status(500).json({ error: err1b.message });
                         res.json({ success: true, queued: true });
                     });
@@ -3392,21 +3394,28 @@ app.put('/api/pilots/:pilotKey/tour-tail', (req, res) => {
                     if (!oldCallsign) return cb();
                     _closeOutTourLegs(db, pilotRow.id, `${oldCallsign}|${tourStartDate}|%`, cb);
                 };
-                finalizeOldLeg(() => {
+                // Reset, then a different tail: no row to compare with, but legs flown on another tail this
+                // tour mean it's a swap all the same.
+                const ifFlewAnother = cb => priorRow ? cb(false) : db.get(
+                    `SELECT 1 FROM segments WHERE pilot_id=? AND auto_leg_key LIKE ? AND auto_leg_key NOT LIKE ? AND auto_leg_complete=1 AND auto_leg_cancelled=0 LIMIT 1`,
+                    [pilotRow.id, `EJA%|${tourStartDate}|%`, `${ejaFlightNumber(cleanTail)}|%`], (e, r) => cb(!e && !!r));
+                finalizeOldLeg(() => ifFlewAnother(flewAnother => {
                     // COALESCE(excluded.start_airport, start_airport) normally keeps a re-save that
                     // only touches the tail field from blanking an already-saved start airport --
                     // but a genuine swap needs the OPPOSITE: the new tail's start_airport means
                     // "wherever this NEW aircraft is being met," not Day 1's original airport, so a
                     // swap always takes whatever start_airport the client supplies (even if blank,
                     // clearing the stale Day-1 value rather than silently keeping it).
-                    const startAirportSql = isSwap ? 'start_airport=excluded.start_airport, last_leg_id=NULL, next_tail=NULL' : 'start_airport=COALESCE(excluded.start_airport, start_airport)';
-                    db.run(`INSERT INTO pilot_tour_tail (pilot_id, tour_start_date, tail, start_airport) VALUES (?, ?, ?, ?)
+                    const startAirportSql = isSwap
+                        ? `start_airport=excluded.start_airport, last_leg_id=NULL, next_tail=NULL, next_start_airport=NULL, start_guess=0, tail_since=excluded.tail_since`
+                        : `start_guess=CASE WHEN excluded.start_airport IS NULL OR excluded.start_airport=start_airport THEN start_guess ELSE 0 END, start_airport=COALESCE(excluded.start_airport, start_airport)`;
+                    db.run(`INSERT INTO pilot_tour_tail (pilot_id, tour_start_date, tail, start_airport, tail_since) VALUES (?, ?, ?, ?, ?)
                             ON CONFLICT(pilot_id, tour_start_date) DO UPDATE SET tail=excluded.tail, ${startAirportSql}`,
-                        [pilotRow.id, tourStartDate, cleanTail, cleanStartAirport], function(err2) {
+                        [pilotRow.id, tourStartDate, cleanTail, cleanStartAirport, isSwap || flewAnother ? new Date().toISOString() : null], function(err2) {
                             if (err2) return res.status(500).json({ error: err2.message });
                             res.json({ success: true, swapped: isSwap });
                         });
-                });
+                }));
             });
         });
     });
@@ -5535,12 +5544,12 @@ function _getOnDutyNetjetsPilots(db, todayStr, cb) {
         pilots.forEach(p => {
             _netjetsTourStartServer(db, p.id, todayStr, (tourStart) => {
                 if (!tourStart) return done();
-                db.get(`SELECT tail, start_airport, last_leg_id, next_tail FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?`, [p.id, tourStart], (err3, tailRow) => {
+                db.get(`SELECT tail, start_airport, last_leg_id, next_tail, tail_since, next_start_airport, start_guess FROM pilot_tour_tail WHERE pilot_id=? AND tour_start_date=?`, [p.id, tourStart], (err3, tailRow) => {
                     if (!err3 && tailRow && tailRow.tail) {
                         const callsign = ejaFlightNumber(tailRow.tail);
-                        const tailDigits = String(tailRow.tail).replace(/D/g, '');
+                        const tailDigits = String(tailRow.tail).replace(/\D/g, '');
                         const tailCallsign = tailDigits ? `N${tailDigits}QS` : null; // outside lower 48 + Canada
-                        if (callsign) results.push({ pilotId: p.id, pilotKey: p.pilot_key, base: p.base || '', tail: tailRow.tail, callsign, tailCallsign, tourStart, lastLegId: tailRow.last_leg_id || null, nextTail: tailRow.next_tail || null, startAirport: (tailRow.start_airport || '').toUpperCase().trim() || null });
+                        if (callsign) results.push({ pilotId: p.id, pilotKey: p.pilot_key, base: p.base || '', tail: tailRow.tail, callsign, tailCallsign, tourStart, lastLegId: tailRow.last_leg_id || null, nextTail: tailRow.next_tail || null, nextStartAirport: tailRow.next_start_airport || null, sinceMs: Date.parse(tailRow.tail_since || '') || null, startGuess: !!tailRow.start_guess, startAirport: (tailRow.start_airport || '').toUpperCase().trim() || null });
                     }
                     done();
                 });
@@ -5603,27 +5612,95 @@ function _netjetsRowTimes(row, legTimes, flown, depTime, arrTime, nextDepMs = nu
 
 // The Lookup's note on why a hidden auto leg is off the schedule. Value 1 has several causes and the
 // row doesn't record which, so a cancellation is read from TFMS. Values: docs/netjets.md.
-// When the pilot reaches the aircraft on a tour's first day: the latest commute or deadhead landing
-// at the start airport that day (any airport when none is saved). Null when there's none.
-function _pilotReachedAircraftMs(rows, startAirport) {
+function _localAptMs(iso, airport) {
+    if (/Z$|[+-]\d\d:?\d\d$/.test(iso)) return Date.parse(iso);
+    const tz = _lookupTzForAirport(airport);
+    return tz ? new Date(localTZToUTC(iso.slice(0, 19).replace(/[-:]/g, ''), tz)).getTime() : NaN;
+}
+// When the pilot reaches the aircraft, from a logged commute or deadhead. Null when there's none.
+// First tail of a tour: the first landing at the start airport within 48h (no start airport saved: the
+// latest landing anywhere on day 1). Swapped tail: the first landing there after their last leg on the
+// old one, within a day of the swap. Bounded so the trip home at the end can't count when they start at home.
+function _pilotReachedAircraftMs(rows, startAirport, tourStart, sinceMs = null, lastOldLegMs = null) {
+    const H = 3600000;
+    const dayMs = startAirport ? _localAptMs(`${tourStart}T00:00:00`, startAirport) : NaN;
+    const from = sinceMs != null ? Math.max(sinceMs - 24 * H, lastOldLegMs ?? -Infinity) : (Number.isFinite(dayMs) ? dayMs : Date.parse(`${tourStart}T00:00:00Z`));
+    const to = sinceMs != null ? sinceMs + 24 * H : from + 48 * H;
     let best = null;
     for (const r of rows || []) {
         if (!r.arrival_time || !r.arrival_airport) continue;
-        if (startAirport && !sameAirport(r.arrival_airport, startAirport)) continue;
-        let ms;
-        if (/Z$|[+-]\d\d:?\d\d$/.test(r.arrival_time)) ms = Date.parse(r.arrival_time);
-        else { const tz = _lookupTzForAirport(r.arrival_airport); ms = tz ? new Date(localTZToUTC(r.arrival_time.slice(0, 19).replace(/[-:]/g, ''), tz)).getTime() : NaN; }
-        if (Number.isFinite(ms) && (best == null || ms > best)) best = ms;
+        const ms = _localAptMs(r.arrival_time, r.arrival_airport);
+        if (!Number.isFinite(ms)) continue;
+        if (!startAirport) {
+            if (sinceMs == null && r.arrival_time.startsWith(tourStart) && (best == null || ms > best)) best = ms;
+        } else if (sameAirport(r.arrival_airport, startAirport) && ms >= from && ms <= to && (best == null || ms < best)) best = ms;
     }
     return best;
 }
-// A leg leaving before the pilot got there that day is the previous crew's.
-function _beforePilotArrives(depMs, reachedMs) {
-    return Number.isFinite(depMs) && reachedMs != null && depMs < reachedMs && depMs > reachedMs - 24 * 60 * 60 * 1000;
+// The moment a tail becomes the pilot's: { cutMs, handoverMs }. Legs leaving earlier are another crew's.
+// cutMs is firm: when they reached it, or for a swap with no trip logged, an hour before they saved it
+// (often entered at the gate). handoverMs also counts the start airport, which only says where the pilot
+// is. The aircraft may still be on its way there, so legs before its first departure from there (or
+// through its arrival there, if nothing's filed out yet) are the crew bringing it. Only within 36h of the
+// tail's first leg since then, and not on a guessed airport, so a wrong one can't hide real flying.
+const NETJETS_SWAP_GRACE_MS = 60 * 60 * 1000;
+function _njHandover(rows, { startAirport, startGuess, tourStart, reachedMs, sinceMs }) {
+    const cutMs = reachedMs ?? (sinceMs != null ? sinceMs - NETJETS_SWAP_GRACE_MS : null);
+    if (!startAirport || startGuess) return { cutMs, handoverMs: cutMs };
+    const from = cutMs ?? _localAptMs(`${tourStart}T00:00:00`, startAirport);
+    if (!Number.isFinite(from)) return { cutMs, handoverMs: cutMs };
+    const near = rows.filter(r => [0, 5].includes(r.auto_leg_cancelled || 0))
+        .map(r => ({ r, ms: Date.parse(r.departure_time) })).filter(x => x.ms >= from)
+        .sort((a, b) => a.ms - b.ms).filter((x, i, list) => x.ms <= list[0].ms + 36 * 3600000);
+    const out = near.find(x => sameAirport(x.r.departure_airport, startAirport));
+    const inbound = out ? null : near.find(x => sameAirport(x.r.arrival_airport, startAirport));
+    const at = out ? out.ms : inbound ? inbound.ms + 1 : null;
+    return { cutMs, handoverMs: at ?? cutMs };
+}
+
+// Where a tail last flew to, kept for good in nj_tail_position. In-flight counts (it's headed there), and
+// a diversion just updates the same departure. Only callsigns heard from since the last pass are read.
+const NETJETS_MOVED_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
+function _njLastMoved(csList, beforeMs = Infinity) {
+    return [
+        ...csList.flatMap(c => tfdm.getAllLegs(c)).filter(l => NETJETS_MOVED_RE.test(l.flightState || '')),
+        ...csList.flatMap(c => tfms.getAllLegTimes(c)).filter(_tfmsLegFlown),
+    ].filter(l => l.scheduledDepMs != null && l.dest && !NETJETS_PLACEHOLDER_APT_RE.test(l.dest) && l.scheduledDepMs < beforeMs)
+        .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs).pop() || null;
+}
+let _njPositionsSince = 0;
+function _saveNetjetsTailPositions() {
+    if (!tfms.legsReady() || !tfdm.legsReady()) return;
+    const since = _njPositionsSince, startedAt = Date.now();
+    const tails = new Set([...tfms.getCallsignsWithLegTimes(), ...tfdm.getCallsignsWithLegs()]
+        .filter(c => NJ_CALLSIGN_RE.test(c.callsign) && c.lastMs >= since).map(c => c.callsign.replace(/\D/g, '')));
+    const db = getDB();
+    for (const t of tails) {
+        const last = _njLastMoved([`EJA${t}`, `N${t}QS`], startedAt + 3600000);
+        if (!last) continue;
+        db.run(`INSERT INTO nj_tail_position (tail, airport, dep_ms) VALUES (?, ?, ?)
+                ON CONFLICT(tail) DO UPDATE SET airport=excluded.airport, dep_ms=excluded.dep_ms, updated_at=CURRENT_TIMESTAMP
+                WHERE excluded.dep_ms > dep_ms OR (excluded.dep_ms = dep_ms AND excluded.airport <> airport)`,
+            [t, norm3Airport(last.dest), last.scheduledDepMs], () => {});
+    }
+    _njPositionsSince = startedAt - 60000;
+}
+setInterval(() => { try { _saveNetjetsTailPositions(); } catch (e) { console.error('[NetJets] tail positions:', e.message); } }, 5 * 60 * 1000);
+// Where the chain starts when nothing has moved this tour: the tail's last known position, or the pilot's
+// start airport when nothing is filed out of that (a ferry the feeds missed, or no position at all). Never
+// the start airport first: the aircraft often hasn't reached it yet (EJA17 at HOU, Mack starting at FTW).
+function _njChainStart(lastKnown, startAirport, fromMs, legs, tfmsLegTimes) {
+    const dropped = l => _tfmsLegCancelled(_tfmsPlanFor(tfmsLegTimes, l.origin, l.dest, l.scheduledDepMs));
+    const filedFrom = (apt, after) => [...legs, ...tfmsLegTimes].some(l => l.scheduledDepMs != null && l.dest
+        && l.scheduledDepMs > Math.max(after, Date.now() - 3 * 3600000)
+        && sameAirport(l.origin, apt) && !NETJETS_MOVED_RE.test(l.flightState || '') && !_tfmsLegFlown(l) && !dropped(l));
+    if (lastKnown && filedFrom(lastKnown.dest, lastKnown.scheduledDepMs)) return lastKnown;
+    if (startAirport && filedFrom(startAirport, fromMs)) return { origin: null, dest: startAirport, scheduledDepMs: fromMs };
+    return lastKnown;
 }
 
 function _njHiddenReason(row, plans, rowDepMs) {
-    if (row.auto_leg_cancelled === 5) return 'hidden: before the pilot reached the aircraft (day-1 commute)';
+    if (row.auto_leg_cancelled === 5) return 'hidden: before the pilot took over the aircraft';
     if (row.auto_leg_cancelled === 4) return 'hidden: CrewSync, tail elsewhere on its chain';
     if (row.auto_leg_cancelled === 3) return 'hidden: deleted by the pilot';
     if (row.auto_leg_cancelled === 2) return 'hidden: pilot left this aircraft before this leg';
@@ -5750,7 +5827,7 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             .filter(l => (l.scheduledDepMs || 0) >= tourStartMs), tfmsLegTimes);
         const existingRows = await new Promise(resolve => {
             db.all(
-                `SELECT id, auto_leg_key, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_cancelled
+                `SELECT id, auto_leg_key, departure_airport, arrival_airport, departure_time, arrival_time, auto_leg_complete, auto_leg_edited, auto_leg_cancelled, created_at
                  FROM segments WHERE pilot_id=? AND auto_leg_key LIKE ?`,
                 // Every row for this callsign, not just this tour's key -- EJA+tail is one aircraft, and
                 // a changed tour start (rotation re-saved) otherwise hid already-created rows, so the
@@ -5759,14 +5836,27 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 (err, rows) => resolve(err ? [] : (rows || []))
             );
         });
-        // Where the tail is when the tour starts: its last flight that really moved in the 4 days before.
-        const PRIOR_MOVED_RE = /RAMP_TAXI_OUT|AMA_TAXI_OUT|IN_DEPARTURE_QUEUE|DEPARTED|EN_ROUTE|ON_FINAL|ON_RUNWAY|ARRIVAL|TAXI_IN|LUAW/;
-        const tailWasAt = [
-            ...csList.flatMap(c => tfdm.getAllLegs(c)).filter(l => PRIOR_MOVED_RE.test(l.flightState || '')),
-            ...tfmsLegTimes.filter(_tfmsLegFlown),
-        ].filter(l => l.scheduledDepMs != null && l.dest && l.scheduledDepMs < tourStartMs && l.scheduledDepMs > tourStartMs - 4 * 86400000)
-            .sort((a, b) => a.scheduledDepMs - b.scheduledDepMs).pop() || null;
-        const allLegs = _collapseSameDepartureLegs([...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs, existingRows, tailWasAt)], tfmsLegTimes)
+        // Where the tail is when the tour starts: its last flight that really moved, from the feeds or,
+        // once those have expired, the saved position.
+        const saved = await new Promise(done => db.get('SELECT airport, dep_ms FROM nj_tail_position WHERE tail=?', [cs.replace(/\D/g, '')], (e, r) => done(e ? null : r)));
+        const feedLast = _njLastMoved(csList, tourStartMs);
+        const tailWasAt = saved && saved.dep_ms > (feedLast?.scheduledDepMs ?? -Infinity) ? { origin: null, dest: saved.airport, scheduledDepMs: saved.dep_ms } : feedLast;
+        // Commutes and deadheads, and the last leg flown on a tail given up earlier this tour.
+        const pilotRows = await new Promise(done => db.all(
+            `SELECT arrival_time, arrival_airport, trip, is_dh, tail, auto_leg_key, auto_leg_complete, auto_leg_cancelled FROM segments WHERE pilot_id=? AND type='flight' AND arrival_time>=?`,
+            [nj.pilotId, nj.tourStart], (e, rows) => done(e ? [] : rows || [])));
+        const lastOldLegMs = pilotRows.reduce((max, r) => {
+            const [rcs, rTour] = String(r.auto_leg_key || '').split('|');
+            const ms = rTour === nj.tourStart && rcs !== cs && r.auto_leg_complete && !r.auto_leg_cancelled ? Date.parse(r.arrival_time) : NaN;
+            return ms > (max ?? -Infinity) ? ms : max;
+        }, null);
+        const reachedMs = _pilotReachedAircraftMs(pilotRows.filter(r => r.trip === 'COMMUTE' || r.is_dh), nj.startGuess ? null : nj.startAirport, nj.tourStart, nj.sinceMs, lastOldLegMs);
+        const handoverOf = () => _njHandover(existingRows.filter(r => Date.parse(r.departure_time) >= tourStartMs && ownRow(r)), { ...nj, reachedMs });
+        // Rows this tail already had before a swap onto it are from flying it earlier in the tour.
+        const ownRow = r => nj.sinceMs == null || !r.created_at || Date.parse(r.created_at.replace(' ', 'T') + 'Z') >= nj.sinceMs - 60000;
+        const swapCutMs = nj.sinceMs != null ? handoverOf().cutMs : null;
+        const chainStart = _njChainStart(tailWasAt, nj.startAirport, Math.max(swapCutMs ?? tourStartMs, Date.now() - 3 * 3600000), tfdmLegs, tfmsLegTimes);
+        const allLegs = _collapseSameDepartureLegs([...tfdmLegs, ..._tfmsOnlyFlownLegs(tfdmLegs, tfmsLegTimes, tourStartMs, existingRows, chainStart)], tfmsLegTimes)
             .sort((a, b) => (a.scheduledDepMs || 0) - (b.scheduledDepMs || 0));
         if (!allLegs.length) continue; // nothing known yet for this tour -- wait for a real signal
 
@@ -5774,8 +5864,9 @@ async function _netjetsLegCreationPass(db, onDutyList) {
         const landedLastLeg = nj.nextTail && nj.lastLegId ? existingRows.find(r => r.id === nj.lastLegId && r.auto_leg_complete) : null;
         if (landedLastLeg) {
             await new Promise(done => _closeOutTourLegs(db, nj.pilotId, `${cs}|${nj.tourStart}|%`, done));
-            await new Promise(done => db.run(`UPDATE pilot_tour_tail SET tail=?, start_airport=?, last_leg_id=NULL, next_tail=NULL WHERE pilot_id=? AND tour_start_date=?`,
-                [nj.nextTail, norm3(landedLastLeg.arrival_airport) || null, nj.pilotId, nj.tourStart], done));
+            await new Promise(done => db.run(`UPDATE pilot_tour_tail SET tail=?, start_airport=?, start_guess=?, tail_since=?, last_leg_id=NULL, next_tail=NULL, next_start_airport=NULL WHERE pilot_id=? AND tour_start_date=?`,
+                [nj.nextTail, nj.nextStartAirport || norm3(landedLastLeg.arrival_airport) || null, nj.nextStartAirport ? 0 : 1,
+                    new Date().toISOString(), nj.pilotId, nj.tourStart], done));
             console.log(`[NetJets] ${nj.pilotKey}: switched to tail ${nj.nextTail} after their last leg on ${nj.tail}`);
             continue;
         }
@@ -5883,6 +5974,10 @@ async function _netjetsLegCreationPass(db, onDutyList) {
                 }
                 continue;
             }
+
+            // After a swap, what the new tail flew before the pilot got to it is another crew's. Every leg
+            // since the tour began used to be added (Mack's EJA23 swap, 12 legs back to three days earlier).
+            if (!row && swapCutMs != null && Date.parse(depTime) < swapCutMs) continue;
 
             // Notes.md: "Flightaware/FPs will have some legs that'll drop when NJs decides they
             // aren't doing that flight -- need support for that." A cancelled leg that was never
@@ -6095,20 +6190,19 @@ async function _netjetsLegCreationPass(db, onDutyList) {
             }
         }
 
-        // Tour day 1 (auto_leg_cancelled=5): legs that leave before the pilot's commute or deadhead
-        // lands at the start airport are the previous crew's (Mack, EJA17 11/10: RIC-SDF and SDF-JZI
-        // before his AAL1949 DFW-HOU landed). Decided again every poll, so a changed commute brings
-        // them back. Legs after he lands stay, even if he only starts flying on day 2.
-        const reachedMs = await new Promise(done => db.all(
-            `SELECT arrival_time, arrival_airport FROM segments WHERE pilot_id=? AND type='flight' AND (trip='COMMUTE' OR is_dh=1) AND arrival_time LIKE ?`,
-            [nj.pilotId, `${nj.tourStart}%`], (err, rows) => done(err ? null : _pilotReachedAircraftMs(rows, nj.startAirport))));
+        // Another crew's legs on this tail (auto_leg_cancelled=5): before the pilot took it over, at the
+        // start of a tour or after a swap. Decided again every poll, so a changed commute, start airport
+        // or plan brings them back.
+        const { handoverMs } = handoverOf();
         for (const r of existingRows) {
             if (r.auto_leg_edited || ![0, 4, 5].includes(r.auto_leg_cancelled || 0)) continue;
-            const before = _beforePilotArrives(Date.parse(r.departure_time), reachedMs);
+            const rDepMs = Date.parse(r.departure_time);
+            if (!(rDepMs >= tourStartMs) || !ownRow(r)) continue; // earlier tours and an earlier stint on this tail
+            const before = handoverMs != null && rDepMs < handoverMs;
             if (before && r.auto_leg_cancelled !== 5) {
                 r.auto_leg_cancelled = 5;
                 db.run('UPDATE segments SET auto_leg_cancelled=5 WHERE id=? AND auto_leg_cancelled IN (0, 4)', [r.id], () => {});
-                console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} hidden -- before they reached the aircraft`);
+                console.log(`[NetJets] ${nj.pilotKey}: leg ${r.auto_leg_key} hidden -- before they took over the aircraft`);
             } else if (!before && r.auto_leg_cancelled === 5) {
                 r.auto_leg_cancelled = 0;
                 db.run('UPDATE segments SET auto_leg_cancelled=0 WHERE id=? AND auto_leg_cancelled=5', [r.id], () => {});
