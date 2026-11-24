@@ -301,6 +301,7 @@
                 const prior = (pilotsCache[myPilot].tour_tails || []).find(t => t.tour_start_date === tourStart);
                 pilotsCache[myPilot].tour_tails = [...existing, { tour_start_date: tourStart, tail, start_airport: startAirport || prior?.start_airport || null }];
                 tailStatus.textContent = 'Saved.';
+                if (currentPilot === myPilot) render();
             } catch { tailStatus.textContent = 'Save failed — try again.'; }
         }
 
@@ -451,6 +452,7 @@
                     if (!pilotsCache[pilot]) pilotsCache[pilot] = {};
                     const existing = (pilotsCache[pilot].tour_tails || []).filter(t => t.tour_start_date !== tourStart);
                     pilotsCache[pilot].tour_tails = [...existing, { ...priorRow, tour_start_date: tourStart, tail, start_airport: startAirport || null }];
+                    if (pilot === currentPilot) render(); // the list shows the tour's tail
                 }
                 _refreshMyInfoNetjetsStatus();
                 // Done -- close the tour modal and the day detail sheet it was opened from.
@@ -486,6 +488,7 @@
                 document.getElementById('netjets-tour-modal-start-airport').value = '';
                 document.getElementById('netjets-tour-modal-reset-btn').classList.add('hidden');
                 statusEl.textContent = 'Reset.';
+                if (currentPilot === _netjetsTourModalPilot) render();
                 _refreshMyInfoNetjetsStatus();
             } catch { statusEl.textContent = 'Reset failed — try again.'; }
         }

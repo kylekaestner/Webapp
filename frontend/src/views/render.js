@@ -590,7 +590,9 @@
                     const listClasses = ["flex gap-4 p-4 border rounded-2xl", bgColor];
                     if (isPastDay) listClasses.push('list-past');
                     if (isToday) listClasses.push('day-today');
-                    listHtml += `<div class="${listClasses.join(' ')}"><div class="w-16 shrink-0 text-center border-r ${sidebarBorder} pr-4 flex flex-col justify-center"><div class="text-[9px] font-black uppercase ${sidebarColor} opacity-70">${dateLabel.split(' ')[0]}</div><div class="text-2xl font-black ${sidebarColor}">${d}</div><div class="text-[8px] font-bold uppercase ${labelColor} mt-1 tracking-widest">${label}</div>${_tourEditButton(dateKey, 'Edit')}</div><div class="flex-1 space-y-2 min-w-0">${contentHtml}</div></div>`;
+                    const _listTourTail = _tourTailForDay(dateKey);
+                    const tourTailHtml = _listTourTail ? `<div class="text-[9px] font-black text-indigo-300 mt-1 whitespace-nowrap">${_listTourTail}</div>` : '';
+                    listHtml += `<div class="${listClasses.join(' ')}"><div class="w-16 shrink-0 text-center border-r ${sidebarBorder} pr-4 flex flex-col justify-center"><div class="text-[9px] font-black uppercase ${sidebarColor} opacity-70">${dateLabel.split(' ')[0]}</div><div class="text-2xl font-black ${sidebarColor}">${d}</div><div class="text-[8px] font-bold uppercase ${labelColor} mt-1 tracking-widest">${label}</div>${tourTailHtml}${_tourEditButton(dateKey, 'Edit')}</div><div class="flex-1 space-y-2 min-w-0">${contentHtml}</div></div>`;
                 }
                 listContainer.innerHTML = listHtml;
                 // Scroll only the list to today. Never scrollIntoView(): it scrolls every ancestor, and iOS

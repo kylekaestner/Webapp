@@ -127,7 +127,7 @@ Use `<img src="/icon.svg">` with `border-radius` to match the rounded-square sty
 
 **Never use `scrollIntoView()` on the calendar views.** It scrolls every ancestor, and iOS Safari also moves the page itself (nothing overflows, so desktop browsers never show it): the crew names slide under the fixed header and the map mode bar under the bottom nav, and it carries into the next view. The list opens on today by setting `#view-list`'s own scrollTop; grid live legs scroll only their day's list. `_resetPageShift()` (views/navigation.js) puts the page, the column and `<main>` back to 0 on every view switch.
 
-Each NetJets tour day has an Edit button under its date, from the same `_tourEditButton()` as the day detail. List days have no tap action of their own.
+Each NetJets tour day shows its saved tour tail under the status (`_tourTailForDay()`) and has an Edit button, from the same `_tourEditButton()` as the day detail. List days have no tap action of their own.
 
 Iterates every day in the month. Day header block with status badge. Flight rows (`.flight-row`) sorted by departure time: route pair, local dep/arr times with tz abbreviation, block time, tail/flight#, layover duration between consecutive legs. Ground legs (type='ground') appear as subdued `VAN ORD→MDW` rows. Reserve slots appear as amber "ON CALL" rows. Past days get `.list-past` (grayscale + dimmed); today highlighted. `layoverLabel(gapMins, atHome, sameDay)` shows overnight duration if >30 min and not at home; suppresses label if >30h at home.
 

@@ -9,6 +9,12 @@
             return ts ? `<button onclick="openNetjetsTourModal('${ts}')" class="text-[9px] font-black uppercase tracking-widest text-indigo-400 border border-indigo-900 rounded-full px-2.5 py-1 mt-1.5 hover:bg-indigo-950/40 transition-colors">${text}</button>` : '';
         }
 
+        // The tail saved for the NetJets tour covering this day, as the pilot set it ('' if none).
+        function _tourTailForDay(dateKey) {
+            if (!_pilotOnDutyDefault(currentPilot, dateKey) || _onDutyDefaultLabel(currentPilot) !== 'ON TOUR') return '';
+            return escapeHtml(displayTail(_tourTailFor(currentPilot, _tourStartDateFor(currentPilot, dateKey)), currentPilot));
+        }
+
         function showDayDetail(dateKey) {
             const dayEvents = segments.filter(s => s.departureTime && !s.cancelled && flightLocalDate(s.departureTime, s.departureAirport) === dateKey);
             const [yr, mo, dy] = dateKey.split('-');
@@ -68,6 +74,8 @@
             const _tourLegsNote = (_pilotOnDutyDefault(currentPilot, dateKey) && _onDutyDefaultLabel(currentPilot) === 'ON TOUR'
                 && workFlights.length === 0 && dateKey >= _todayLocalDateStr())
                 ? `<div class="text-[10px] text-zinc-500 mt-1.5 max-w-[16rem] leading-snug">Legs show up once NetJets files them — usually the evening before.</div>` : '';
+            const _tourTail = _tourTailForDay(dateKey);
+            const _tourTailNote = _tourTail ? `<div class="text-[11px] font-black text-indigo-300 mt-1"><span class="text-zinc-500 uppercase tracking-widest text-[9px] mr-1.5">Tour tail</span>${_tourTail}</div>` : '';
             let _blockNote = '';
             if (_showBlockTotals()) {
                 const bt = _blockTotalsFor(_blockByDay(), dateKey, {});
@@ -80,6 +88,7 @@
                 <div>
                     <div class="text-[10px] font-black uppercase tracking-widest ${labelColor}">${label}</div>
                     <div class="text-lg font-black text-white mt-0.5">${dateLabel}</div>
+                    ${_tourTailNote}
                     ${_tourLegsNote}
                     ${_blockNote}
                     <div class="flex flex-wrap gap-1.5">${_tourEditBtn}${_addFlightBtn}</div>
