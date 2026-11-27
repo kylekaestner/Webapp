@@ -18,6 +18,8 @@ A real pilot can only see another real pilot's schedule once an **accepted, mutu
 - `_unhideFromEachOther(db, keyA, keyB)` — called whenever a friendship newly becomes accepted, so a past unfriend's hide-flag doesn't persist across a later re-friend.
 - `_getFriendsData` tags each entry with `isViewer` so the UI can label/filter viewer friends separately.
 - Admin override endpoints: `GET /api/admin/friends/:pilotKey`, `POST /api/admin/friends`, `DELETE /api/admin/friends` (all admin-token-gated) — directly assign/remove friendships without request/accept.
+- **Share links** (Profile → Share My Schedule, real pilots only): `GET/POST /api/share-links`, `DELETE /api/share-links/:key`. A link is a viewer account (`role='viewer'`, `pilots.shared_by` = the pilot) named "Mom - Mack" and friended to that pilot only, so `_canViewPilot()` limits it to their schedule. Up to 10 per pilot. Revoking deletes the account and its friendship, push subscriptions and notifications, so the link dies at once. The pilot's own links show in that section, not under Friends' View Only.
+- **What any viewer can't do**: send friend requests, or add to or vote on Crew Intel (reading is fine). `/api/pilots-directory` lists only the pilots a viewer is friends with, so a family link doesn't reveal the crew.
 - `GET /api/crew-visibility` / `PUT /api/crew-visibility` — token-gated, operate on the caller's own `hidden_crew`.
 
 **Frontend (`app.html`):**

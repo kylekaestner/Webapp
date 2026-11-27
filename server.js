@@ -2323,15 +2323,20 @@ app.get('/api/pilots', (req, res) => {
 // role aren't secrets, they're the same profile info every pilot's schedule view already shows.
 app.get('/api/pilots-directory', (req, res) => {
     const db = getDB();
-    _resolvePilotToken(req.query.token, db, (status, msg) => {
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey, callerRole) => {
         if (status) return res.status(status).json({ error: msg });
+        // A viewer (a family share link, say) only learns about the pilots they can see, not the crew.
+        const viewerOnly = callerRole === 'viewer'
+            ? ` AND pilot_key IN (SELECT CASE WHEN requester_key=$me THEN recipient_key ELSE requester_key END FROM friend_requests WHERE status='accepted' AND (requester_key=$me OR recipient_key=$me))`
+            : '';
         db.all(
             // ORDER BY name -- this feeds _syncPilotRoster() in app.html, which builds the pill
             // bar/sidebar roster in whatever order rows come back. Alphabetical by name here,
             // combined with _reorderPilotPills() always pinning the signed-in pilot's own pill
             // to the front afterward, gives "you first, then the rest of your crew A-Z" with no
             // hardcoded ordering anywhere.
-            `SELECT pilot_key, name, base, home_airport, role, color FROM pilots WHERE pilot_key != 'admin' AND (role IS NULL OR role != 'viewer') ORDER BY name`,
+            `SELECT pilot_key, name, base, home_airport, role, color FROM pilots WHERE pilot_key != 'admin' AND (role IS NULL OR role != 'viewer')${viewerOnly} ORDER BY name`,
+            viewerOnly ? { $me: callerKey } : {},
             (err, rows) => {
                 if (err) return res.status(500).json({ error: err.message });
                 res.json(rows);
@@ -2447,7 +2452,7 @@ function _unhideFromEachOther(db, keyA, keyB) {
 // reading any pilot's list) -- same JOIN query, just parameterized by whose rows to pull.
 function _getFriendsData(db, targetKey, cb) {
     db.all(
-        `SELECT fr.*, p.name AS other_name, p.role AS other_role FROM friend_requests fr
+        `SELECT fr.*, p.name AS other_name, p.role AS other_role, p.shared_by AS other_shared_by FROM friend_requests fr
          JOIN pilots p ON p.pilot_key = CASE WHEN fr.requester_key=? THEN fr.recipient_key ELSE fr.requester_key END
          WHERE fr.requester_key=? OR fr.recipient_key=?`,
         [targetKey, targetKey, targetKey],
@@ -2463,7 +2468,7 @@ function _getFriendsData(db, targetKey, cb) {
                 // and showing one there renders as a nameless/colorless blank. But the Friends
                 // panel itself should keep showing them, just labeled, rather than silently
                 // dropping a real connection -- see visiblePilotKeys()'s own filter in app.html.
-                const entry = { pilotKey: otherKey, name: r.other_name, since: r.responded_at || r.created_at, isViewer: r.other_role === 'viewer' };
+                const entry = { pilotKey: otherKey, name: r.other_name, since: r.responded_at || r.created_at, isViewer: r.other_role === 'viewer', sharedBy: r.other_shared_by || null };
                 if (r.status === 'accepted') friends.push(entry);
                 else if (r.requester_key === targetKey) outgoing.push(entry);
                 else incoming.push(entry);
@@ -2490,8 +2495,9 @@ app.get('/api/friends', (req, res) => {
 app.post('/api/friends/request', (req, res) => {
     const db = getDB();
     const { token, targetKey } = req.body;
-    _resolvePilotToken(token, db, (status, msg, myKey) => {
+    _resolvePilotToken(token, db, (status, msg, myKey, myRole) => {
         if (status) return res.status(status).json({ error: msg });
+        if (myRole === 'viewer') return res.status(403).json({ error: 'View-only accounts can\'t send friend requests' });
         if (!targetKey || targetKey === myKey) return res.status(400).json({ error: 'Invalid target' });
         db.get(
             `SELECT * FROM friend_requests WHERE (requester_key=? AND recipient_key=?) OR (requester_key=? AND recipient_key=?)`,
@@ -7508,9 +7514,68 @@ function _resolveIntelAuthor(token, db, cb) {
     db.get(`SELECT pilot_key, role FROM pilots WHERE token=?`, [token], (err, row) => {
         if (err) return cb(500, err.message);
         if (!row) return cb(401, 'Invalid token');
+        if (row.role === 'viewer') return cb(403, 'View-only accounts can\'t add or vote on Crew Intel');
         cb(null, null, row.pilot_key);
     });
 }
+
+// ── Share links ───────────────────────────────────────────────────────────────
+// A pilot's view-only link for family and friends who aren't crew: a viewer account (role 'viewer',
+// shared_by = the pilot) friended to that pilot only, so the normal friend check limits it to their
+// schedule. Named "Mom - Mack" so the admin panel shows whose it is. Revoking deletes the account,
+// which kills the link at once. Real pilots only, up to SHARE_LINK_LIMIT each.
+const SHARE_LINK_LIMIT = 10;
+function _shareLinkOwner(req, res, cb) {
+    const token = req.query.token || req.body?.token;
+    _resolvePilotToken(token, getDB(), (status, msg, key, role) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (key === 'admin' || role === 'viewer') return res.status(403).json({ error: 'Only pilots can share their schedule' });
+        cb(key);
+    });
+}
+const _shareLinkJson = r => ({ pilotKey: r.pilot_key, name: r.name.replace(/ - [^-]+$/, ''), link: `/app?u=${r.token}`, lastActive: r.last_active || null });
+app.get('/api/share-links', (req, res) => _shareLinkOwner(req, res, owner => {
+    getDB().all(`SELECT pilot_key, name, token, last_active FROM pilots WHERE shared_by=? AND role='viewer' ORDER BY name`, [owner],
+        (err, rows) => err ? res.status(500).json({ error: err.message }) : res.json((rows || []).map(_shareLinkJson)));
+}));
+app.post('/api/share-links', (req, res) => _shareLinkOwner(req, res, owner => {
+    const db = getDB();
+    const label = String(req.body?.name || '').replace(/\s+/g, ' ').trim().slice(0, 30);
+    if (!label) return res.status(400).json({ error: 'Enter who this link is for' });
+    db.get(`SELECT name, (SELECT COUNT(*) FROM pilots WHERE shared_by=? AND role='viewer') AS n FROM pilots WHERE pilot_key=?`, [owner, owner], (err, me) => {
+        if (err || !me) return res.status(500).json({ error: err?.message || 'Pilot not found' });
+        if (me.n >= SHARE_LINK_LIMIT) return res.status(400).json({ error: `Up to ${SHARE_LINK_LIMIT} share links. Revoke one first.` });
+        const name = `${label} - ${(me.name || owner).split(' ')[0]}`;
+        const base = (owner + label.toLowerCase().replace(/[^a-z0-9]/g, '')).slice(0, 24);
+        const token = generateToken();
+        const tryInsert = attempt => {
+            const key = attempt ? `${base}${attempt}` : base;
+            db.run(`INSERT INTO pilots (pilot_key, name, role, parser_type, token, shared_by, friends_seeded) VALUES (?, ?, 'viewer', 'none', ?, ?, 1)`,
+                [key, name, token, owner], function (e) {
+                    if (e && e.message.includes('UNIQUE') && attempt < 50) return tryInsert(attempt + 1);
+                    if (e) return res.status(500).json({ error: e.message });
+                    db.run(`INSERT INTO friend_requests (requester_key, recipient_key, status, responded_at) VALUES (?, ?, 'accepted', CURRENT_TIMESTAMP)`, [owner, key], e2 => {
+                        if (e2) return db.run('DELETE FROM pilots WHERE pilot_key=?', [key], () => res.status(500).json({ error: e2.message }));
+                        logEvent(owner, 'share-link:create');
+                        res.json(_shareLinkJson({ pilot_key: key, name, token }));
+                    });
+                });
+        };
+        tryInsert(0);
+    });
+}));
+app.delete('/api/share-links/:key', (req, res) => _shareLinkOwner(req, res, owner => {
+    const db = getDB(), key = req.params.key;
+    db.run(`DELETE FROM pilots WHERE pilot_key=? AND shared_by=? AND role='viewer'`, [key, owner], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!this.changes) return res.status(404).json({ error: 'Share link not found' });
+        db.run(`DELETE FROM friend_requests WHERE requester_key=? OR recipient_key=?`, [key, key]);
+        db.run(`DELETE FROM push_subscriptions WHERE pilot_key=?`, [key]);
+        db.run(`DELETE FROM notifications WHERE pilot_key=?`, [key]);
+        logEvent(owner, 'share-link:revoke');
+        res.json({ success: true });
+    });
+}));
 
 app.post('/api/intel', (req, res) => {
     const db = getDB();

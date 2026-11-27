@@ -174,6 +174,7 @@
         // Renders the friends list + any pending incoming/outgoing requests in the Profile
         // sheet. Called after loadFriends() resolves and after any accept/decline/remove action.
         function renderFriendsPanel() {
+            if (_shareLinks === null && myPilot) loadShareLinks();
             const incomingEl = document.getElementById('friends-incoming-section');
             const listEl = document.getElementById('friends-list');
             if (!listEl) return;
@@ -233,7 +234,8 @@
             // header instead of just sorting to the bottom, so a pilot with several admin-granted
             // viewers doesn't have to scroll past all of them to see their actual crew.
             const realFriends = myFriends.filter(f => !f.isViewer);
-            const viewerFriends = myFriends.filter(f => f.isViewer);
+            // Your own share links have their own section below, with Copy and Revoke.
+            const viewerFriends = myFriends.filter(f => f.isViewer && f.sharedBy !== myPilot);
             const friendRows = realFriends.map(_friendRowHtml).join('');
             const viewerSection = viewerFriends.length === 0 ? '' : `
                 <button onclick="_toggleViewOnlyFriends()" class="flex items-center gap-1.5 w-full py-2 px-1 text-left">
@@ -247,6 +249,74 @@
                     <span class="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Pending</span>
                 </div>`).join('');
             listEl.innerHTML = friendRows + viewerSection + outgoingRows;
+        }
+
+        // ── Share links (Profile → Share My Schedule) ─────────────────────────
+        let _shareLinks = null;
+        async function loadShareLinks() {
+            if (!myPilot || !myToken || isDemo) return;
+            try {
+                const r = await fetch(`/api/share-links?token=${encodeURIComponent(myToken)}`);
+                if (r.ok) _shareLinks = await r.json();
+            } catch { /* keep what we had */ }
+            renderShareLinks();
+        }
+        function renderShareLinks() {
+            const el = document.getElementById('share-links-list');
+            if (!el) return;
+            if (_shareLinks === null) { el.innerHTML = ''; return; }
+            if (!_shareLinks.length) { el.innerHTML = `<p class="text-xs text-zinc-500 py-1">No share links yet.</p>`; return; }
+            el.innerHTML = _shareLinks.map(l => `<div class="flex items-center justify-between py-2 px-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
+                    <div class="min-w-0">
+                        <div class="text-sm font-black text-white truncate">${escapeHtml(l.name)}</div>
+                        <div class="text-[10px] text-zinc-500">${l.lastActive ? 'Last opened ' + new Date(l.lastActive).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Not opened yet'}</div>
+                    </div>
+                    <div class="flex items-center gap-3 shrink-0 ml-2">
+                        <button onclick="copyShareLink('${l.pilotKey}')" class="text-[9px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest">Copy</button>
+                        <button onclick="revokeShareLink('${l.pilotKey}')" class="text-[9px] font-black text-zinc-600 hover:text-red-400 uppercase tracking-widest">Revoke</button>
+                    </div>
+                </div>`).join('');
+        }
+        async function createShareLink() {
+            const input = document.getElementById('share-link-name'), btn = document.getElementById('share-link-create-btn');
+            const name = input.value.trim();
+            if (!name) { input.focus(); return; }
+            btn.disabled = true;
+            try {
+                const r = await fetch('/api/share-links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: myToken, name }) });
+                const data = await r.json();
+                if (!r.ok) { showToast(data.error || 'Could not create the link', 'error'); return; }
+                input.value = '';
+                _shareLinks = [...(_shareLinks || []), data].sort((a, b) => a.name.localeCompare(b.name));
+                renderShareLinks();
+                const ok = await copyText(location.origin + data.link);
+                haptic('success');
+                showToast(ok ? `Link for ${data.name} copied. Text it to them.` : 'Link created. Tap Copy to copy it.', 'success', 3000);
+                await loadFriends();
+            } catch { showToast('Something went wrong', 'error'); }
+            finally { btn.disabled = false; }
+        }
+        async function copyShareLink(key) {
+            const l = (_shareLinks || []).find(x => x.pilotKey === key);
+            if (!l) return;
+            const ok = await copyText(location.origin + l.link);
+            haptic('success');
+            showToast(ok ? `Link for ${l.name} copied` : 'Copy failed', ok ? 'success' : 'error', 2000);
+        }
+        async function revokeShareLink(key) {
+            const l = (_shareLinks || []).find(x => x.pilotKey === key);
+            if (!l) return;
+            const ok = await showConfirm(`Revoke ${l.name}'s link?`, 'It stops working right away. You can make a new one later.', { label: 'Revoke', danger: true });
+            if (!ok) return;
+            try {
+                const r = await fetch(`/api/share-links/${encodeURIComponent(key)}?token=${encodeURIComponent(myToken)}`, { method: 'DELETE' });
+                if (!r.ok) { showToast('Could not revoke it', 'error'); return; }
+                _shareLinks = _shareLinks.filter(x => x.pilotKey !== key);
+                renderShareLinks();
+                showToast(`${l.name}'s link revoked`);
+                await loadFriends();
+                renderFriendsPanel();
+            } catch { showToast('Something went wrong', 'error'); }
         }
 
         // ── Add Friend modal: search the non-sensitive pilot directory ─────────

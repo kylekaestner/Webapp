@@ -70,7 +70,7 @@
         function _applyIdentityUI() {
             const color    = myPilot ? PILOT_COLORS[myPilot] : myViewer ? '#10b981' : isDemo ? '#6366f1' : '#6366f1';
             const initials = myPilot ? PILOT_NAMES[myPilot].split(' ').map(w => w[0]).join('')
-                           : myViewer ? myViewerName.split(' ').map(w => w[0]).join('') : isDemo ? 'D' : '★';
+                           : myViewer ? myViewerName.replace(/ - [^-]+$/, '').split(' ').filter(w => /\w/.test(w)).map(w => w[0]).join('').slice(0, 2).toUpperCase() : isDemo ? 'D' : '★';
             const name     = myPilot ? PILOT_NAMES[myPilot] : myViewer ? myViewerName : isDemo ? 'Demo' : 'Admin';
             const role     = myPilot ? PILOT_ROLES[myPilot] : myViewer ? 'View only' : isDemo ? 'Demo preview' : 'All access · no identity set';
 
@@ -129,6 +129,8 @@
             // admin-assigned only, with no self-service UI of their own to manage it.
             const friendsSection = document.getElementById('friends-section');
             if (friendsSection) friendsSection.classList.toggle('hidden', !myPilot || isDemo);
+            const shareSection = document.getElementById('share-section');
+            if (shareSection) shareSection.classList.toggle('hidden', !myPilot || isDemo);
             const signOutBtn = document.getElementById('sign-out-btn');
             if (signOutBtn) signOutBtn.classList.toggle('hidden', !myPilot && !myViewer);
 
