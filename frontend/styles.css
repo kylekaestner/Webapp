@@ -323,6 +323,22 @@
         .ws-globe-fill { fill:none; stroke: var(--ink); stroke-width:10; stroke-linecap:round; stroke-dasharray: 1; stroke-dashoffset: 1; }
         .ws-globe-fill.ws-go { stroke-dashoffset: calc(1 - var(--p)); }
         .ws-globe-text { fill: var(--ink); font-size:22px; font-weight:900; transform: rotate(90deg); transform-origin:60px 60px; font-family: var(--big-font); }
+        /* map slides: a Leaflet card */
+        .ws-lmap { width: min(360px, 90vw); height: min(330px, 42vh); border-radius: 22px; overflow: hidden; background: rgba(0,0,0,.35); border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+        .ws-lmap .leaflet-tile-pane { filter: brightness(.95) saturate(.5); }
+        #view-wrapped[data-theme="pass"] .ws-lmap .leaflet-tile-pane { filter: invert(1) sepia(.35) brightness(1.05); }
+        .ws-lmap .leaflet-control-attribution { background: transparent !important; color: rgba(255,255,255,.45) !important; font-size: 8px !important; }
+        .ws-lmap .leaflet-control-attribution a { color: inherit !important; }
+        .ws-larc { stroke: var(--ink); fill: none; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: ws-draw 1.5s ease var(--d, 0s) forwards; }
+        .ws-ldot { fill: var(--ink); stroke: var(--ink); opacity: 0; animation: ws-in .5s ease 1.3s forwards; }
+        .ws-ldot.dim { opacity: .45; animation: none; }
+        .ws-ldot.big { fill: var(--accent); stroke: #fff; animation-delay: .5s; }
+        .ws-mlabel { display: inline-block; white-space: nowrap; font: 900 11px/1 var(--head-font); letter-spacing: .06em; color: var(--ink); text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.7); opacity: 0; animation: ws-in .5s ease 1.5s forwards; }
+        .ws-mlabel.big { font-size: 13px; animation-delay: .8s; }
+        .ws-mlabel.left { transform: translateX(calc(-100% - 9px)); }
+        .ws-mlabel.left.ws-mlabel { animation-name: ws-in-left; }
+        @keyframes ws-in-left { from { opacity: 0; transform: translate(calc(-100% - 9px), 12px); } to { opacity: 1; transform: translateX(calc(-100% - 9px)); } }
+        #view-wrapped[data-theme="pass"] .ws-mlabel { text-shadow: 0 0 4px #efe6d2, 0 0 8px #efe6d2; }
         /* maps */
         .ws-map { width: min(360px, 90vw); height:auto; margin:6px 0; }
         .ws-map-sm { width: min(320px, 86vw); }
@@ -363,17 +379,42 @@
         .ws-prog { flex:1; height:3px; border-radius:2px; background: var(--panel); }
         .ws-prog.done { background: var(--dim); } .ws-prog.now { background: var(--ink); }
         #wrapped-dots { top:auto !important; bottom:max(18px, calc(env(safe-area-inset-bottom,0px) + 8px)) !important; font-size:11px; font-weight:800; letter-spacing:.2em; color: var(--dim); font-family: var(--mono); }
-        #wrapped-theme-btn { position:absolute; top: calc(env(safe-area-inset-top,0px) + 14px); left:16px; z-index:20; height:30px; padding:0 12px; border-radius:999px; border:1px solid var(--line); background: var(--panel); color: var(--ink); font-size:11px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; }
+        /* The buttons sit below the story bars (top 14px), not on the same line. */
+        #wrapped-mute-btn, #wrapped-close-btn { top: calc(env(safe-area-inset-top,0px) + 30px) !important; }
+        #wrapped-theme-btn { position:absolute; top: calc(env(safe-area-inset-top,0px) + 30px); left:16px; z-index:20; height:30px; padding:0 12px; border-radius:999px; border:1px solid var(--line); background: var(--panel); color: var(--ink); font-size:11px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; }
         #wrapped-mute-btn, #wrapped-close-btn { background: var(--panel) !important; color: var(--ink) !important; }
 
-        /* Aurora: a saturated gradient per slide, huge heavy type */
-        #view-wrapped[data-theme="aurora"] { background: radial-gradient(120% 80% at 10% 0%, hsl(calc(var(--wa) + 40) 90% 60%) 0%, transparent 60%), radial-gradient(120% 90% at 100% 100%, hsl(calc(var(--wa) - 30) 85% 45%) 0%, transparent 60%), hsl(var(--wa) 75% 22%) !important; --accent: hsl(calc(var(--wa) + 60) 100% 82%); --badge-ink: hsl(var(--wa) 70% 20%); }
+        /* Aurora: soft color fields that keep drifting and shifting hue while a slide is up. --wa (the slide's hue) is
+           a registered property, so a new slide blends its colors in instead of snapping; --wd cycles on its own. */
+        @property --wa { syntax: '<number>'; inherits: true; initial-value: 220; }
+        @property --wd { syntax: '<number>'; inherits: true; initial-value: 0; }
+        #view-wrapped[data-theme="aurora"] { background: hsl(var(--wa) 70% 14%) !important; transition: --wa 1.6s ease;
+            --accent: hsl(calc(var(--wa) + 60) 100% 82%); --badge-ink: hsl(var(--wa) 70% 20%); animation: ws-hue 14s ease-in-out infinite alternate; }
+        #view-wrapped[data-theme="aurora"]::before { content: ''; position: absolute; inset: -40%; z-index: 0; pointer-events: none;
+            background:
+                radial-gradient(32% 28% at 22% 26%, hsl(calc(var(--wa) + var(--wd) + 50) 95% 60% / .9), transparent 70%),
+                radial-gradient(38% 32% at 78% 30%, hsl(calc(var(--wa) - var(--wd) - 40) 90% 55% / .85), transparent 70%),
+                radial-gradient(44% 38% at 50% 82%, hsl(calc(var(--wa) + var(--wd) + 120) 85% 50% / .75), transparent 70%),
+                radial-gradient(30% 28% at 80% 76%, hsl(calc(var(--wa) - var(--wd) + 200) 90% 60% / .6), transparent 70%);
+            animation: ws-drift 18s ease-in-out infinite alternate; will-change: transform; }
+        @keyframes ws-drift { 0% { transform: translate(0, 0) rotate(0deg) scale(1); } 33% { transform: translate(7%, -5%) rotate(18deg) scale(1.08); } 66% { transform: translate(-6%, 4%) rotate(-14deg) scale(1.12); } 100% { transform: translate(4%, 6%) rotate(10deg) scale(1.02); } }
+        @keyframes ws-hue { from { --wd: 0; } to { --wd: 70; } }
+        @media (prefers-reduced-motion: reduce) { #view-wrapped, #view-wrapped::before, #view-wrapped::after { animation: none !important; } }
         #view-wrapped[data-theme="aurora"] #wrapped-bg-canvas { opacity:.25 !important; }
 
         /* Cockpit: black glass, phosphor green and cyan, monospace like an MFD */
         #view-wrapped[data-theme="cockpit"] { background: radial-gradient(90% 70% at 50% 40%, #0b1a14 0%, #020605 70%) !important; --ink:#5dffa6; --dim:rgba(93,255,166,.6); --accent:#4de1ff; --panel:rgba(93,255,166,.08); --line:rgba(93,255,166,.35); --badge-ink:#02140b;
             --big-font: ui-monospace, 'SF Mono', Menlo, monospace; --head-font: ui-monospace, 'SF Mono', Menlo, monospace; }
-        #view-wrapped[data-theme="cockpit"]::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:6; background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); }
+        /* Cockpit, moving: a radar sweep turning behind the slide, and scanlines that crawl down. */
+        #view-wrapped[data-theme="cockpit"]::before { content:''; position:absolute; left:50%; top:46%; width:170vmax; height:170vmax; margin:-85vmax 0 0 -85vmax; z-index:0; pointer-events:none;
+            background: conic-gradient(from 0deg, rgba(93,255,166,.0) 0deg, rgba(93,255,166,.0) 300deg, rgba(93,255,166,.16) 352deg, rgba(93,255,166,.32) 360deg),
+                        repeating-radial-gradient(circle at center, transparent 0 13.5vmin, rgba(93,255,166,.07) 13.5vmin calc(13.5vmin + 1px));
+            border-radius:50%; animation: ws-sweep 7s linear infinite; }
+        @keyframes ws-sweep { to { transform: rotate(360deg); } }
+        #view-wrapped[data-theme="cockpit"]::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:6;
+            background: repeating-linear-gradient(0deg, rgba(0,0,0,.2) 0 1px, transparent 1px 3px), linear-gradient(180deg, transparent 0%, rgba(93,255,166,.06) 50%, transparent 100%);
+            background-size: 100% 3px, 100% 220px; animation: ws-scan 9s linear infinite; }
+        @keyframes ws-scan { from { background-position: 0 0, 0 -220px; } to { background-position: 0 60px, 0 calc(100vh + 220px); } }
         #view-wrapped[data-theme="cockpit"] .ws-big, #view-wrapped[data-theme="cockpit"] .ws-year, #view-wrapped[data-theme="cockpit"] .ws-mid { font-weight:700; text-shadow: 0 0 18px rgba(93,255,166,.55); }
         #view-wrapped[data-theme="cockpit"] .ws-row, #view-wrapped[data-theme="cockpit"] .ws-card, #view-wrapped[data-theme="cockpit"] .ws-ticket, #view-wrapped[data-theme="cockpit"] .ws-split > div { border:1px solid var(--line); border-radius:4px; }
         #view-wrapped[data-theme="cockpit"] .ws-badge { border-radius:3px; }
@@ -383,7 +424,19 @@
         /* Boarding Pass: warm paper, ink, a red stamp accent, serif headlines */
         #view-wrapped[data-theme="pass"] { background: #efe6d2 !important; --ink:#1c2230; --dim:rgba(28,34,48,.62); --accent:#c2412d; --panel:rgba(28,34,48,.07); --line:rgba(28,34,48,.28); --badge-ink:#efe6d2; --share-bg:#fbf6ea;
             --big-font: 'Georgia', 'Times New Roman', serif; --head-font: ui-monospace, 'SF Mono', Menlo, monospace; }
-        #view-wrapped[data-theme="pass"]::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:6; background: radial-gradient(rgba(28,34,48,.05) 1px, transparent 1px) 0 0/6px 6px; }
+        /* Boarding Pass, moving: dashed flight paths drifting across the paper, and a slow warm glow wandering over it. */
+        #view-wrapped[data-theme="pass"]::before { content:''; position:absolute; inset:-20%; z-index:0; pointer-events:none;
+            background:
+                radial-gradient(40% 35% at 30% 30%, rgba(214,120,60,.20), transparent 70%),
+                radial-gradient(45% 40% at 75% 75%, rgba(194,65,45,.12), transparent 70%),
+                repeating-linear-gradient(-28deg, transparent 0 46px, rgba(28,34,48,.07) 46px 47px, transparent 47px 120px);
+            animation: ws-paper 22s ease-in-out infinite alternate; }
+        @keyframes ws-paper { from { transform: translate(-4%, -3%) rotate(-2deg); } to { transform: translate(4%, 3%) rotate(2deg); } }
+        #view-wrapped[data-theme="pass"]::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:6;
+            background: radial-gradient(rgba(28,34,48,.05) 1px, transparent 1px) 0 0/6px 6px,
+                        repeating-linear-gradient(90deg, rgba(194,65,45,.35) 0 10px, transparent 10px 22px) 0 calc(100% - 3px)/100% 2px no-repeat;
+            animation: ws-dash 3s linear infinite; }
+        @keyframes ws-dash { to { background-position: 0 0, 22px calc(100% - 3px); } }
         #view-wrapped[data-theme="pass"] #wrapped-bg-canvas { display:none; }
         #view-wrapped[data-theme="pass"] .ws-big, #view-wrapped[data-theme="pass"] .ws-year { font-style:italic; font-weight:700; }
         #view-wrapped[data-theme="pass"] .ws-row, #view-wrapped[data-theme="pass"] .ws-ticket, #view-wrapped[data-theme="pass"] .ws-share { background:#fbf6ea; border:1px dashed var(--line); }

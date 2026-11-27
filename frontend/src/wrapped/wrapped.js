@@ -53,6 +53,7 @@
         }
 
         function closeWrapped() {
+            _wDropMap();
             if (_wrappedBgAnim) { cancelAnimationFrame(_wrappedBgAnim); _wrappedBgAnim = null; }
             _stopWrappedMusic();
             switchView('grid');
@@ -97,8 +98,10 @@
             if (!slide || !area) return;
             const view = document.getElementById('view-wrapped');
             if (view) { view.dataset.slide = slide.id; view.style.setProperty('--wa', slide.hue ?? 220); }
+            _wDropMap();
             area.innerHTML = `<div class="ws ws-${slide.id}" key="${_wrappedIdx}">${slide.html()}</div>`;
             requestAnimationFrame(() => {
+                area.querySelectorAll('[data-map]').forEach(el => _wDrawMap(el, el.dataset.map));
                 area.querySelectorAll('[data-count]').forEach(el => _wCount(el, parseFloat(el.dataset.count), parseInt(el.dataset.dec || '0', 10)));
                 area.querySelectorAll('.ws-grow').forEach(el => el.classList.add('ws-go'));
             });
@@ -164,26 +167,56 @@
             };
             return f;
         }
-        function _wRouteMap(s, w = 340, h = 300) {
-            const pts = s.airportPoints.map(p => p.c);
-            if (pts.length < 2) return '';
-            const P = _wProjector(pts, w, h);
-            const maxN = Math.max(...s.routeArcs.map(r => r.n), 1);
-            const arcs = s.routeArcs.slice().reverse().map((r, i) => {
-                const [x1, y1] = P(r.dc), [x2, y2] = P(r.ac);
-                const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1;
-                const cx = mx - dy * 0.18, cy = my + dx * 0.18;
-                const t = r.n / maxN;
-                return `<path class="ws-arc" pathLength="1" style="--d:${(0.2 + i * 0.025).toFixed(2)}s;stroke-width:${(0.8 + 2.2 * t).toFixed(1)};opacity:${(0.35 + 0.65 * t).toFixed(2)}" d="M${x1.toFixed(1)},${y1.toFixed(1)} Q${cx.toFixed(1)},${cy.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}"/>`;
-            }).join('');
-            const maxL = Math.max(...s.airportPoints.map(p => p.n), 1);
-            const dots = s.airportPoints.map(p => { const [x, y] = P(p.c); return `<circle class="ws-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(1.6 + 3 * p.n / maxL).toFixed(1)}"/>`; }).join('');
-            const labels = s.topAirports.slice(0, 5).map(([a]) => {
-                const p = s.airportPoints.find(q => q.a === a); if (!p) return '';
-                const [x, y] = P(p.c);
-                return `<text class="ws-maplabel" x="${(x + 6).toFixed(1)}" y="${(y - 5).toFixed(1)}">${_wApt(a)}</text>`;
-            }).join('');
-            return `<svg class="ws-map" viewBox="0 0 ${w} ${h}" role="img" aria-label="Map of the routes you flew"><g class="ws-grid">${P.grid()}</g>${arcs}${dots}${labels}</svg>`;
+        // Map slides draw on a real basemap (the app's no-labels CARTO tiles via Leaflet), not interactive, so a
+        // tap still moves to the next slide. Routes are great-circle arcs that draw themselves in.
+        let _wrappedMap = null;
+        function _wDropMap() { if (_wrappedMap) { try { _wrappedMap.remove(); } catch {} _wrappedMap = null; } }
+        function _wDrawMap(el, kind) {
+            const s = _wrappedData?.stats; if (!s) return;
+            ensureMapLibs().then(() => {
+                if (!el.isConnected) return;
+                _wDropMap();
+                const m = L.map(el, { zoomControl: false, attributionControl: true, dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
+                    touchZoom: false, boxZoom: false, keyboard: false, tap: false, zoomSnap: 0.25, fadeAnimation: true });
+                m.attributionControl.setPrefix(false);
+                _wrappedMap = m;
+                _basemapLayersFor(true).forEach(l => l.addTo(m));
+                const pts = s.airportPoints.map(p => p.c);
+                if (!pts.length) return;
+                m.fitBounds(L.latLngBounds(pts), { padding: [28, 28], maxZoom: 7 });
+                const pathIn = (layer, delay) => {
+                    const p = layer.getElement?.(); if (!p) return;
+                    p.setAttribute('pathLength', '1');
+                    p.style.setProperty('--d', `${delay.toFixed(2)}s`);
+                };
+                // A label near the right edge sits to the left of its point, so it isn't cut off.
+                const label = (c, text, cls) => {
+                    const left = m.latLngToContainerPoint(c).x > el.clientWidth * 0.62;
+                    L.marker(c, { interactive: false, icon: L.divIcon({ className: '', iconAnchor: [left ? 0 : -7, 9], html: `<span class="ws-mlabel ${cls || ''} ${left ? 'left' : ''}">${text}</span>` }) }).addTo(m);
+                };
+                if (kind === 'routes') {
+                    const maxN = Math.max(...s.routeArcs.map(r => r.n), 1);
+                    s.routeArcs.slice().reverse().forEach((r, i) => {
+                        const t = r.n / maxN;
+                        const line = L.polyline(greatCircleArcCoords(r.dc, r.ac, 40), { className: 'ws-larc', weight: 1 + 2.4 * t, opacity: 0.35 + 0.65 * t, interactive: false }).addTo(m);
+                        pathIn(line, 0.3 + i * 0.03);
+                    });
+                    const maxL = Math.max(...s.airportPoints.map(p => p.n), 1);
+                    s.airportPoints.forEach(p => L.circleMarker(p.c, { className: 'ws-ldot', radius: 2 + 3.5 * p.n / maxL, weight: 0, fillOpacity: 1, interactive: false }).addTo(m));
+                    s.topAirports.slice(0, 5).forEach(([a]) => { const p = s.airportPoints.find(q => q.a === a); if (p) label(p.c, _wApt(a)); });
+                } else {
+                    s.airportPoints.forEach(p => L.circleMarker(p.c, { className: 'ws-ldot dim', radius: 2, weight: 0, fillOpacity: 1, interactive: false }).addTo(m));
+                    // One label per airport: San Juan can be both farthest south and farthest east.
+                    const c = s.compass, byApt = new Map();
+                    [['N', c.north], ['E', c.east], ['S', c.south], ['W', c.west]].forEach(([k, p]) => {
+                        const e = byApt.get(p.airport) || { p, ks: [] }; e.ks.push(k); byApt.set(p.airport, e);
+                    });
+                    for (const { p, ks } of byApt.values()) {
+                        L.circleMarker([p.lat, p.lon], { className: 'ws-ldot big', radius: 6, weight: 2, fillOpacity: 1, interactive: false }).addTo(m);
+                        label([p.lat, p.lon], `${ks.join(' · ')} · ${_wApt(p.airport)}`, 'big');
+                    }
+                }
+            }).catch(() => { el.innerHTML = ''; });
         }
 
         function _buildWrappedSlides(d) {
@@ -228,8 +261,8 @@
 
             add('map', 230, () => `
                 <div class="ws-kicker ws-in">Where you went</div>
-                ${_wRouteMap(s)}
-                <div class="ws-sub ws-in" style="--d:1.6s">${s.routeArcs.length} different routes, drawn in the order you flew them most.</div>`);
+                <div class="ws-lmap ws-in" style="--d:.1s" data-map="routes" role="img" aria-label="Map of the routes you flew"></div>
+                <div class="ws-sub ws-in" style="--d:1.6s">${s.routeArcs.length} different city pairs. The thicker the line, the more you flew it.</div>`);
 
             add('airports', 35, () => `
                 <div class="ws-kicker ws-in">Airports</div>
@@ -359,19 +392,10 @@
 
             const c = s.compass;
             if (c.north && c.south && c.east && c.west) {
-                add('compass', 175, () => {
-                    const pts = [c.north, c.south, c.east, c.west].map(p => [p.lat, p.lon]);
-                    const P = _wProjector([...pts, ...s.airportPoints.map(p => p.c)], 300, 230);
-                    const mark = (p, k, i) => { const [x, y] = P([p.lat, p.lon]); return `<g class="ws-cmark ws-in" style="--d:${(0.4 + i * 0.25).toFixed(2)}s"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5"/><text x="${(x + 8).toFixed(1)}" y="${(y + 4).toFixed(1)}">${k} ${_wApt(p.airport)}</text></g>`; };
-                    return `
+                add('compass', 175, () => `
                     <div class="ws-kicker ws-in">The edges of your map</div>
-                    <svg class="ws-map ws-map-sm" viewBox="0 0 300 230" role="img" aria-label="Your farthest airports in each direction">
-                        <g class="ws-grid">${P.grid()}</g>
-                        ${s.airportPoints.map(p => { const [x, y] = P(p.c); return `<circle class="ws-dot dim" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.6"/>`; }).join('')}
-                        ${mark(c.north, 'N', 0)}${mark(c.east, 'E', 1)}${mark(c.south, 'S', 2)}${mark(c.west, 'W', 3)}
-                    </svg>
-                    <div class="ws-sub ws-in" style="--d:1.5s">Farthest north ${_wPlace(c.north.airport)}, south ${_wPlace(c.south.airport)}, east ${_wPlace(c.east.airport)} and west ${_wPlace(c.west.airport)}.</div>`;
-                });
+                    <div class="ws-lmap ws-in" style="--d:.1s" data-map="compass" role="img" aria-label="Your farthest airports in each direction"></div>
+                    <div class="ws-sub ws-in" style="--d:1.2s">Farthest north ${_wPlace(c.north.airport)}, south ${_wPlace(c.south.airport)}, east ${_wPlace(c.east.airport)} and west ${_wPlace(c.west.airport)}.</div>`);
             }
 
             if (s.tails.count || s.aircraftTypes.length) {

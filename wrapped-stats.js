@@ -175,7 +175,11 @@ function computeWrappedStats({ pilot, segments, year, helpers }) {
         if (isReg(f.tail) || isNetjetsDigits(f.tail)) tails[f.tail] = (tails[f.tail] || 0) + 1;
         else types[f.tail] = (types[f.tail] || 0) + 1;
     }
-    const routeArcs = top(routes, 60).map(([r, n]) => { const [d, a] = r.split('-'); return { dep: d, arr: a, n, dc: coords(d), ac: coords(a) }; }).filter(r => r.dc && r.ac);
+    // Every route flown, both directions as one line (SUS-BIV and BIV-SUS), for the map. It used to stop at the
+    // top 60, so a once-flown airport (NEW, HOU) had a dot with no line to it.
+    const pairs = {};
+    for (const [r, n] of Object.entries(routes)) { const k = r.split('-').sort().join('-'); pairs[k] = (pairs[k] || 0) + n; }
+    const routeArcs = top(pairs, 500).map(([r, n]) => { const [d, a] = r.split('-'); return { dep: d, arr: a, n, dc: coords(d), ac: coords(a) }; }).filter(r => r.dc && r.ac);
 
     return {
         year: Number(year), pilotKey: pilot.pilot_key, name: pilot.name, firstName: String(pilot.name || pilot.pilot_key).split(' ')[0],
