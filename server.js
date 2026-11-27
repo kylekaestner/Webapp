@@ -7549,6 +7549,84 @@ function _resolveIntelAuthor(token, db, cb) {
     });
 }
 
+// ── Year in Review (Wrapped) ─────────────────────────────────────────────────
+// Stats come from wrapped-stats.js, computed for every pilot on the server so a pilot's numbers and their
+// percentiles always agree. A pilot gets only their own stats and where they rank, never anyone else's
+// values. Until WRAPPED_OPENS only admin and the WRAPPED_PREVIEW pilots can open it.
+const { computeWrappedStats, percentiles: wrappedPercentiles } = require('./wrapped-stats.js');
+const WRAPPED_OPENS = '2026-12-15';
+const WRAPPED_PREVIEW = new Set(['kyle']);
+const _wrappedCache = new Map(); // year -> { at, all }
+const _wrappedHelpers = {
+    localMs: (iso, apt) => _localAptMs(iso, apt),
+    localParts(ms, apt) {
+        const p = {};
+        _tzFormatter(_lookupTzForAirport(apt) || 'UTC').formatToParts(new Date(ms)).forEach(x => { if (x.type !== 'literal') p[x.type] = x.value; });
+        const date = `${p.year}-${p.month}-${p.day}`;
+        return { date, hour: parseInt(p.hour, 10) % 24, minute: parseInt(p.minute, 10), dow: new Date(date + 'T12:00:00Z').getUTCDay() };
+    },
+    coords(code) {
+        const c = String(code || '').toUpperCase();
+        if (!c) return null;
+        return (c.length === 3 && _aptCoords['K' + c]) || _aptCoords[c] || _aptCoords['K' + c] || null;
+    },
+};
+function _wrappedAll(db, year, cb) {
+    const hit = _wrappedCache.get(year);
+    if (hit && Date.now() - hit.at < 30 * 60000) return cb(null, hit.all);
+    db.all(`SELECT id, pilot_key, name, home_airport, base, airline_code, (SELECT group_concat(base) FROM pilot_base_history h WHERE h.pilot_id=pilots.id) AS past
+            FROM pilots WHERE pilot_key != 'admin' AND (role IS NULL OR role != 'viewer')`, (err, pilots) => {
+        if (err) return cb(err);
+        db.all(`SELECT pilot_id, type, departure_time, arrival_time, departure_airport, arrival_airport, tail, trip, flight_number, is_dh, block_minutes, auto_leg_cancelled, created_at
+                FROM segments WHERE type='flight' AND departure_time >= ?`, [`${year - 1}-12-25`], (err2, segs) => {
+            if (err2) return cb(err2);
+            db.all(`SELECT pilot_id, departure_airport, arrival_airport, departure_time FROM segments WHERE type='flight' AND departure_time < ?`, [`${year}-01-01`], (err3, older) => {
+                const by = {}, hist = {};
+                for (const x of segs) (by[x.pilot_id] = by[x.pilot_id] || []).push(x);
+                for (const x of older || []) (hist[x.pilot_id] = hist[x.pilot_id] || []).push({ ...x, type: 'flight' });
+                const all = [];
+                for (const p of pilots) {
+                    try {
+                        all.push(computeWrappedStats({ pilot: { ...p, pastBases: String(p.past || '').split(',').filter(Boolean) },
+                            segments: [...(hist[p.id] || []), ...(by[p.id] || [])], year, helpers: _wrappedHelpers }));
+                    } catch (e) { console.error(`[wrapped] ${p.pilot_key}:`, e.message); }
+                }
+                _wrappedCache.set(year, { at: Date.now(), all });
+                cb(null, all);
+            });
+        });
+    });
+}
+app.get('/api/wrapped', (req, res) => {
+    const db = getDB();
+    _resolvePilotToken(req.query.token, db, (status, msg, callerKey, role) => {
+        if (status) return res.status(status).json({ error: msg });
+        if (role === 'viewer') return res.status(403).json({ error: 'Year in Review is for pilots' });
+        const isAdmin = callerKey === 'admin';
+        const today = new Date().toISOString().slice(0, 10);
+        const open = today >= WRAPPED_OPENS;
+        if (!open && !isAdmin && !WRAPPED_PREVIEW.has(callerKey)) return res.status(403).json({ error: 'not_open', opensOn: WRAPPED_OPENS });
+        const target = isAdmin && req.query.pilot ? String(req.query.pilot) : callerKey;
+        const year = parseInt(req.query.year, 10) || new Date().getUTCFullYear();
+        _wrappedAll(db, year, (err, all) => {
+            if (err) return res.status(500).json({ error: err.message });
+            const me = all.find(s => s.pilotKey === target);
+            if (!me) return res.status(404).json({ error: 'No pilot found' });
+            // A short place name for every airport the slides mention ("Nantucket, MA", "San Juan").
+            const places = {};
+            const add = c => {
+                if (!c || places[c]) return;
+                const raw = _airportCities[c] || (c.length === 3 && _airportCities['K' + c]) || '';
+                const [city, region] = String(raw).split(', ');
+                if (city) places[c] = /^[A-Z]{2}$/.test(region || '') ? `${city}, ${region}` : city;
+            };
+            const j = JSON.stringify(me);
+            for (const m of j.matchAll(/"([A-Z0-9]{3,4})"/g)) add(m[1]);
+            res.json({ stats: me, ranks: wrappedPercentiles(all, me), crewSize: all.filter(s => s.legs >= 10).length, places, preview: !open, opensOn: WRAPPED_OPENS });
+        });
+    });
+});
+
 // ── Share links ───────────────────────────────────────────────────────────────
 // A pilot's view-only link for family and friends who aren't crew: a viewer account (role 'viewer',
 // shared_by = the pilot) that starts out friends with that pilot, so the normal friend check limits

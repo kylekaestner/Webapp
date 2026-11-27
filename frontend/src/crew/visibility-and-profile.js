@@ -143,9 +143,9 @@
             const adminSection = document.getElementById('admin-manage-section');
             if (adminSection) adminSection.classList.toggle('hidden', !!myPilot || myViewer || !myToken);
 
-            // Year in Review — hidden until year-end
+            // Year in Review: everyone from WRAPPED_OPENS, admin and preview pilots before that.
             const wrappedSection = document.getElementById('wrapped-profile-section');
-            if (wrappedSection) wrappedSection.classList.add('hidden');
+            if (wrappedSection) wrappedSection.classList.toggle('hidden', !wrappedAvailable());
 
             // Hide mobile upload nav button for viewers and demo
             const uploadNav = document.getElementById('btn-upload-nav');

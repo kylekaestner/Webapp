@@ -83,8 +83,9 @@
             const defaultPilot = myPilot || PILOT_KEYS[0];
             updateUploadSyncButtons(defaultPilot);
             const _urlParams = new URLSearchParams(location.search);
-            if (false && _urlParams.has('wrapped')) {
-                loadPilot(defaultPilot).then(() => openWrapped());
+            if (_urlParams.has('wrapped') && wrappedAvailable()) {
+                loadPilot(defaultPilot);
+                openWrapped(); // fetches its own stats, needs nothing loadPilot loads
             } else {
                 loadPilot(defaultPilot);
             }

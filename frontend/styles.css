@@ -252,33 +252,143 @@
         }
 
         /* ── Wrapped (Year in Review) ──────────────────────────────── */
-        @keyframes wrapped-in {
-            from { opacity: 0; transform: translateY(22px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes wrapped-glow {
-            0%, 100% { text-shadow: 0 0 60px rgba(59,130,246,0.35); }
-            50%       { text-shadow: 0 0 110px rgba(59,130,246,0.65), 0 0 40px rgba(99,180,255,0.3); }
-        }
-        .wslide { width:100%; max-width:360px; text-align:center; }
-        .wslide-eyebrow { font-size:11px; font-weight:800; letter-spacing:0.18em; text-transform:uppercase; color:#3b82f6; margin-bottom:20px; }
-        .wslide-big { font-size:clamp(80px,22vw,120px); font-weight:200; color:#fff; line-height:1; letter-spacing:-0.04em; animation: wrapped-in 0.4s ease forwards, wrapped-glow 4s ease 0.5s infinite; text-shadow: 0 0 60px rgba(59,130,246,0.35); }
-        .wslide-label { font-size:13px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#475569; margin-top:12px; }
-        .wslide-apt { font-size:clamp(30px,8vw,48px); font-weight:700; letter-spacing:0.04em; color:#fff; }
-        .wslide-arrow { font-size:22px; color:#3b82f6; margin:0 10px; }
-        .wslide-count { font-size:12px; color:#475569; margin-top:10px; letter-spacing:0.12em; text-transform:uppercase; }
-        .wslide-hero-name { font-size:clamp(28px,8vw,44px); font-weight:700; color:#fff; margin-top:12px; letter-spacing:-0.01em; }
-        .wslide-hero-range { font-size:12px; color:#475569; margin-top:10px; letter-spacing:0.1em; text-transform:uppercase; }
-        .wslide-month { font-size:clamp(34px,10vw,56px); font-weight:200; color:#fff; line-height:1.1; letter-spacing:-0.02em; margin-top:6px; animation: wrapped-in 0.45s ease forwards; }
-        .wslide-icon { font-size:44px; margin:6px 0 12px; opacity:0; animation: wrapped-in 0.35s ease 0.15s forwards; display:block; }
-        .wslide-context { font-size:12px; color:#334155; margin-top:10px; letter-spacing:0.05em; }
-        @keyframes wrapped-slide-left { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
-        @keyframes wrapped-slide-right { from { opacity:0; transform:translateX(-40px); } to { opacity:1; transform:translateX(0); } }
-        /* Wrapped detail page */
-        .wr-mini-card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:12px; }
-        .wr-mini-val  { font-size:16px; font-weight:600; color:#e2e8f0; line-height:1; }
-        .wr-mini-lbl  { font-size:10px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#475569; margin-top:5px; line-height:1.4; }
-        .wr-section-head { font-size:11px; font-weight:800; letter-spacing:0.14em; text-transform:uppercase; color:#3b82f6; margin-bottom:14px; }
+        /* ── Year in Review (Wrapped) ───────────────────────────────────────────
+           One set of slide markup (frontend/src/wrapped/wrapped.js), three themes on #view-wrapped[data-theme]:
+           aurora (bold color per slide), cockpit (avionics), pass (paper boarding pass). --wa is the slide's hue. */
+        #view-wrapped { --ink:#fff; --dim:rgba(255,255,255,.62); --accent:#fff; --panel:rgba(255,255,255,.12); --line:rgba(255,255,255,.22);
+            --big-font: 'Inter', system-ui, sans-serif; --head-font: 'Inter', system-ui, sans-serif; --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+            color: var(--ink); transition: background .6s ease; }
+        /* Full screen while open, like a story: over the header, bottom nav and banners. */
+        #view-wrapped.view-active { position:fixed !important; inset:0; z-index:9600; } /* over the install banner (9500), under toasts */
+        #view-wrapped .ws { width:100%; max-width:380px; display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px; font-family: var(--head-font); }
+        .ws-in { opacity:0; animation: ws-in .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) forwards; }
+        .ws-from-left { animation-name: ws-left; } .ws-from-right { animation-name: ws-right; }
+        @keyframes ws-in { from { opacity:0; transform: translateY(18px) scale(.98); } to { opacity:1; transform:none; } }
+        @keyframes ws-left { from { opacity:0; transform: translateX(-50px); } to { opacity:1; transform:none; } }
+        @keyframes ws-right { from { opacity:0; transform: translateX(50px); } to { opacity:1; transform:none; } }
+        .ws-kicker { font-size:12px; font-weight:800; letter-spacing:.22em; text-transform:uppercase; color: var(--accent); }
+        .ws-hero { font-size: clamp(34px, 10vw, 52px); font-weight:800; letter-spacing:-.02em; line-height:1; margin-top:8px; }
+        .ws-year { font-family: var(--big-font); font-size: clamp(96px, 30vw, 150px); font-weight:900; letter-spacing:-.06em; line-height:.9; }
+        .ws-big { font-family: var(--big-font); font-size: clamp(76px, 24vw, 124px); font-weight:900; letter-spacing:-.05em; line-height:.95; font-variant-numeric: tabular-nums; }
+        .ws-mid { font-family: var(--big-font); font-size: clamp(48px, 15vw, 72px); font-weight:900; letter-spacing:-.04em; line-height:1; }
+        .ws-unit { font-size:14px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; color: var(--dim); }
+        .ws-headline { font-size: clamp(26px, 8vw, 36px); font-weight:800; letter-spacing:-.02em; line-height:1.1; }
+        .ws-sub { font-size:15px; line-height:1.5; color: var(--dim); max-width:320px; }
+        .ws-sub b { color: var(--ink); }
+        .ws-hint { font-size:11px; letter-spacing:.2em; text-transform:uppercase; color: var(--dim); margin-top:18px; animation-name: ws-in, ws-pulse; animation-duration: .6s, 2s; animation-delay: var(--d), 1.8s; animation-iteration-count: 1, infinite; }
+        @keyframes ws-pulse { 50% { opacity:.35; } }
+        .ws-badge { margin-top:8px; padding:8px 14px; border-radius:999px; background: var(--ink); color: var(--badge-ink, #111); font-size:12px; font-weight:800; letter-spacing:.02em; }
+        .ws-card { margin-top:6px; padding:12px 16px; border-radius:14px; background: var(--panel); font-size:14px; line-height:1.4; color: var(--dim); }
+        .ws-card b { color: var(--ink); }
+        /* lists */
+        .ws-rows { width:100%; display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+        .ws-row { display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:12px; background: var(--panel); text-align:left; }
+        .ws-row-k { font-family: var(--big-font); font-weight:900; font-size:18px; width:18px; color: var(--accent); }
+        .ws-row-name { flex:1; font-weight:800; font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .ws-row-name em { font-style:normal; font-weight:500; color: var(--dim); margin-left:6px; }
+        .ws-row-v { font-weight:800; font-size:14px; color: var(--dim); }
+        /* route */
+        .ws-route { display:flex; align-items:center; gap:10px; width:100%; margin:14px 0 6px; }
+        .ws-route-apt { font-family: var(--big-font); font-size: clamp(40px, 13vw, 60px); font-weight:900; letter-spacing:-.02em; line-height:1; display:flex; flex-direction:column; align-items:center; }
+        .ws-route-apt small { font-family: var(--head-font); font-size:12px; font-weight:600; letter-spacing:0; color: var(--dim); margin-top:6px; }
+        .ws-route-line { flex:1; height:2px; position:relative; }
+        .ws-route-line span { position:absolute; inset:0; background: var(--line); }
+        .ws-route-line::after { content:'✈'; position:absolute; top:-11px; left:0; font-size:18px; animation: ws-fly 2.2s ease-in-out 0.6s infinite; }
+        @keyframes ws-fly { from { left:0; opacity:0; } 15% { opacity:1; } 85% { opacity:1; } to { left: calc(100% - 18px); opacity:0; } }
+        /* bar charts */
+        .ws-bars { display:grid; grid-template-columns: repeat(12, minmax(0,1fr)); gap:5px; width:100%; height:190px; align-items:end; margin:12px 0 4px; }
+        .ws-bar { height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:6px; font-size:10px; font-weight:800; color: var(--dim); }
+        .ws-bar-fill { width:100%; height: calc(var(--h) * 160px); min-height:3px; border-radius:6px 6px 2px 2px; background: var(--line); transform-origin: bottom; transform: scaleY(0); }
+        .ws-bar.top .ws-bar-fill { background: var(--ink); }
+        .ws-bar.top span { color: var(--ink); }
+        .ws-grow.ws-go { transition: transform .9s cubic-bezier(.2,.8,.2,1) var(--d,0s), stroke-dashoffset 1.2s ease var(--d,0s); }
+        .ws-bar-fill.ws-go { transform: scaleY(1); }
+        .ws-hbars { width:100%; display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+        .ws-hbar { display:grid; grid-template-columns: 40px 1fr 32px; align-items:center; gap:10px; font-size:13px; font-weight:800; color: var(--dim); }
+        .ws-hbar div { height:16px; border-radius:8px; background: var(--panel); overflow:hidden; }
+        .ws-hbar i { display:block; height:100%; width: calc(var(--w) * 100%); background: var(--line); border-radius:8px; transform-origin:left; transform: scaleX(0); }
+        .ws-hbar i.ws-go { transform: scaleX(1); }
+        .ws-hbar.top { color: var(--ink); } .ws-hbar.top i { background: var(--ink); }
+        /* clock */
+        .ws-clock { width: min(300px, 80vw); height:auto; margin:4px 0; }
+        .ws-clock-face { fill: var(--panel); }
+        .ws-clock-bar { stroke: var(--line); stroke-width:6; stroke-linecap:round; stroke-dasharray:1; stroke-dashoffset:1; }
+        .ws-clock-bar.top { stroke: var(--ink); }
+        .ws-clock-bar.ws-go { stroke-dashoffset:0; }
+        .ws-clock-l { fill: var(--dim); font-size:9px; font-weight:800; letter-spacing:.12em; font-family: var(--head-font); }
+        .ws-clock-peak { fill: var(--ink); font-size:24px; font-weight:900; font-family: var(--big-font); }
+        /* globe ring */
+        .ws-globe { width:130px; height:130px; transform: rotate(-90deg); }
+        .ws-globe-track { fill:none; stroke: var(--panel); stroke-width:10; }
+        .ws-globe-fill { fill:none; stroke: var(--ink); stroke-width:10; stroke-linecap:round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+        .ws-globe-fill.ws-go { stroke-dashoffset: calc(1 - var(--p)); }
+        .ws-globe-text { fill: var(--ink); font-size:22px; font-weight:900; transform: rotate(90deg); transform-origin:60px 60px; font-family: var(--big-font); }
+        /* maps */
+        .ws-map { width: min(360px, 90vw); height:auto; margin:6px 0; }
+        .ws-map-sm { width: min(320px, 86vw); }
+        .ws-grid line { stroke: var(--panel); stroke-width:.6; }
+        .ws-arc { fill:none; stroke: var(--ink); stroke-linecap:round; stroke-dasharray:1; stroke-dashoffset:1; animation: ws-draw 1.4s ease var(--d,0s) forwards; }
+        @keyframes ws-draw { to { stroke-dashoffset:0; } }
+        .ws-dot { fill: var(--ink); opacity:0; animation: ws-in .5s ease 1.2s forwards; }
+        .ws-dot.dim { opacity:.35; animation:none; }
+        .ws-maplabel { fill: var(--ink); font-size:11px; font-weight:900; letter-spacing:.06em; font-family: var(--head-font); paint-order: stroke; stroke: rgba(0,0,0,.35); stroke-width:3px; opacity:0; animation: ws-in .5s ease 1.4s forwards; }
+        .ws-cmark circle { fill: var(--ink); }
+        .ws-cmark text { fill: var(--ink); font-size:12px; font-weight:900; font-family: var(--head-font); paint-order: stroke; stroke: rgba(0,0,0,.35); stroke-width:3px; }
+        /* split, chain, streak, tickets */
+        .ws-split { display:grid; grid-template-columns:1fr 1fr; gap:14px; width:100%; margin-top:8px; }
+        .ws-split > div { padding:18px 10px; border-radius:18px; background: var(--panel); }
+        .ws-chain { display:flex; flex-direction:column; align-items:center; gap:0; margin:8px 0; }
+        .ws-stop { display:flex; flex-direction:column; align-items:center; }
+        .ws-stop b { font-family: var(--big-font); font-size:26px; font-weight:900; line-height:1; }
+        .ws-stop span { font-size:11px; color: var(--dim); font-weight:600; }
+        .ws-chain-link { width:2px; height:14px; background: var(--line); margin:4px 0; }
+        .ws-days { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; max-width:300px; margin:6px 0; }
+        .ws-days i { width:22px; height:22px; border-radius:6px; background: var(--ink); opacity:0; animation: ws-in .4s ease var(--d) forwards; }
+        .ws-ticket { width:100%; display:flex; flex-direction:column; align-items:flex-start; gap:4px; padding:14px 18px; border-radius:16px; background: var(--panel); text-align:left; }
+        .ws-ticket span { font-size:11px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; color: var(--accent); }
+        .ws-ticket b { font-family: var(--big-font); font-size:30px; font-weight:900; letter-spacing:-.01em; }
+        .ws-ticket em { font-style:normal; font-size:13px; color: var(--dim); font-weight:600; }
+        /* share card */
+        .ws-share { width:100%; border-radius:24px; padding:22px; background: var(--share-bg, rgba(255,255,255,.14)); border:1px solid var(--line); text-align:left; }
+        .ws-share-top { display:flex; justify-content:space-between; font-size:11px; font-weight:900; letter-spacing:.2em; text-transform:uppercase; color: var(--accent); }
+        .ws-share-name { font-family: var(--big-font); font-size:44px; font-weight:900; letter-spacing:-.03em; margin:10px 0 14px; }
+        .ws-share-grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:14px 10px; }
+        .ws-share-grid b { display:block; font-family: var(--big-font); font-size:24px; font-weight:900; letter-spacing:-.02em; }
+        .ws-share-grid span { font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color: var(--dim); }
+        .ws-share-foot { margin-top:16px; padding-top:12px; border-top:1px dashed var(--line); font-size:13px; font-weight:700; color: var(--dim); }
+        .ws-actions { display:flex; gap:10px; margin-top:12px; position:relative; z-index:20; }
+        .ws-actions button { padding:12px 22px; border-radius:999px; border:1px solid var(--line); background: var(--panel); color: var(--ink); font-weight:900; font-size:13px; letter-spacing:.06em; text-transform:uppercase; cursor:pointer; }
+        .ws-actions button:last-child { background: var(--ink); color: var(--badge-ink, #111); border-color: transparent; }
+        /* chrome: progress, counter, theme button */
+        .ws-prog { flex:1; height:3px; border-radius:2px; background: var(--panel); }
+        .ws-prog.done { background: var(--dim); } .ws-prog.now { background: var(--ink); }
+        #wrapped-dots { top:auto !important; bottom:max(18px, calc(env(safe-area-inset-bottom,0px) + 8px)) !important; font-size:11px; font-weight:800; letter-spacing:.2em; color: var(--dim); font-family: var(--mono); }
+        #wrapped-theme-btn { position:absolute; top: calc(env(safe-area-inset-top,0px) + 14px); left:16px; z-index:20; height:30px; padding:0 12px; border-radius:999px; border:1px solid var(--line); background: var(--panel); color: var(--ink); font-size:11px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; }
+        #wrapped-mute-btn, #wrapped-close-btn { background: var(--panel) !important; color: var(--ink) !important; }
+
+        /* Aurora: a saturated gradient per slide, huge heavy type */
+        #view-wrapped[data-theme="aurora"] { background: radial-gradient(120% 80% at 10% 0%, hsl(calc(var(--wa) + 40) 90% 60%) 0%, transparent 60%), radial-gradient(120% 90% at 100% 100%, hsl(calc(var(--wa) - 30) 85% 45%) 0%, transparent 60%), hsl(var(--wa) 75% 22%) !important; --accent: hsl(calc(var(--wa) + 60) 100% 82%); --badge-ink: hsl(var(--wa) 70% 20%); }
+        #view-wrapped[data-theme="aurora"] #wrapped-bg-canvas { opacity:.25 !important; }
+
+        /* Cockpit: black glass, phosphor green and cyan, monospace like an MFD */
+        #view-wrapped[data-theme="cockpit"] { background: radial-gradient(90% 70% at 50% 40%, #0b1a14 0%, #020605 70%) !important; --ink:#5dffa6; --dim:rgba(93,255,166,.6); --accent:#4de1ff; --panel:rgba(93,255,166,.08); --line:rgba(93,255,166,.35); --badge-ink:#02140b;
+            --big-font: ui-monospace, 'SF Mono', Menlo, monospace; --head-font: ui-monospace, 'SF Mono', Menlo, monospace; }
+        #view-wrapped[data-theme="cockpit"]::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:6; background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); }
+        #view-wrapped[data-theme="cockpit"] .ws-big, #view-wrapped[data-theme="cockpit"] .ws-year, #view-wrapped[data-theme="cockpit"] .ws-mid { font-weight:700; text-shadow: 0 0 18px rgba(93,255,166,.55); }
+        #view-wrapped[data-theme="cockpit"] .ws-row, #view-wrapped[data-theme="cockpit"] .ws-card, #view-wrapped[data-theme="cockpit"] .ws-ticket, #view-wrapped[data-theme="cockpit"] .ws-split > div { border:1px solid var(--line); border-radius:4px; }
+        #view-wrapped[data-theme="cockpit"] .ws-badge { border-radius:3px; }
+        #view-wrapped[data-theme="cockpit"] .ws-maplabel, #view-wrapped[data-theme="cockpit"] .ws-cmark text { stroke: rgba(0,0,0,.8); }
+        #view-wrapped[data-theme="cockpit"] #wrapped-bg-canvas { opacity:.15 !important; }
+
+        /* Boarding Pass: warm paper, ink, a red stamp accent, serif headlines */
+        #view-wrapped[data-theme="pass"] { background: #efe6d2 !important; --ink:#1c2230; --dim:rgba(28,34,48,.62); --accent:#c2412d; --panel:rgba(28,34,48,.07); --line:rgba(28,34,48,.28); --badge-ink:#efe6d2; --share-bg:#fbf6ea;
+            --big-font: 'Georgia', 'Times New Roman', serif; --head-font: ui-monospace, 'SF Mono', Menlo, monospace; }
+        #view-wrapped[data-theme="pass"]::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:6; background: radial-gradient(rgba(28,34,48,.05) 1px, transparent 1px) 0 0/6px 6px; }
+        #view-wrapped[data-theme="pass"] #wrapped-bg-canvas { display:none; }
+        #view-wrapped[data-theme="pass"] .ws-big, #view-wrapped[data-theme="pass"] .ws-year { font-style:italic; font-weight:700; }
+        #view-wrapped[data-theme="pass"] .ws-row, #view-wrapped[data-theme="pass"] .ws-ticket, #view-wrapped[data-theme="pass"] .ws-share { background:#fbf6ea; border:1px dashed var(--line); }
+        #view-wrapped[data-theme="pass"] .ws-badge { background: var(--accent); color:#fff; transform: rotate(-2deg); border:2px solid var(--accent); }
+        #view-wrapped[data-theme="pass"] .ws-maplabel, #view-wrapped[data-theme="pass"] .ws-cmark text { stroke: #efe6d2; }
 
         /* ── Momentum scrolling ─────────────────────────────────────── */
         #view-grid, #view-list, #view-overlap, #view-offdays {

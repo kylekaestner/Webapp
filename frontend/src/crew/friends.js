@@ -280,15 +280,16 @@
         }
         async function createShareLink() {
             const firstEl = document.getElementById('share-link-first'), relEl = document.getElementById('share-link-rel'), btn = document.getElementById('share-link-create-btn');
-            const firstName = firstEl.value.trim(), relationship = relEl.value.trim();
+            const otherEl = document.getElementById('share-link-rel-other');
+            const firstName = firstEl.value.trim(), relationship = relEl.value === 'other' ? otherEl.value.trim() : relEl.value;
             if (!firstName) { firstEl.focus(); return; }
-            if (!relationship) { relEl.focus(); return; }
+            if (!relationship) { (relEl.value === 'other' ? otherEl : relEl).focus(); return; }
             btn.disabled = true;
             try {
                 const r = await fetch('/api/share-links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: myToken, firstName, relationship }) });
                 const data = await r.json();
                 if (!r.ok) { showToast(data.error || 'Could not create the link', 'error'); return; }
-                firstEl.value = ''; relEl.value = '';
+                firstEl.value = ''; relEl.value = ''; otherEl.value = ''; otherEl.classList.add('hidden');
                 _shareLinks = [...(_shareLinks || []), data].sort((a, b) => a.name.localeCompare(b.name));
                 renderShareLinks();
                 const ok = await copyText(location.origin + data.link);
