@@ -6533,16 +6533,42 @@ function _lookupTzForAirport(code) {
     const c = (code.length === 3 && (_aptCoords['K' + code] || _airportCities['K' + code]))
         || _aptCoords[code] || _airportCities[code];
     const lat = Array.isArray(c) ? c[0] : c?.lat, lon = Array.isArray(c) ? c[1] : c?.lon;
-    let best = null, bestD = Infinity;
-    if (isFinite(lat) && isFinite(lon)) {
+    let best = null;
+    if (isFinite(lat) && isFinite(lon)) best = _nearestTz(lat, lon);
+    return (_lookupTzCache[code] = best || _aptTimezone[code] || null);
+}
+// Nearest airport with a known time zone. Every zone-tagged airport is bucketed by whole degree once (the
+// tables load at startup), and a lookup searches outward ring by ring, one ring past the first hit so a
+// closer point just over a cell edge still wins. It used to scan every airport on each miss, building a
+// 70k-entry list each time: Wrapped's ~260 airports took 27 s on the droplet the first time.
+let _tzGrid = null;
+function _nearestTz(lat, lon) {
+    if (!_tzGrid) {
+        _tzGrid = new Map();
         for (const [k, tz] of Object.entries(_aptTimezone)) {
             const p = _aptCoords[k];
             if (!p) continue;
-            const d = (p[0] - lat) ** 2 + ((p[1] - lon) * Math.cos(lat * Math.PI / 180)) ** 2;
-            if (d < bestD) { bestD = d; best = tz; }
+            const key = `${Math.floor(p[0])},${Math.floor(p[1])}`;
+            if (!_tzGrid.has(key)) _tzGrid.set(key, []);
+            _tzGrid.get(key).push([p[0], p[1], tz]);
         }
     }
-    return (_lookupTzCache[code] = best || _aptTimezone[code] || null);
+    const cosLat = Math.cos(lat * Math.PI / 180), la = Math.floor(lat), lo = Math.floor(lon);
+    let best = null, bestD = Infinity, foundAt = null;
+    for (let r = 0; r <= 30; r++) {
+        for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
+            if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue; // this ring only
+            const cell = _tzGrid.get(`${la + i},${(((lo + j) + 180) % 360 + 360) % 360 - 180}`);
+            if (!cell) continue;
+            for (const [plat, plon, tz] of cell) {
+                const d = (plat - lat) ** 2 + ((plon - lon) * cosLat) ** 2;
+                if (d < bestD) { bestD = d; best = tz; }
+            }
+        }
+        if (best && foundAt === null) foundAt = r;
+        if (foundAt !== null && r >= foundAt + 1) break;
+    }
+    return best;
 }
 
 function rosterAuth(req, res, next) {
@@ -7584,15 +7610,23 @@ function _wrappedAll(db, year, cb) {
                 const by = {}, hist = {};
                 for (const x of segs) (by[x.pilot_id] = by[x.pilot_id] || []).push(x);
                 for (const x of older || []) (hist[x.pilot_id] = hist[x.pilot_id] || []).push({ ...x, type: 'flight' });
-                const all = [];
-                for (const p of pilots) {
+                // One pilot per turn of the event loop, so live tracking and other requests keep running.
+                const all = [], t0 = Date.now();
+                let i = 0;
+                const next = () => {
+                    if (i >= pilots.length) {
+                        _wrappedCache.set(year, { at: Date.now(), all });
+                        console.log(`[wrapped] ${year}: ${all.length} pilots in ${Date.now() - t0} ms`);
+                        return cb(null, all);
+                    }
+                    const p = pilots[i++];
                     try {
                         all.push(computeWrappedStats({ pilot: { ...p, pastBases: String(p.past || '').split(',').filter(Boolean) },
                             segments: [...(hist[p.id] || []), ...(by[p.id] || [])], year, helpers: _wrappedHelpers }));
                     } catch (e) { console.error(`[wrapped] ${p.pilot_key}:`, e.message); }
-                }
-                _wrappedCache.set(year, { at: Date.now(), all });
-                cb(null, all);
+                    setImmediate(next);
+                };
+                next();
             });
         });
     });
