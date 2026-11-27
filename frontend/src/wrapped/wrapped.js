@@ -62,6 +62,7 @@
         function wrappedNext() {
             if (_wrappedIdx < _wrappedSlides.length - 1) { _wrappedIdx++; _renderWrappedSlide(); }
         }
+        function wrappedReplay() { _wrappedIdx = 0; _renderWrappedSlide(); }
         function wrappedPrev() {
             if (_wrappedIdx > 0) { _wrappedIdx--; _renderWrappedSlide(); }
         }
@@ -84,6 +85,12 @@
             const el = document.getElementById('view-wrapped');
             if (!el || el._wrappedSwipe) return;
             el._wrappedSwipe = true;
+            document.addEventListener('keydown', e => {
+                if (!el.classList.contains('view-active')) return;
+                if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); wrappedNext(); }
+                else if (e.key === 'ArrowLeft') { e.preventDefault(); wrappedPrev(); }
+                else if (e.key === 'Escape') closeWrapped();
+            });
             let x0 = 0;
             el.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, { passive: true });
             el.addEventListener('touchend', e => {
@@ -100,6 +107,9 @@
             if (view) { view.dataset.slide = slide.id; view.style.setProperty('--wa', slide.hue ?? 220); }
             _wDropMap();
             area.innerHTML = `<div class="ws ws-${slide.id}" key="${_wrappedIdx}">${slide.html()}</div>`;
+            // The tap-to-advance zones sit over the slide; on the summary they'd swallow Replay and Share.
+            const zones = document.getElementById('wrapped-tap-zones');
+            if (zones) zones.style.display = slide.id === 'summary' ? 'none' : 'grid';
             requestAnimationFrame(() => {
                 area.querySelectorAll('[data-map]').forEach(el => _wDrawMap(el, el.dataset.map));
                 area.querySelectorAll('[data-count]').forEach(el => _wCount(el, parseFloat(el.dataset.count), parseInt(el.dataset.dec || '0', 10)));
@@ -107,8 +117,12 @@
             });
             const prog = document.getElementById('wrapped-progress');
             if (prog) prog.innerHTML = _wrappedSlides.map((_, i) => `<div class="ws-prog ${i < _wrappedIdx ? 'done' : i === _wrappedIdx ? 'now' : ''}"></div>`).join('');
+            // Back / next buttons around the counter. Tapping the left third or the rest of the screen, swiping, and the
+            // arrow keys do the same.
             const dots = document.getElementById('wrapped-dots');
-            if (dots) dots.textContent = `${_wrappedIdx + 1} / ${_wrappedSlides.length}`;
+            if (dots) dots.innerHTML = `<button type="button" class="ws-nav" aria-label="Previous slide" ${_wrappedIdx === 0 ? 'disabled' : ''} onclick="event.stopPropagation();wrappedPrev()">‹</button>`
+                + `<span>${_wrappedIdx + 1} / ${_wrappedSlides.length}</span>`
+                + `<button type="button" class="ws-nav" aria-label="Next slide" ${_wrappedIdx === _wrappedSlides.length - 1 ? 'disabled' : ''} onclick="event.stopPropagation();wrappedNext()">›</button>`;
         }
 
         function _wCount(el, target, dec) {
@@ -431,7 +445,7 @@
                     ${s.topRoutes[0] ? `<div class="ws-share-foot">Top route ${s.topRoutes[0][0].split('-').map(_wApt).join(' → ')}</div>` : ''}
                 </div>
                 <div class="ws-actions ws-in" style="--d:.5s">
-                    <button type="button" onclick="event.stopPropagation();_wrappedIdx=0;_renderWrappedSlide()">Replay</button>
+                    <button type="button" onclick="event.stopPropagation();wrappedReplay()">Replay</button>
                     <button type="button" onclick="event.stopPropagation();shareWrapped()">Share</button>
                 </div>`);
             return out;

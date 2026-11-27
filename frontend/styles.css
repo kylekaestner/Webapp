@@ -378,7 +378,9 @@
         /* chrome: progress, counter, theme button */
         .ws-prog { flex:1; height:3px; border-radius:2px; background: var(--panel); }
         .ws-prog.done { background: var(--dim); } .ws-prog.now { background: var(--ink); }
-        #wrapped-dots { top:auto !important; bottom:max(18px, calc(env(safe-area-inset-bottom,0px) + 8px)) !important; font-size:11px; font-weight:800; letter-spacing:.2em; color: var(--dim); font-family: var(--mono); }
+        .ws-nav { width:44px; height:44px; border-radius:50%; border:1px solid var(--line); background: var(--panel); color: var(--ink); font-size:24px; line-height:1; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; padding-bottom:3px; }
+        .ws-nav:disabled { opacity:.25; cursor:default; }
+        #wrapped-dots { gap:18px !important; top:auto !important; bottom:max(14px, calc(env(safe-area-inset-bottom,0px) + 6px)) !important; font-size:11px; font-weight:800; letter-spacing:.2em; color: var(--dim); font-family: var(--mono); }
         /* The buttons sit below the story bars (top 14px), not on the same line. */
         #wrapped-mute-btn, #wrapped-close-btn { top: calc(env(safe-area-inset-top,0px) + 30px) !important; }
         #wrapped-theme-btn { position:absolute; top: calc(env(safe-area-inset-top,0px) + 30px); left:16px; z-index:20; height:30px; padding:0 12px; border-radius:999px; border:1px solid var(--line); background: var(--panel); color: var(--ink); font-size:11px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; }
