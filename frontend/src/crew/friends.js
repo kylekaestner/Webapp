@@ -188,7 +188,7 @@
                     incomingEl.innerHTML = `<p class="text-[9px] font-black text-amber-400 uppercase tracking-widest mb-1">Requests</p>` +
                         myIncomingRequests.map(r => `
                             <div class="flex items-center justify-between py-2 px-3 rounded-xl bg-amber-950/20 border border-amber-800/40">
-                                <span class="text-xs font-black text-white">${escapeHtml(r.name || r.pilotKey)}</span>
+                                <span class="text-xs font-black text-white">${escapeHtml(r.name || r.pilotKey)}${r.isViewer ? ` <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">View only${r.sharedByName ? ' · via ' + escapeHtml(r.sharedByName.split(' ')[0]) : ''}</span>` : ''}</span>
                                 <div class="flex gap-1.5">
                                     <button onclick="respondFriendRequest('${r.pilotKey}', true)" class="px-2.5 py-1 bg-green-600 hover:bg-green-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors">Accept</button>
                                     <button onclick="respondFriendRequest('${r.pilotKey}', false)" class="px-2.5 py-1 border border-zinc-600 text-zinc-400 hover:text-red-400 hover:border-red-800 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors">Decline</button>
@@ -198,6 +198,7 @@
                 }
             }
 
+            if (myViewer && !myFriends.length && !myOutgoingRequests.length) { listEl.innerHTML = ''; return; }
             if (!myFriends.length && !myOutgoingRequests.length) {
                 listEl.innerHTML = `<p class="text-xs text-zinc-500 py-1.5">No friends yet — tap + Add to send a request.</p>`;
                 return;
@@ -226,7 +227,7 @@
                     </div>
                     <div class="flex items-center gap-2.5 shrink-0 ml-2">
                         ${visToggle}
-                        <button onclick="confirmRemoveFriend('${f.pilotKey}', '${escapeHtml(f.name || f.pilotKey)}')" class="text-[9px] font-black text-zinc-600 hover:text-red-400 uppercase tracking-widest">Remove</button>
+                        ${f.pilotKey === myViewerOwner ? '' : `<button onclick="confirmRemoveFriend('${f.pilotKey}', '${escapeHtml(f.name || f.pilotKey)}')" class="text-[9px] font-black text-zinc-600 hover:text-red-400 uppercase tracking-widest">Remove</button>`}
                     </div>
                 </div>`;
             };
@@ -278,15 +279,16 @@
                 </div>`).join('');
         }
         async function createShareLink() {
-            const input = document.getElementById('share-link-name'), btn = document.getElementById('share-link-create-btn');
-            const name = input.value.trim();
-            if (!name) { input.focus(); return; }
+            const firstEl = document.getElementById('share-link-first'), lastEl = document.getElementById('share-link-last'), btn = document.getElementById('share-link-create-btn');
+            const firstName = firstEl.value.trim(), lastName = lastEl.value.trim();
+            if (!firstName) { firstEl.focus(); return; }
+            if (!lastName) { lastEl.focus(); return; }
             btn.disabled = true;
             try {
-                const r = await fetch('/api/share-links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: myToken, name }) });
+                const r = await fetch('/api/share-links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: myToken, firstName, lastName }) });
                 const data = await r.json();
                 if (!r.ok) { showToast(data.error || 'Could not create the link', 'error'); return; }
-                input.value = '';
+                firstEl.value = ''; lastEl.value = '';
                 _shareLinks = [...(_shareLinks || []), data].sort((a, b) => a.name.localeCompare(b.name));
                 renderShareLinks();
                 const ok = await copyText(location.origin + data.link);
@@ -325,7 +327,9 @@
         async function openAddFriendModal() {
             document.getElementById('add-friend-modal').classList.remove('hidden');
             document.getElementById('friend-search-input').value = '';
+            document.getElementById('friend-search-input').placeholder = myViewer ? 'First and last name…' : 'Search by name…';
             document.getElementById('friend-search-input').focus();
+            if (myViewer) { _friendDirectory = []; renderFriendSearchResults(''); return; }
             if (!_friendDirectory) {
                 try {
                     _friendDirectory = await fetch(`/api/pilots-directory?token=${encodeURIComponent(myToken)}`).then(r => r.json());
@@ -336,9 +340,32 @@
         function closeAddFriendModal() {
             document.getElementById('add-friend-modal').classList.add('hidden');
         }
+        // A viewer can't browse the crew: an exact first and last name is looked up instead.
+        let _viewerLookupTimer = null, _viewerLookupQuery = null;
+        function _viewerLookup(query) {
+            const el = document.getElementById('friend-search-results');
+            const q = (query || '').replace(/\s+/g, ' ').trim();
+            clearTimeout(_viewerLookupTimer);
+            if (q.split(' ').length < 2) {
+                _friendDirectory = [];
+                el.innerHTML = `<p class="text-xs text-zinc-500 py-3 text-center">Type their first and last name, as it's on CrewSync.</p>`;
+                return true;
+            }
+            if (_viewerLookupQuery === q) return false;
+            el.innerHTML = `<p class="text-xs text-zinc-500 py-3 text-center">Looking…</p>`;
+            _viewerLookupTimer = setTimeout(async () => {
+                try { _friendDirectory = await fetch(`/api/pilots-lookup?token=${encodeURIComponent(myToken)}&name=${encodeURIComponent(q)}`).then(r => r.json()); }
+                catch { _friendDirectory = []; }
+                _viewerLookupQuery = q;
+                renderFriendSearchResults(q);
+                _viewerLookupQuery = null;
+            }, 400);
+            return true;
+        }
         function renderFriendSearchResults(query) {
             const el = document.getElementById('friend-search-results');
             if (!el) return;
+            if (myViewer && _viewerLookup(query)) return;
             const q = (query || '').trim().toLowerCase();
             const friendKeys = new Set(myFriends.map(f => f.pilotKey));
             const outgoingKeys = new Set(myOutgoingRequests.map(r => r.pilotKey));

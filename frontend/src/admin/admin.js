@@ -66,7 +66,7 @@ async function openAdminPanel(tab = 'users') {
                 const initials = isViewer ? '👁' : (u.name || u.pilot_key).split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
                 const color = isViewer ? '#10b981' : (PILOT_COLORS[u.pilot_key] || '#6366f1');
                 const subtext = isViewer
-                    ? `${u.pilot_key} · View only`
+                    ? `${u.pilot_key} · View only${u.shared_by ? ` · via ${escapeHtml(PILOT_NAMES[u.shared_by] || u.shared_by)}` : ''}`
                     : `${u.pilot_key} · base ${u.base || '—'}${u.home_airport && !sameApt(u.home_airport, u.base) ? ` · home ${u.home_airport}` : ''} · ${u.parser_type || 'other'}`;
                 let warnCount = 0;
                 try { warnCount = u.parser_warnings ? JSON.parse(u.parser_warnings).length : 0; } catch { warnCount = 0; }

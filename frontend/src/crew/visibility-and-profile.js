@@ -128,7 +128,12 @@
             // requirement entirely and sees everyone; viewers are friend-gated too now but
             // admin-assigned only, with no self-service UI of their own to manage it.
             const friendsSection = document.getElementById('friends-section');
-            if (friendsSection) friendsSection.classList.toggle('hidden', !myPilot || isDemo);
+            // Viewers get it too: they ask pilots to share by full name (no browsing the crew).
+            if (friendsSection) friendsSection.classList.toggle('hidden', (!myPilot && !myViewer) || isDemo);
+            const friendsHelp = document.getElementById('friends-help');
+            if (friendsHelp) friendsHelp.textContent = myViewer
+                ? 'Know another pilot here? Add them by their first and last name. They see who you are and decide whether to share.'
+                : "Only friends can see your schedule, and you can only see theirs. Use the toggle to show or hide someone in your calendar/map without unfriending them.";
             const shareSection = document.getElementById('share-section');
             if (shareSection) shareSection.classList.toggle('hidden', !myPilot || isDemo);
             const signOutBtn = document.getElementById('sign-out-btn');

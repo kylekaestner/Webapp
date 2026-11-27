@@ -10,6 +10,7 @@
         let myViewer     = false; // true when authenticated as a view-only guest
         let myViewerKey  = null;  // pilot_key in DB for the viewer (used as localStorage key)
         let myViewerName = null;  // display name for the viewer
+        let myViewerOwner = null; // the pilot whose share link this viewer is (can't be unfriended)
 
         async function initIdentity() {
             const params   = new URLSearchParams(window.location.search);
@@ -54,6 +55,7 @@
                         myViewer     = true;
                         myViewerKey  = data.pilotKey;
                         myViewerName = data.name || 'Viewer';
+                        myViewerOwner = data.sharedBy || null;
                         PILOT_NAMES[myViewerKey] = myViewerName;
                     } else {
                         myPilot = data.pilotKey;
