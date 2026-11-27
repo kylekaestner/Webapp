@@ -271,6 +271,7 @@
                     <text x="60" y="66" text-anchor="middle" class="ws-globe-text">${laps >= 1 ? laps.toFixed(1) + '×' : Math.round(laps * 100) + '%'}</text>
                 </svg>
                 <div class="ws-sub ws-in" style="--d:.9s">${laps >= 1 ? `Enough to circle the Earth ${laps.toFixed(1)} times` : `${Math.round(laps * 100)}% of the way around the Earth`}${s.moonTrips >= 0.1 ? `, or ${Math.round(s.moonTrips * 100)}% of the way to the Moon` : ''}.</div>
+                ${s.avgSpeedKts ? `<div class="ws-card ws-in" style="--d:1.1s">Across every leg, gate to gate with taxi and holds included, you averaged <b>${s.avgSpeedKts} knots</b>.</div>` : ''}
                 ${_wRank('nm', 'miles')}`);
 
             add('map', 230, () => `
@@ -401,7 +402,7 @@
                     <div class="ws-kicker ws-in">Longest and shortest</div>
                     <div class="ws-ticket ws-in" style="--d:.15s"><span>Longest</span><b>${_wApt(Lg.dep)} → ${_wApt(Lg.arr)}</b><em>${_wHM(Lg.block)} · ${Lg.nm.toLocaleString()} nm · ${_wFmtDate(Lg.date)}</em></div>
                     ${Sh ? `<div class="ws-ticket ws-in" style="--d:.45s"><span>Shortest</span><b>${_wApt(Sh.dep)} → ${_wApt(Sh.arr)}</b><em>${_wHM(Sh.block)} · ${Sh.nm.toLocaleString()} nm · ${_wFmtDate(Sh.date)}</em></div>` : ''}
-                    ${s.avgSpeedKts ? `<div class="ws-sub ws-in" style="--d:.8s">Average speed over the ground, gate to gate: ${s.avgSpeedKts} knots.</div>` : ''}`);
+`);
             }
 
             const c = s.compass;
