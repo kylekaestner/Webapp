@@ -7546,6 +7546,9 @@ app.post('/api/share-links', (req, res) => _shareLinkOwner(req, res, owner => {
         if (err || !me) return res.status(500).json({ error: err?.message || 'Pilot not found' });
         if (me.n >= SHARE_LINK_LIMIT) return res.status(400).json({ error: `Up to ${SHARE_LINK_LIMIT} share links. Revoke one first.` });
         const name = `${label} - ${(me.name || owner).split(' ')[0]}`;
+        // One link per name for a pilot, so a list never has two "Mom"s nobody can tell apart.
+        db.get(`SELECT 1 FROM pilots WHERE shared_by=? AND role='viewer' AND lower(name)=lower(?)`, [owner, name], (eDup, dup) => {
+        if (dup) return res.status(400).json({ error: `You already have a link for ${label}. Use a different name, like a first name.` });
         const base = (owner + label.toLowerCase().replace(/[^a-z0-9]/g, '')).slice(0, 24);
         const token = generateToken();
         const tryInsert = attempt => {
@@ -7562,6 +7565,7 @@ app.post('/api/share-links', (req, res) => _shareLinkOwner(req, res, owner => {
                 });
         };
         tryInsert(0);
+        });
     });
 }));
 app.delete('/api/share-links/:key', (req, res) => _shareLinkOwner(req, res, owner => {
