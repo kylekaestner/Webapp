@@ -47,6 +47,7 @@
                 return;
             }
             _wrappedSlides = _buildWrappedSlides(_wrappedData);
+            _renderWrappedFx(); // radar tags use the pilot's airports
             _wrappedIdx = 0;
             _renderWrappedSlide();
             _setupWrappedSwipe();
@@ -74,9 +75,33 @@
             _applyWrappedTheme();
             if (_wrappedSlides.length) _renderWrappedSlide();
         }
+        // Background effects behind the slides, per theme. Cockpit: radar targets tagged with the pilot's top
+        // airports that light up as the sweep (7 s a turn, clockwise from 12 o'clock) passes them. Boarding Pass:
+        // paper planes gliding along dashed trails and rubber stamps fading in and out. Aurora: none.
+        function _renderWrappedFx() {
+            const fx = document.getElementById('wrapped-fx');
+            if (!fx) return;
+            const s = _wrappedData?.stats;
+            if (_wrappedTheme === 'cockpit') {
+                const tags = (s?.topAirports || []).map(([a]) => _wApt(a));
+                const spots = [[38, 30], [96, 38], [152, 24], [205, 44], [262, 33], [318, 41], [70, 18], [235, 20]];
+                fx.innerHTML = spots.map(([deg, r], i) => {
+                    const a = deg * Math.PI / 180;
+                    return `<i class="ws-blip" style="left:calc(50% + ${(Math.sin(a) * r).toFixed(1)}vmin);top:calc(46% - ${(Math.cos(a) * r).toFixed(1)}vmin);animation-delay:${(deg / 360 * 7 - 7).toFixed(2)}s">${tags[i] ? `<b>${tags[i]}</b>` : ''}</i>`;
+                }).join('');
+            } else if (_wrappedTheme === 'pass') {
+                const year = s?.year || new Date().getFullYear();
+                fx.innerHTML = [[12, 26, 0], [58, 38, -9], [30, 31, -17], [78, 44, -24]].map(([top, dur, delay]) =>
+                    `<i class="ws-plane" style="top:${top}%;animation-duration:${dur}s;animation-delay:${delay}s"><span><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M21 12.5 13.5 11 9.5 4H8l2 7-4.6-.5L3.8 8H2.6l1 4.5-1 4.5h1.2l1.6-2.5 4.6-.5-2 7h1.5l4-7 7.5-1.5c.7-.1.7-.9 0-1Z" fill="currentColor"/></svg></span></i>`).join('')
+                    + [['CLEARED', 18, 70, -8, 0], ['ON TIME', 70, 16, 6, -5], [String(year), 64, 82, -4, -10]].map(([t, x, y, rot, delay]) =>
+                    `<i class="ws-stamp" style="left:${x}%;top:${y}%;--r:${rot}deg;animation-delay:${delay}s">${t}</i>`).join('');
+            } else fx.innerHTML = '';
+        }
+
         function _applyWrappedTheme() {
             const view = document.getElementById('view-wrapped');
             if (view) view.dataset.theme = _wrappedTheme;
+            _renderWrappedFx();
             const btn = document.getElementById('wrapped-theme-btn');
             if (btn) btn.textContent = WRAPPED_THEMES.find(t => t.id === _wrappedTheme)?.name || 'Theme';
         }
@@ -112,6 +137,7 @@
             if (zones) zones.style.display = slide.id === 'summary' ? 'none' : 'grid';
             requestAnimationFrame(() => {
                 area.querySelectorAll('[data-map]').forEach(el => _wDrawMap(el, el.dataset.map));
+                area.querySelectorAll('[data-usmap]').forEach(_wDrawUsMap);
                 area.querySelectorAll('[data-count]').forEach(el => _wCount(el, parseFloat(el.dataset.count), parseInt(el.dataset.dec || '0', 10)));
                 area.querySelectorAll('.ws-grow').forEach(el => el.classList.add('ws-go'));
             });
@@ -233,6 +259,22 @@
             }).catch(() => { el.innerHTML = ''; });
         }
 
+        // States slide: public/us-states.json (us-atlas, Albers USA with Alaska and Hawaii inset), loaded the first
+        // time it's needed. Visited states fill in one after another, west to east.
+        let _wUsStates = null;
+        async function _wDrawUsMap(svg) {
+            try { _wUsStates = _wUsStates || await fetch('/us-states.json').then(r => r.json()); } catch { return; }
+            if (!svg.isConnected) return;
+            const visited = new Set(_wrappedData?.stats?.states || []);
+            const order = Object.entries(_wUsStates.states)
+                .map(([k, d]) => ({ k, d, x: parseFloat(d.slice(1)) }))
+                .sort((a, b) => a.x - b.x);
+            let n = 0;
+            svg.innerHTML = order.map(({ k, d }) => visited.has(k)
+                ? `<path class="ws-st on" style="--d:${(0.6 + (n++) * 0.06).toFixed(2)}s" d="${d}"><title>${k}</title></path>`
+                : `<path class="ws-st" d="${d}"/>`).join('');
+        }
+
         function _buildWrappedSlides(d) {
             const s = d.stats, first = escapeHtml(s.firstName), out = [];
             const add = (id, hue, html) => out.push({ id, hue, html });
@@ -288,6 +330,21 @@
                     <div class="ws-row ws-in" style="--d:${(0.7 + i * 0.12).toFixed(2)}s"><span class="ws-row-k">${i + 1}</span><span class="ws-row-name">${_wApt(a)} <em>${_wPlace(a)}</em></span><span class="ws-row-v">${n}</span></div>`).join('')}
                 </div>
                 ${_wRank('airports', 'airports')}`);
+
+            // New slides only when they have something to say (Kyle: "if they aren't showing much, they may not be worth it").
+            if ((s.states?.length || 0) >= 5 || (s.countries?.length || 0) >= 2) {
+                let regionName = c => c;
+                try { const dn = new Intl.DisplayNames(['en'], { type: 'region' }); regionName = c => dn.of(c) || c; } catch {}
+                const abroad = (s.countries || []).filter(c => c !== 'US');
+                add('states', 15, () => `
+                    <div class="ws-kicker ws-in">Where you touched down</div>
+                    <div class="ws-split">
+                        <div class="ws-in" style="--d:.1s"><div class="ws-mid">${_wNum(s.states.length)}</div><div class="ws-unit">${s.states.length === 1 ? 'state' : 'states'}</div></div>
+                        <div class="ws-in" style="--d:.25s"><div class="ws-mid">${_wNum(s.countries.length)}</div><div class="ws-unit">${s.countries.length === 1 ? 'country' : 'countries'}</div></div>
+                    </div>
+                    <svg class="ws-usmap ws-in" style="--d:.3s" viewBox="0 0 975 610" data-usmap role="img" aria-label="Map of the states you landed in: ${s.states.map(escapeHtml).join(', ')}"></svg>
+                    ${abroad.length ? `<div class="ws-sub ws-in" style="--d:1.6s">Plus ${abroad.map(c => escapeHtml(regionName(c))).join(', ')}.</div>` : ''}`);
+            }
 
             if (s.topRoutes[0]) {
                 const [r, n] = s.topRoutes[0], [dep, arr] = r.split('-');
@@ -347,6 +404,17 @@
                     ${_wRank('earlyStarts', 'early starts') || _wRank('lateNights', 'late nights')}`);
             }
 
+            if ((s.holidays?.length || 0) >= 2) {
+                const H = s.holidays;
+                add('holidays', 350, () => `
+                    <div class="ws-kicker ws-in">Holidays on duty</div>
+                    <div class="ws-headline ws-in" style="--d:.1s">${H.length === 1 ? `You worked ${escapeHtml(H[0].name)}` : `You worked ${H.length} holidays`}</div>
+                    <div class="ws-rows">${H.map((h, i) => `
+                        <div class="ws-row ws-in" style="--d:${(0.35 + i * 0.12).toFixed(2)}s"><span class="ws-row-name">${escapeHtml(h.name)}</span><span class="ws-row-v">${h.flew ? 'flying' : 'on the road'}</span></div>`).join('')}
+                    </div>
+                    <div class="ws-sub ws-in" style="--d:${(0.5 + H.length * 0.12).toFixed(2)}s">Someone has to fly the people home.</div>`);
+            }
+
             if (s.busiestDay && s.busiestDay.legs >= 3) {
                 const b = s.busiestDay;
                 add('busyday', 12, () => `
@@ -394,6 +462,18 @@
                     <div class="ws-unit ws-in" style="--d:.4s">hours on the ground</div>
                     <div class="ws-sub ws-in" style="--d:.8s">${_wFmtDate(L.from)} to ${_wFmtDate(L.to)}. Hope you found a good spot for dinner.</div>
                     ${_wRank('longestLayover', 'layovers')}`);
+            }
+
+            if ((s.crossedPaths?.[0]?.count || 0) >= 3) {
+                const X = s.crossedPaths, t = X[0];
+                add('crossed', 195, () => `
+                    <div class="ws-kicker ws-in">Crossed paths</div>
+                    <div class="ws-headline ws-in" style="--d:.1s">You ran into ${escapeHtml(t.name)} ${t.count} time${t.count === 1 ? '' : 's'}</div>
+                    <div class="ws-sub ws-in" style="--d:.3s">Mostly in ${_wPlace(t.topAirport)}, about ${t.hours} hours on the ground together.</div>
+                    <div class="ws-rows">${X.map((x, i) => `
+                        <div class="ws-row ws-in" style="--d:${(0.55 + i * 0.12).toFixed(2)}s"><span class="ws-row-name">${escapeHtml(x.name)} <em>${_wPlace(x.topAirport)}</em></span><span class="ws-row-v">${x.count}×</span></div>`).join('')}
+                    </div>
+                    <div class="ws-sub ws-in" style="--d:${(0.7 + X.length * 0.12).toFixed(2)}s">Same airport, same time, at least an hour. That's what CrewSync is for.</div>`);
             }
 
             if (s.longestLeg) {

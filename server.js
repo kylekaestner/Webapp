@@ -1742,6 +1742,8 @@ try {
     console.error('Could not load airports.dat:', e.message);
 }
 // Phase 2: supplement with OurAirports full dataset (ident, icao_code, gps_code indexed)
+// Country and state for an airport (Year in Review's states-and-countries slide), from the same file.
+const _aptRegion = {};
 try {
     const rawLines = fs.readFileSync(path.join(__dirname, 'data', 'airports_raw.csv'), 'utf8').split('\n');
     // columns: id,ident,type,name,lat,lon,elev,continent,country,region,muni,sched,icao,iata,gps,local,...
@@ -1752,6 +1754,10 @@ try {
         const lat = parseFloat(cols[4]), lon = parseFloat(cols[5]);
         if (!isFinite(lat) || !isFinite(lon)) continue;
         // Index by ident and gps_code (these are the ICAO-style identifiers pilots use)
+        // ISO region (US-MO, CA-ON) for every code, even one an earlier file already gave coordinates.
+        for (const code of [ident, icao, gps, iata]) {
+            if (code && code !== 'N/A' && cols[9] && !_aptRegion[code.toUpperCase()]) _aptRegion[code.toUpperCase()] = cols[9];
+        }
         for (const code of [ident, icao, gps]) {
             if (code && code !== 'N/A' && !_aptCoords[code.toUpperCase()])
                 _aptCoords[code.toUpperCase()] = [lat, lon];
@@ -7579,7 +7585,7 @@ function _resolveIntelAuthor(token, db, cb) {
 // Stats come from wrapped-stats.js, computed for every pilot on the server so a pilot's numbers and their
 // percentiles always agree. A pilot gets only their own stats and where they rank, never anyone else's
 // values. Until WRAPPED_OPENS only admin and the WRAPPED_PREVIEW pilots can open it.
-const { computeWrappedStats, percentiles: wrappedPercentiles } = require('./wrapped-stats.js');
+const { computeWrappedStats, percentiles: wrappedPercentiles, crossings: wrappedCrossings } = require('./wrapped-stats.js');
 const WRAPPED_OPENS = '2026-12-15';
 const WRAPPED_PREVIEW = new Set(['kyle']);
 const _wrappedCache = new Map(); // year -> { at, all }
@@ -7595,6 +7601,10 @@ const _wrappedHelpers = {
         const c = String(code || '').toUpperCase();
         if (!c) return null;
         return (c.length === 3 && _aptCoords['K' + c]) || _aptCoords[c] || _aptCoords['K' + c] || null;
+    },
+    region(code) {
+        const c = String(code || '').toUpperCase();
+        return (c.length === 3 && _aptRegion['K' + c]) || _aptRegion[c] || _aptRegion['K' + c] || null;
     },
 };
 function _wrappedAll(db, year, cb) {
@@ -7646,6 +7656,19 @@ app.get('/api/wrapped', (req, res) => {
             if (err) return res.status(500).json({ error: err.message });
             const me = all.find(s => s.pilotKey === target);
             if (!me) return res.status(404).json({ error: 'No pilot found' });
+            // Crossed paths: only with friends (the same people who can already see each other's schedules).
+            db.all(`SELECT CASE WHEN requester_key=? THEN recipient_key ELSE requester_key END AS k FROM friend_requests
+                    WHERE status='accepted' AND (requester_key=? OR recipient_key=?)`, [target, target, target], (fe, frows) => {
+            const friendKeys = new Set((frows || []).map(r => r.k));
+            const crossedPaths = all.filter(s => friendKeys.has(s.pilotKey)).map(s => {
+                const x = wrappedCrossings(me._ground, s._ground, _wrappedHelpers);
+                if (!x.length) return null;
+                const at = {};
+                for (const c of x) at[c.airport] = (at[c.airport] || 0) + 1;
+                return { name: s.firstName, count: x.length, hours: Math.round(x.reduce((t, c) => t + c.hours, 0)), topAirport: Object.entries(at).sort((a, b) => b[1] - a[1])[0][0] };
+            }).filter(Boolean).sort((a, b) => b.count - a.count).slice(0, 5);
+            const { _ground, ...stats } = me;
+            stats.crossedPaths = crossedPaths;
             // A short place name for every airport the slides mention ("Nantucket, MA", "San Juan").
             const places = {};
             const add = c => {
@@ -7654,9 +7677,10 @@ app.get('/api/wrapped', (req, res) => {
                 const [city, region] = String(raw).split(', ');
                 if (city) places[c] = /^[A-Z]{2}$/.test(region || '') ? `${city}, ${region}` : city;
             };
-            const j = JSON.stringify(me);
+            const j = JSON.stringify(stats);
             for (const m of j.matchAll(/"([A-Z0-9]{3,4})"/g)) add(m[1]);
-            res.json({ stats: me, ranks: wrappedPercentiles(all, me), crewSize: all.filter(s => s.legs >= 10).length, places, preview: !open, opensOn: WRAPPED_OPENS });
+            res.json({ stats, ranks: wrappedPercentiles(all, me), crewSize: all.filter(s => s.legs >= 10).length, places, preview: !open, opensOn: WRAPPED_OPENS });
+            });
         });
     });
 });

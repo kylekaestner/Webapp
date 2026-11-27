@@ -142,15 +142,21 @@ function computeWrappedStats({ pilot, segments, year, helpers }) {
 
     // Where they slept: between one flight's arrival and the next departure from that same place.
     let nightsAway = 0;
-    const nightsBy = {}, stays = [];
+    const nightsBy = {}, stays = [], awayDates = new Set();
+    // Every stretch on the ground between two flights, home included, for crossings with friends
+    // (computed on the server across pilots, never sent to the app).
+    const ground = [];
     for (let i = 0; i + 1 < flights.length; i++) {
         const a = flights[i], b = flights[i + 1];
-        if (!a.arrL || !a.arrL.date.startsWith(y) || b.depMs > now || a.kind === 'personal' || b.kind === 'personal') continue;
+        if (!a.arrL || !a.arrL.date.startsWith(y) || b.depMs > now) continue;
         if (!a.arr || !b.dep || (a.arr !== b.dep && !(coords(a.arr) && coords(b.dep) && haversineNm(coords(a.arr), coords(b.dep)) < 15))) continue;
         const gap = b.depMs - a.arrMs;
-        if (!(gap > 0) || gap > MAX_STAY_MS || isHome(a.arr)) continue;
+        if (!(gap > 0) || gap > MAX_STAY_MS) continue;
+        ground.push({ airport: a.arr, from: a.arrMs, to: b.depMs, home: isHome(a.arr) });
+        if (a.kind === 'personal' || b.kind === 'personal' || isHome(a.arr)) continue;
         const nights = dayDiff(a.arrL.date, b.depL.date);
         if (nights > 0) { nightsAway += nights; nightsBy[a.arr] = (nightsBy[a.arr] || 0) + nights; }
+        for (let n = 0; n < nights; n++) awayDates.add(new Date(Date.parse(a.arrL.date + 'T12:00:00Z') + n * 86400000).toISOString().slice(0, 10));
         if (!isBase(a.arr) && gap <= MAX_LAYOVER_MS && (a.kind === 'work' || b.kind === 'work')) stays.push({ airport: a.arr, mins: Math.round(gap / 60000), from: a.arrL.date, to: b.depL.date });
     }
     // A crash pad: one airport holding a big share of the nights (a commuter's base, even one missing from
@@ -173,6 +179,19 @@ function computeWrappedStats({ pilot, segments, year, helpers }) {
     }
 
     // Some parsers put the aircraft type (CR7, 321) where the tail goes: those make a fleet, not tails.
+    // Holidays at work: a worked leg that day, or that night away from home.
+    const holidays = usHolidays(Number(year)).filter(h => h.date <= new Date(now).toISOString().slice(0, 10))
+        .map(h => ({ ...h, flew: !!byDay[h.date], away: awayDates.has(h.date) })).filter(h => h.flew || h.away);
+
+    // States and countries landed in, from each airport's ISO region (US-MO, CA-ON, MX-NLE).
+    const states = new Set(), countries = new Set();
+    if (helpers.region) for (const a of airports) {
+        const r = helpers.region(a); if (!r) continue;
+        const [cc, st] = r.split('-');
+        countries.add(cc);
+        if (cc === 'US' && /^[A-Z]{2}$/.test(st || '')) states.add(st);
+    }
+
     const tails = {}, types = {};
     const isReg = t => /^N\d{1,5}[A-Z]{0,2}$/.test(t) || /^[A-Z]{1,2}-[A-Z0-9]{3,5}$/.test(t) || /^C-[A-Z]{4}$/.test(t);
     const isNetjetsDigits = t => /^\d{1,3}$/.test(t) && pilot.airline_code === 'EJA';
@@ -204,7 +223,40 @@ function computeWrappedStats({ pilot, segments, year, helpers }) {
         tails: { count: Object.keys(tails).length, top: top(tails, 3) },
         aircraftTypes: top(types, 4),
         compass,
+        firstLeg: legOut(work[0]), lastLeg: legOut(work[work.length - 1]),
+        holidays, states: [...states].sort(), countries: [...countries].sort(),
+        _ground: ground,
     };
+}
+
+// US holidays a pilot might have worked, with dates for the given year.
+function usHolidays(yr) {
+    const ymd = d => d.toISOString().slice(0, 10);
+    const nth = (m, dow, n) => { const d = new Date(Date.UTC(yr, m, 1)); d.setUTCDate(1 + ((dow - d.getUTCDay() + 7) % 7) + (n - 1) * 7); return ymd(d); };
+    const last = (m, dow) => { const d = new Date(Date.UTC(yr, m + 1, 0)); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() - dow + 7) % 7)); return ymd(d); };
+    // Easter (anonymous Gregorian algorithm)
+    const a = yr % 19, b = Math.floor(yr / 100), c = yr % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const em = Math.floor((h + l - 7 * m + 114) / 31), ed = ((h + l - 7 * m + 114) % 31) + 1;
+    return [
+        { name: "New Year's Day", date: `${yr}-01-01` }, { name: 'Easter', date: ymd(new Date(Date.UTC(yr, em - 1, ed))) },
+        { name: "Mother's Day", date: nth(4, 0, 2) }, { name: 'Memorial Day', date: last(4, 1) }, { name: "Father's Day", date: nth(5, 0, 3) },
+        { name: 'the 4th of July', date: `${yr}-07-04` }, { name: 'Labor Day', date: nth(8, 1, 1) }, { name: 'Halloween', date: `${yr}-10-31` },
+        { name: 'Thanksgiving', date: nth(10, 4, 4) }, { name: 'Christmas Eve', date: `${yr}-12-24` }, { name: 'Christmas', date: `${yr}-12-25` },
+        { name: "New Year's Eve", date: `${yr}-12-31` },
+    ];
+}
+
+// Times two pilots were at the same airport at the same time, at least an hour, not both at home.
+function crossings(mine, theirs, helpers) {
+    const near = (x, y) => x === y || (helpers.coords(x) && helpers.coords(y) && haversineNm(helpers.coords(x), helpers.coords(y)) < 15);
+    const out = [];
+    for (const g of mine) for (const h of theirs) {
+        if (g.home && h.home) continue;
+        const from = Math.max(g.from, h.from), to = Math.min(g.to, h.to);
+        if (to - from >= 3600000 && near(g.airport, h.airport)) out.push({ airport: g.airport, from, hours: (to - from) / 3600000 });
+    }
+    return out;
 }
 
 // The metrics pilots are ranked on: higher is "more". Others' values never leave the server.
@@ -224,4 +276,4 @@ function percentiles(all, me, minLegs = 10) {
     return out;
 }
 
-module.exports = { computeWrappedStats, percentiles, haversineNm, RANKED };
+module.exports = { computeWrappedStats, percentiles, crossings, usHolidays, haversineNm, RANKED };
