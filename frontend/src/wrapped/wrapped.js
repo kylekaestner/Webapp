@@ -370,7 +370,7 @@
                     <div class="ws-kicker ws-in">On the road</div>
                     <div class="ws-big ws-in" style="--d:.1s">${_wNum(s.nightsAway)}</div>
                     <div class="ws-unit ws-in" style="--d:.25s">nights away from home</div>
-                    <div class="ws-sub ws-in" style="--d:.6s">That's ${Math.round(s.nightsAway / 3.65)}% of the year spent in someone else's bed.</div>
+                    <div class="ws-sub ws-in" style="--d:.6s">That's ${Math.max(1, Math.round(s.nightsAway / 3.65))}% of the year in hotel rooms${s.crashPad ? ' and crash pads' : ''}.</div>
                     ${s.crashPad ? `<div class="ws-card ws-in" style="--d:.9s">Home away from home: <b>${_wPlaceFull(s.crashPad.airport)}</b>, ${s.crashPad.nights} nights.</div>` : ''}
                     ${_wRank('nightsAway', 'nights away')}`);
             }
