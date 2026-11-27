@@ -72,7 +72,9 @@ function computeWrappedStats({ pilot, segments, year, helpers }) {
     }
     const kept = new Set(seen.values());
     for (let i = flights.length - 1; i >= 0; i--) if (!kept.has(flights[i])) flights.splice(i, 1);
-    const inYear = f => f.depL.date.startsWith(y);
+    // Only flights that have happened: a scheduled trip can still be cancelled or changed. helpers.now for tests.
+    const now = helpers.now ?? Date.now();
+    const inYear = f => f.depL.date.startsWith(y) && f.depMs <= now;
     // A leg back to the airport it left (a return to the gate) isn't a trip anywhere.
     const work = flights.filter(f => f.kind === 'work' && inYear(f) && f.dep !== f.arr);
     const rides = flights.filter(f => f.kind === 'ride' && inYear(f));
@@ -104,12 +106,16 @@ function computeWrappedStats({ pilot, segments, year, helpers }) {
         hours[f.depL.hour]++;
         (byDay[f.depL.date] = byDay[f.depL.date] || []).push(f);
     }
-    const busiestMonth = months.reduce((b, m, i) => m.legs > (b ? months[b.i].legs : 0) ? { i, legs: m.legs, block: m.block } : b, null);
+    const busiestMonth = months.reduce((b, m, i) => m.legs && (!b || m.legs > b.legs || (m.legs === b.legs && m.block > b.block)) ? { i, legs: m.legs, block: m.block } : b, null);
 
     const days = Object.keys(byDay).sort();
     let busiestDay = null;
-    for (const d of days) if (!busiestDay || byDay[d].length > busiestDay.legs) {
-        busiestDay = { date: d, legs: byDay[d].length, stops: [byDay[d][0].dep, ...byDay[d].map(f => f.arr)], block: byDay[d].reduce((s, f) => s + (f.block || 0), 0) };
+    // Most legs, and on a tie the most block time (Kyle has six 3-leg days; the first one used to win).
+    for (const d of days) {
+        const legs = byDay[d].length, block = byDay[d].reduce((s, f) => s + (f.block || 0), 0);
+        if (!busiestDay || legs > busiestDay.legs || (legs === busiestDay.legs && block > busiestDay.block)) {
+            busiestDay = { date: d, legs, stops: [byDay[d][0].dep, ...byDay[d].map(f => f.arr)], block };
+        }
     }
     let streak = 0, run = 0, prev = null, streakEnd = null;
     for (const d of days) { run = prev && dayDiff(prev, d) === 1 ? run + 1 : 1; if (run > streak) { streak = run; streakEnd = d; } prev = d; }
@@ -139,7 +145,7 @@ function computeWrappedStats({ pilot, segments, year, helpers }) {
     const nightsBy = {}, stays = [];
     for (let i = 0; i + 1 < flights.length; i++) {
         const a = flights[i], b = flights[i + 1];
-        if (!a.arrL || !a.arrL.date.startsWith(y) || a.kind === 'personal' || b.kind === 'personal') continue;
+        if (!a.arrL || !a.arrL.date.startsWith(y) || b.depMs > now || a.kind === 'personal' || b.kind === 'personal') continue;
         if (!a.arr || !b.dep || (a.arr !== b.dep && !(coords(a.arr) && coords(b.dep) && haversineNm(coords(a.arr), coords(b.dep)) < 15))) continue;
         const gap = b.depMs - a.arrMs;
         if (!(gap > 0) || gap > MAX_STAY_MS || isHome(a.arr)) continue;
