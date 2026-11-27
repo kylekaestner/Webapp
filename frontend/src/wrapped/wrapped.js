@@ -421,138 +421,51 @@
             showToast(ok ? 'Copied. Paste it anywhere.' : 'Take a screenshot to share', ok ? 'success' : 'info', 2500);
         }
 
-        // ── Music: an upbeat synth track built live with Web Audio (no audio file) ──
-        // 104 BPM, C major, C-G-Am-F one chord per bar. Layers: pad (pumped on the beat), bass, an echoed
-        // 16th-note arp, drums from bar 3, and a lead hook on the second half of each 8-bar loop. A lookahead
-        // scheduler queues notes ~1s ahead so timing stays tight however busy the page is.
-        const _WM_BPM = 104, _WM_BEAT = 60 / _WM_BPM, _WM_BAR = 4 * _WM_BEAT;
-        const _WM_HZ = n => 440 * Math.pow(2, (n - 69) / 12);  // MIDI note to Hz
-        const _WM_CHORDS = [[60, 64, 67], [59, 62, 67], [57, 60, 64], [57, 60, 65]]; // C, G/B, Am, F
-        const _WM_ROOTS = [36, 43, 45, 41];                                          // C2, G2, A2, F2
-        // Lead hook for bars 5-8 of the loop: [beat offset in the bar, MIDI note, length in beats]
-        const _WM_HOOK = [
-            [[0, 76, 1], [1, 79, 0.5], [1.5, 76, 0.5], [2, 74, 1], [3, 72, 1]],
-            [[0, 74, 1.5], [1.5, 71, 0.5], [2, 74, 2]],
-            [[0, 72, 1], [1, 76, 0.5], [1.5, 79, 0.5], [2, 81, 1], [3, 79, 1]],
-            [[0, 77, 1], [1, 76, 1], [2, 74, 0.5], [2.5, 72, 1.5]],
-        ];
-
+        // ── Music: a real recorded track, public/audio/wrapped.mp3 ──────────────
+        // Free, app-licensed music (Pixabay Music: no credit required), looped with a fade in and out. Played
+        // through Web Audio so the fades work on iPhone too (iOS ignores an <audio> element's volume). No file
+        // means no music, never the old synth. Browsers only start sound after a tap, so a Wrapped opened by
+        // link starts its music on the first tap instead.
+        const WRAPPED_TRACK = '/audio/wrapped.mp3';
+        const _WM_VOL = 0.55;
         function _startWrappedMusic() {
-            if (_wrappedAudio) return;
+            if (_wrappedAudio) { _wrappedAudio.ctx.resume?.(); return; }
             try {
+                const el = new Audio(WRAPPED_TRACK);
+                el.loop = true; el.preload = 'auto'; el.crossOrigin = 'anonymous';
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const master = ctx.createGain();
-                master.gain.setValueAtTime(0, ctx.currentTime);
-                master.gain.linearRampToValueAtTime(_wrappedMuted ? 0 : 0.22, ctx.currentTime + 1.5);
-                const comp = ctx.createDynamicsCompressor();
-                comp.threshold.value = -16; comp.ratio.value = 4;
-                comp.connect(master); master.connect(ctx.destination);
-
-                // Echo for the arp and lead: dotted eighth, a few repeats, darkened.
-                const echo = ctx.createDelay(1); echo.delayTime.value = _WM_BEAT * 0.75;
-                const fb = ctx.createGain(); fb.gain.value = 0.32;
-                const echoTone = ctx.createBiquadFilter(); echoTone.type = 'lowpass'; echoTone.frequency.value = 2400;
-                echo.connect(echoTone); echoTone.connect(fb); fb.connect(echo); echoTone.connect(comp);
-                const echoSend = ctx.createGain(); echoSend.gain.value = 0.35; echoSend.connect(echo);
-
-                // Pad bus, ducked on every beat so it breathes with the kick.
-                const padBus = ctx.createGain(); padBus.gain.value = 0.5;
-                const padTone = ctx.createBiquadFilter(); padTone.type = 'lowpass'; padTone.frequency.value = 1400;
-                padBus.connect(padTone); padTone.connect(comp);
-
-                const noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-                const nd = noise.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
-
-                const voice = (type, hz, t, dur, vol, dest, attack = 0.01, release = 0.12) => {
-                    const o = ctx.createOscillator(), g = ctx.createGain();
-                    o.type = type; o.frequency.value = hz;
-                    g.gain.setValueAtTime(0, t);
-                    g.gain.linearRampToValueAtTime(vol, t + attack);
-                    g.gain.setValueAtTime(vol, t + Math.max(attack, dur - release));
-                    g.gain.linearRampToValueAtTime(0, t + dur);
-                    o.connect(g); g.connect(dest); o.start(t); o.stop(t + dur + 0.05);
-                    return o;
+                const gain = ctx.createGain();
+                gain.gain.value = 0;
+                ctx.createMediaElementSource(el).connect(gain);
+                gain.connect(ctx.destination);
+                _wrappedAudio = { ctx, gain, el };
+                el.addEventListener('error', () => { const b = document.getElementById('wrapped-mute-btn'); if (b) b.style.display = 'none'; });
+                const go = () => {
+                    if (!_wrappedAudio || _wrappedAudio.el !== el) return;
+                    ctx.resume?.();
+                    el.play().then(() => {
+                        const now = ctx.currentTime;
+                        gain.gain.cancelScheduledValues(now);
+                        gain.gain.setValueAtTime(gain.gain.value, now);
+                        gain.gain.linearRampToValueAtTime(_wrappedMuted ? 0 : _WM_VOL, now + 2.5);
+                    }).catch(() => {
+                        // No tap yet (opened from a link): start on the first one.
+                        document.getElementById('view-wrapped')?.addEventListener('click', go, { once: true });
+                    });
                 };
-                const kick = t => {
-                    const o = ctx.createOscillator(), g = ctx.createGain();
-                    o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
-                    g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
-                    o.connect(g); g.connect(comp); o.start(t); o.stop(t + 0.35);
-                };
-                const hiss = (t, dur, vol, type, freq) => {
-                    const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
-                    s.buffer = noise; f.type = type; f.frequency.value = freq;
-                    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-                    s.connect(f); f.connect(g); g.connect(comp); s.start(t); s.stop(t + dur + 0.02);
-                };
-                const snare = t => { hiss(t, 0.18, 0.35, 'bandpass', 1900); voice('triangle', 185, t, 0.08, 0.18, comp, 0.002, 0.06); };
-
-                let bar = 0, nextBarAt = ctx.currentTime + 0.3;
-                function scheduleBar(t, n) {
-                    const c = n % 4, loopBar = n % 8, drums = n >= 2;
-                    // Pad: the chord, two detuned saws per note
-                    for (const m of _WM_CHORDS[c]) for (const det of [-6, 6]) {
-                        const o = voice('sawtooth', _WM_HZ(m), t, _WM_BAR, 0.035, padBus, 0.08, 0.2);
-                        o.detune.value = det;
-                    }
-                    for (let b = 0; b < 4; b++) { // duck the pad on each beat
-                        const bt = t + b * _WM_BEAT;
-                        padBus.gain.setValueAtTime(0.18, bt);
-                        padBus.gain.linearRampToValueAtTime(0.5, bt + _WM_BEAT * 0.6);
-                    }
-                    // Bass: eighths on the root, octave jump on the "and" of 4
-                    for (let e = 0; e < 8; e++) {
-                        const m = _WM_ROOTS[c] + (e === 7 ? 12 : 0);
-                        voice('sawtooth', _WM_HZ(m), t + e * _WM_BEAT / 2, _WM_BEAT / 2 * 0.85, 0.12, comp, 0.005, 0.05);
-                    }
-                    // Arp: chord tones up an octave, 16ths, through the echo
-                    const arp = [..._WM_CHORDS[c], _WM_CHORDS[c][1]].map(m => m + 12);
-                    for (let s = 0; s < 16; s++) {
-                        const st = t + s * _WM_BEAT / 4, hz = _WM_HZ(arp[s % 4]);
-                        const o = ctx.createOscillator(), g = ctx.createGain();
-                        o.type = 'square'; o.frequency.value = hz;
-                        g.gain.setValueAtTime(0.028, st); g.gain.exponentialRampToValueAtTime(0.001, st + 0.11);
-                        o.connect(g); g.connect(comp); g.connect(echoSend); o.start(st); o.stop(st + 0.13);
-                    }
-                    // Drums from bar 3: kick on every beat, snare on 2 and 4, hats on the eighths
-                    if (drums) {
-                        for (let b = 0; b < 4; b++) {
-                            kick(t + b * _WM_BEAT);
-                            if (b % 2) snare(t + b * _WM_BEAT);
-                            hiss(t + b * _WM_BEAT + _WM_BEAT / 2, 0.06, 0.12, 'highpass', 8000);
-                            hiss(t + b * _WM_BEAT, 0.03, 0.05, 'highpass', 9000);
-                        }
-                    }
-                    // Lead hook on bars 5-8 of each loop (from the second loop on, after the intro)
-                    if (loopBar >= 4 && n >= 8) {
-                        for (const [off, m, len] of _WM_HOOK[loopBar - 4]) {
-                            const nt = t + off * _WM_BEAT, d = len * _WM_BEAT;
-                            voice('triangle', _WM_HZ(m), nt, d * 0.95, 0.09, comp, 0.01, 0.1);
-                            const o = voice('sawtooth', _WM_HZ(m), nt, d * 0.95, 0.025, echoSend, 0.01, 0.1);
-                            o.detune.value = 7;
-                        }
-                    }
-                }
-                function loop() {
-                    if (!_wrappedAudio) return;
-                    while (nextBarAt < ctx.currentTime + 1.0) { scheduleBar(nextBarAt, bar++); nextBarAt += _WM_BAR; }
-                    _wrappedAudio._loopTimer = setTimeout(loop, 250);
-                }
-                _wrappedAudio = { ctx, master };
-                loop();
+                go();
                 _updateMuteBtn();
             } catch (e) { console.warn('Wrapped music:', e); }
         }
 
         function _stopWrappedMusic() {
             if (!_wrappedAudio) return;
+            const { ctx, gain, el } = _wrappedAudio; _wrappedAudio = null;
             try {
-                clearTimeout(_wrappedAudio._loopTimer);
-                const wa = _wrappedAudio; _wrappedAudio = null;
-                wa.master.gain.cancelScheduledValues(wa.ctx.currentTime);
-                wa.master.gain.setValueAtTime(wa.master.gain.value, wa.ctx.currentTime);
-                wa.master.gain.linearRampToValueAtTime(0, wa.ctx.currentTime + 0.8);
-                setTimeout(() => { try { wa.ctx.close(); } catch {} }, 1200);
+                const now = ctx.currentTime;
+                gain.gain.cancelScheduledValues(now); gain.gain.setValueAtTime(gain.gain.value, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.8);
+                setTimeout(() => { try { el.pause(); ctx.close(); } catch {} }, 1000);
             } catch {}
         }
 
@@ -560,9 +473,10 @@
             ev?.stopPropagation();
             _wrappedMuted = !_wrappedMuted;
             if (_wrappedAudio) {
-                const now = _wrappedAudio.ctx.currentTime, g = _wrappedAudio.master.gain;
-                g.cancelScheduledValues(now); g.setValueAtTime(g.value, now);
-                g.linearRampToValueAtTime(_wrappedMuted ? 0 : 0.22, now + 0.3);
+                const { ctx, gain, el } = _wrappedAudio, now = ctx.currentTime;
+                if (!_wrappedMuted && el.paused) { ctx.resume?.(); el.play().catch(() => {}); }
+                gain.gain.cancelScheduledValues(now); gain.gain.setValueAtTime(gain.gain.value, now);
+                gain.gain.linearRampToValueAtTime(_wrappedMuted ? 0 : _WM_VOL, now + 0.4);
             }
             _updateMuteBtn();
         }
