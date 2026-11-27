@@ -188,7 +188,7 @@
                     incomingEl.innerHTML = `<p class="text-[9px] font-black text-amber-400 uppercase tracking-widest mb-1">Requests</p>` +
                         myIncomingRequests.map(r => `
                             <div class="flex items-center justify-between py-2 px-3 rounded-xl bg-amber-950/20 border border-amber-800/40">
-                                <span class="text-xs font-black text-white">${escapeHtml(r.name || r.pilotKey)}${r.isViewer ? ` <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">View only${r.sharedByName ? ' · via ' + escapeHtml(r.sharedByName.split(' ')[0]) : ''}</span>` : ''}</span>
+                                <span class="text-xs font-black text-white">${escapeHtml(r.name || r.pilotKey)}${r.isViewer ? ` <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">View only</span>` : ''}</span>
                                 <div class="flex gap-1.5">
                                     <button onclick="respondFriendRequest('${r.pilotKey}', true)" class="px-2.5 py-1 bg-green-600 hover:bg-green-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors">Accept</button>
                                     <button onclick="respondFriendRequest('${r.pilotKey}', false)" class="px-2.5 py-1 border border-zinc-600 text-zinc-400 hover:text-red-400 hover:border-red-800 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors">Decline</button>
@@ -279,16 +279,16 @@
                 </div>`).join('');
         }
         async function createShareLink() {
-            const firstEl = document.getElementById('share-link-first'), lastEl = document.getElementById('share-link-last'), btn = document.getElementById('share-link-create-btn');
-            const firstName = firstEl.value.trim(), lastName = lastEl.value.trim();
+            const firstEl = document.getElementById('share-link-first'), relEl = document.getElementById('share-link-rel'), btn = document.getElementById('share-link-create-btn');
+            const firstName = firstEl.value.trim(), relationship = relEl.value.trim();
             if (!firstName) { firstEl.focus(); return; }
-            if (!lastName) { lastEl.focus(); return; }
+            if (!relationship) { relEl.focus(); return; }
             btn.disabled = true;
             try {
-                const r = await fetch('/api/share-links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: myToken, firstName, lastName }) });
+                const r = await fetch('/api/share-links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: myToken, firstName, relationship }) });
                 const data = await r.json();
                 if (!r.ok) { showToast(data.error || 'Could not create the link', 'error'); return; }
-                firstEl.value = ''; lastEl.value = '';
+                firstEl.value = ''; relEl.value = '';
                 _shareLinks = [...(_shareLinks || []), data].sort((a, b) => a.name.localeCompare(b.name));
                 renderShareLinks();
                 const ok = await copyText(location.origin + data.link);

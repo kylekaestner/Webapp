@@ -1209,7 +1209,8 @@
                 <div id="share-links-list" class="space-y-2 mb-2"></div>
                 <div class="grid grid-cols-2 gap-2 mb-2">
                     <input id="share-link-first" type="text" maxlength="30" placeholder="First name" class="min-w-0 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-500">
-                    <input id="share-link-last" type="text" maxlength="30" placeholder="Last name" onkeydown="if(event.key==='Enter')createShareLink()" class="min-w-0 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-500">
+                    <input id="share-link-rel" type="text" maxlength="20" list="share-link-rels" placeholder="Relationship (Mom)" onkeydown="if(event.key==='Enter')createShareLink()" class="min-w-0 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-500">
+                    <datalist id="share-link-rels"><option value="Mom"><option value="Dad"><option value="Wife"><option value="Husband"><option value="Partner"><option value="Son"><option value="Daughter"><option value="Brother"><option value="Sister"><option value="Friend"></datalist>
                 </div>
                 <button id="share-link-create-btn" onclick="createShareLink()" class="w-full px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">Create View-Only Link</button>
             </div>

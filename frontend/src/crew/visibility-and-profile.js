@@ -70,7 +70,7 @@
         function _applyIdentityUI() {
             const color    = myPilot ? PILOT_COLORS[myPilot] : myViewer ? '#10b981' : isDemo ? '#6366f1' : '#6366f1';
             const initials = myPilot ? PILOT_NAMES[myPilot].split(' ').map(w => w[0]).join('')
-                           : myViewer ? myViewerName.replace(/ - [^-]+$/, '').split(' ').filter(w => /\w/.test(w)).map(w => w[0]).join('').slice(0, 2).toUpperCase() : isDemo ? 'D' : '★';
+                           : myViewer ? myViewerName.replace(/\s*\(.*\)$/, '').split(' ').filter(w => /\w/.test(w)).map(w => w[0]).join('').slice(0, 2).toUpperCase() : isDemo ? 'D' : '★';
             const name     = myPilot ? PILOT_NAMES[myPilot] : myViewer ? myViewerName : isDemo ? 'Demo' : 'Admin';
             const role     = myPilot ? PILOT_ROLES[myPilot] : myViewer ? 'View only' : isDemo ? 'Demo preview' : 'All access · no identity set';
 

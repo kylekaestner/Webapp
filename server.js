@@ -2534,8 +2534,7 @@ app.post('/api/friends/request', (req, res) => {
                         if (err3) return res.status(500).json({ error: err3.message });
                         res.json({ success: true, status: 'pending' });
                         db.get('SELECT p.name, o.name AS owner FROM pilots p LEFT JOIN pilots o ON o.pilot_key=p.shared_by WHERE p.pilot_key=?', [myKey], (_, row) => {
-                            const via = row?.owner ? `, via ${row.owner.split(' ')[0]}` : '';
-                            if (myRole === 'viewer') _notifyPilot(db, targetKey, 'View-only request', `${row?.name || myKey} (view only${via}) wants to see your schedule.`);
+                            if (myRole === 'viewer') _notifyPilot(db, targetKey, 'View-only request', `${row?.name || myKey} wants to see your schedule. View only.`);
                             else _notifyPilot(db, targetKey, 'New friend request', `${row?.name || myKey} sent you a friend request.`);
                         });
                     });
@@ -7553,7 +7552,7 @@ function _resolveIntelAuthor(token, db, cb) {
 // ── Share links ───────────────────────────────────────────────────────────────
 // A pilot's view-only link for family and friends who aren't crew: a viewer account (role 'viewer',
 // shared_by = the pilot) that starts out friends with that pilot, so the normal friend check limits
-// it to their schedule until other pilots accept it too. Named with the person's first and last name. Revoking deletes the account,
+// it to their schedule until other pilots accept it too. Named "Linda (Mack's Mom)": first name and relationship. Revoking deletes the account,
 // which kills the link at once. Real pilots only, up to SHARE_LINK_LIMIT each.
 const SHARE_LINK_LIMIT = 10;
 function _shareLinkOwner(req, res, cb) {
@@ -7572,16 +7571,17 @@ app.get('/api/share-links', (req, res) => _shareLinkOwner(req, res, owner => {
 app.post('/api/share-links', (req, res) => _shareLinkOwner(req, res, owner => {
     const db = getDB();
     const clean = v => String(v || '').replace(/\s+/g, ' ').trim().slice(0, 30);
-    const first = clean(req.body?.firstName), last = clean(req.body?.lastName);
-    if (!first || !last) return res.status(400).json({ error: 'Enter their first and last name' });
+    const first = clean(req.body?.firstName), rel = clean(req.body?.relationship);
+    if (!first || !rel) return res.status(400).json({ error: 'Enter their first name and how they know you' });
     db.get(`SELECT name, (SELECT COUNT(*) FROM pilots WHERE shared_by=? AND role='viewer') AS n FROM pilots WHERE pilot_key=?`, [owner, owner], (err, me) => {
         if (err || !me) return res.status(500).json({ error: err?.message || 'Pilot not found' });
         if (me.n >= SHARE_LINK_LIMIT) return res.status(400).json({ error: `Up to ${SHARE_LINK_LIMIT} share links. Revoke one first.` });
-        const name = `${first} ${last}`;
+        // "Linda (Mack's Mom)": who they are and whose they are, for the admin panel and other pilots.
+        const name = `${first} (${(me.name || owner).split(' ')[0]}'s ${rel.charAt(0).toUpperCase() + rel.slice(1)})`;
         // One account per person for a pilot.
         db.get(`SELECT 1 FROM pilots WHERE shared_by=? AND role='viewer' AND lower(name)=lower(?)`, [owner, name], (eDup, dup) => {
         if (dup) return res.status(400).json({ error: `You already have a link for ${name}.` });
-        const base = (first + last).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'viewer';
+        const base = (owner + first).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'viewer';
         const token = generateToken();
         const tryInsert = attempt => {
             const key = attempt ? `${base}${attempt}` : base;
