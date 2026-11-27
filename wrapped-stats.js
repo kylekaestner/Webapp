@@ -152,7 +152,8 @@ function computeWrappedStats({ pilot, segments, year, helpers }) {
         if (!a.arr || !b.dep || (a.arr !== b.dep && !(coords(a.arr) && coords(b.dep) && haversineNm(coords(a.arr), coords(b.dep)) < 15))) continue;
         const gap = b.depMs - a.arrMs;
         if (!(gap > 0) || gap > MAX_STAY_MS) continue;
-        ground.push({ airport: a.arr, from: a.arrMs, to: b.depMs, home: isHome(a.arr) });
+        // Home for crossings includes every base they've had: Drew's profile says home IAD, but St. Louis is still home.
+        ground.push({ airport: a.arr, from: a.arrMs, to: b.depMs, home: isHome(a.arr) || isBase(a.arr) });
         if (a.kind === 'personal' || b.kind === 'personal' || isHome(a.arr)) continue;
         const nights = dayDiff(a.arrL.date, b.depL.date);
         if (nights > 0) { nightsAway += nights; nightsBy[a.arr] = (nightsBy[a.arr] || 0) + nights; }
