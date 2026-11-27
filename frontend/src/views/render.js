@@ -139,6 +139,8 @@
                     // always was.
                     let style = (_onDutyLabel === 'ON TOUR') ? "border-indigo-400/30 bg-indigo-400/5" : "border-zinc-800 bg-zinc-900/20";
                     let tag = _onDutyLabel || "OFF";
+                    const _cc = _ccStatusTag(currentPilot, dateKey);
+                    if (_cc) { tag = _cc.label; style = _CC_TAG_STYLE[_cc.kind] || style; }
                     if (isVacation) { style = "border-teal-500/50 bg-teal-900/30 text-teal-100"; tag = awayApt ? `VAC · AWAY - ${aptLabel(awayApt, currentPilot)}` : "VAC"; }
                     else if (isHard) { style = "border-red-600 bg-red-700/80 text-white"; tag = awayApt ? `HARD OFF · AWAY - ${aptLabel(awayApt, currentPilot)}` : "HARD OFF"; }
                     else if (isTraining && !isFlying) { style = "border-orange-500/40 bg-orange-900/25"; tag = "TRAINING"; }
@@ -150,6 +152,7 @@
                     else if (away) { style = "border-yellow-500 bg-yellow-500/80 text-black"; tag = `AWAY - ${aptLabel(away.arrivalAirport, currentPilot)}`; }
                     else if (isAllCrewOff) { style = "border-amber-400/60 bg-amber-950/30"; tag = "✦ ALL OFF"; }
                     if (tag === 'FLYING' || tag === 'TRAINING') monthFlown++;
+                    else if (_cc && (_cc.kind === 'travel' || _cc.kind === 'office')) monthOnCall++;
                     else if (tag === 'ON CALL' || tag === 'ON TOUR') monthOnCall++;
                     else monthOff++;
                     const glowStyle = isAllCrewOff ? 'box-shadow:0 0 0 1px rgba(251,191,36,0.45),0 0 18px rgba(251,191,36,0.18);' : '';
@@ -436,6 +439,10 @@
                         bgColor = "bg-amber-900/50 border-amber-500/60"; labelColor = "text-amber-300"; sidebarColor = "text-amber-300"; sidebarBorder = "border-amber-700/60"; label = `AWAY — ${aptLabel(away.arrivalAirport, currentPilot)}`;
                     } else if (awayApt) {
                         bgColor = "bg-yellow-900/20 border-yellow-600/40"; labelColor = "text-yellow-400"; sidebarColor = "text-yellow-400"; sidebarBorder = "border-yellow-700/40"; label = `AWAY - ${aptLabel(awayApt, currentPilot)}`;
+                    } else if (_ccStatusTag(currentPilot, dateKey)) {
+                        const _cc = _ccStatusTag(currentPilot, dateKey);
+                        [bgColor, labelColor, sidebarColor, sidebarBorder] = _CC_LIST_STYLE[_cc.kind] || _CC_LIST_STYLE.off;
+                        label = _cc.label;
                     } else if (_listOnDutyLabel === 'ON TOUR') {
                         bgColor = "bg-indigo-950/30 border-indigo-500/30"; labelColor = "text-indigo-300"; sidebarColor = "text-indigo-300"; sidebarBorder = "border-indigo-700/40";
                     } else {
@@ -643,4 +650,17 @@
                 });
             }
         }
+
+        // NetJets CC codes (frontend/src/netjets/cc-codes.js): grid cell and list day colors by kind.
+        const _CC_TAG_STYLE = {
+            training: 'border-orange-500/40 bg-orange-900/25', travel: 'border-sky-500/30 bg-sky-900/15', office: 'border-sky-500/30 bg-sky-900/15',
+            leave: 'border-teal-500/50 bg-teal-900/30 text-teal-100', off: 'border-zinc-800 bg-zinc-900/20', unknown: 'border-zinc-700 bg-zinc-900/20',
+        };
+        const _CC_LIST_STYLE = {
+            training: ['bg-orange-950/35 border-orange-600/50', 'text-orange-300', 'text-orange-300', 'border-orange-700/50'],
+            travel: ['bg-sky-950/30 border-sky-600/40', 'text-sky-300', 'text-sky-300', 'border-sky-700/50'],
+            office: ['bg-sky-950/30 border-sky-600/40', 'text-sky-300', 'text-sky-300', 'border-sky-700/50'],
+            leave: ['bg-teal-950/40 border-teal-500/40', 'text-teal-300', 'text-teal-300', 'border-teal-700/50'],
+            off: ['bg-zinc-900/20 border-zinc-700/50', 'text-zinc-500', 'text-zinc-400', 'border-zinc-700/50'],
+        };
 

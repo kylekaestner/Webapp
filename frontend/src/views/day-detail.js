@@ -51,6 +51,12 @@
             const anyLive = flightMs.some(({dMs, aMs, cs, dep}) => _legLiveState(cs, dMs, isFlightStillActive(dMs, aMs, nowMs, cs, dep) && !_isLandedEarly(cs, aMs)) === 'live');
             let label = _pilotOnDutyDefault(currentPilot, dateKey) ? _onDutyDefaultLabel(currentPilot) : 'DAY OFF';
             let labelColor = 'text-zinc-400';
+            const _ccTag = _ccStatusTag(currentPilot, dateKey);
+            if (_ccTag) { label = _ccTag.label; labelColor = { training: 'text-orange-400', travel: 'text-sky-400', office: 'text-sky-400', leave: 'text-teal-400' }[_ccTag.kind] || 'text-zinc-400'; }
+            // Any code but plain X / OFF: what NetJets put on the day, in the legend's words.
+            const _ccInfo = pilotsCache[currentPilot]?.parser_type === 'manual_netjets' ? _ccDayInfo(currentPilot, dateKey) : null;
+            const _ccNote = _ccInfo && _ccInfo.code !== 'X' && _ccInfo.code !== 'OFF'
+                ? `<div class="text-[11px] text-zinc-400 mt-1"><span class="font-black text-zinc-300 mr-1.5">${escapeHtml(_ccInfo.code === '•' ? '•' : _ccInfo.code)}</span>${escapeHtml(_ccInfo.desc)}</div>` : '';
             if (isVacation) { label = awayApt ? `VACATION · AWAY - ${aptLabel(awayApt, currentPilot)}` : 'VACATION'; labelColor = 'text-teal-400'; }
             else if (isHard) { label = awayApt ? `HARD OFF · AWAY - ${aptLabel(awayApt, currentPilot)}` : 'HARD OFF'; labelColor = 'text-red-400'; }
             else if (isSoft && workFlights.length === 0) { label = awayApt ? `SOFT DAY · AWAY - ${aptLabel(awayApt, currentPilot)}` : 'SOFT DAY'; labelColor = 'text-rose-300'; }
@@ -88,6 +94,7 @@
                 <div>
                     <div class="text-[10px] font-black uppercase tracking-widest ${labelColor}">${label}</div>
                     <div class="text-lg font-black text-white mt-0.5">${dateLabel}</div>
+                    ${_ccNote}
                     ${_tourTailNote}
                     ${_tourLegsNote}
                     ${_blockNote}
@@ -103,8 +110,9 @@
                 // showed "ON CALL" in the header and "Day Off" in the body simultaneously. Found
                 // live on Mack while on tour.
                 const _onDutyHere = _pilotOnDutyDefault(currentPilot, dateKey);
-                const icon = isHard ? '🔴' : isSoft ? '🌸' : away ? '🏨' : _onDutyHere ? '📟' : '😴';
-                const msg  = isHard ? 'Hard Day Off' : isSoft ? 'Soft Day' : away ? `Away at ${aptLabel(away.arrivalAirport, currentPilot)}` : _onDutyHere ? (_onDutyDefaultLabel(currentPilot) === 'ON TOUR' ? 'On Tour' : 'On Call') : 'Day Off';
+                const _ccIcon = { training: '🎓', travel: '🧳', office: '🏢', leave: '🌴' }[_ccTag?.kind];
+                const icon = isHard ? '🔴' : isSoft ? '🌸' : away ? '🏨' : _ccIcon ? _ccIcon : _onDutyHere ? '📟' : '😴';
+                const msg  = isHard ? 'Hard Day Off' : isSoft ? 'Soft Day' : away ? `Away at ${aptLabel(away.arrivalAirport, currentPilot)}` : _ccIcon ? escapeHtml(_ccTag.desc) : _onDutyHere ? (_onDutyDefaultLabel(currentPilot) === 'ON TOUR' ? 'On Tour' : 'On Call') : 'Day Off';
                 // A vacation or training day is already its own card below, with the Edit/Delete
                 // buttons. A hard or soft day still needs saying here, since no card covers it.
                 const cardCoversDay = isVacation || (isTraining && !isHard && !isSoft);

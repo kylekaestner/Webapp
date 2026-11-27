@@ -1451,10 +1451,10 @@ function _seamDayValue(seamRow, dateStr) {
 // monthly schedule email, which is a literal day-by-day plain-text export the pilot pastes in.
 // Format confirmed from that real sample, one line per day:
 //   "Sun, Nov 01, 2026 OFF" / "Mon, Nov 02, 2026 X" / "Sat, Nov 14, 2026 P1"
-// Status codes confirmed from the email's own legend: X = regular duty, OFF = day off,
-// P<n> = PTO (n days charged). Same "don't guess, flag what doesn't match" posture as the
-// American/Southwest ICS parsers -- an unrecognized line is skipped and reported, not silently
-// dropped or misclassified.
+// Status codes: the full NetJets legend lives in frontend/src/netjets/cc-codes.js, shared with the
+// app (duty / training / travel / office / leave / off). OCR look-alikes are read as the code they
+// match (XI -> X1, 09 -> O9). A code still not in the legend is kept as-is, counted as off, and reported.
+const { ccNormalizeCode, ccCodeInfo } = require('./frontend/src/netjets/cc-codes.js');
 const _CC_MONTHS = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
 function parseCcScheduleText(text) {
     const days = [];
@@ -1477,13 +1477,14 @@ function parseCcScheduleText(text) {
         const monthIdx0 = _CC_MONTHS[monKey];
         if (monthIdx0 === undefined) { warnings.push(`Unrecognized month abbreviation: "${m[1]}" in "${line}"`); continue; }
         const day = parseInt(m[2], 10), year = parseInt(m[3], 10);
-        const status = m[4].trim().toUpperCase();
+        const raw = m[4].trim().split(/\s+/)[0];
         const pad = n => String(n).padStart(2, '0');
         const dateStr = `${year}-${pad(monthIdx0 + 1)}-${pad(day)}`;
-        if (status !== 'X' && status !== 'OFF' && !/^P\d+$/.test(status)) {
-            warnings.push(`Unrecognized status code "${status}" on ${dateStr} -- treated as off-duty, confirm this is correct`);
-        }
-        days.push({ date: dateStr, status });
+        const prevKind = days.length ? ccCodeInfo(days[days.length - 1].status).kind : null;
+        const code = ccNormalizeCode(raw, prevKind);
+        if (!code) warnings.push(`Unrecognized status code "${raw}" on ${dateStr} -- treated as off-duty, confirm this is correct`);
+        else if (code === 'EXT') warnings.push(`Read "${raw}" on ${dateStr} as an extended day (it follows a duty day)`);
+        days.push({ date: dateStr, status: code || raw.toUpperCase() });
     }
     return { days, warnings };
 }
@@ -1591,12 +1592,13 @@ function _netjetsTourStartServer(db, pilotId, dateStr, cb) {
 function _netjetsTourStartFromScheduleServer(db, pilotId, dateStr, cb) {
     db.all(`SELECT date, status FROM pilot_cc_schedule_day WHERE pilot_id=? AND date BETWEEN date(?, '-40 days') AND ?`, [pilotId, dateStr, dateStr], (errCc, ccRows) => {
         const cc = new Map((errCc ? [] : ccRows || []).map(r => [r.date, r.status]));
+        const duty = d => cc.has(d) && ccCodeInfo(cc.get(d)).kind === 'duty';
         if (cc.has(dateStr)) {
-            if (cc.get(dateStr) !== 'X') return cb(null);
+            if (!duty(dateStr)) return cb(null);
             let start = dateStr;
             for (;;) {
                 const prev = new Date(new Date(start + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
-                if (cc.get(prev) !== 'X') break;
+                if (!duty(prev)) break;
                 start = prev;
             }
             return cb(start);

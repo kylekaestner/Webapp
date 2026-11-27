@@ -426,7 +426,7 @@ async function openAdminPanel(tab = 'users') {
                     const variantLabel = data.cc_variant ? `CC${data.cc_variant}` : 'CC schedule';
                     el.innerHTML = [
                         `${variantLabel} — ${ccDays.length} day${ccDays.length === 1 ? '' : 's'} on file.`,
-                        todays ? `Today (${todayStr}): ${todays.status}` : `No CC day on file for today (${todayStr}).`,
+                        todays ? `Today (${todayStr}): ${todays.status} · ${ccCodeInfo(todays.status).desc}` : `No CC day on file for today (${todayStr}).`,
                     ].map(l => `<span class="block">${l}</span>`).join('');
                     return;
                 }

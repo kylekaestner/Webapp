@@ -7,6 +7,7 @@
   "crew/visibility-and-profile.js",
   "schedule/airports-and-bases.js",
   "time/airport-time.js",
+  "netjets/cc-codes.js",
   "netjets/duty-and-tours.js",
   "schedule/load-pilot.js",
   "views/navigation.js",

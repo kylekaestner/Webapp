@@ -124,10 +124,30 @@
         // NetJets says happened that day (pasted from the pilot's own monthly email), not an
         // inference from any formula. 'X' = on-duty; anything else (OFF, P<n> PTO) = off-duty.
         function _ccScheduleOverrideFor(pilotKey, dateStr) {
+            const info = _ccDayInfo(pilotKey, dateStr);
+            return info ? (info.kind === 'duty' ? 1 : 0) : null;
+        }
+        // The CC code on file for a day (ccCodeInfo: code, kind, label, desc), or null. Indexed once per
+        // list, since the grid asks for every day.
+        const _ccDayIndex = new WeakMap();
+        function _ccDayInfo(pilotKey, dateStr) {
             const days = pilotsCache[pilotKey]?.cc_schedule_days;
             if (!days || !days.length) return null;
-            const row = days.find(d => d.date === dateStr);
-            return row ? (row.status === 'X' ? 1 : 0) : null;
+            let idx = _ccDayIndex.get(days);
+            if (!idx) { idx = new Map(days.map(d => [d.date, d.status])); _ccDayIndex.set(days, idx); }
+            return idx.has(dateStr) ? ccCodeInfo(idx.get(dateStr)) : null;
+        }
+        // Training, travel and office days: working, so not off, but not on tour either.
+        function _ccWorkingNotTour(pilotKey, dateStr) {
+            const k = _ccDayInfo(pilotKey, dateStr)?.kind;
+            return k === 'training' || k === 'travel' || k === 'office';
+        }
+        // The tag for a NetJets day whose CC code says more than ON TOUR / OFF (TRAINING, PTO, VAC...), or null.
+        function _ccStatusTag(pilotKey, dateStr) {
+            const info = pilotsCache[pilotKey]?.parser_type === 'manual_netjets' ? _ccDayInfo(pilotKey, dateStr) : null;
+            if (!info || info.code === 'X' || info.code === 'OFF') return null;
+            if (info.kind === 'duty') return null;
+            return info;
         }
 
         // NetJets pilots are home-based and airline home on the last day of every tour, a commute
@@ -146,7 +166,7 @@
             const d = new Date(fromDateStr + 'T12:00:00');
             for (let i = 0; i < days; i++, d.setDate(d.getDate() + 1)) {
                 const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                if (!_isNetJetsOnDuty(pilotKey, ds) && !flown.has(ds)) out.push(ds);
+                if (!_isNetJetsOnDuty(pilotKey, ds) && !_ccWorkingNotTour(pilotKey, ds) && !flown.has(ds)) out.push(ds);
             }
             return out;
         }
@@ -299,14 +319,15 @@
             const ccDays = pilotsCache[pilotKey]?.cc_schedule_days;
             if (ccDays && ccDays.length) {
                 const cc = new Map(ccDays.map(d => [d.date, d.status]));
+                const duty = d => cc.has(d) && ccCodeInfo(cc.get(d)).kind === 'duty';
                 if (cc.has(dateStr)) {
-                    if (cc.get(dateStr) !== 'X') return null;
+                    if (!duty(dateStr)) return null;
                     let start = dateStr;
                     for (;;) {
                         const p = new Date(start + 'T12:00:00');
                         p.setDate(p.getDate() - 1);
                         const prev = `${p.getFullYear()}-${String(p.getMonth() + 1).padStart(2, '0')}-${String(p.getDate()).padStart(2, '0')}`;
-                        if (cc.get(prev) !== 'X') break;
+                        if (!duty(prev)) break;
                         start = prev;
                     }
                     return start;
@@ -345,7 +366,7 @@
         // any other pilot; one a rotation covers is "off" only when NEITHER a real logged segment
         // NOR the rotation itself says they're working that day.
         function _isOffDutyGeneric(pilotKey, dateStr, pilotFlyingDates) {
-            const flying = pilotFlyingDates[pilotKey]?.has(dateStr) || _isNetJetsOnDuty(pilotKey, dateStr);
+            const flying = pilotFlyingDates[pilotKey]?.has(dateStr) || _isNetJetsOnDuty(pilotKey, dateStr) || _ccWorkingNotTour(pilotKey, dateStr);
             return !flying;
         }
 
